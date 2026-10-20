@@ -129,12 +129,58 @@ if [ "$WAIT" -eq 0 ]; then
   exit 0
 fi
 
-echo "→ 构建中(通常 10 分钟左右)..."
-if ! gh run watch "$RUN_ID" --repo "$REPO" --exit-status >/dev/null 2>&1; then
-  echo "❌ 构建失败,日志:"
-  gh run view "$RUN_ID" --repo "$REPO" --log-failed 2>/dev/null | tail -30
-  exit 1
-fi
+# 公开仓库的 macOS runner 在高峰时段可能长时间分配不到机器,任务会在
+# 约 15 分钟后被系统取消(表现为 conclusion=cancelled 且没有任何步骤)。
+# 这里检测到「排队超时取消」就自动重新触发,最多 RETRIES 次。
+RETRIES="${RETRIES:-3}"
+attempt=1
+while :; do
+  echo "→ 等待构建(第 $attempt 轮,通常 10-20 分钟)..."
+  build_failed=0
+  for i in $(seq 1 120); do
+    st=$(gh api "repos/$REPO/actions/runs/$RUN_ID" --jq '.status' 2>/dev/null)
+    con=$(gh api "repos/$REPO/actions/runs/$RUN_ID" --jq '.conclusion // "-"' 2>/dev/null)
+    steps=$(gh api "repos/$REPO/actions/runs/$RUN_ID/jobs" --jq '.jobs[0].steps | length' 2>/dev/null)
+    if [ "$st" = "completed" ]; then
+      if [ "$con" = "success" ]; then
+        break
+      fi
+      # 被取消且一步都没跑:runner 排队失败,可以重试
+      if [ "$con" = "cancelled" ] && [ "$steps" = "0" ] && [ "$attempt" -lt "$RETRIES" ]; then
+        echo "⚠️  第 $attempt 轮未拿到 macOS runner 被取消,重新触发"
+        gh workflow run build-ipa.yml --repo "$REPO" --ref "$BRANCH" -f configuration=Release >/dev/null 2>&1
+        sleep 25
+        RUN_ID=""
+        for j in $(seq 1 10); do
+          RUN_ID=$(gh run list --repo "$REPO" --branch "$BRANCH" --limit 3 \
+                    --json databaseId,headSha \
+                    --jq ".[] | select(.headSha==\"$HEAD_SHA\") | .databaseId" 2>/dev/null | head -1)
+          [ -n "$RUN_ID" ] && break
+          sleep 6
+        done
+        if [ -n "$RUN_ID" ]; then
+          echo "→ 新构建任务 #$RUN_ID"
+          attempt=$((attempt+1))
+          build_failed=1
+        fi
+        break
+      fi
+      echo "❌ 构建失败 ($con),日志:"
+      gh run view "$RUN_ID" --repo "$REPO" --log-failed 2>/dev/null | tail -30
+      exit 1
+    fi
+    [ $((i % 10)) -eq 0 ] && echo "[$(date '+%H:%M:%S')] status=$st conclusion=$con"
+    sleep 30
+  done
+
+  if [ "$build_failed" -eq 0 ]; then
+    # 确认真的成功了
+    con=$(gh api "repos/$REPO/actions/runs/$RUN_ID" --jq '.conclusion // "-"' 2>/dev/null)
+    [ "$con" = "success" ] && break
+    echo "⏱️  等待超时,请手动查看: https://github.com/$REPO/actions/runs/$RUN_ID"
+    exit 1
+  fi
+done
 
 echo "→ 构建成功,下载产物..."
 mkdir -p "$OUT_DIR"
