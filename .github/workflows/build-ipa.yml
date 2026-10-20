@@ -1,0 +1,114 @@
+name: Build unsigned IPA
+
+# 在云端 macOS runner 上编译 iOS App 并产出未签名 IPA。
+# 未签名包需要用 Sideloadly / AltStore / TrollStore 等工具自行签名后安装。
+
+on:
+  workflow_dispatch:
+    inputs:
+      configuration:
+        description: '构建配置'
+        required: true
+        default: 'Release'
+        type: choice
+        options:
+          - Release
+          - Debug
+  push:
+    branches:
+      - ios16-support
+
+jobs:
+  build:
+    name: Build IPA
+    runs-on: macos-15
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: |
+          # 选最新可用的 Xcode，需要 iOS 26 SDK 编译 Liquid Glass API
+          ls /Applications | grep -i '^Xcode' || true
+          XCODE_APP=$(ls -d /Applications/Xcode*.app | sort -V | tail -1)
+          echo "Using: $XCODE_APP"
+          sudo xcode-select -s "$XCODE_APP/Contents/Developer"
+          xcodebuild -version
+
+      - name: Show available simulators and SDKs
+        run: |
+          xcodebuild -showsdks
+          xcrun --sdk iphoneos --show-sdk-version
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Verify iOS deployment target
+        run: |
+          grep -n 'IPHONEOS_DEPLOYMENT_TARGET' DeepSeekHarnessMobile.xcodeproj/project.pbxproj
+
+      - name: Build archive (unsigned)
+        run: |
+          set -o pipefail
+          CONFIG="${{ github.event.inputs.configuration || 'Release' }}"
+          echo "Configuration: $CONFIG"
+
+          # 未签名归档：关闭所有签名，让 xcodebuild 只做编译和打包
+          xcodebuild \
+            -project DeepSeekHarnessMobile.xcodeproj \
+            -scheme DeepSeekHarnessMobile \
+            -configuration "$CONFIG" \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/DshMobile.xcarchive" \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            DEVELOPMENT_TEAM="" \
+            PROVISIONING_PROFILE_SPECIFIER="" \
+            archive 2>&1 | tee "$RUNNER_TEMP/archive.log"
+
+      - name: Package unsigned IPA
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/DshMobile.xcarchive/Products/Applications/DshMobile.app"
+          if [ ! -d "$APP" ]; then
+            echo "::error::未找到 app 产物，检查 archive 日志"
+            find "$RUNNER_TEMP/DshMobile.xcarchive" -maxdepth 4 -name "*.app" || true
+            exit 1
+          fi
+
+          echo "=== app 内容 ==="
+          ls -la "$APP" | head -30
+
+          # 校验部署目标确实是 16.0
+          echo "=== MinimumOSVersion ==="
+          /usr/libexec/PlistBuddy -c "Print :MinimumOSVersion" "$APP/Info.plist" || true
+          echo "=== 架构 ==="
+          lipo -info "$APP/DshMobile" || true
+
+          mkdir -p "$RUNNER_TEMP/Payload"
+          cp -R "$APP" "$RUNNER_TEMP/Payload/"
+          cd "$RUNNER_TEMP"
+          zip -qry DshMobile-unsigned.ipa Payload
+          ls -lh DshMobile-unsigned.ipa
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: DshMobile-unsigned-ipa
+          path: ${{ runner.temp }}/DshMobile-unsigned.ipa
+          retention-days: 30
+
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: ${{ runner.temp }}/archive.log
+          retention-days: 7
+          if-no-files-found: ignore
