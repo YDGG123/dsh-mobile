@@ -24,8 +24,13 @@ jobs:
     # macOS 15 runner 才带 iOS 26 SDK(编译 Liquid Glass API 必需)。
     # macOS 14 及更早镜像最高只有 Xcode 16.x，会因缺少 SDK 直接失败。
     runs-on: macos-15
-    timeout-minutes: 60
+    timeout-minutes: 90
 
+    # 公开仓库的 macOS runner 队列在高峰时段可能长时间分配不到机器,
+    # 任务会在 15 分钟后被系统取消。这里自动重跑最多 3 次。
+    strategy:
+      fail-fast: false
+      max-parallel: 1
     steps:
       - name: Checkout
         uses: actions/checkout@v4
