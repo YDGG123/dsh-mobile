@@ -21,7 +21,9 @@ on:
 jobs:
   build:
     name: Build IPA
-    runs-on: macos-14
+    # macOS 15 runner 才带 iOS 26 SDK(编译 Liquid Glass API 必需)。
+    # macOS 14 及更早镜像最高只有 Xcode 16.x，会因缺少 SDK 直接失败。
+    runs-on: macos-15
     timeout-minutes: 60
 
     steps:
@@ -30,12 +32,37 @@ jobs:
 
       - name: Select Xcode
         run: |
-          # 选最新可用的 Xcode，需要 iOS 26 SDK 编译 Liquid Glass API
-          ls /Applications | grep -i '^Xcode' || true
-          XCODE_APP=$(ls -d /Applications/Xcode*.app | sort -V | tail -1)
-          echo "Using: $XCODE_APP"
+          # 需要 iOS 26 SDK 编译 Liquid Glass API：只接受 Xcode 26+，
+          # 否则直接失败，避免拿到旧 Xcode 时给出难懂的 SPM 报错。
+          echo "=== 可用的 Xcode ==="
+          ls -d /Applications/Xcode*.app 2>/dev/null || true
+
+          XCODE_APP=""
+          XCODE_VERSION=""
+          for dir in $(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V); do
+            ver=$("$dir/Contents/Developer/usr/bin/xcodebuild" -version 2>/dev/null | head -1 | awk '{print $2}')
+            major=${ver%%.*}
+            echo "  $dir -> Xcode ${ver:-unknown}"
+            # 26 及更高才够用;取其中版本最高的
+            if [ -n "$major" ] && [ "$major" -ge 26 ] 2>/dev/null; then
+              if [ -z "$XCODE_VERSION" ] || [ "$(printf '%s\n' "$ver" "$XCODE_VERSION" | sort -V | tail -1)" = "$ver" ]; then
+                XCODE_APP="$dir"
+                XCODE_VERSION="$ver"
+              fi
+            fi
+          done
+
+          if [ -z "$XCODE_APP" ]; then
+            echo "::error::未找到 Xcode 26+（项目需要 iOS 26 SDK）。请改用 macos-15 runner。"
+            exit 1
+          fi
+
+          echo "Using: $XCODE_APP (Xcode $XCODE_VERSION)"
           sudo xcode-select -s "$XCODE_APP/Contents/Developer"
           xcodebuild -version
+          echo "=== iOS SDK ==="
+          xcrun --sdk iphoneos --show-sdk-path
+          xcrun --sdk iphoneos --show-sdk-version
 
       - name: Show available simulators and SDKs
         run: |
