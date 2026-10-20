@@ -679,7 +679,9 @@ final class AppStore: ObservableObject {
         }
         self.backgroundExecutionController.onKeepAlivePulse = { [weak self] in
             if self?.gateway.state.isConnected == true { self?.gateway.ping() }
-            AgentLiveActivityManager.shared.refreshActiveActivities()
+            if #available(iOS 16.2, *) {
+                AgentLiveActivityManager.shared.refreshActiveActivities()
+            }
         }
     }
 
@@ -1760,23 +1762,27 @@ final class AppStore: ObservableObject {
             isConnected: gateway.state.isConnected
         ))
         if transition.effect != nil {
-            AgentLiveActivityManager.shared.approvalSubmitting(
-                gatewayID: gatewayLocalID,
-                request: request,
-                outcome: outcome,
-                title: title(for: request.sessionId),
-                command: command,
-                sourceLabel: liveActivitySourceLabel(for: request.sessionId)
-            )
+            if #available(iOS 16.2, *) {
+                AgentLiveActivityManager.shared.approvalSubmitting(
+                    gatewayID: gatewayLocalID,
+                    request: request,
+                    outcome: outcome,
+                    title: title(for: request.sessionId),
+                    command: command,
+                    sourceLabel: liveActivitySourceLabel(for: request.sessionId)
+                )
+            }
         } else {
-            AgentLiveActivityManager.shared.approvalFailed(
-                gatewayID: gatewayLocalID,
-                sessionID: request.sessionId,
-                rpcID: request.rpcId,
-                title: title(for: request.sessionId),
-                reason: transition.error?.localizedDescription,
-                sourceLabel: liveActivitySourceLabel(for: request.sessionId)
-            )
+            if #available(iOS 16.2, *) {
+                AgentLiveActivityManager.shared.approvalFailed(
+                    gatewayID: gatewayLocalID,
+                    sessionID: request.sessionId,
+                    rpcID: request.rpcId,
+                    title: title(for: request.sessionId),
+                    reason: transition.error?.localizedDescription,
+                    sourceLabel: liveActivitySourceLabel(for: request.sessionId)
+                )
+            }
         }
     }
     func title(for sessionId: String) -> String { sessions.first(where: { $0.id == sessionId })?.title ?? "DeepSeek Harness" }
@@ -2354,20 +2360,24 @@ final class AppStore: ObservableObject {
                 time: time ?? sessions.first(where: { $0.id == id })?.lastActivity.timeIntervalSince1970 ?? 0,
                 event: GatewayEvent(type: "session/title", text: title)
             )))
-            AgentLiveActivityManager.shared.sessionTitleUpdated(
-                gatewayID: gatewayLocalID,
-                sessionID: id,
-                title: title
-            )
+            if #available(iOS 16.2, *) {
+                AgentLiveActivityManager.shared.sessionTitleUpdated(
+                    gatewayID: gatewayLocalID,
+                    sessionID: id,
+                    title: title
+                )
+            }
         case .sessions(let received):
             dispatchSessionListIntent(.remoteSessionsReceived(received))
             let runningBySessionID = received.reduce(into: [String: Bool]()) { result, session in
                 result[session.sessionId] = session.running
             }
-            AgentLiveActivityManager.shared.reconcileSessions(
-                gatewayID: gatewayLocalID,
-                runningBySessionID: runningBySessionID
-            )
+            if #available(iOS 16.2, *) {
+                AgentLiveActivityManager.shared.reconcileSessions(
+                    gatewayID: gatewayLocalID,
+                    runningBySessionID: runningBySessionID
+                )
+            }
             backgroundExecutionController.reconcileSessions(
                 runningBySessionID: runningBySessionID
             )
@@ -2559,13 +2569,15 @@ final class AppStore: ObservableObject {
         switch route {
         case .requested(let request, let sessionID, let preview, let replay):
             dispatchQuestionIntent(.requestReceived(request))
-            AgentLiveActivityManager.shared.awaitingChoice(
-                gatewayID: gatewayLocalID,
-                request: request,
-                title: title(for: request.sessionId),
-                prompt: preview,
-                sourceLabel: liveActivitySourceLabel(for: request.sessionId)
-            )
+            if #available(iOS 16.2, *) {
+                AgentLiveActivityManager.shared.awaitingChoice(
+                    gatewayID: gatewayLocalID,
+                    request: request,
+                    title: title(for: request.sessionId),
+                    prompt: preview,
+                    sourceLabel: liveActivitySourceLabel(for: request.sessionId)
+                )
+            }
             notice(
                 replay ? String(localized: "待回答问题已恢复") : String(localized: "Agent 正在等待回答"),
                 preview.isEmpty ? String(localized: "请回答 Agent 的问题") : preview,
@@ -2605,14 +2617,16 @@ final class AppStore: ObservableObject {
             let wasAnswerInFlight = questionRequestStatuses[rpcID]?.isAnswerInFlight == true
             dispatchQuestionIntent(.resolved(rpcID: rpcID))
             if let resolvedSessionID = sessionID ?? pendingSessionID {
-                AgentLiveActivityManager.shared.choiceResolved(
-                    gatewayID: gatewayLocalID,
-                    sessionID: resolvedSessionID,
-                    rpcID: rpcID,
-                    cancelled: cancelled,
-                    title: title(for: resolvedSessionID),
-                    sourceLabel: liveActivitySourceLabel(for: resolvedSessionID)
-                )
+                if #available(iOS 16.2, *) {
+                    AgentLiveActivityManager.shared.choiceResolved(
+                        gatewayID: gatewayLocalID,
+                        sessionID: resolvedSessionID,
+                        rpcID: rpcID,
+                        cancelled: cancelled,
+                        title: title(for: resolvedSessionID),
+                        sourceLabel: liveActivitySourceLabel(for: resolvedSessionID)
+                    )
+                }
             }
             if wasAnswerInFlight && !cancelled {
                 backgroundExecutionController.questionAnswerAccepted(rpcID: rpcID)
@@ -2637,13 +2651,15 @@ final class AppStore: ObservableObject {
                 "selectedMatch=\(selectedSessionId == request.sessionId) pendingBefore=\(pendingApprovalRequests.count)"
             )
             dispatchApprovalIntent(.requestReceived(request))
-            AgentLiveActivityManager.shared.awaitingApproval(
-                gatewayID: gatewayLocalID,
-                request: request,
-                title: title(for: request.sessionId),
-                command: commandPreview(for: request),
-                sourceLabel: liveActivitySourceLabel(for: request.sessionId)
-            )
+            if #available(iOS 16.2, *) {
+                AgentLiveActivityManager.shared.awaitingApproval(
+                    gatewayID: gatewayLocalID,
+                    request: request,
+                    title: title(for: request.sessionId),
+                    command: commandPreview(for: request),
+                    sourceLabel: liveActivitySourceLabel(for: request.sessionId)
+                )
+            }
             if isNewRequest {
                 AgentUserNotificationManager.shared.notifyApprovalRequired(
                     gatewayID: gatewayLocalID,
@@ -2678,23 +2694,27 @@ final class AppStore: ObservableObject {
             ))
             if let pendingRequest {
                 if accepted {
-                    AgentLiveActivityManager.shared.approvalResolved(
-                        gatewayID: gatewayLocalID,
-                        sessionID: pendingRequest.sessionId,
-                        rpcID: rpcID,
-                        outcome: outcome,
-                        title: title(for: pendingRequest.sessionId),
-                        sourceLabel: liveActivitySourceLabel(for: pendingRequest.sessionId)
-                    )
+                    if #available(iOS 16.2, *) {
+                        AgentLiveActivityManager.shared.approvalResolved(
+                            gatewayID: gatewayLocalID,
+                            sessionID: pendingRequest.sessionId,
+                            rpcID: rpcID,
+                            outcome: outcome,
+                            title: title(for: pendingRequest.sessionId),
+                            sourceLabel: liveActivitySourceLabel(for: pendingRequest.sessionId)
+                        )
+                    }
                 } else {
-                    AgentLiveActivityManager.shared.approvalFailed(
-                        gatewayID: gatewayLocalID,
-                        sessionID: pendingRequest.sessionId,
-                        rpcID: rpcID,
-                        title: title(for: pendingRequest.sessionId),
-                        reason: reason,
-                        sourceLabel: liveActivitySourceLabel(for: pendingRequest.sessionId)
-                    )
+                    if #available(iOS 16.2, *) {
+                        AgentLiveActivityManager.shared.approvalFailed(
+                            gatewayID: gatewayLocalID,
+                            sessionID: pendingRequest.sessionId,
+                            rpcID: rpcID,
+                            title: title(for: pendingRequest.sessionId),
+                            reason: reason,
+                            sourceLabel: liveActivitySourceLabel(for: pendingRequest.sessionId)
+                        )
+                    }
                 }
             }
             if !accepted && reason == "not-pending" {
@@ -2711,23 +2731,27 @@ final class AppStore: ObservableObject {
             dispatchApprovalIntent(.resolved(rpcID: rpcID))
             if let resolvedSessionID = sessionID ?? pendingSessionID {
                 if let resolvedOutcome = outcome.flatMap(GatewayApprovalOutcome.init(rawValue:)) {
-                    AgentLiveActivityManager.shared.approvalResolved(
-                        gatewayID: gatewayLocalID,
-                        sessionID: resolvedSessionID,
-                        rpcID: rpcID,
-                        outcome: resolvedOutcome,
-                        title: title(for: resolvedSessionID),
-                        sourceLabel: liveActivitySourceLabel(for: resolvedSessionID)
-                    )
+                    if #available(iOS 16.2, *) {
+                        AgentLiveActivityManager.shared.approvalResolved(
+                            gatewayID: gatewayLocalID,
+                            sessionID: resolvedSessionID,
+                            rpcID: rpcID,
+                            outcome: resolvedOutcome,
+                            title: title(for: resolvedSessionID),
+                            sourceLabel: liveActivitySourceLabel(for: resolvedSessionID)
+                        )
+                    }
                 } else {
-                    AgentLiveActivityManager.shared.approvalFailed(
-                        gatewayID: gatewayLocalID,
-                        sessionID: resolvedSessionID,
-                        rpcID: rpcID,
-                        title: title(for: resolvedSessionID),
-                        reason: nil,
-                        sourceLabel: liveActivitySourceLabel(for: resolvedSessionID)
-                    )
+                    if #available(iOS 16.2, *) {
+                        AgentLiveActivityManager.shared.approvalFailed(
+                            gatewayID: gatewayLocalID,
+                            sessionID: resolvedSessionID,
+                            rpcID: rpcID,
+                            title: title(for: resolvedSessionID),
+                            reason: nil,
+                            sourceLabel: liveActivitySourceLabel(for: resolvedSessionID)
+                        )
+                    }
                 }
             }
             let detail = outcome == GatewayApprovalOutcome.allowedOnce.rawValue
@@ -3017,12 +3041,14 @@ final class AppStore: ObservableObject {
         renderedConversationItems[sessionId] = items
         conversationTimeline(for: sessionId).publish(items)
         if let request = pendingApprovalRequests.last(where: { $0.sessionId == sessionId }) {
-            AgentLiveActivityManager.shared.enrichApprovalCommand(
-                gatewayID: gatewayLocalID,
-                sessionID: sessionId,
-                rpcID: request.rpcId,
-                command: commandPreview(for: request)
-            )
+            if #available(iOS 16.2, *) {
+                AgentLiveActivityManager.shared.enrichApprovalCommand(
+                    gatewayID: gatewayLocalID,
+                    sessionID: sessionId,
+                    rpcID: request.rpcId,
+                    command: commandPreview(for: request)
+                )
+            }
         }
         if items.isEmpty {
             if previouslyHadContent { conversationContentSessionIds.remove(sessionId) }
@@ -3047,13 +3073,15 @@ final class AppStore: ObservableObject {
             cancelLiveActivityStreamUpdate(sessionID: record.sessionId)
             liveActivityToolLabels[record.sessionId] = [:]
             backgroundExecutionController.begin(sessionID: record.sessionId, startsNewTurn: false)
-            AgentLiveActivityManager.shared.sessionStarted(
-                gatewayID: gatewayLocalID,
-                sessionID: record.sessionId,
-                title: title(for: record.sessionId),
-                turn: event.turn,
-                sourceLabel: liveActivitySourceLabel(for: record.sessionId)
-            )
+            if #available(iOS 16.2, *) {
+                AgentLiveActivityManager.shared.sessionStarted(
+                    gatewayID: gatewayLocalID,
+                    sessionID: record.sessionId,
+                    title: title(for: record.sessionId),
+                    turn: event.turn,
+                    sourceLabel: liveActivitySourceLabel(for: record.sessionId)
+                )
+            }
         }
         if event.type == "assistant/chunk", let chunkType = event.chunkType {
             enqueueLiveActivityStreamChunk(
@@ -3090,13 +3118,15 @@ final class AppStore: ObservableObject {
                 || event.interrupted == true
                 || event.error?.isEmpty == false
                 || event.reason.map { failureReasons.contains($0.lowercased()) } == true
-            AgentLiveActivityManager.shared.sessionEnded(
-                gatewayID: gatewayLocalID,
-                sessionID: record.sessionId,
-                title: title(for: record.sessionId),
-                failed: failed,
-                sourceLabel: liveActivitySourceLabel(for: record.sessionId)
-            )
+            if #available(iOS 16.2, *) {
+                AgentLiveActivityManager.shared.sessionEnded(
+                    gatewayID: gatewayLocalID,
+                    sessionID: record.sessionId,
+                    title: title(for: record.sessionId),
+                    failed: failed,
+                    sourceLabel: liveActivitySourceLabel(for: record.sessionId)
+                )
+            }
             AgentUserNotificationManager.shared.notifyExecutionEnded(
                 gatewayID: gatewayLocalID,
                 eventID: record.id,
@@ -3216,23 +3246,27 @@ final class AppStore: ObservableObject {
             detail = progress.detail
         }
         if let request = pendingApprovalRequests.last(where: { $0.sessionId == sessionID }) {
-            AgentLiveActivityManager.shared.enrichApprovalCommand(
+            if #available(iOS 16.2, *) {
+                AgentLiveActivityManager.shared.enrichApprovalCommand(
+                    gatewayID: gatewayLocalID,
+                    sessionID: sessionID,
+                    rpcID: request.rpcId,
+                    command: commandPreview(for: request)
+                )
+            }
+        }
+        if #available(iOS 16.2, *) {
+            AgentLiveActivityManager.shared.progressUpdated(
                 gatewayID: gatewayLocalID,
                 sessionID: sessionID,
-                rpcID: request.rpcId,
-                command: commandPreview(for: request)
+                title: title(for: sessionID),
+                headline: progress.headline,
+                detail: detail,
+                kind: progress.kind,
+                toolName: progress.toolName,
+                sourceLabel: liveActivitySourceLabel(for: sessionID)
             )
         }
-        AgentLiveActivityManager.shared.progressUpdated(
-            gatewayID: gatewayLocalID,
-            sessionID: sessionID,
-            title: title(for: sessionID),
-            headline: progress.headline,
-            detail: detail,
-            kind: progress.kind,
-            toolName: progress.toolName,
-            sourceLabel: liveActivitySourceLabel(for: sessionID)
-        )
     }
     private func notice(_ title: String, _ text: String, sessionId: String? = nil, isError: Bool = false) {
         protocolNotices.append(GatewayNotice(sessionId: sessionId, title: title, text: text, isError: isError))

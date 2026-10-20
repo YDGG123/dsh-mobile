@@ -1101,7 +1101,7 @@ final class ConversationViewportController: UIViewController, UICollectionViewDe
         // safe-area insets from the cell's current intersection with the
         // window. Those insets change while the user drags and make SwiftUI
         // move/reflow content inside an unchanged collection-view item.
-        host.safeAreaRegions = []
+        host.clearSafeAreaRegions()
         host.view.backgroundColor = .clear
         return host.sizeThatFits(
             in: CGSize(width: width, height: CGFloat.greatestFiniteMagnitude)
@@ -1713,7 +1713,7 @@ private final class HostedConversationCell: StableSelfSizingCollectionViewCell {
             existing.rootView = root
         } else {
             let created = UIHostingController(rootView: root)
-            created.safeAreaRegions = []
+            created.clearSafeAreaRegions()
             created.view.backgroundColor = .clear
             created.view.clipsToBounds = true
             parent.addChild(created)
@@ -2488,5 +2488,15 @@ private extension UIFont {
             .traits: [UIFontDescriptor.TraitKey.weight: weight]
         ])
         return UIFont(descriptor: descriptor, size: pointSize)
+    }
+}
+
+extension UIHostingController {
+    /// safeAreaRegions 自 iOS 16.4 起可用。更早系统没有这个属性，
+    /// 保持默认安全区行为即可，不影响滚动中的高度稳定性。
+    func clearSafeAreaRegions() {
+        if #available(iOS 16.4, *) {
+            safeAreaRegions = []
+        }
     }
 }

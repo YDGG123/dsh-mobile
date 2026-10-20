@@ -542,34 +542,56 @@ private struct AgentApprovalButtons: View {
 
     var body: some View {
         if let rpcID = context.state.rpcID, let approvalID = context.state.approvalID {
-            HStack(spacing: AgentActivityMetrics.actionSpacing) {
-                Button(intent: RejectAgentActionIntent(
-                    gatewayID: context.attributes.gatewayID,
-                    sessionID: context.attributes.sessionID,
-                    rpcID: rpcID,
-                    approvalID: approvalID
-                )) {
-                    Label("拒绝", systemImage: "xmark")
-                        .frame(maxWidth: .infinity, minHeight: height)
-                        .foregroundStyle(foreground)
-                        .background(tile, in: Capsule())
+            if #available(iOS 17.0, *) {
+                HStack(spacing: AgentActivityMetrics.actionSpacing) {
+                    Button(intent: RejectAgentActionIntent(
+                        gatewayID: context.attributes.gatewayID,
+                        sessionID: context.attributes.sessionID,
+                        rpcID: rpcID,
+                        approvalID: approvalID
+                    )) {
+                        rejectLabel
+                    }
+                    .buttonStyle(.plain)
+                    Button(intent: AllowAgentActionIntent(
+                        gatewayID: context.attributes.gatewayID,
+                        sessionID: context.attributes.sessionID,
+                        rpcID: rpcID,
+                        approvalID: approvalID
+                    )) {
+                        allowLabel
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
-                Button(intent: AllowAgentActionIntent(
-                    gatewayID: context.attributes.gatewayID,
-                    sessionID: context.attributes.sessionID,
-                    rpcID: rpcID,
-                    approvalID: approvalID
-                )) {
-                    Label("允许一次", systemImage: "checkmark")
-                        .frame(maxWidth: .infinity, minHeight: height)
-                        .foregroundStyle(Color(red: 0.09, green: 0.16, blue: 0.19))
-                        .background(AgentActivityColors.accent, in: Capsule())
+                .font(.system(size: 13, weight: .medium))
+            } else {
+                // iOS 16 的实时活动不支持 AppIntents 交互按钮，退化为深链：
+                // 点击打开对应会话，在会话内的审批卡片上完成允许/拒绝。
+                HStack(spacing: AgentActivityMetrics.actionSpacing) {
+                    Link(destination: AgentActivityLink.session(context)) {
+                        rejectLabel
+                    }
+                    Link(destination: AgentActivityLink.session(context)) {
+                        allowLabel
+                    }
                 }
-                .buttonStyle(.plain)
+                .font(.system(size: 13, weight: .medium))
             }
-            .font(.system(size: 13, weight: .medium))
         }
+    }
+
+    private var rejectLabel: some View {
+        Label("拒绝", systemImage: "xmark")
+            .frame(maxWidth: .infinity, minHeight: height)
+            .foregroundStyle(foreground)
+            .background(tile, in: Capsule())
+    }
+
+    private var allowLabel: some View {
+        Label("允许一次", systemImage: "checkmark")
+            .frame(maxWidth: .infinity, minHeight: height)
+            .foregroundStyle(Color(red: 0.09, green: 0.16, blue: 0.19))
+            .background(AgentActivityColors.accent, in: Capsule())
     }
 }
 

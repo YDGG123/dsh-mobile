@@ -3,7 +3,9 @@ import OSLog
 
 private final class AgentNotificationAppDelegate: NSObject, UIApplicationDelegate {
     func applicationDidBecomeActive(_ application: UIApplication) {
-        AgentLiveActivityManager.shared.applicationDidBecomeActive()
+        if #available(iOS 16.2, *) {
+            AgentLiveActivityManager.shared.applicationDidBecomeActive()
+        }
     }
 
     func application(

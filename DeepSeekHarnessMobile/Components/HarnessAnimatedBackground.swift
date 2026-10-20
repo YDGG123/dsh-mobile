@@ -73,18 +73,36 @@ private struct HarnessFluidLayer: View {
     let time: TimeInterval
     let style: HarnessBackgroundStyle
 
+    @ViewBuilder
     var body: some View {
-        Rectangle()
-            .fill(DSHColor.navy)
-            .visualEffect { content, proxy in
-                content.colorEffect(
-                    ShaderLibrary.harnessFluid(
-                        .float2(proxy.size),
-                        .float(Float(time)),
-                        .float(style == .pad ? 1 : 0)
+        if #available(iOS 17.0, *) {
+            // ShaderLibrary / visualEffect 自 iOS 17 起可用，走 Metal 流体着色器。
+            Rectangle()
+                .fill(DSHColor.navy)
+                .visualEffect { content, proxy in
+                    content.colorEffect(
+                        ShaderLibrary.harnessFluid(
+                            .float2(proxy.size),
+                            .float(Float(time)),
+                            .float(style == .pad ? 1 : 0)
+                        )
+                    )
+                }
+        } else {
+            // iOS 16 没有 SwiftUI 着色器入口，用静态深海渐变保留同样的视觉基调。
+            Rectangle()
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            DSHColor.navy,
+                            DSHColor.navy.opacity(0.86),
+                            Color(red: 0.07, green: 0.16, blue: 0.22)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
                     )
                 )
-            }
+        }
     }
 }
 

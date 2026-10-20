@@ -16,7 +16,7 @@ struct RootView: View {
             .alert("Whaleness", isPresented: Binding(get: { store.lastError != nil }, set: { if !$0 { store.lastError = nil } })) {
                 Button(String(localized: "好"), role: .cancel) { store.lastError = nil }
             } message: { Text(store.lastError ?? "") }
-            .onChange(of: scenePhase) { _, phase in
+            .onChange(of: scenePhase) { phase in
                 store.handleScenePhase(phase)
             }
             .onReceive(AgentUserNotificationManager.shared.$pendingSessionRoute) { route in
@@ -87,7 +87,7 @@ private struct RootNavigationHost: View, Equatable {
                 store.connectOnColdLaunchIfPaired()
             }
         }
-        .onChange(of: navigationPath) { _, path in
+        .onChange(of: navigationPath) { path in
             if path.isEmpty { store.resumeWorkspace() }
         }
         .onOpenURL(perform: openLiveActivityURL)
@@ -354,7 +354,7 @@ private struct ScheduledTasksView: View {
         .listStyle(.plain)
         .adaptiveListWidth()
         .scrollContentBackground(.hidden)
-        .scrollBounceBehavior(.always)
+        .scrollBounceBehaviorCompat(.always)
         .refreshable { store.refreshScheduledTasks() }
         .background(Color(uiColor: .systemBackground))
         .navigationTitle(isSearching ? "" : String(localized: "定时任务"))
@@ -375,7 +375,7 @@ private struct ScheduledTasksView: View {
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
         }
-        .onChange(of: store.scheduledTaskMutationError) { _, error in
+        .onChange(of: store.scheduledTaskMutationError) { error in
             if let error, editingTask == nil { activeAlert = .error(error) }
         }
         .alert(item: $activeAlert) { alert in
@@ -529,9 +529,10 @@ struct ScheduledTaskCard: View {
                     Image(systemName: "chevron.down")
                         .appFont(.system(size: 14, weight: .semibold))
                         .foregroundStyle(.secondary)
-                        .animation(reduceMotion ? nil : .easeInOut(duration: 0.26)) { icon in
-                            icon.rotationEffect(.degrees(expanded ? 180 : 0))
-                        }
+                        .rotationEffect(.degrees(expanded ? 180 : 0))
+                        // animation(_:body:) 自 iOS 17 起可用；更早系统只做状态切换，
+                        // 图标角度仍会正确翻转，仅缺少过渡动画。
+                        .animationCompat(reduceMotion ? nil : .easeInOut(duration: 0.26))
                         .frame(width: 36, height: 34)
                 }
                 .frame(maxWidth: .infinity)
@@ -730,10 +731,10 @@ private struct ScheduledTaskEditSheet: View {
         }
         .background(Color(uiColor: .systemBackground))
         .interactiveDismissDisabled(pendingRequestID != nil)
-        .onChange(of: store.scheduledTaskCompletedRequestID) { _, completedID in
+        .onChange(of: store.scheduledTaskCompletedRequestID) { completedID in
             if completedID != nil && completedID == pendingRequestID { dismiss() }
         }
-        .onChange(of: store.scheduledTaskPendingID) { _, pendingID in
+        .onChange(of: store.scheduledTaskPendingID) { pendingID in
             if pendingRequestID != nil && pendingID == nil {
                 if store.scheduledTaskCompletedRequestID == pendingRequestID {
                     dismiss()
@@ -986,10 +987,10 @@ private struct WorkspaceFilesSheet: View {
             store.browseWorkspaceFiles()
             refreshDownloadedPaths()
         }
-        .onChange(of: store.workspaceFileEntries) { _, _ in
+        .onChange(of: store.workspaceFileEntries) { _ in
             refreshDownloadedPaths()
         }
-        .onChange(of: scenePhase) { _, phase in
+        .onChange(of: scenePhase) { phase in
             if phase == .active { refreshDownloadedPaths() }
         }
         .onDisappear {

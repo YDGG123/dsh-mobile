@@ -31,6 +31,8 @@ enum AgentLiveActivityIntentBridge {
     }
 }
 
+/// LiveActivityIntent 协议自 iOS 17 起可用;iOS 16 的实时活动按钮退化为深链 Link。
+@available(iOS 17.0, *)
 struct AllowAgentActionIntent: LiveActivityIntent {
     static let title: LocalizedStringResource = "允许本次操作"
     static let description = IntentDescription("允许 Agent 执行当前待审批操作。")
@@ -63,6 +65,7 @@ struct AllowAgentActionIntent: LiveActivityIntent {
     }
 }
 
+@available(iOS 17.0, *)
 struct RejectAgentActionIntent: LiveActivityIntent {
     static let title: LocalizedStringResource = "拒绝操作"
     static let description = IntentDescription("拒绝 Agent 执行当前待审批操作。")

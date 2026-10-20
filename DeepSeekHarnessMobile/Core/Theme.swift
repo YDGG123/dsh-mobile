@@ -177,13 +177,17 @@ extension View {
 private struct AdaptiveListWidth: ViewModifier {
     let maximumWidth: CGFloat
 
+    @ViewBuilder
     func body(content: Content) -> some View {
         GeometryReader { geometry in
-            content.contentMargins(
-                .horizontal,
-                AdaptiveLayout.horizontalInset(width: geometry.size.width, maximumWidth: maximumWidth),
-                for: .scrollContent
-            )
+            let inset = AdaptiveLayout.horizontalInset(width: geometry.size.width, maximumWidth: maximumWidth)
+            // contentMargins(_:_:for:) 自 iOS 17 起可用；更早系统改用等价的
+            // 水平内边距，列表仍保持同样的阅读宽度。
+            if #available(iOS 17.0, *) {
+                content.contentMargins(.horizontal, inset, for: .scrollContent)
+            } else {
+                content.padding(.horizontal, inset)
+            }
         }
     }
 }

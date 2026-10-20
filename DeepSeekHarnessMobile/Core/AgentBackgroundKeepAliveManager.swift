@@ -22,7 +22,11 @@ final class AgentBackgroundKeepAliveManager: NSObject, AgentLongRunningKeepAlive
     private static let logger = Logger(subsystem: "ai.dsh.mobile.ios", category: "agent-keepalive")
 
     private func traceKeepAlive(_ event: String) {
-        Self.logger.notice("[AgentKeepAlive] event=\(event, privacy: .public) background=\(self.applicationIsInBackground) workActive=\(self.agentWorkIsActive) location=\(self.isUpdatingLocation) audio=\(self.silentAudioIsRunning) authorization=\(self.locationManager.authorizationStatus.rawValue) liveActivitiesEnabled=\(ActivityAuthorizationInfo().areActivitiesEnabled)")
+        var liveActivitiesEnabled = false
+        if #available(iOS 16.1, *) {
+            liveActivitiesEnabled = ActivityAuthorizationInfo().areActivitiesEnabled
+        }
+        Self.logger.notice("[AgentKeepAlive] event=\(event, privacy: .public) background=\(self.applicationIsInBackground) workActive=\(self.agentWorkIsActive) location=\(self.isUpdatingLocation) audio=\(self.silentAudioIsRunning) authorization=\(self.locationManager.authorizationStatus.rawValue) liveActivitiesEnabled=\(liveActivitiesEnabled)")
     }
 
     static let shared = AgentBackgroundKeepAliveManager()
@@ -34,7 +38,9 @@ final class AgentBackgroundKeepAliveManager: NSObject, AgentLongRunningKeepAlive
     private var applicationIsInBackground = false
     private var didRequestAlwaysAuthorization = false
     private var locationStartTask: Task<Void, Never>?
-    private var backgroundActivitySession: CLBackgroundActivitySession?
+    /// CLBackgroundActivitySession 自 iOS 17 起可用。用 AnyObject 持有，
+    /// 让 iOS 16 上的声明与清理路径都不需要引用该类型。
+    private var backgroundActivitySession: AnyObject?
     private var isUpdatingLocation = false
 
     private var audioEngine: AVAudioEngine?
@@ -165,6 +171,9 @@ final class AgentBackgroundKeepAliveManager: NSObject, AgentLongRunningKeepAlive
     }
 
     private func ensureBackgroundActivitySession() {
+        // iOS 17 起才提供 CLBackgroundActivitySession；更早系统只依赖
+        // Always 授权的持续定位，功能不受影响。
+        guard #available(iOS 17.0, *) else { return }
         guard agentWorkIsActive,
               !applicationIsInBackground,
               backgroundActivitySession == nil else { return }
@@ -172,7 +181,9 @@ final class AgentBackgroundKeepAliveManager: NSObject, AgentLongRunningKeepAlive
     }
 
     private func endBackgroundActivitySession() {
-        backgroundActivitySession?.invalidate()
+        if #available(iOS 17.0, *) {
+            (backgroundActivitySession as? CLBackgroundActivitySession)?.invalidate()
+        }
         backgroundActivitySession = nil
     }
 
@@ -192,14 +203,20 @@ final class AgentBackgroundKeepAliveManager: NSObject, AgentLongRunningKeepAlive
     }
 
     private var hasVisibleAgentLiveActivity: Bool {
-        !Activity<AgentActivityAttributes>.activities.isEmpty
+        if #available(iOS 16.1, *) {
+            return !Activity<AgentActivityAttributes>.activities.isEmpty
+        }
+        return false
     }
 
     private var shouldUseSilentAudio: Bool {
         // ActivityKit 只要已启用，就把主岛完整留给 Agent 实时活动。
         // 否则播放会被系统当作 Now Playing，即使音量为零，也会把 Agent
         // 挤进右侧最小岛。实时活动不可用时才回退到静音音频保活。
-        !ActivityAuthorizationInfo().areActivitiesEnabled && !hasVisibleAgentLiveActivity
+        if #available(iOS 16.1, *) {
+            return !ActivityAuthorizationInfo().areActivitiesEnabled && !hasVisibleAgentLiveActivity
+        }
+        return true
     }
 
     private func reconcileSilentAudio() {

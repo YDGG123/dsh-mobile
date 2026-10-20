@@ -30,9 +30,9 @@ final class VoiceInputAdapter: ObservableObject {
     init(
         shared: SharedVoiceInputStore = SharedVoiceInputStore(),
         recorder: any VoiceAudioCapturing = IOSVoiceRecorder(),
-        permissionGranted: @escaping () -> Bool = { AVAudioApplication.shared.recordPermission == .granted },
+        permissionGranted: @escaping () -> Bool = { VoiceInputAdapter.recordPermissionGranted() },
         requestPermission: @escaping (@escaping @Sendable (Bool) -> Void) -> Void = { completion in
-            AVAudioApplication.requestRecordPermission { completion($0) }
+            VoiceInputAdapter.requestRecordPermission(completion: completion)
         }
     ) {
         self.permissionGranted = permissionGranted
@@ -48,6 +48,27 @@ final class VoiceInputAdapter: ObservableObject {
         }.store(in: &activityObservations)
     }
     private var now: Int64 { Int64(ProcessInfo.processInfo.systemUptime * 1000) }
+
+    /// 录音权限查询。AVAudioApplication 自 iOS 17 起才提供，
+    /// 更早系统回退到 AVAudioSession.recordPermission。
+    nonisolated static func recordPermissionGranted() -> Bool {
+        if #available(iOS 17.0, *) {
+            return AVAudioApplication.shared.recordPermission == .granted
+        }
+        return AVAudioSession.sharedInstance().recordPermission == .granted
+    }
+
+    /// 申请录音权限。iOS 17+ 走 AVAudioApplication，iOS 16 走 AVAudioSession。
+    nonisolated static func requestRecordPermission(
+        completion: @escaping @Sendable (Bool) -> Void
+    ) {
+        if #available(iOS 17.0, *) {
+            AVAudioApplication.requestRecordPermission { completion($0) }
+        } else {
+            AVAudioSession.sharedInstance().requestRecordPermission { completion($0) }
+        }
+    }
+
     func bind(_ gateway: GatewayClient) {
         self.gateway = gateway
         gateway.onSpeechFrame = { [weak self] json in self?.accept(json) }

@@ -64,23 +64,27 @@ final class MultiGatewayStore: ObservableObject {
                 && $0.sessionId == intent.sessionID
                 && $0.approvalId == intent.approvalID
         }) else {
-            AgentLiveActivityManager.shared.approvalFailed(
-                gatewayID: intent.gatewayID,
-                sessionID: intent.sessionID,
-                rpcID: intent.rpcID,
-                title: store.title(for: intent.sessionID),
-                reason: "该审批已失效或已在其他设备处理"
-            )
+            if #available(iOS 16.2, *) {
+                AgentLiveActivityManager.shared.approvalFailed(
+                    gatewayID: intent.gatewayID,
+                    sessionID: intent.sessionID,
+                    rpcID: intent.rpcID,
+                    title: store.title(for: intent.sessionID),
+                    reason: "该审批已失效或已在其他设备处理"
+                )
+            }
             return false
         }
         guard store.gateway.state.isConnected else {
-            AgentLiveActivityManager.shared.approvalFailed(
-                gatewayID: intent.gatewayID,
-                sessionID: intent.sessionID,
-                rpcID: intent.rpcID,
-                title: store.title(for: intent.sessionID),
-                reason: "当前未连接 Gateway，请打开 App 后重试"
-            )
+            if #available(iOS 16.2, *) {
+                AgentLiveActivityManager.shared.approvalFailed(
+                    gatewayID: intent.gatewayID,
+                    sessionID: intent.sessionID,
+                    rpcID: intent.rpcID,
+                    title: store.title(for: intent.sessionID),
+                    reason: "当前未连接 Gateway，请打开 App 后重试"
+                )
+            }
             return false
         }
         store.respondToApproval(

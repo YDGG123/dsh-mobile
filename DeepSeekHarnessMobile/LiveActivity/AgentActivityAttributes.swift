@@ -2,6 +2,8 @@ import ActivityKit
 import Foundation
 
 /// 主 App 与 Widget Extension 共享的实时活动协议。
+/// ActivityAttributes 协议自 iOS 16.1 起可用;以下系统版本不会创建实时活动。
+@available(iOS 16.1, *)
 struct AgentActivityAttributes: ActivityAttributes {
     struct ContentState: Codable, Hashable {
         /// 会话标题会在 Agent 启动后由主机重命名，因此必须放在可更新状态中。
