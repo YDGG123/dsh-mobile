@@ -1,6 +1,11 @@
 package com.clarklevis.dsh.shared
 
 import com.clarklevis.dsh.shared.domain.BridgeChatMessage
+import com.clarklevis.dsh.shared.domain.BridgeChatSnapshot
+import com.clarklevis.dsh.shared.domain.chatMergeHistoryPage
+import com.clarklevis.dsh.shared.protocol.wireJson
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
 import com.clarklevis.dsh.shared.domain.acceptedBridgeSubmissionMessage
 import com.clarklevis.dsh.shared.domain.applyBridgeConversationEvent
 import com.clarklevis.dsh.shared.domain.mergeBridgeMessages
@@ -194,5 +199,94 @@ class BridgeChatMergeTest {
                 receiptCreatedAtMillis = now
             )
         )
+    }
+}
+
+/** 历史分页合并（chatMergeHistoryPage）：重点覆盖「分页与实时流并存」。 */
+class BridgeChatHistoryPageTest {
+
+    private val now = 1_760_000_000_000L
+
+    private fun historyPage(vararg messages: String, cursor: String? = null): String {
+        val cursorJson = cursor?.let { "\"$it\"" } ?: "null"
+        return """{"sessionId":"s-1","cursor":$cursorJson,"messages":[${messages.joinToString(",")}]}"""
+    }
+
+    private fun messageJson(id: String, seq: Long, text: String, role: String = "user"): String =
+        """{"id":"$id","sessionId":"s-1","seq":$seq,"role":"$role","text":"$text"}"""
+
+    private fun streamMessages(): String {
+        val delta = parseBridgeEvent(
+            """{"type":"delta","sessionId":"s-1","attemptId":"a1","text":"streaming","index":1}"""
+        )
+        val messages = applyBridgeConversationEvent(emptyList(), delta, now)
+        return wireJson.encodeToString(
+            BridgeChatSnapshot.serializer(),
+            BridgeChatSnapshot(messages)
+        )
+    }
+
+    @Test
+    fun overlappingPageDedupesAndKeepsNewerText() {
+        // 现有列表里 m1 已是新版本；历史页带回旧版本 + 一条更早的 m0。
+        val current = wireJson.encodeToString(
+            BridgeChatSnapshot.serializer(),
+            BridgeChatSnapshot(
+                listOf(
+                    BridgeChatMessage(id = "m1", sessionId = "s-1", seq = 5, role = "user", text = "v-new"),
+                    BridgeChatMessage(id = "m2", sessionId = "s-1", seq = 6, role = "assistant", text = "reply")
+                )
+            )
+        )
+        val page = historyPage(
+            messageJson("m0", 1, "earliest"),
+            messageJson("m1", 5, "v-new")
+        )
+        val merged = wireJson.decodeFromString<BridgeChatSnapshot>(
+            chatMergeHistoryPage(messagesJson = current, historyJson = page)
+        ).messages
+        assertEquals(listOf("m0", "m1", "m2"), merged.map { it.id })
+        assertEquals("v-new", merged.first { it.id == "m1" }.text)
+        assertEquals(3, merged.size)
+    }
+
+    @Test
+    fun pendingStreamRowSurvivesHistoryPage() {
+        // 历史页不含流式行时，pending 行不得被吞掉。
+        val current = streamMessages()
+        val page = historyPage(messageJson("m1", 1, "old"))
+        val merged = wireJson.decodeFromString<BridgeChatSnapshot>(
+            chatMergeHistoryPage(messagesJson = current, historyJson = page)
+        ).messages
+        assertTrue(merged.any { it.id == "stream:s-1:a1" && it.pending == true })
+        assertTrue(merged.any { it.id == "m1" })
+        // pending 仍排在最后。
+        assertEquals("stream:s-1:a1", merged.last().id)
+    }
+
+    @Test
+    fun emptyPageIsIdempotent() {
+        val current = streamMessages()
+        val unchanged = chatMergeHistoryPage(
+            messagesJson = current,
+            historyJson = historyPage()
+        )
+        assertEquals(current, unchanged, "空历史页必须原样返回，不制造新快照")
+    }
+
+    @Test
+    fun duplicatePageDoesNotResurrectOlderVersion() {
+        val current = wireJson.encodeToString(
+            BridgeChatSnapshot.serializer(),
+            BridgeChatSnapshot(
+                listOf(BridgeChatMessage(id = "m1", sessionId = "s-1", seq = 5, role = "user", text = "v-new"))
+            )
+        )
+        val page = historyPage(messageJson("m1", 2, "v-old"))
+        val merged = wireJson.decodeFromString<BridgeChatSnapshot>(
+            chatMergeHistoryPage(messagesJson = current, historyJson = page)
+        ).messages
+        assertEquals(1, merged.size)
+        assertEquals("v-new", merged.single().text)
     }
 }
