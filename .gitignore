@@ -37,3 +37,6 @@ captures/
 
 # iOS 本地真机签名配置
 /config/Local.xcconfig
+
+# 临时构建素材（Bridge 安装包/回滚快照，不入仓库）
+.bridge-artifacts/
