@@ -12,8 +12,8 @@ struct WorkspaceView: View {
     let onSettings: () -> Void
     let onPlugins: () -> Void
     let onScheduledTasks: () -> Void
-    /// 团队页（Mobile Bridge）：由 AppStore 持有，WorkspaceView 只负责入口与路由。
-    let bridgeTeam: BridgeTeamAdapter
+    /// 团队页与 bridge 聊天：App 级单例（MultiGatewayStore 持有），这里只观察。
+    @ObservedObject var bridgeTeam: BridgeTeamAdapter
     @State private var searchQuery = ""
     @State private var renamingSession: SessionSummary?
     @State private var renamedTitle = ""
@@ -23,6 +23,7 @@ struct WorkspaceView: View {
     @State private var showsQRScanner = false
     @State private var showsManualPairing = false
     @State private var showsTeam = false
+    @State private var bridgeChat: BridgeChatTarget?
     @State private var drawerOffset: CGFloat = 0
     @State private var drawerDragStart: CGFloat?
     @State private var drawerFeedback = WorkspaceDrawerFeedback()
@@ -154,6 +155,9 @@ struct WorkspaceView: View {
             ManualGatewayPairingSheet(gateway: hosts.pairingStore?.gateway ?? store.gateway)
                 .environmentObject(store)
         }
+        .sheet(item: $bridgeChat) { target in
+            BridgeConversationView(title: target.row.name, engine: target.engine)
+        }
         .sheet(isPresented: $showsTeam) {
             TeamView(team: bridgeTeam) { sessionId in
                 // P1：团队页只做入口；命中现有 gateway 会话则复用既有聊天链路。
@@ -255,12 +259,89 @@ struct WorkspaceView: View {
         LazyVStack(alignment: .leading, spacing: 18) {
             sessionsHeader.id("workspace-sessions-header")
             sessionSearch.id("workspace-session-search")
-            if displayedSessions.isEmpty {
+            if bridgeListReady {
+                // U2：主列表数据源切到 bridge（一次配对即可用）；旧 gateway 列表仅作备用主机回退。
+                bridgeSessionsSection
+            } else if displayedSessions.isEmpty {
                 emptySessions.id("workspace-sessions-empty")
             } else {
                 sessionsList
             }
         }
+    }
+
+    private var bridgeListReady: Bool {
+        bridgeTeam.mirror?.isReady == true
+    }
+
+    private var bridgeRows: [BridgeTeamRow] {
+        guard let mirror = bridgeTeam.mirror else { return [] }
+        let rows = mirror.bots + mirror.rooms
+        let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return rows }
+        return rows.filter { $0.name.localizedCaseInsensitiveContains(query) }
+    }
+
+    private var bridgeSessionsSection: some View {
+        LazyVStack(spacing: 0) {
+            if bridgeRows.isEmpty {
+                Text("暂无会话。在桌面端与 Bot 对话后，这里会出现会话。")
+                    .appFont(.subheadline).foregroundStyle(.white.opacity(0.5))
+                    .frame(maxWidth: .infinity, alignment: .leading).padding(18)
+                    .background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 15))
+            } else {
+                ForEach(bridgeRows) { row in
+                    Button {
+                        sessionSearchIsFocused = false
+                        openBridgeConversation(row)
+                    } label: {
+                        bridgeSessionRow(row)
+                    }
+                    .buttonStyle(.plain)
+                    .id("bridge-session-\(row.id)")
+                    Divider()
+                        .overlay(.white.opacity(0.1))
+                        .padding(.leading, 18)
+                }
+            }
+        }
+    }
+
+    private func bridgeSessionRow(_ row: BridgeTeamRow) -> some View {
+        HStack(spacing: 11) {
+            Circle()
+                .fill(row.waiting == true ? DSHColor.success : .white.opacity(0.35))
+                .frame(width: 7, height: 7)
+                .shadow(color: row.waiting == true ? DSHColor.success : .clear, radius: 5)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(row.name).lineLimit(1).appFont(.subheadline.weight(.medium))
+                Text(bridgeRowSubtitle(row)).appFont(.caption2).foregroundStyle(.white.opacity(0.42)).lineLimit(1)
+            }
+            Spacer()
+            if row.pinned == true {
+                Text("置顶").appFont(.caption2).foregroundStyle(.white.opacity(0.55))
+            } else if row.hidden == true {
+                Text("隐藏").appFont(.caption2).foregroundStyle(.white.opacity(0.4))
+            }
+        }
+        .opacity(row.hidden == true ? 0.55 : 1)
+        .padding(.horizontal, 4)
+        .padding(.vertical, 10)
+        .contentShape(Rectangle())
+    }
+
+    private func bridgeRowSubtitle(_ row: BridgeTeamRow) -> String {
+        if let role = row.role, !role.isEmpty { return role }
+        if let members = row.members, !members.isEmpty { return members.joined(separator: "、") }
+        return row.isRoom ? "群聊" : "Bot"
+    }
+
+    private func openBridgeConversation(_ row: BridgeTeamRow) {
+        guard let engine = bridgeTeam.chatEngine(conversationId: row.id, sessionId: row.sessionId) else {
+            store.lastError = "尚未完成配对或会话不可用，请先在团队页完成配对。"
+            return
+        }
+        bridgeChat = BridgeChatTarget(row: row, engine: engine)
     }
 
     private func header(openDrawer: @escaping () -> Void) -> some View {

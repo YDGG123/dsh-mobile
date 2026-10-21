@@ -104,11 +104,12 @@ fun mergeBridgeMessages(
             stale -> highPriority(base = message, high = previous) // 旧消息优先，新消息补缺
             else -> highPriority(base = previous, high = message) // 新消息优先
         }
-        if (previous?.tool != null && message.tool != null) {
-            var tool = if (stale) message.tool.merge(previous.tool!!) else previous.tool.merge(message.tool)
+        val previousTool = previous?.tool
+        if (previousTool != null && message.tool != null) {
+            var tool = if (stale) message.tool.merge(previousTool) else previousTool.merge(message.tool)
             var text = value.text
             if (tool.name == "Tool") {
-                val known = listOf(previous.tool, message.tool).firstOrNull { it.name != "Tool" }
+                val known = listOf(previousTool, message.tool).firstOrNull { it.name != "Tool" }
                 if (known != null) {
                     tool = tool.copy(name = known.name)
                     text = known.name
@@ -187,7 +188,8 @@ fun applyBridgeConversationEvent(
             val id = "stream:${event.sessionId}:$attemptId"
             val previous = messages.firstOrNull { it.id == id }
             val index = event.index
-            if (previous != null && index != null && previous.streamIndex != null && index < previous.streamIndex!!) {
+            val previousIndex = previous?.streamIndex
+            if (previous != null && index != null && previousIndex != null && index < previousIndex) {
                 messages
             } else {
                 mergeBridgeMessages(
@@ -362,4 +364,19 @@ fun chatApplySubmissionReceipt(
         )
     }
     return messagesJson
+}
+
+/** 历史分页合并：把更早一页并进现有列表（按 id 去重，不丢实时消息）。 */
+fun chatMergeHistoryPage(messagesJson: String, historyJson: String): String {
+    val current = runCatching {
+        com.clarklevis.dsh.shared.protocol.wireJson.decodeFromString<BridgeChatSnapshot>(messagesJson)
+    }.getOrNull() ?: BridgeChatSnapshot()
+    val page = com.clarklevis.dsh.shared.protocol.parseBridgeHistory(historyJson)
+    val incoming = page.messages.map { it.toChatMessage() }
+    val next = mergeBridgeMessages(current.messages, incoming)
+    if (next == current.messages) return messagesJson
+    return com.clarklevis.dsh.shared.protocol.wireJson.encodeToString(
+        BridgeChatSnapshot.serializer(),
+        BridgeChatSnapshot(next)
+    )
 }

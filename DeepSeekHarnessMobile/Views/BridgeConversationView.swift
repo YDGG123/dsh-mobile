@@ -17,6 +17,19 @@ struct BridgeConversationView: View {
                 ScrollViewReader { proxy in
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 10) {
+                            if engine.canLoadOlder {
+                                Button {
+                                    Task { await engine.loadOlder() }
+                                } label: {
+                                    HStack(spacing: 6) {
+                                        if engine.isLoadingOlder { ProgressView().scaleEffect(0.6) }
+                                        Text("加载更早的消息").font(.caption)
+                                    }
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 6)
+                                }
+                                .disabled(engine.isLoadingOlder)
+                            }
                             ForEach(engine.messages) { item in
                                 messageRow(item)
                                     .id(item.id)

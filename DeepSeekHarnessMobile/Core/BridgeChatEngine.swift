@@ -30,6 +30,9 @@ final class BridgeChatEngine: ObservableObject {
     private var reconnectAttempt = 0
     private var lastEventSeq: Int64?
     private var stopped = false
+    private var historyCursor: String?
+    @Published private(set) var canLoadOlder = false
+    @Published private(set) var isLoadingOlder = false
 
     init(
         transport: BridgeTransport,
@@ -85,6 +88,8 @@ final class BridgeChatEngine: ObservableObject {
                 token: token
             )
             messagesJson = BridgeChatMergeKt.chatMessagesFromHistory(historyJson: body)
+            historyCursor = Self.cursor(from: body)
+            canLoadOlder = historyCursor != nil
         } catch let status as BridgeResponseStatus where status.status == 401 {
             if await refreshToken(), let token = tokenProvider() {
                 if let body = try? await transport.fetch(
@@ -92,6 +97,8 @@ final class BridgeChatEngine: ObservableObject {
                     token: token
                 ) {
                     messagesJson = BridgeChatMergeKt.chatMessagesFromHistory(historyJson: body)
+                    historyCursor = Self.cursor(from: body)
+                    canLoadOlder = historyCursor != nil
                 }
             }
         } catch {
@@ -186,6 +193,34 @@ final class BridgeChatEngine: ObservableObject {
             guard let self, !self.stopped else { return }
             await self.connect()
         }
+    }
+
+    /// 历史分页：按 cursor 加载更早一页并合并（§2.4）。
+    func loadOlder() async {
+        guard !isLoadingOlder, let cursor = historyCursor, let token = tokenProvider() else { return }
+        isLoadingOlder = true
+        defer { isLoadingOlder = false }
+        let encoded = cursor.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? cursor
+        do {
+            let body = try await transport.fetch(
+                path: "/conversations/\(conversationId)/messages?limit=50&cursor=\(encoded)",
+                token: token
+            )
+            messagesJson = BridgeChatMergeKt.chatMergeHistoryPage(
+                messagesJson: messagesJson,
+                historyJson: body
+            )
+            historyCursor = Self.cursor(from: body)
+            canLoadOlder = historyCursor != nil
+        } catch {
+            canLoadOlder = false
+        }
+    }
+
+    private static func cursor(from historyJson: String) -> String? {
+        guard let data = historyJson.data(using: .utf8),
+              let page = try? JSONDecoder().decode(BridgeHistoryCursor.self, from: data) else { return nil }
+        return page.cursor.flatMap { $0.isEmpty ? nil : $0 }
     }
 
     /// 发送：本地 pending + POST /submissions + 回执对账（requestId 幂等）。
@@ -298,4 +333,9 @@ struct BridgeChatEventHead: Decodable {
 struct BridgeChatEventError: Decodable {
     let code: String?
     let message: String?
+}
+
+/// 历史页 envelope：只取分页游标。
+struct BridgeHistoryCursor: Decodable {
+    let cursor: String?
 }
