@@ -34,6 +34,8 @@
 		B0A100000000000000000003 /* BridgeTeamAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A100000000000000000004 /* BridgeTeamAdapter.swift */; };
 		B0A100000000000000000005 /* TeamView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A100000000000000000006 /* TeamView.swift */; };
 		B0A100000000000000000007 /* BridgeTransportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A100000000000000000008 /* BridgeTransportTests.swift */; };
+		B0A100000000000000000009 /* BridgeChatEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A10000000000000000000A /* BridgeChatEngine.swift */; };
+		B0A10000000000000000000B /* BridgeConversationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A10000000000000000000C /* BridgeConversationView.swift */; };
 		A9F100000000000000000001 /* AppPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000002 /* AppPreferences.swift */; };
 		A9F200000000000000000001 /* PairingPayloadParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F200000000000000000002 /* PairingPayloadParser.swift */; };
 		A9F300000000000000000001 /* KMPDomainIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F300000000000000000002 /* KMPDomainIntents.swift */; };
@@ -166,6 +168,8 @@
 		B0A100000000000000000004 /* BridgeTeamAdapter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BridgeTeamAdapter.swift; sourceTree = "<group>"; };
 		B0A100000000000000000006 /* TeamView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TeamView.swift; sourceTree = "<group>"; };
 		B0A100000000000000000008 /* BridgeTransportTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BridgeTransportTests.swift; sourceTree = "<group>"; };
+		B0A10000000000000000000A /* BridgeChatEngine.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BridgeChatEngine.swift; sourceTree = "<group>"; };
+		B0A10000000000000000000C /* BridgeConversationView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BridgeConversationView.swift; sourceTree = "<group>"; };
 		F1A000000000000000000011 /* AgentActivityAttributes.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentActivityAttributes.swift; sourceTree = "<group>"; };
 		F1A000000000000000000012 /* AgentApprovalIntents.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentApprovalIntents.swift; sourceTree = "<group>"; };
 		F1A000000000000000000013 /* AgentLiveActivityManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentLiveActivityManager.swift; sourceTree = "<group>"; };
@@ -242,6 +246,7 @@
 				E61E231D0CD3E07857F861B0 /* GatewayClient.swift */,
 				B0A100000000000000000002 /* BridgeTransport.swift */,
 				B0A100000000000000000004 /* BridgeTeamAdapter.swift */,
+				B0A10000000000000000000A /* BridgeChatEngine.swift */,
 				954FCEA4A6E71F3D1A22BB53 /* GatewayModels.swift */,
 				CA11E000000000000000000A /* L10n.swift */,
 				12863E736F832D8F502B94A0 /* Theme.swift */,
@@ -364,6 +369,7 @@
 				65009160A0642089906B54DF /* TrajectoryView.swift */,
 				D610757C1FF81FD953A9D000 /* WorkspaceView.swift */,
 				B0A100000000000000000006 /* TeamView.swift */,
+				B0A10000000000000000000C /* BridgeConversationView.swift */,
 				65B6B2953247E15BDA40F0BB /* GatewaySwitcherView.swift */,
 			);
 			path = Views;
@@ -667,7 +673,9 @@
 				605DCE79952E970820A95607 /* HumanQuestionView.swift in Sources */,
 				B0A100000000000000000001 /* BridgeTransport.swift in Sources */,
 				B0A100000000000000000003 /* BridgeTeamAdapter.swift in Sources */,
+				B0A100000000000000000009 /* BridgeChatEngine.swift in Sources */,
 				B0A100000000000000000005 /* TeamView.swift in Sources */,
+				B0A10000000000000000000B /* BridgeConversationView.swift in Sources */,
 				A1B2C3D4E5F60718293A4B5C /* ApprovalRequestView.swift in Sources */,
 				8891D9FBE23CCC096061416E /* RootView.swift in Sources */,
 				B10000000000000000000001 /* PluginsView.swift in Sources */,

@@ -32,6 +32,8 @@ struct RootView: View {
 /// publications no longer invalidate the `NavigationStack` that owns the bar.
 private struct RootNavigationHost: View, Equatable {
     let store: AppStore
+    /// U 单：bridge 客户端是 App 级单例，随网关切换不重建。
+    @EnvironmentObject private var hosts: MultiGatewayStore
     @State private var navigationPath: [AppRoute] = []
     @State private var newConversationTask: Task<Void, Never>?
     @State private var pendingLiveActivitySessionID: String?
@@ -76,7 +78,7 @@ private struct RootNavigationHost: View, Equatable {
                 onScheduledTasks: {
                     navigate(to: .scheduledTasks)
                 },
-                bridgeTeam: store.bridgeTeam
+                bridgeTeam: hosts.bridgeTeam
             )
                 .navigationDestination(for: AppRoute.self) { route in
                     destination(for: route)

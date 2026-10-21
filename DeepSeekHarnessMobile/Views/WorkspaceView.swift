@@ -273,7 +273,6 @@ struct WorkspaceView: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("打开侧边栏")
             Spacer()
-            authenticationMenu
             headerButton(systemName: "person.3.fill", accessibilityLabel: "团队") {
                 showsTeam = true
             }
@@ -303,6 +302,15 @@ struct WorkspaceView: View {
                     .appFont(.system(size: 20, weight: .medium))
                     .frame(width: 24)
             }, action: { selectDrawerItem(onScheduledTasks) })
+            // U 单：旧 gateway 连接降级为备用入口，主流程只走 bridge 一次配对。
+            drawerItem("备用主机", icon: {
+                Image(systemName: "externaldrive.connected.to.line.below")
+                    .appFont(.system(size: 20, weight: .medium))
+                    .frame(width: 24)
+            }, action: {
+                closeDrawer()
+                showsQRScanner = true
+            })
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 18)

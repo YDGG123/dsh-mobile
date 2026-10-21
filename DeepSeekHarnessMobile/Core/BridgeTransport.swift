@@ -284,6 +284,18 @@ final class BridgeTransport {
         return try await request(path: path, method: "POST", token: token, body: data)
     }
 
+    /// WS 连接（§2.7）：wss + /mobile/v1/events，同一 trust delegate 生效。
+    func webSocketTask(path: String) throws -> URLSessionWebSocketTask {
+        var components = URLComponents(url: config.origin, resolvingAgainstBaseURL: false)
+        components?.scheme = components?.scheme == "http" ? "ws" : "wss"
+        guard let base = components?.url else { throw BridgeTransportError.invalidOrigin }
+        let url = base.appendingPathComponent("mobile/v1" + path)
+        guard BridgeOriginValidation.meetsBinding(url, origin: config.origin, socket: true) else {
+            throw BridgeTransportError.boundOriginMismatch
+        }
+        return session.webSocketTask(with: url)
+    }
+
     /// P2 写操作/设备管理：method/path/body 全部由 KMP effect 描述，平台只执行。
     func send(method: String, path: String, bodyJson: String?, token: String) async throws -> String {
         let body = bodyJson.flatMap { $0.data(using: .utf8) }

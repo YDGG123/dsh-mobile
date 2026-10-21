@@ -219,6 +219,7 @@ final class BridgeTeamAdapter: ObservableObject {
     private var transport: BridgeTransport?
     private var pollingTask: Task<Void, Never>?
     private var pairingTask: Task<Void, Never>?
+    private var watchdogTask: Task<Void, Never>?
     private var lastSequence: Int64 = -1
 
     init() {
@@ -237,39 +238,119 @@ final class BridgeTeamAdapter: ObservableObject {
         subscription?.cancel()
         pollingTask?.cancel()
         pairingTask?.cancel()
+        watchdogTask?.cancel()
     }
 
-    /// 启动时恢复密钥串里的会话；成功后开始轮询，失败进入未配对态。
+    /// 启动时恢复密钥串里的会话；成功后从会话重建 transport 并开始轮询。
+    /// U 单根因修复：transport 此前只存在于配对流程的内存里，App 重建即丢，
+    /// 导致 refreshNow 静默空转、团队页永久「正在同步团队」。
     func bootstrap() {
+        restoreTransportFromStoredSession()
         let outcome = store.restoreSession()
-        if outcome.isSuccess, mirrorIsPaired {
+        if outcome.isSuccess, store.currentAccessToken() != nil {
             startPolling()
+            armWatchdog()
         } else {
             pairingState = .idle
         }
     }
 
-    private var mirrorIsPaired: Bool {
-        // snapshot 里的 phase 在首次订阅事件后才有；用 token 判断更直接。
-        store.currentAccessToken() != nil
-    }
-
-    /// 配对完成后调用：origin 由配对 JSON 提供；tlsPin 缺省 = 模式 B。
-    func configure(with pairingJson: String) {
-        guard let data = pairingJson.data(using: .utf8),
-              let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let url = payload["url"] as? String ?? payload["serverUrl"] as? String,
-              let config = BridgeTransportConfig(
-                originString: url,
-                tlsPin: payload["tlsPin"] as? String,
-                allowInsecureLoopback: false
-              ) else {
-            lastTransportError = BridgeTransportError.invalidOrigin.errorDescription
+    /// 从 Keychain 会话（serverUrl + tlsPin）重建传输层；配对流程之外唯一的 transport 来源。
+    private func restoreTransportFromStoredSession() {
+        guard transport == nil,
+              let raw = sessionStore.loadJson(),
+              let data = raw.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let serverUrl = object["serverUrl"] as? String, !serverUrl.isEmpty else { return }
+        let tlsPin = object["tlsPin"] as? String
+        guard let config = BridgeTransportConfig(
+            originString: serverUrl,
+            tlsPin: tlsPin,
+            allowInsecureLoopback: false
+        ) else {
+            lastTransportError = "已保存的服务器地址无效，请重新配对"
             return
         }
         transport = BridgeTransport(config: config)
-        store.restoreSession()
-        startPolling()
+    }
+
+    /// LOADING 看门狗：45s 内没有进入 READY 则转 OFFLINE（可重试），杜绝静默卡死。
+    private func armWatchdog() {
+        watchdogTask?.cancel()
+        watchdogTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 45_000_000_000)
+            guard !Task.isCancelled, let self else { return }
+            guard self.store.currentAccessToken() != nil else { return }
+            let phase = self.mirror?.phase
+            if phase == nil || phase == "LOADING" {
+                self.store.refreshFailed(code: "timeout", message: "同步超时，请检查网络后重试")
+            }
+        }
+    }
+
+    private func disarmWatchdog() {
+        watchdogTask?.cancel()
+        watchdogTask = nil
+    }
+
+    // MARK: - bridge 聊天（一次配对 = 聊天 + 团队）
+
+    /// 为某个 bot/群创建聊天引擎；transport 缺失时先从 Keychain 会话重建。
+    func chatEngine(conversationId: String, sessionId: String) -> BridgeChatEngine? {
+        restoreTransportFromStoredSession()
+        guard let transport, store.currentAccessToken() != nil else { return nil }
+        return BridgeChatEngine(
+            transport: transport,
+            conversationId: conversationId,
+            sessionId: sessionId,
+            tokenProvider: { [weak self] in self?.store.currentAccessToken() },
+            refreshToken: { [weak self] in
+                guard let self else { return false }
+                return await self.refreshAccessTokenOnce()
+            }
+        )
+    }
+
+    /// 401 时的一次 token 刷新；单飞与永久失效判定都在 KMP。
+    func refreshAccessTokenOnce() async -> Bool {
+        restoreTransportFromStoredSession()
+        guard let transport else { return false }
+        guard store.beginTokenRefresh() else { return false }
+        guard let raw = sessionStore.loadJson(),
+              let data = raw.data(using: .utf8),
+              let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let refreshToken = payload["refreshToken"] as? String else {
+            store.tokenRefreshRejected(code: "unauthorized")
+            return false
+        }
+        do {
+            let body = try await transport.refreshSession(refreshToken: refreshToken)
+            guard var next = try? JSONSerialization.jsonObject(
+                with: body.data(using: .utf8) ?? Data()
+            ) as? [String: Any] else {
+                store.tokenRefreshRejected(code: "invalid_response")
+                return false
+            }
+            next["serverUrl"] = payload["serverUrl"]
+            next["tlsPin"] = payload["tlsPin"]
+            if let merged = try? JSONSerialization.data(withJSONObject: next),
+               let text = String(data: merged, encoding: .utf8) {
+                store.tokenRefreshSucceeded(sessionJson: text)
+                return true
+            }
+            store.tokenRefreshRejected(code: "invalid_response")
+            return false
+        } catch let status as BridgeResponseStatus {
+            let envelope = BridgeErrorsKt.decodeBridgeErrorEnvelope(
+                status: Int32(status.status),
+                body: status.body
+            )
+            store.tokenRefreshRejected(code: envelope.code)
+            return false
+        } catch {
+            store.tokenRefreshRejected(code: "network_error")
+            return false
+        }
     }
 
     // MARK: - 配对（§2.8：KMP 解析校验 → /info 校验 → /pairings → 轮询 /pairings/complete）
@@ -449,6 +530,7 @@ final class BridgeTeamAdapter: ObservableObject {
     func sessionPaired(_ sessionJson: String) {
         store.sessionPaired(sessionJson: sessionJson)
         startPolling()
+        armWatchdog()
     }
 
     func open(botId: String) {
@@ -609,6 +691,7 @@ final class BridgeTeamAdapter: ObservableObject {
         if let payload = event.statePayloadJson, let data = payload.data(using: .utf8) {
             if let decoded = try? JSONDecoder().decode(BridgeTeamMirror.self, from: data) {
                 mirror = decoded
+                if decoded.phase != "LOADING" { disarmWatchdog() }
             }
         }
         guard !event.effectsJson.isEmpty, event.effectsJson != "[]",

@@ -17,6 +17,7 @@ struct TeamView: View {
     @State private var showsBridgePairing = false
     @State private var pastedPairingJson = ""
     @State private var didBootstrap = false
+    @State private var bridgeChat: BridgeChatTarget?
 
     private enum Segment: String, CaseIterable {
         case bots = "Bots"
@@ -92,6 +93,9 @@ struct TeamView: View {
             }
             .sheet(isPresented: $showsBridgePairing) {
                 BridgePairingSheet(team: team)
+            }
+            .sheet(item: $bridgeChat) { target in
+                BridgeConversationView(title: target.row.name, engine: target.engine)
             }
             .fullScreenCover(isPresented: $showsBridgeScanner) {
                 GatewayQRScannerView(
@@ -718,12 +722,17 @@ struct TeamView: View {
     // MARK: - 动作
 
     private func open(_ row: BridgeTeamRow) {
-        let handled = onOpenConversation(row.sessionId)
-        if handled {
+        // 一次配对语义：优先复用已有 gateway 会话；没有就走 bridge 聊天（U 单）。
+        if onOpenConversation(row.sessionId) {
             detail = nil
             dismiss()
+            return
+        }
+        if let engine = team.chatEngine(conversationId: row.id, sessionId: row.sessionId) {
+            detail = nil
+            bridgeChat = BridgeChatTarget(row: row, engine: engine)
         } else {
-            openFailure = "该 Bot 暂无移动会话。先在桌面端与它对话一次，再回来重试。"
+            openFailure = "尚未完成配对或会话不可用，请先配对桌面端。"
         }
     }
 

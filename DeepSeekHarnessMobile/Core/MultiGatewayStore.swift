@@ -6,6 +6,8 @@ import Combine
 final class MultiGatewayStore: ObservableObject {
     @Published private(set) var profiles: [GatewayProfile] = []
     @Published private(set) var activeStore: AppStore
+    /// bridge 团队与聊天的唯一客户端：App 级持有，不随网关切换重建（U 单根因修复）。
+    let bridgeTeam = BridgeTeamAdapter()
     @Published private(set) var activeID: String?
     @Published private(set) var pairingStore: AppStore?
     @Published private(set) var onlineIDs: Set<String> = []
