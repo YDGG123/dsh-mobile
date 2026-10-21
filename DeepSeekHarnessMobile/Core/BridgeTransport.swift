@@ -287,7 +287,8 @@ final class BridgeTransport {
     /// WS 连接（§2.7）：wss + /mobile/v1/events，同一 trust delegate 生效。
     func webSocketTask(path: String) throws -> URLSessionWebSocketTask {
         var components = URLComponents(url: config.origin, resolvingAgainstBaseURL: false)
-        components?.scheme = components?.scheme == "http" ? "ws" : "wss"
+        let originScheme = components?.scheme
+        components?.scheme = originScheme == "http" ? "ws" : "wss"
         guard let base = components?.url else { throw BridgeTransportError.invalidOrigin }
         let url = base.appendingPathComponent("mobile/v1" + path)
         guard BridgeOriginValidation.meetsBinding(url, origin: config.origin, socket: true) else {
