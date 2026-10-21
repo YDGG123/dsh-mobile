@@ -1277,7 +1277,7 @@ private struct ManualGatewayPairingSheet: View {
     private static let placeholder = "eyJ2ZXJzaW9uIjoyLCJwdWJsaWNVcmwiOiJ3c3M6Ly9nYXRld2F5LmV4YW1wbGUuY29tL3dzL21vYmlsZSIsLi4ufQ"
 }
 
-private struct GatewayQRScannerView: View {
+struct GatewayQRScannerView: View {
     let onCode: (String) -> Void
     let onCancel: () -> Void
     let onFailure: (String) -> Void
@@ -1344,7 +1344,7 @@ private struct GatewayQRScannerView: View {
     }
 }
 
-private struct GatewayCameraPreview: UIViewControllerRepresentable {
+struct GatewayCameraPreview: UIViewControllerRepresentable {
     let onCode: (String) -> Void
     let onFailure: (String) -> Void
 
@@ -1363,7 +1363,7 @@ private struct GatewayCameraPreview: UIViewControllerRepresentable {
     }
 }
 
-private final class GatewayScannerController: UIViewController, AVCaptureMetadataOutputObjectsDelegate {
+final class GatewayScannerController: UIViewController, AVCaptureMetadataOutputObjectsDelegate {
     var onCode: ((String) -> Void)?
     var onFailure: ((String) -> Void)?
 

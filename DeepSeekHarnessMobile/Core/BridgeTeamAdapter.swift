@@ -1,6 +1,7 @@
 import DeepSeekHarnessShared
 import Foundation
 import Security
+import UIKit
 
 // MARK: - 镜像模型（解码 KMP SharedTeamStore 的 snapshot JSON）
 
@@ -187,7 +188,45 @@ final class BridgeKeychainSessionStore: NSObject, BridgeSessionStore {
 
 // MARK: - 团队页适配器：KMP 唯一状态源 + Swift 镜像与 effect
 
+/// 配对流程状态（§2.8）。
+enum BridgePairingState: Equatable {
+    case idle
+    case connecting
+    case awaitingApproval(requestId: String)
+    case paired
+    case failed(String)
+}
+
+/// 桌面端「手机访问 → App」生成的配对资料（QR / 复制文本同形）。
+struct BridgePairingPayload: Decodable {
+    let url: String
+    let code: String
+    let serverId: String?
+    let expiresAt: Int64?
+    let tlsPin: String?
+
+    static func parse(_ raw: String) -> BridgePairingPayload? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let data = trimmed.data(using: .utf8) else { return nil }
+        return try? JSONDecoder().decode(BridgePairingPayload.self, from: data)
+    }
+}
+
+/// /info 探测结果（配对前校验）。
+private struct BridgeInfoProbe: Decodable {
+    let protocolVersion: Int
+    let serverId: String
+}
+
+/// /pairings 申请回执。
+private struct BridgePairingClaim: Decodable {
+    let claimToken: String
+    let requestId: String
+    let status: String
+}
+
 /// P1 团队页控制器（§3.5）：
+/// - 配对：/info 校验 → /pairings 申请 → 1.5s 轮询 /pairings/complete 等桌面批准；
 /// - 拉取 /info /state /conversations 喂回 SharedTeamStore（8s 前台轮询，scenePhase 门控）；
 /// - 订阅 SharedMviEvent，只做镜像发布与 effect 执行（open-conversation → 现有 gateway 会话链路）；
 /// - HTTP 执行在 BridgeTransport（双模式 TLS），KMP 不碰 I/O。
@@ -196,6 +235,7 @@ final class BridgeTeamAdapter: ObservableObject {
     @Published private(set) var mirror: BridgeTeamMirror?
     @Published private(set) var isRefreshing = false
     @Published private(set) var lastTransportError: String?
+    @Published private(set) var pairingState: BridgePairingState = .idle
 
     /// effect：进入聊天（sessionId 来自配对端 /state 的 bot/room 行）。
     var onOpenConversation: ((String) -> Void)?
@@ -206,6 +246,7 @@ final class BridgeTeamAdapter: ObservableObject {
     private var subscription: SharedMviSubscription?
     private var transport: BridgeTransport?
     private var pollingTask: Task<Void, Never>?
+    private var pairingTask: Task<Void, Never>?
     private var lastSequence: Int64 = -1
 
     init() {
@@ -223,6 +264,22 @@ final class BridgeTeamAdapter: ObservableObject {
     deinit {
         subscription?.cancel()
         pollingTask?.cancel()
+        pairingTask?.cancel()
+    }
+
+    /// 启动时恢复密钥串里的会话；成功后开始轮询，失败进入未配对态。
+    func bootstrap() {
+        let outcome = store.restoreSession()
+        if outcome.isSuccess, mirrorIsPaired {
+            startPolling()
+        } else {
+            pairingState = .idle
+        }
+    }
+
+    private var mirrorIsPaired: Bool {
+        // snapshot 里的 phase 在首次订阅事件后才有；用 token 判断更直接。
+        store.currentAccessToken() != nil
     }
 
     /// 配对完成后调用：origin 由配对 JSON 提供；tlsPin 缺省 = 模式 B。
@@ -241,6 +298,168 @@ final class BridgeTeamAdapter: ObservableObject {
         transport = BridgeTransport(config: config)
         store.restoreSession()
         startPolling()
+    }
+
+    // MARK: - 配对（§2.8：/info 校验 → /pairings → 轮询 /pairings/complete）
+
+    /// 桌面端配对资料（QR 或「复制配对资料」文本）。
+    func pair(payload: BridgePairingPayload) {
+        pair(
+            url: payload.url,
+            code: payload.code,
+            expectedServerId: payload.serverId,
+            tlsPin: payload.tlsPin
+        )
+    }
+
+    /// 手动填写：服务器地址 + 配对码。
+    func pair(url: String, code: String, expectedServerId: String? = nil, tlsPin: String? = nil) {
+        pairingTask?.cancel()
+        pairingState = .connecting
+        let deviceName = Self.deviceName()
+        pairingTask = Task { @MainActor [weak self] in
+            await self?.runPairing(
+                url: url,
+                code: code,
+                expectedServerId: expectedServerId,
+                tlsPin: tlsPin,
+                deviceName: deviceName
+            )
+        }
+    }
+
+    func cancelPairing() {
+        pairingTask?.cancel()
+        pairingTask = nil
+        pairingState = .idle
+    }
+
+    func failPairingWithInvalidQr() {
+        pairingState = .failed("二维码不是有效的配对资料，请用桌面端「手机访问 → App」生成的码")
+    }
+
+    func setPairingFailure(_ message: String) {
+        pairingState = .failed(message)
+    }
+
+    private func runPairing(
+        url: String,
+        code: String,
+        expectedServerId: String?,
+        tlsPin: String?,
+        deviceName: String
+    ) async {
+        guard !code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            pairingState = .failed("请填写配对码")
+            return
+        }
+        guard let config = BridgeTransportConfig(
+            originString: url,
+            tlsPin: tlsPin,
+            allowInsecureLoopback: false
+        ) else {
+            pairingState = .failed("服务器地址无效：需要 https:// 开头的根地址（不要带路径）")
+            return
+        }
+        let transport = BridgeTransport(config: config)
+        do {
+            // 1. /info：校验协议版本与服务器身份。
+            let infoBody = try await transport.fetchInfo()
+            let info = try JSONDecoder().decode(BridgeInfoProbe.self, from: Data(infoBody.utf8))
+            guard info.protocolVersion == 1 else {
+                pairingState = .failed("桌面端 bridge 协议版本不兼容（需要 protocolVersion 1），请升级桌面插件")
+                return
+            }
+            if let expectedServerId, expectedServerId != info.serverId {
+                pairingState = .failed("配对码与服务器身份不匹配，请重新生成配对码")
+                return
+            }
+
+            // 2. /pairings：申请配对。
+            let beginBody = try await transport.post(
+                path: "/pairings",
+                token: nil,
+                jsonBody: ["code": code, "deviceName": deviceName]
+            )
+            let claim = try JSONDecoder().decode(BridgePairingClaim.self, from: Data(beginBody.utf8))
+            pairingState = .awaitingApproval(requestId: claim.requestId)
+
+            // 3. 轮询 complete：claim 300s，每 1.5s 一次。
+            let deadline = Date().addingTimeInterval(300)
+            while Date() < deadline {
+                try Task.checkCancellation()
+                try await Task.sleep(nanoseconds: 1_500_000_000)
+                do {
+                    let completeBody = try await transport.post(
+                        path: "/pairings/complete",
+                        token: nil,
+                        jsonBody: ["claimToken": claim.claimToken]
+                    )
+                    if let sessionJson = Self.mergeSession(
+                        completeBody,
+                        origin: config.origin.absoluteString,
+                        tlsPin: config.tlsPin
+                    ) {
+                        self.transport = transport
+                        store.sessionPaired(sessionJson: sessionJson)
+                        pairingState = .paired
+                        startPolling()
+                        return
+                    }
+                    // status == pending：继续等桌面批准。
+                } catch let status as BridgeResponseStatus {
+                    pairingState = .failed(Self.pairingMessage(for: status))
+                    return
+                }
+            }
+            pairingState = .failed("等待桌面批准超时（5 分钟），请重新生成配对码")
+        } catch is CancellationError {
+            pairingState = .idle
+        } catch let status as BridgeResponseStatus {
+            pairingState = .failed(Self.pairingMessage(for: status))
+        } catch {
+            pairingState = .failed(
+                "无法连接服务器：\(error.localizedDescription)（检查地址与网络）"
+            )
+        }
+    }
+
+    /// complete 返回 Session（无 serverUrl/tlsPin，客户端合并，SDK index.js:242 语义）。
+    private static func mergeSession(_ raw: String, origin: String, tlsPin: String?) -> String? {
+        guard let data = raw.data(using: .utf8),
+              var object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              object["accessToken"] is String,
+              object["refreshToken"] is String,
+              object["deviceId"] is String,
+              object["serverId"] is String else { return nil }
+        object["serverUrl"] = origin
+        if let tlsPin { object["tlsPin"] = tlsPin }
+        guard let merged = try? JSONSerialization.data(withJSONObject: object) else { return nil }
+        return String(data: merged, encoding: .utf8)
+    }
+
+    private static func pairingMessage(for status: BridgeResponseStatus) -> String {
+        let envelope = BridgeErrorsKt.decodeBridgeErrorEnvelope(
+            status: Int32(status.status),
+            body: status.body
+        )
+        switch envelope.knownWireCode {
+        case "INVALID_PAIRING_CODE": return "配对码无效或已过期（桌面端生成后 2 分钟内有效）"
+        case "PAIRING_DENIED": return "桌面端拒绝了这次配对"
+        case "PAIRING_NOT_FOUND": return "配对请求已过期，请重新生成配对码"
+        case "PAIRING_LIMIT": return "待批的配对请求过多，稍后再试"
+        case "DEVICE_LIMIT": return "设备数已达上限，先在桌面端撤销不用的设备"
+        case "INVALID_DEVICE_NAME": return "设备名称不合法，请改名后重试"
+        default:
+            // fail-closed：未知 wire 码显示原文。
+            return envelope.message ?? "配对失败（\(envelope.code)）"
+        }
+    }
+
+    private static func deviceName() -> String {
+        let name = UIDevice.current.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let fallback = name.isEmpty ? "iPhone" : name
+        return String(fallback.prefix(100))
     }
 
     func restoreSession() {

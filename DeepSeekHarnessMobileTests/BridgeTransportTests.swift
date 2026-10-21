@@ -178,3 +178,24 @@ final class BridgeTransportTests: XCTestCase {
 private extension Array {
     var single: Element? { count == 1 ? first : nil }
 }
+
+/// 配对资料解析（桌面端「复制配对资料」/ QR 同形 JSON）。
+final class BridgePairingPayloadTests: XCTestCase {
+    func testParsesCompanionPairingPayload() {
+        let json = """
+        {"url":"https://pushing-cricket-ensure-execute.trycloudflare.com",
+         "code":"abc123","serverId":"computer-1","expiresAt":1730000000000}
+        """
+        let payload = BridgePairingPayload.parse(json)
+        XCTAssertEqual(payload?.url, "https://pushing-cricket-ensure-execute.trycloudflare.com")
+        XCTAssertEqual(payload?.code, "abc123")
+        XCTAssertEqual(payload?.serverId, "computer-1")
+        XCTAssertEqual(payload?.expiresAt, 1730000000000)
+    }
+
+    func testRejectsMalformedPairingPayloads() {
+        XCTAssertNil(BridgePairingPayload.parse("not-json"))
+        XCTAssertNil(BridgePairingPayload.parse(#"{"url":"https://x"}"#))
+        XCTAssertNil(BridgePairingPayload.parse(#"{"code":"abc"}"#))
+    }
+}
