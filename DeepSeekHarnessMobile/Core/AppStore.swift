@@ -300,6 +300,9 @@ private struct TrajectoryHistoryVersion: Equatable {
 final class AppStore: ObservableObject {
     static let ungroupedWorkspaceID = "__ungrouped__"
 
+    /// 团队页（Mobile Bridge）：KMP SharedTeamStore 的 Swift 镜像与 effect 执行器。
+    let bridgeTeam = BridgeTeamAdapter()
+
     @Published private(set) var selectedSessionId: String?
     @Published private(set) var sessions: [SessionSummary] = []
     @Published private(set) var scheduledTasks: [ScheduledTask] = []

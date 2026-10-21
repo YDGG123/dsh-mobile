@@ -7,6 +7,10 @@ plugins {
 }
 
 kotlin {
+    // 仅用于本机无可用模拟器时执行 commonTest（过渡期验收路径：JVM 宿主单测）。
+    // 不参与 iOS framework 与 Android 产物，无运行时依赖。
+    jvm()
+
     android {
         namespace = "com.clarklevis.dsh.shared"
         compileSdk = 36

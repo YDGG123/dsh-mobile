@@ -12,6 +12,8 @@ struct WorkspaceView: View {
     let onSettings: () -> Void
     let onPlugins: () -> Void
     let onScheduledTasks: () -> Void
+    /// 团队页（Mobile Bridge）：由 AppStore 持有，WorkspaceView 只负责入口与路由。
+    let bridgeTeam: BridgeTeamAdapter
     @State private var searchQuery = ""
     @State private var renamingSession: SessionSummary?
     @State private var renamedTitle = ""
@@ -20,6 +22,7 @@ struct WorkspaceView: View {
     @State private var showsDirectoryBrowser = false
     @State private var showsQRScanner = false
     @State private var showsManualPairing = false
+    @State private var showsTeam = false
     @State private var drawerOffset: CGFloat = 0
     @State private var drawerDragStart: CGFloat?
     @State private var drawerFeedback = WorkspaceDrawerFeedback()
@@ -151,6 +154,18 @@ struct WorkspaceView: View {
             ManualGatewayPairingSheet(gateway: hosts.pairingStore?.gateway ?? store.gateway)
                 .environmentObject(store)
         }
+        .sheet(isPresented: $showsTeam) {
+            TeamView(team: bridgeTeam) { sessionId in
+                // P1：团队页只做入口；命中现有 gateway 会话则复用既有聊天链路。
+                guard let session = store.sessions.first(where: { $0.id == sessionId }) else {
+                    return false
+                }
+                showsTeam = false
+                store.lastError = nil
+                onOpenSession(session)
+                return true
+            }
+        }
     }
 
     private func workspaceContent(
@@ -259,6 +274,9 @@ struct WorkspaceView: View {
                 .accessibilityLabel("打开侧边栏")
             Spacer()
             authenticationMenu
+            headerButton(systemName: "person.3.fill", accessibilityLabel: "团队") {
+                showsTeam = true
+            }
             settingsButton
                 // Match the outer glass circle to the workspace cards' trailing edge.
                 .padding(.trailing, -4)

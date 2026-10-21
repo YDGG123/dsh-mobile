@@ -30,6 +30,10 @@
 		A0C0FFEE0000000000000003 /* ConversationTimeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0C0FFEE0000000000000004 /* ConversationTimeline.swift */; };
 		A1A0C0000000000000000001 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = A1A0C0000000000000000002 /* LaunchScreen.storyboard */; };
 		A1B2C3D4E5F60718293A4B5C /* ApprovalRequestView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B5D /* ApprovalRequestView.swift */; };
+		B0A100000000000000000001 /* BridgeTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A100000000000000000002 /* BridgeTransport.swift */; };
+		B0A100000000000000000003 /* BridgeTeamAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A100000000000000000004 /* BridgeTeamAdapter.swift */; };
+		B0A100000000000000000005 /* TeamView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A100000000000000000006 /* TeamView.swift */; };
+		B0A100000000000000000007 /* BridgeTransportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A100000000000000000008 /* BridgeTransportTests.swift */; };
 		A9F100000000000000000001 /* AppPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000002 /* AppPreferences.swift */; };
 		A9F200000000000000000001 /* PairingPayloadParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F200000000000000000002 /* PairingPayloadParser.swift */; };
 		A9F300000000000000000001 /* KMPDomainIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F300000000000000000002 /* KMPDomainIntents.swift */; };
@@ -158,6 +162,10 @@
 		E638ED93D0BBFD018966FB52 /* GatewayProfile.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GatewayProfile.swift; sourceTree = "<group>"; };
 		EEABECFD00017A6E10B1F4A2 /* ConversationView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ConversationView.swift; sourceTree = "<group>"; };
 		EEABECFD00017A6E10B1F4A3 /* HumanQuestionView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HumanQuestionView.swift; sourceTree = "<group>"; };
+		B0A100000000000000000002 /* BridgeTransport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BridgeTransport.swift; sourceTree = "<group>"; };
+		B0A100000000000000000004 /* BridgeTeamAdapter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BridgeTeamAdapter.swift; sourceTree = "<group>"; };
+		B0A100000000000000000006 /* TeamView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TeamView.swift; sourceTree = "<group>"; };
+		B0A100000000000000000008 /* BridgeTransportTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BridgeTransportTests.swift; sourceTree = "<group>"; };
 		F1A000000000000000000011 /* AgentActivityAttributes.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentActivityAttributes.swift; sourceTree = "<group>"; };
 		F1A000000000000000000012 /* AgentApprovalIntents.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentApprovalIntents.swift; sourceTree = "<group>"; };
 		F1A000000000000000000013 /* AgentLiveActivityManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentLiveActivityManager.swift; sourceTree = "<group>"; };
@@ -232,6 +240,8 @@
 				CA11E0000000000000000004 /* ImagePreprocessor.swift */,
 				A0C0FFEE0000000000000004 /* ConversationTimeline.swift */,
 				E61E231D0CD3E07857F861B0 /* GatewayClient.swift */,
+				B0A100000000000000000002 /* BridgeTransport.swift */,
+				B0A100000000000000000004 /* BridgeTeamAdapter.swift */,
 				954FCEA4A6E71F3D1A22BB53 /* GatewayModels.swift */,
 				CA11E000000000000000000A /* L10n.swift */,
 				12863E736F832D8F502B94A0 /* Theme.swift */,
@@ -251,6 +261,7 @@
                 AF18C0000000000000000004 /* WorkspacePreviewCacheTests.swift */,
 				CA11E0000000000000000011 /* LocalizationCatalogTests.swift */,
 				FEABDA4B6DAF199B320B1BA1 /* MultiGatewayTests.swift */,
+				B0A100000000000000000008 /* BridgeTransportTests.swift */,
 			);
 			path = DeepSeekHarnessMobileTests;
 			sourceTree = "<group>";
@@ -352,6 +363,7 @@
 				D98111628697EC1C4FF9878B /* SettingsView.swift */,
 				65009160A0642089906B54DF /* TrajectoryView.swift */,
 				D610757C1FF81FD953A9D000 /* WorkspaceView.swift */,
+				B0A100000000000000000006 /* TeamView.swift */,
 				65B6B2953247E15BDA40F0BB /* GatewaySwitcherView.swift */,
 			);
 			path = Views;
@@ -612,6 +624,7 @@
                 AF18C0000000000000000003 /* WorkspacePreviewCacheTests.swift in Sources */,
 				CA11E000000000000000000F /* LocalizationCatalogTests.swift in Sources */,
 				75392054CB69B9596796C57A /* MultiGatewayTests.swift in Sources */,
+				B0A100000000000000000007 /* BridgeTransportTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -652,6 +665,9 @@
 				B0C0FFEE0000000000000001 /* HarnessAnimatedBackground.swift in Sources */,
 				605DCE79952E970820A95606 /* ConversationView.swift in Sources */,
 				605DCE79952E970820A95607 /* HumanQuestionView.swift in Sources */,
+				B0A100000000000000000001 /* BridgeTransport.swift in Sources */,
+				B0A100000000000000000003 /* BridgeTeamAdapter.swift in Sources */,
+				B0A100000000000000000005 /* TeamView.swift in Sources */,
 				A1B2C3D4E5F60718293A4B5C /* ApprovalRequestView.swift in Sources */,
 				8891D9FBE23CCC096061416E /* RootView.swift in Sources */,
 				B10000000000000000000001 /* PluginsView.swift in Sources */,

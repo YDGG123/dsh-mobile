@@ -75,7 +75,8 @@ private struct RootNavigationHost: View, Equatable {
                 },
                 onScheduledTasks: {
                     navigate(to: .scheduledTasks)
-                }
+                },
+                bridgeTeam: store.bridgeTeam
             )
                 .navigationDestination(for: AppRoute.self) { route in
                     destination(for: route)
