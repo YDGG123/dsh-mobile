@@ -270,8 +270,11 @@ struct WorkspaceView: View {
         }
     }
 
+    /// 主列表是否由 bridge 主导：已配对（READY/LOADING/OFFLINE 都算）即用 bridge 数据；
+    /// 只有未配对/无镜像时才回退旧 gateway 列表，避免已配对状态下误触发回退。
     private var bridgeListReady: Bool {
-        bridgeTeam.mirror?.isReady == true
+        guard let mirror = bridgeTeam.mirror else { return false }
+        return !mirror.needsPairing
     }
 
     private var bridgeRows: [BridgeTeamRow] {
