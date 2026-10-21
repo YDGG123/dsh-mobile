@@ -197,36 +197,8 @@ enum BridgePairingState: Equatable {
     case failed(String)
 }
 
-/// 桌面端「手机访问 → App」生成的配对资料（QR / 复制文本同形）。
-struct BridgePairingPayload: Decodable {
-    let url: String
-    let code: String
-    let serverId: String?
-    let expiresAt: Int64?
-    let tlsPin: String?
-
-    static func parse(_ raw: String) -> BridgePairingPayload? {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let data = trimmed.data(using: .utf8) else { return nil }
-        return try? JSONDecoder().decode(BridgePairingPayload.self, from: data)
-    }
-}
-
-/// /info 探测结果（配对前校验）。
-private struct BridgeInfoProbe: Decodable {
-    let protocolVersion: Int
-    let serverId: String
-}
-
-/// /pairings 申请回执。
-private struct BridgePairingClaim: Decodable {
-    let claimToken: String
-    let requestId: String
-    let status: String
-}
-
 /// P1 团队页控制器（§3.5）：
-/// - 配对：/info 校验 → /pairings 申请 → 1.5s 轮询 /pairings/complete 等桌面批准；
+/// - 配对：KMP 解析配对资料 → /info 校验 → /pairings 申请 → 1.5s 轮询 /pairings/complete；
 /// - 拉取 /info /state /conversations 喂回 SharedTeamStore（8s 前台轮询，scenePhase 门控）；
 /// - 订阅 SharedMviEvent，只做镜像发布与 effect 执行（open-conversation → 现有 gateway 会话链路）；
 /// - HTTP 执行在 BridgeTransport（双模式 TLS），KMP 不碰 I/O。
@@ -300,15 +272,21 @@ final class BridgeTeamAdapter: ObservableObject {
         startPolling()
     }
 
-    // MARK: - 配对（§2.8：/info 校验 → /pairings → 轮询 /pairings/complete）
+    // MARK: - 配对（§2.8：KMP 解析校验 → /info 校验 → /pairings → 轮询 /pairings/complete）
 
-    /// 桌面端配对资料（QR 或「复制配对资料」文本）。
-    func pair(payload: BridgePairingPayload) {
+    /// 粘贴桌面端「复制配对资料」的 JSON（QR 同形）：解析与校验走 KMP。
+    func pairPastedPayload(_ raw: String) {
+        let nowMillis = Int64(Date().timeIntervalSince1970 * 1000)
+        let parsed = BridgePairingKt.parseBridgePairingPayload(raw: raw, nowMillis: nowMillis)
+        guard parsed.isValid, let url = parsed.url, let code = parsed.code else {
+            pairingState = .failed(Self.parseFailureMessage(for: parsed.status))
+            return
+        }
         pair(
-            url: payload.url,
-            code: payload.code,
-            expectedServerId: payload.serverId,
-            tlsPin: payload.tlsPin
+            url: url,
+            code: code,
+            expectedServerId: parsed.serverId,
+            tlsPin: parsed.tlsPin
         )
     }
 
@@ -363,9 +341,9 @@ final class BridgeTeamAdapter: ObservableObject {
         }
         let transport = BridgeTransport(config: config)
         do {
-            // 1. /info：校验协议版本与服务器身份。
+            // 1. /info：校验协议版本与服务器身份（KMP 解码）。
             let infoBody = try await transport.fetchInfo()
-            let info = try JSONDecoder().decode(BridgeInfoProbe.self, from: Data(infoBody.utf8))
+            let info = try BridgeDtosKt.parseBridgeInfo(raw: infoBody)
             guard info.protocolVersion == 1 else {
                 pairingState = .failed("桌面端 bridge 协议版本不兼容（需要 protocolVersion 1），请升级桌面插件")
                 return
@@ -375,16 +353,16 @@ final class BridgeTeamAdapter: ObservableObject {
                 return
             }
 
-            // 2. /pairings：申请配对。
+            // 2. /pairings：申请配对（KMP 解码 claim）。
             let beginBody = try await transport.post(
                 path: "/pairings",
                 token: nil,
                 jsonBody: ["code": code, "deviceName": deviceName]
             )
-            let claim = try JSONDecoder().decode(BridgePairingClaim.self, from: Data(beginBody.utf8))
+            let claim = try BridgeDtosKt.parseBridgePairing(raw: beginBody)
             pairingState = .awaitingApproval(requestId: claim.requestId)
 
-            // 3. 轮询 complete：claim 300s，每 1.5s 一次。
+            // 3. 轮询 complete：claim 300s，每 1.5s 一次；三态判定在 KMP。
             let deadline = Date().addingTimeInterval(300)
             while Date() < deadline {
                 try Task.checkCancellation()
@@ -395,18 +373,23 @@ final class BridgeTeamAdapter: ObservableObject {
                         token: nil,
                         jsonBody: ["claimToken": claim.claimToken]
                     )
-                    if let sessionJson = Self.mergeSession(
-                        completeBody,
+                    let complete = BridgePairingKt.classifyBridgePairingComplete(
+                        raw: completeBody,
                         origin: config.origin.absoluteString,
                         tlsPin: config.tlsPin
-                    ) {
+                    )
+                    if complete.isApproved, let sessionJson = complete.sessionJson {
                         self.transport = transport
                         store.sessionPaired(sessionJson: sessionJson)
                         pairingState = .paired
                         startPolling()
                         return
                     }
-                    // status == pending：继续等桌面批准。
+                    if !complete.isPending {
+                        pairingState = .failed("桌面端返回的配对结果无法解析，请重试")
+                        return
+                    }
+                    // pending：继续等桌面批准。
                 } catch let status as BridgeResponseStatus {
                     pairingState = .failed(Self.pairingMessage(for: status))
                     return
@@ -424,18 +407,15 @@ final class BridgeTeamAdapter: ObservableObject {
         }
     }
 
-    /// complete 返回 Session（无 serverUrl/tlsPin，客户端合并，SDK index.js:242 语义）。
-    private static func mergeSession(_ raw: String, origin: String, tlsPin: String?) -> String? {
-        guard let data = raw.data(using: .utf8),
-              var object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              object["accessToken"] is String,
-              object["refreshToken"] is String,
-              object["deviceId"] is String,
-              object["serverId"] is String else { return nil }
-        object["serverUrl"] = origin
-        if let tlsPin { object["tlsPin"] = tlsPin }
-        guard let merged = try? JSONSerialization.data(withJSONObject: object) else { return nil }
-        return String(data: merged, encoding: .utf8)
+    static func parseFailureMessage(for status: String) -> String {
+        switch status {
+        case "invalid_json": return "配对资料格式不对，请整段复制桌面端的配对 JSON"
+        case "insecure_url": return "配对资料里的服务器地址无效（需要 https:// 根地址）"
+        case "invalid_code": return "配对资料里没有有效的配对码"
+        case "expired": return "配对码已过期（生成后 2 分钟内有效），请在桌面端重新生成"
+        case "invalid_pin": return "配对资料里的设备指纹格式无效"
+        default: return "配对资料无法解析，请重新从桌面端复制"
+        }
     }
 
     private static func pairingMessage(for status: BridgeResponseStatus) -> String {

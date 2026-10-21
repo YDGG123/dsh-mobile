@@ -1,3 +1,4 @@
+import DeepSeekHarnessShared
 import SwiftUI
 
 /// 团队页（Docs/bot-team-port-design.md §4.1）：P1 只读列表 + P2 写操作四件套。
@@ -14,6 +15,7 @@ struct TeamView: View {
     @State private var showsDevices = false
     @State private var showsBridgeScanner = false
     @State private var showsBridgePairing = false
+    @State private var pastedPairingJson = ""
     @State private var didBootstrap = false
 
     private enum Segment: String, CaseIterable {
@@ -95,11 +97,7 @@ struct TeamView: View {
                 GatewayQRScannerView(
                     onCode: { code in
                         showsBridgeScanner = false
-                        if let payload = BridgePairingPayload.parse(code) {
-                            team.pair(payload: payload)
-                        } else {
-                            team.failPairingWithInvalidQr()
-                        }
+                        team.pairPastedPayload(code)
                     },
                     onCancel: { showsBridgeScanner = false },
                     onFailure: { message in
@@ -295,59 +293,110 @@ struct TeamView: View {
     // MARK: - 状态视图
 
     private var pairingPrompt: some View {
-        VStack(spacing: 14) {
-            Image(systemName: "iphone.and.arrow.forward")
-                .font(.system(size: 44))
-                .foregroundStyle(.secondary)
-            Text("尚未连接桌面端")
-                .font(.headline)
-            Text("在桌面端「手机访问 → App」生成配对码，然后扫描二维码或手动输入。")
-                .font(.footnote)
-                .multilineTextAlignment(.center)
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 32)
-
-            switch team.pairingState {
-            case .awaitingApproval:
-                HStack(spacing: 8) {
-                    ProgressView()
-                    Text("等待桌面端批准…请在电脑上点「批准」")
-                        .font(.footnote)
-                }
-                Button("取消") { team.cancelPairing() }
+        ScrollView {
+            VStack(spacing: 14) {
+                Image(systemName: "iphone.and.arrow.forward")
+                    .font(.system(size: 40))
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 24)
+                Text("尚未连接桌面端")
+                    .font(.headline)
+                Text("在电脑端「手机访问 → App」点生成配对码，把弹窗里的配对资料整段复制，粘贴到下面连接。")
                     .font(.footnote)
-            case .connecting:
-                HStack(spacing: 8) {
-                    ProgressView()
-                    Text("正在连接服务器…").font(.footnote)
-                }
-            case .failed(let message):
-                Text(message)
-                    .font(.footnote)
-                    .foregroundStyle(.red)
                     .multilineTextAlignment(.center)
-                    .padding(.horizontal, 28)
-            case .idle, .paired:
-                EmptyView()
-            }
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 24)
 
-            Button {
-                showsBridgeScanner = true
-            } label: {
-                Label("扫描配对二维码", systemImage: "qrcode.viewfinder")
-                    .frame(maxWidth: 260)
-            }
-            .buttonStyle(.borderedProminent)
+                ZStack(alignment: .topLeading) {
+                    if pastedPairingJson.isEmpty {
+                        Text("在此粘贴配对 JSON（{\"url\":…,\"code\":…}）")
+                            .font(.footnote)
+                            .foregroundStyle(.tertiary)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 10)
+                    }
+                    TextEditor(text: $pastedPairingJson)
+                        .font(.system(.footnote, design: .monospaced))
+                        .frame(minHeight: 96, maxHeight: 140)
+                        .padding(4)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled(true)
+                }
+                .background(Color(.secondarySystemGroupedBackground))
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(Color.secondary.opacity(0.25), lineWidth: 0.8)
+                )
+                .padding(.horizontal, 20)
 
-            Button {
-                showsBridgePairing = true
-            } label: {
-                Label("手动输入服务器地址与配对码", systemImage: "keyboard")
-                    .frame(maxWidth: 260)
+                Button {
+                    connectWithPastedPayload()
+                } label: {
+                    Text("连接桌面端")
+                        .frame(maxWidth: 280)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(pastedPairingJson.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isPairingBusy)
+
+                switch team.pairingState {
+                case .awaitingApproval:
+                    HStack(spacing: 8) {
+                        ProgressView()
+                        Text("等待桌面端批准…请在电脑上点「批准」")
+                            .font(.footnote)
+                    }
+                    Button("取消") { team.cancelPairing() }
+                        .font(.footnote)
+                case .connecting:
+                    HStack(spacing: 8) {
+                        ProgressView()
+                        Text("正在连接服务器…").font(.footnote)
+                    }
+                case .failed(let message):
+                    Text(message)
+                        .font(.footnote)
+                        .foregroundStyle(.red)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 24)
+                case .idle, .paired:
+                    EmptyView()
+                }
+
+                Divider()
+                    .padding(.horizontal, 40)
+                    .padding(.vertical, 4)
+
+                Button {
+                    showsBridgePairing = true
+                } label: {
+                    Label("手动输入服务器地址与配对码", systemImage: "keyboard")
+                        .frame(maxWidth: 280)
+                }
+                .buttonStyle(.bordered)
+
+                Button {
+                    showsBridgeScanner = true
+                } label: {
+                    Label("扫描配对二维码", systemImage: "qrcode.viewfinder")
+                        .frame(maxWidth: 280)
+                }
+                .buttonStyle(.bordered)
+                .padding(.bottom, 24)
             }
-            .buttonStyle(.bordered)
+            .frame(maxWidth: .infinity)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var isPairingBusy: Bool {
+        if case .awaitingApproval = team.pairingState { return true }
+        return team.pairingState == .connecting
+    }
+
+    private func connectWithPastedPayload() {
+        let raw = pastedPairingJson.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !raw.isEmpty else { return }
+        team.pairPastedPayload(raw)
     }
 
     private var loadingView: some View {
@@ -810,12 +859,14 @@ struct BridgePairingSheet: View {
 
     private func parsePasted() {
         localError = nil
-        guard let payload = BridgePairingPayload.parse(pasted) else {
-            localError = "不是有效的配对资料 JSON（应包含 url 与 code）"
+        let nowMillis = Int64(Date().timeIntervalSince1970 * 1000)
+        let parsed = BridgePairingKt.parseBridgePairingPayload(raw: pasted, nowMillis: nowMillis)
+        guard parsed.isValid, let parsedUrl = parsed.url, let parsedCode = parsed.code else {
+            localError = BridgeTeamAdapter.parseFailureMessage(for: parsed.status)
             return
         }
-        url = payload.url
-        code = payload.code
+        url = parsedUrl
+        code = parsedCode
     }
 
     private func start() {

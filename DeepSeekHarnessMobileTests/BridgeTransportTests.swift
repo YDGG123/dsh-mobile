@@ -1,3 +1,4 @@
+import DeepSeekHarnessShared
 import XCTest
 @testable import DeepSeekHarnessMobile
 
@@ -179,23 +180,68 @@ private extension Array {
     var single: Element? { count == 1 ? first : nil }
 }
 
-/// 配对资料解析（桌面端「复制配对资料」/ QR 同形 JSON）。
+/// 配对资料解析与 complete 三态：走 KMP（commonMain）实现，Swift 侧只做桥接。
 final class BridgePairingPayloadTests: XCTestCase {
+    private var nowMillis: Int64 { Int64(Date().timeIntervalSince1970 * 1000) }
+
     func testParsesCompanionPairingPayload() {
+        let expires = nowMillis + 120_000
         let json = """
         {"url":"https://pushing-cricket-ensure-execute.trycloudflare.com",
-         "code":"abc123","serverId":"computer-1","expiresAt":1730000000000}
+         "code":"abc123","serverId":"computer-1","expiresAt":\(expires)}
         """
-        let payload = BridgePairingPayload.parse(json)
-        XCTAssertEqual(payload?.url, "https://pushing-cricket-ensure-execute.trycloudflare.com")
-        XCTAssertEqual(payload?.code, "abc123")
-        XCTAssertEqual(payload?.serverId, "computer-1")
-        XCTAssertEqual(payload?.expiresAt, 1730000000000)
+        let parsed = BridgePairingKt.parseBridgePairingPayload(raw: json, nowMillis: nowMillis)
+        XCTAssertTrue(parsed.isValid)
+        XCTAssertEqual(parsed.origin, "https://pushing-cricket-ensure-execute.trycloudflare.com")
+        XCTAssertEqual(parsed.code, "abc123")
+        XCTAssertEqual(parsed.serverId, "computer-1")
     }
 
     func testRejectsMalformedPairingPayloads() {
-        XCTAssertNil(BridgePairingPayload.parse("not-json"))
-        XCTAssertNil(BridgePairingPayload.parse(#"{"url":"https://x"}"#))
-        XCTAssertNil(BridgePairingPayload.parse(#"{"code":"abc"}"#))
+        XCTAssertEqual(
+            BridgePairingKt.parseBridgePairingPayload(raw: "not-json", nowMillis: nowMillis).status,
+            "invalid_json"
+        )
+        XCTAssertEqual(
+            BridgePairingKt.parseBridgePairingPayload(
+                raw: #"{"url":"http://192.168.1.5:7443","code":"abc"}"#,
+                nowMillis: nowMillis
+            ).status,
+            "insecure_url"
+        )
+        XCTAssertEqual(
+            BridgePairingKt.parseBridgePairingPayload(
+                raw: #"{"url":"https://host.example","code":""}"#,
+                nowMillis: nowMillis
+            ).status,
+            "invalid_code"
+        )
+    }
+
+    func testCompleteThreeStatesThroughKMP() {
+        let pending = BridgePairingKt.classifyBridgePairingComplete(
+            raw: #"{"status":"pending","requestId":"req-1"}"#,
+            origin: "https://host.example",
+            tlsPin: nil
+        )
+        XCTAssertTrue(pending.isPending)
+
+        let approved = BridgePairingKt.classifyBridgePairingComplete(
+            raw: """
+            {"accessToken":"acc","refreshToken":"ref","deviceId":"dev-1",
+             "serverId":"computer-1","expiresAt":\(nowMillis + 900_000)}
+            """,
+            origin: "https://host.example",
+            tlsPin: nil
+        )
+        XCTAssertTrue(approved.isApproved)
+        XCTAssertNotNil(approved.sessionJson)
+
+        let invalid = BridgePairingKt.classifyBridgePairingComplete(
+            raw: "nope",
+            origin: "https://host.example",
+            tlsPin: nil
+        )
+        XCTAssertEqual(invalid.status, "invalid")
     }
 }
