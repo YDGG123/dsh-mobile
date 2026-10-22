@@ -133,7 +133,12 @@ final class MultiGatewayStore: ObservableObject {
             }
             // U5 对称配对：网关配对一次，插件顺带下发 mobile-v1 session，Bot tab 立刻可用。
             if frame.kind == "paired", let session = frame.bridgeSession, let json = session.jsonString() {
-                self.bridgeTeam.adoptSession(json: json)
+                // 反向 session 不带 serverUrl：用当前连接端点折算 https origin 注入。
+                let endpoint = store.gateway.connectedEndpoint ?? store.endpoint
+                let https = endpoint
+                    .replacingOccurrences(of: "wss://", with: "https://", options: .anchored)
+                    .replacingOccurrences(of: "ws://", with: "http://", options: .anchored)
+                self.bridgeTeam.adoptSession(json: json, origin: URL(string: https)?.absoluteString)
             }
         }
         return store

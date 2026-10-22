@@ -611,13 +611,28 @@ final class BridgeTeamAdapter: ObservableObject {
 
     /// U5 对称配对：网关自己的配对流程成功后，插件会把 mobile-v1 session 放在 paired 帧里。
     /// 这里直接采纳（等同一次 bridge 配对），随后轮询拉团队。
-    func adoptSession(json: String) {
-        store.sessionPaired(sessionJson: json)
+    ///
+    /// 反向签发的 session **没有 serverUrl**（只有 accessToken/refreshToken/deviceId/serverId），
+    /// 而 transport 只能从「已保存 session 的 serverUrl」重建——不补这一步就会出现
+    /// 「token 有了、团队永远是空」。所以这里把当前连接端点的 https origin 注入后再落库。
+    func adoptSession(json: String, origin: String? = nil) {
+        var payload = json
+        if let origin, !origin.isEmpty,
+           var object = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any] {
+            if (object["serverUrl"] as? String)?.isEmpty != false { object["serverUrl"] = origin }
+            if let data = try? JSONSerialization.data(withJSONObject: object),
+               let merged = String(data: data, encoding: .utf8) {
+                payload = merged
+            }
+        }
+        store.sessionPaired(sessionJson: payload)
+        restoreTransportFromStoredSession()
         pairingState = .paired
         lastTransportError = nil
         failureAttempt = 0
         connectionIssue = nil
         startPolling()
+        armWatchdog()
     }
 
     func restoreSession() {
