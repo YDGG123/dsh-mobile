@@ -615,9 +615,26 @@ final class BridgeTeamAdapter: ObservableObject {
     /// 反向签发的 session **没有 serverUrl**（只有 accessToken/refreshToken/deviceId/serverId），
     /// 而 transport 只能从「已保存 session 的 serverUrl」重建——不补这一步就会出现
     /// 「token 有了、团队永远是空」。所以这里把当前连接端点的 https origin 注入后再落库。
-    func adoptSession(json: String, origin: String? = nil) {
+    /// 从网关端点（wss://host/ws/mobile）折出 bridge 需要的 https origin。
+    /// 注意：origin 必须**不带路径**——BridgeOriginValidation 只接受空路径或 /mobile/v1。
+    static func bridgeOrigin(fromEndpoint endpoint: String?) -> String? {
+        guard var raw = endpoint?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else { return nil }
+        if raw.hasPrefix("wss://") { raw = "https://" + raw.dropFirst("wss://".count) }
+        else if raw.hasPrefix("ws://") { raw = "http://" + raw.dropFirst("ws://".count) }
+        guard var components = URLComponents(string: raw) else { return nil }
+        components.path = ""
+        components.query = nil
+        components.fragment = nil
+        components.user = nil
+        components.password = nil
+        guard let candidate = components.string,
+              let origin = BridgeOriginValidation.origin(from: candidate) else { return nil }
+        return origin.absoluteString
+    }
+
+    func adoptSession(json: String, endpoint: String? = nil) {
         var payload = json
-        if let origin, !origin.isEmpty,
+        if let origin = Self.bridgeOrigin(fromEndpoint: endpoint),
            var object = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any] {
             if (object["serverUrl"] as? String)?.isEmpty != false { object["serverUrl"] = origin }
             if let data = try? JSONSerialization.data(withJSONObject: object),
