@@ -17,6 +17,12 @@ struct RootView: View {
                 Button(String(localized: "好"), role: .cancel) { store.lastError = nil }
             } message: { Text(store.lastError ?? "") }
             .onChange(of: scenePhase) { phase in
+                if phase == .active {
+                    hosts.bridgeTeam.ensureStarted()
+                    hosts.bridgeTeam.startPolling()
+                } else {
+                    hosts.bridgeTeam.stopPolling()
+                }
                 store.handleScenePhase(phase)
             }
             .onReceive(AgentUserNotificationManager.shared.$pendingSessionRoute) { route in

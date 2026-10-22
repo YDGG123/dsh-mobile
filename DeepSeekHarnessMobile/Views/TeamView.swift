@@ -53,6 +53,12 @@ struct TeamView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     HStack(spacing: 16) {
                         Button {
+                            showsBridgePairing = true
+                        } label: {
+                            Image(systemName: "server.rack")
+                        }
+                        .accessibilityLabel("服务器地址")
+                        Button {
                             showsDevices = true
                         } label: {
                             Image(systemName: "iphone.gen2")
@@ -422,6 +428,10 @@ struct TeamView: View {
             Spacer()
             Button("重试") {
                 Task { await team.refreshNow() }
+            }
+            .font(.footnote)
+            Button("更换地址") {
+                showsBridgePairing = true
             }
             .font(.footnote)
         }

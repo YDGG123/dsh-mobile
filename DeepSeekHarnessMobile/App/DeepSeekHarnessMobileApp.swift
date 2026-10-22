@@ -33,6 +33,7 @@ struct DeepSeekHarnessMobileApp: App {
                 .environmentObject(hosts)
                 .modifier(AppFontScope())
                 .task {
+                    hosts.bridgeTeam.ensureStarted()
                     await AgentUserNotificationManager.shared.requestAuthorizationIfNeeded()
                 }
                 .alert("主机连接", isPresented: Binding(get: { hosts.error != nil }, set: { if !$0 { hosts.error = nil } })) {

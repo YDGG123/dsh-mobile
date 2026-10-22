@@ -245,3 +245,43 @@ final class BridgePairingPayloadTests: XCTestCase {
         XCTAssertEqual(invalid.status, "invalid")
     }
 }
+
+/// 离线原因分类：区分「地址失效/网络不通/服务端异常」给用户不同指引。
+final class BridgeConnectionIssueTests: XCTestCase {
+    func testAddressFailuresSuggestChangingServer() {
+        XCTAssertEqual(
+            BridgeTeamAdapter.classifyTransportFailure(URLError(.cannotFindHost)),
+            .addressInvalid
+        )
+        XCTAssertEqual(
+            BridgeTeamAdapter.classifyTransportFailure(URLError(.dnsLookupFailed)),
+            .addressInvalid
+        )
+        XCTAssertEqual(
+            BridgeTeamAdapter.classifyTransportFailure(URLError(.cannotConnectToHost)),
+            .addressInvalid
+        )
+    }
+
+    func testNetworkFailuresSuggestCheckingNetwork() {
+        XCTAssertEqual(
+            BridgeTeamAdapter.classifyTransportFailure(URLError(.notConnectedToInternet)),
+            .network
+        )
+        XCTAssertEqual(
+            BridgeTeamAdapter.classifyTransportFailure(URLError(.timedOut)),
+            .network
+        )
+    }
+
+    func testServerFailuresFlagServerIssue() {
+        XCTAssertEqual(
+            BridgeTeamAdapter.classifyTransportFailure(BridgeResponseStatus(status: 502, body: "")),
+            .server
+        )
+        XCTAssertEqual(
+            BridgeTeamAdapter.classifyTransportFailure(BridgeResponseStatus(status: 409, body: "")),
+            .unknown
+        )
+    }
+}

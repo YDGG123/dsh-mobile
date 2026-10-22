@@ -24,6 +24,7 @@ struct WorkspaceView: View {
     @State private var showsManualPairing = false
     @State private var showsTeam = false
     @State private var bridgeChat: BridgeChatTarget?
+    @State private var showsBridgePairing = false
     @State private var drawerOffset: CGFloat = 0
     @State private var drawerDragStart: CGFloat?
     @State private var drawerFeedback = WorkspaceDrawerFeedback()
@@ -158,6 +159,9 @@ struct WorkspaceView: View {
         .sheet(item: $bridgeChat) { target in
             BridgeConversationView(title: target.row.name, engine: target.engine)
         }
+        .sheet(isPresented: $showsBridgePairing) {
+            BridgePairingSheet(team: bridgeTeam)
+        }
         .sheet(isPresented: $showsTeam) {
             TeamView(team: bridgeTeam) { sessionId in
                 // P1：团队页只做入口；命中现有 gateway 会话则复用既有聊天链路。
@@ -259,6 +263,9 @@ struct WorkspaceView: View {
         LazyVStack(alignment: .leading, spacing: 18) {
             sessionsHeader.id("workspace-sessions-header")
             sessionSearch.id("workspace-session-search")
+            if bridgeListReady, bridgeTeam.mirror?.isOffline == true {
+                bridgeOfflineBanner
+            }
             if bridgeListReady {
                 // U2：主列表数据源切到 bridge（一次配对即可用）；旧 gateway 列表仅作备用主机回退。
                 bridgeSessionsSection
@@ -272,6 +279,44 @@ struct WorkspaceView: View {
 
     /// 主列表是否由 bridge 主导：已配对（READY/LOADING/OFFLINE 都算）即用 bridge 数据；
     /// 只有未配对/无镜像时才回退旧 gateway 列表，避免已配对状态下误触发回退。
+    /// 离线出口：自动回连在后台跑着；这里给出「立即重试」与「更换服务器地址」两条人工路径。
+    private var bridgeOfflineBanner: some View {
+        let issue = bridgeTeam.connectionIssue
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: "wifi.exclamationmark")
+                    .foregroundStyle(.orange)
+                Text(issue?.headline ?? "连接已断开").appFont(.subheadline.weight(.medium))
+                Spacer()
+            }
+            Text(issue?.detail ?? "正在自动重连…")
+                .appFont(.caption)
+                .foregroundStyle(.white.opacity(0.6))
+            HStack(spacing: 10) {
+                Button {
+                    Task { await bridgeTeam.refreshNow() }
+                } label: {
+                    Text("立即重试").appFont(.caption.weight(.semibold))
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 12).padding(.vertical, 6)
+                .background(.white.opacity(0.1), in: Capsule())
+
+                Button {
+                    showsBridgePairing = true
+                } label: {
+                    Text("更换服务器地址").appFont(.caption.weight(.semibold))
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 12).padding(.vertical, 6)
+                .background(.white.opacity(0.1), in: Capsule())
+            }
+        }
+        .padding(14)
+        .background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 14))
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(.orange.opacity(0.25)))
+    }
+
     private var bridgeListReady: Bool {
         guard let mirror = bridgeTeam.mirror else { return false }
         return !mirror.needsPairing

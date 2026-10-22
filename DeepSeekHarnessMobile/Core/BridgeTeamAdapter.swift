@@ -188,6 +188,32 @@ final class BridgeKeychainSessionStore: NSObject, BridgeSessionStore {
 
 // MARK: - 团队页适配器：KMP 唯一状态源 + Swift 镜像与 effect
 
+/// 连接问题的可读分类：地址失效 / 网络不通 / 服务端异常 / 其他。
+enum BridgeConnectionIssue: Equatable {
+    case addressInvalid
+    case network
+    case server
+    case unknown
+
+    var headline: String {
+        switch self {
+        case .addressInvalid: return "服务器入口已失效"
+        case .network: return "网络不通"
+        case .server: return "服务器异常"
+        case .unknown: return "连接已断开"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .addressInvalid: return "隧道域名可能已更换，请更换服务器地址后重新连接。"
+        case .network: return "正在自动重连，请检查手机网络或隧道是否在线。"
+        case .server: return "服务器暂时不可用，正在自动重试。"
+        case .unknown: return "正在自动重连。"
+        }
+    }
+}
+
 /// 配对流程状态（§2.8）。
 enum BridgePairingState: Equatable {
     case idle
@@ -208,6 +234,8 @@ final class BridgeTeamAdapter: ObservableObject {
     @Published private(set) var isRefreshing = false
     @Published private(set) var lastTransportError: String?
     @Published private(set) var pairingState: BridgePairingState = .idle
+    /// 最近一次失败的可读分类（离线态 UI 用来给出「换地址」还是「查网络」）。
+    @Published private(set) var connectionIssue: BridgeConnectionIssue?
 
     /// effect：进入聊天（sessionId 来自配对端 /state 的 bot/room 行）。
     var onOpenConversation: ((String) -> Void)?
@@ -220,6 +248,8 @@ final class BridgeTeamAdapter: ObservableObject {
     private var pollingTask: Task<Void, Never>?
     private var pairingTask: Task<Void, Never>?
     private var watchdogTask: Task<Void, Never>?
+    private var started = false
+    private var failureAttempt = 0
     private var lastSequence: Int64 = -1
 
     init() {
@@ -245,6 +275,14 @@ final class BridgeTeamAdapter: ObservableObject {
     /// U 单根因修复：transport 此前只存在于配对流程的内存里，App 重建即丢，
     /// 导致 refreshNow 静默空转、团队页永久「正在同步团队」。
     func bootstrap() {
+        ensureStarted()
+    }
+
+    /// App 启动时调用（幂等）：恢复会话 + 从 Keychain 重建 transport + 开始常驻轮询。
+    /// 轮询不再依赖团队页生命周期——这是「离线后不会自动回连」的根因修复。
+    func ensureStarted() {
+        guard !started else { return }
+        started = true
         restoreTransportFromStoredSession()
         let outcome = store.restoreSession()
         if outcome.isSuccess, store.currentAccessToken() != nil {
@@ -463,6 +501,9 @@ final class BridgeTeamAdapter: ObservableObject {
                         self.transport = transport
                         store.sessionPaired(sessionJson: sessionJson)
                         pairingState = .paired
+                        failureAttempt = 0
+                        connectionIssue = nil
+                        lastTransportError = nil
                         startPolling()
                         return
                     }
@@ -496,6 +537,22 @@ final class BridgeTeamAdapter: ObservableObject {
         case "expired": return "配对码已过期（生成后 2 分钟内有效），请在桌面端重新生成"
         case "invalid_pin": return "配对资料里的设备指纹格式无效"
         default: return "配对资料无法解析，请重新从桌面端复制"
+        }
+    }
+
+    /// 传输失败分类（供离线 UI 与用例使用）。
+    nonisolated static func classifyTransportFailure(_ error: Error) -> BridgeConnectionIssue {
+        if let status = error as? BridgeResponseStatus {
+            return status.status >= 500 ? .server : .unknown
+        }
+        guard let urlError = error as? URLError else { return .unknown }
+        switch urlError.code {
+        case .cannotFindHost, .dnsLookupFailed, .cannotConnectToHost:
+            return .addressInvalid
+        case .notConnectedToInternet, .networkConnectionLost, .timedOut, .dataNotAllowed:
+            return .network
+        default:
+            return .unknown
         }
     }
 
@@ -589,7 +646,12 @@ final class BridgeTeamAdapter: ObservableObject {
         pollingTask = Task { [weak self] in
             while !Task.isCancelled {
                 await self?.refreshNow()
-                try? await Task.sleep(nanoseconds: 8_000_000_000)
+                guard let self else { return }
+                // 在线：8s 轮询；离线：指数退避 750ms→15s 自动回连（U3）。
+                let delay: TimeInterval = self.mirror?.isOffline == true
+                    ? BridgeBackoff.delay(attempt: self.failureAttempt)
+                    : 8
+                try? await Task.sleep(nanoseconds: UInt64(max(delay, 1) * 1_000_000_000))
             }
         }
     }
@@ -612,6 +674,8 @@ final class BridgeTeamAdapter: ObservableObject {
             async let conversations = transport.fetchConversations(token: token)
             let (infoBody, stateBody, conversationsBody) = try await (info, state, conversations)
             lastTransportError = nil
+            failureAttempt = 0
+            connectionIssue = nil
             store.refreshTeam(
                 infoJson: infoBody,
                 stateJson: stateBody,
@@ -642,8 +706,21 @@ final class BridgeTeamAdapter: ObservableObject {
         } else {
             code = "network_error"
         }
-        lastTransportError = error.localizedDescription
-        store.refreshFailed(code: code, message: error.localizedDescription)
+        failureAttempt += 1
+        connectionIssue = Self.classifyTransportFailure(error)
+        let message: String
+        switch connectionIssue {
+        case .addressInvalid:
+            message = "服务器入口不可达：隧道域名可能已更换，请更换服务器地址"
+        case .network:
+            message = "网络不通，正在自动重连"
+        case .server:
+            message = "服务器异常，正在自动重试"
+        case .unknown, .none:
+            message = error.localizedDescription
+        }
+        lastTransportError = message
+        store.refreshFailed(code: code, message: message)
     }
 
     /// 401 单飞刷新：成功喂回 KMP（保留 serverUrl/tlsPin 绑定），失败按 SDK 语义分永久/临时。
