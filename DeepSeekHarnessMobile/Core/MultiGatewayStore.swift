@@ -131,6 +131,10 @@ final class MultiGatewayStore: ObservableObject {
             if frame.kind == "paired" || frame.kind == "hello" {
                 self.acceptIdentity(frame, store: store)
             }
+            // U5 对称配对：网关配对一次，插件顺带下发 mobile-v1 session，Bot tab 立刻可用。
+            if frame.kind == "paired", let session = frame.bridgeSession, let json = session.jsonString() {
+                self.bridgeTeam.adoptSession(json: json)
+            }
         }
         return store
     }

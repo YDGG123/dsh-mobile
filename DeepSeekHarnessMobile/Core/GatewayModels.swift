@@ -168,6 +168,23 @@ extension KeyedDecodingContainer {
     }
 }
 
+/// U5：paired 帧里可选的 mobile-v1 session（字段与 bridge 配对响应一致）。
+struct GatewayBridgeSession: Codable, Sendable {
+    var accessToken: String
+    var refreshToken: String
+    var deviceId: String
+    var serverId: String
+    var serverUrl: String?
+    var tlsPin: String?
+    var expiresAt: Double?
+
+    /// bridge store 需要原样 JSON（KMP 按 bridge 契约解析）。
+    func jsonString() -> String? {
+        guard let data = try? JSONEncoder().encode(self) else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+}
+
 struct GatewayFrame: Codable, Sendable {
     var kind: String
     var gatewayId: String?
@@ -189,6 +206,8 @@ struct GatewayFrame: Codable, Sendable {
     var authenticated: Bool?
     var token: String?
     var device: GatewayDevice?
+    /// U5 对称配对：网关配对成功时插件顺带下发的 mobile-v1 session。
+    var bridgeSession: GatewayBridgeSession?
     var port: Int?
     var clients: Int?
     var at: Double?

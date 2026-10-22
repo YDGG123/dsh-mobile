@@ -255,6 +255,7 @@ struct WorkspaceView: View {
             .id("workspace-hero")
             primaryTabPicker.id("workspace-primary-tab")
             if primaryTab == .sessions {
+                pairingEntryCard
                 workspaceCard.id("workspace-card")
                 newSessionButton.id("workspace-new-session")
             }
@@ -729,11 +730,62 @@ struct WorkspaceView: View {
         .overlay(RoundedRectangle(cornerRadius: 13).stroke(.white.opacity(0.1)))
     }
 
+    /// U5：原版连接界面恢复为主入口。任何一边配对成功都会同时拿到两套凭证，
+    /// 所以这里既是「原版配对」，也顺带把 Bot tab 接上。
+    @ViewBuilder
+    private var pairingEntryCard: some View {
+        if !connectionIsReady && !bridgeListReady {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("连接桌面端")
+                    .appFont(.headline)
+                Text("扫码或在手机上输入桌面端显示的配对码；配对成功后会自动带上 Bot 团队。")
+                    .appFont(.caption)
+                    .foregroundStyle(.white.opacity(0.6))
+                HStack(spacing: 10) {
+                    Button {
+                        store.lastError = nil
+                        showsQRScanner = true
+                    } label: {
+                        Label("扫码配对", systemImage: "qrcode.viewfinder")
+                            .appFont(.subheadline.weight(.semibold))
+                    }
+                    .buttonStyle(.borderedProminent)
+
+                    Button {
+                        store.lastError = nil
+                        showsManualPairing = true
+                    } label: {
+                        Label("手动输入", systemImage: "keyboard")
+                            .appFont(.subheadline.weight(.semibold))
+                    }
+                    .buttonStyle(.bordered)
+                }
+                Button {
+                    showsBridgePairing = true
+                } label: {
+                    Text("或粘贴配对资料 JSON")
+                        .appFont(.caption)
+                        .foregroundStyle(.white.opacity(0.55))
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 16))
+        }
+    }
+
     private var emptySessions: some View {
-        Text("暂无已知会话。连接服务后创建第一个任务。")
-            .appFont(.subheadline).foregroundStyle(.white.opacity(0.5))
-            .frame(maxWidth: .infinity, alignment: .leading).padding(18)
-            .background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 15))
+        Button {
+            store.lastError = nil
+            showsManualPairing = true
+        } label: {
+            Text("暂无已知会话。点这里连接桌面端后创建第一个任务。")
+                .appFont(.subheadline).foregroundStyle(.white.opacity(0.55))
+                .frame(maxWidth: .infinity, alignment: .leading).padding(18)
+                .background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 15))
+        }
+        .buttonStyle(.plain)
     }
 
     private var displayedSessions: [SessionSummary] {

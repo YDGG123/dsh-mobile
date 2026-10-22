@@ -609,6 +609,17 @@ final class BridgeTeamAdapter: ObservableObject {
         return String(fallback.prefix(100))
     }
 
+    /// U5 对称配对：网关自己的配对流程成功后，插件会把 mobile-v1 session 放在 paired 帧里。
+    /// 这里直接采纳（等同一次 bridge 配对），随后轮询拉团队。
+    func adoptSession(json: String) {
+        store.sessionPaired(sessionJson: json)
+        pairingState = .paired
+        lastTransportError = nil
+        failureAttempt = 0
+        connectionIssue = nil
+        startPolling()
+    }
+
     func restoreSession() {
         store.restoreSession()
     }

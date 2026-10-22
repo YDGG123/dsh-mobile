@@ -258,6 +258,7 @@ fun parseBridgePairing(raw: String): BridgePairing = wireJson.decodeFromString(r
 
 fun parseBridgeSession(raw: String): BridgeDeviceSession = wireJson.decodeFromString(raw)
 
+
 fun encodeBridgeAction(endpoint: String, payload: JsonObject): String =
     wireJson.encodeToString(BridgeActionEnvelope.serializer(), BridgeActionEnvelope(endpoint, payload))
 
