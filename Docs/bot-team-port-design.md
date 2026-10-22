@@ -90,6 +90,7 @@
 
 `ConversationRow` 字段（bridge 投影后）：`id, kind, name, sessionId, role?, model?, effort?, waiting?, pinned?, hidden?, parts[], members[]（仅 room）, admin?（仅 room）, mode?（"everyone"|"admin"）, avatar?{shape,color,image}`。
 注意：**bridge 出于 redaction 不下发 `instructions`/`notice`/`color`**；bot 详情的资料编辑受 `botEditableFields: ["model","effort"]` 约束。
+补充：**fork 版网关（`dsh-plugin-mobile-gateway` 集成 `/mobile/v1`）会额外下发 bot 行的 `color`**（未做该项 redaction）。App 对多出字段前向兼容、`color` 本就建模为可空，因此实现无需改动；后续要做团队配色可直接消费这个字段。
 
 App 侧完整契约（`apps/mobile/src/types.ts` 的 `TeamState`，上游宿主才会填满，本设计全部建模为可空）：
 
