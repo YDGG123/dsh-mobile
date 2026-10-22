@@ -17,6 +17,7 @@ struct TeamView: View {
     @State private var showsBridgePairing = false
     @State private var pastedPairingJson = ""
     @State private var didBootstrap = false
+    @State private var bridgeChat: BridgeChatTarget?
 
     private enum Segment: String, CaseIterable {
         case team = "团队"
@@ -98,6 +99,9 @@ struct TeamView: View {
             }
             .sheet(isPresented: $showsBridgePairing) {
                 BridgePairingSheet(team: team)
+            }
+            .sheet(item: $bridgeChat) { target in
+                BridgeConversationView(title: target.row.name, engine: target.engine)
             }
             .fullScreenCover(isPresented: $showsBridgeScanner) {
                 GatewayQRScannerView(
@@ -801,8 +805,12 @@ struct TeamView: View {
             dismiss()
             return
         }
-        // U5④：聊天统一走原版窗口，这里不再兜底创建 bridge 聊天页。
-        openFailure = "这个会话还没同步到本机。请稍等自动刷新，或在「会话」tab 顶部重新配对一次。"
+        if let engine = team.chatEngine(conversationId: row.id, sessionId: row.sessionId) {
+            detail = nil
+            bridgeChat = BridgeChatTarget(row: row, engine: engine)
+        } else {
+            openFailure = "尚未完成配对或会话不可用，请先配对桌面端。"
+        }
     }
 
     private func primaryBot(_ mirror: BridgeTeamMirror) -> BridgeTeamRow? {
