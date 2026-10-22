@@ -20,11 +20,15 @@ final class BridgeChatEngine: ObservableObject {
     @Published private(set) var isSending = false
 
     let conversationId: String
-    let sessionId: String
+    /// 会话目标可能在服务端轮换（TARGET_CHANGED 后由团队镜像纠偏）。
+    private(set) var sessionId: String
 
     private let transport: BridgeTransport
     private let tokenProvider: () -> String?
     private let refreshToken: () async -> Bool
+    /// 409 TARGET_CHANGED 纠偏：先全量刷新团队，再从最新镜像取该会话的 sessionId。
+    private let refreshTeam: () async -> Void
+    private let resolveSessionId: (String) -> String?
     private var socket: URLSessionWebSocketTask?
     private var receiveTask: Task<Void, Never>?
     private var reconnectAttempt = 0
@@ -39,13 +43,17 @@ final class BridgeChatEngine: ObservableObject {
         conversationId: String,
         sessionId: String,
         tokenProvider: @escaping () -> String?,
-        refreshToken: @escaping () async -> Bool
+        refreshToken: @escaping () async -> Bool,
+        refreshTeam: @escaping () async -> Void = {},
+        resolveSessionId: @escaping (String) -> String? = { _ in nil }
     ) {
         self.transport = transport
         self.conversationId = conversationId
         self.sessionId = sessionId
         self.tokenProvider = tokenProvider
         self.refreshToken = refreshToken
+        self.refreshTeam = refreshTeam
+        self.resolveSessionId = resolveSessionId
     }
 
     deinit {
@@ -240,52 +248,58 @@ final class BridgeChatEngine: ObservableObject {
             nowMillis: now
         )
         do {
-            let body = try await transport.post(
-                path: "/submissions",
-                token: token,
-                jsonBody: [
-                    "conversationId": conversationId,
-                    "sessionId": sessionId,
-                    "requestId": requestId,
-                    "text": trimmed
-                ]
-            )
-            messagesJson = BridgeChatMergeKt.chatApplySubmissionReceipt(
-                messagesJson: messagesJson,
-                conversationId: conversationId,
-                sessionId: sessionId,
-                requestId: requestId,
-                text: trimmed,
-                receiptJson: body,
-                nowMillis: Int64(Date().timeIntervalSince1970 * 1000)
-            )
+            try await postSubmission(text: trimmed, requestId: requestId, token: token)
         } catch let status as BridgeResponseStatus where status.status == 401 {
-            if await refreshToken(), let token = tokenProvider() {
-                if let body = try? await transport.post(
-                    path: "/submissions",
-                    token: token,
-                    jsonBody: [
-                        "conversationId": conversationId,
-                        "sessionId": sessionId,
-                        "requestId": requestId,
-                        "text": trimmed
-                    ]
-                ) {
-                    messagesJson = BridgeChatMergeKt.chatApplySubmissionReceipt(
-                        messagesJson: messagesJson,
-                        conversationId: conversationId,
-                        sessionId: sessionId,
-                        requestId: requestId,
-                        text: trimmed,
-                        receiptJson: body,
-                        nowMillis: Int64(Date().timeIntervalSince1970 * 1000)
-                    )
+            // 令牌过期：刷新一次后重发（同一个 requestId，服务端幂等）。
+            if await refreshToken(), let fresh = tokenProvider() {
+                if (try? await postSubmission(text: trimmed, requestId: requestId, token: fresh)) == nil {
+                    self.status = .failed(status.localizedDescription)
                 }
+            }
+        } catch let status as BridgeResponseStatus where status.status == 409 {
+            // 契约：TARGET_CHANGED 的语义是「目标换了，刷新后重试」。
+            // 群会话/会话 sessionId 会在宿主侧重排，这里拉一次全量团队并用新值重发一次。
+            if await recoverTargetAndResend(text: trimmed, requestId: requestId) == false {
+                self.status = .failed(status.localizedDescription)
             }
         } catch {
             // 上屏失败态：保留 pending 行，用户可重试。
             status = .failed(error.localizedDescription)
         }
+    }
+
+    /// 发送一次提交并按回执对账（KMP 归并）。
+    @discardableResult
+    private func postSubmission(text: String, requestId: String, token: String) async throws -> String {
+        let body = try await transport.post(
+            path: "/submissions",
+            token: token,
+            jsonBody: [
+                "conversationId": conversationId,
+                "sessionId": sessionId,
+                "requestId": requestId,
+                "text": text
+            ]
+        )
+        messagesJson = BridgeChatMergeKt.chatApplySubmissionReceipt(
+            messagesJson: messagesJson,
+            conversationId: conversationId,
+            sessionId: sessionId,
+            requestId: requestId,
+            text: text,
+            receiptJson: body,
+            nowMillis: Int64(Date().timeIntervalSince1970 * 1000)
+        )
+        return body
+    }
+
+    /// TARGET_CHANGED 纠偏：全量刷新 → 取最新 sessionId → 换值后用同一 requestId 重发一次。
+    private func recoverTargetAndResend(text: String, requestId: String) async -> Bool {
+        await refreshTeam()
+        guard let fresh = resolveSessionId(conversationId), fresh != sessionId else { return false }
+        sessionId = fresh
+        guard let token = tokenProvider() else { return false }
+        return (try? await postSubmission(text: text, requestId: requestId, token: token)) != nil
     }
 }
 

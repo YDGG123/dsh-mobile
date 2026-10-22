@@ -98,6 +98,30 @@ class TeamReducerTest {
     }
 
     @Test
+    fun revisionGateIsPerServerSoNewServerReplacesStaleRows() {
+        // 换服务器：新 serverId + 更小 revision 必须被接受，否则旧 sessionId 残留 → 发消息 409。
+        val previous = ready(revision = 9000)
+        assertEquals("computer-1", previous.serverId)
+        val switched = TeamReducer.reduce(
+            previous,
+            TeamAction.RefreshSucceeded(
+                info(serverId = "computer-2"),
+                bridgeState(
+                    revision = 3,
+                    bots = listOf(
+                        BridgeConversationRow(id = "chief", kind = "bot", name = "Chief", sessionId = "new-chief", pinned = true)
+                    )
+                ),
+                BridgeConversationsPage()
+            )
+        )
+        assertEquals("computer-2", switched.serverId)
+        assertEquals(3L, switched.revision)
+        assertEquals(listOf("chief"), switched.bots.map { it.id })
+        assertEquals("new-chief", switched.bots.first().sessionId)
+    }
+
+    @Test
     fun refreshFailureKeepsDataAndGoesOffline() {
         val current = ready()
         val offline = TeamReducer.reduce(

@@ -288,8 +288,12 @@ object TeamReducer {
             )
         }
         // revision 单调门控：旧响应直接丢弃，不影响现有状态。
+        // 但门控只在**同一声明服务器**内成立：换服务器（serverId 变化）后 revision
+        // 从小数重新开始，继续按旧水位丢弃会把上一台机器的 bots/rooms（含旧 sessionId）
+        // 留在内存里，之后发消息就会 409 TARGET_CHANGED。
+        val sameServer = state.serverId == null || state.serverId == action.info.serverId
         val incomingRevision = action.state.revisionValue
-        if (state.revision != null && incomingRevision != null && incomingRevision < state.revision) {
+        if (sameServer && state.revision != null && incomingRevision != null && incomingRevision < state.revision) {
             return state
         }
         val bots = sortRows(action.state.bots, action.state.mainBotIds)

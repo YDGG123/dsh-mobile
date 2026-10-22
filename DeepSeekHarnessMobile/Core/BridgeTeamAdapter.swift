@@ -345,6 +345,15 @@ final class BridgeTeamAdapter: ObservableObject {
             refreshToken: { [weak self] in
                 guard let self else { return false }
                 return await self.refreshAccessTokenOnce()
+            },
+            // 409 TARGET_CHANGED 纠偏：拉一次全量团队，再用最新 sessionId 重发一次。
+            refreshTeam: { [weak self] in
+                guard let self else { return }
+                await self.refreshNow()
+            },
+            resolveSessionId: { [weak self] id in
+                guard let mirror = self?.mirror else { return nil }
+                return (mirror.bots.first { $0.id == id } ?? mirror.rooms.first { $0.id == id })?.sessionId
             }
         )
     }
