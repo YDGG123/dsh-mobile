@@ -1045,6 +1045,16 @@ private enum GatewayDeviceIdentityStore {
     }
 }
 
+/// U5：一次配对顺带下发的网关凭证由上层（MultiGatewayStore）落盘，这里只开一个窄口子。
+enum GatewayCredentialVault {
+    static func store(_ token: String, for endpoint: URL) throws {
+        try GatewayTokenStore.save(token, for: endpoint)
+    }
+    static func hasCredential(for endpoint: URL) -> Bool {
+        GatewayTokenStore.load(for: endpoint)?.isEmpty == false
+    }
+}
+
 private enum GatewayTokenStore {
     private static let service = "ai.dsh.mobile.ios.gateway-token"
 

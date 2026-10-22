@@ -34,6 +34,14 @@ data class BridgePairing(
     val status: String
 )
 
+/** U5：一次配对顺带下发的网关设备凭证（可选字段，老服务端不带）。 */
+@Serializable
+data class BridgeGatewayCredential(
+    val deviceId: String,
+    val token: String,
+    val wsPath: String = "/ws/mobile"
+)
+
 /** 设备会话；expiresAt 宿主可能发 epoch 毫秒或 ISO 字符串，两种都接受。 */
 @Serializable
 data class BridgeDeviceSession(
@@ -43,7 +51,9 @@ data class BridgeDeviceSession(
     val serverId: String,
     val serverUrl: String = "",
     val tlsPin: String? = null,
-    val expiresAt: JsonPrimitive? = null
+    val expiresAt: JsonPrimitive? = null,
+    /** U5：网关协议凭证；有它才启用了「原版会话列表 + 富聊天」。 */
+    val gateway: BridgeGatewayCredential? = null
 ) {
     val expiresAtIsString: Boolean get() = expiresAt?.isString == true
 

@@ -253,6 +253,9 @@ final class BridgeTeamAdapter: ObservableObject {
     var onOpenConversation: ((String) -> Void)?
 
     private let sessionStore = BridgeKeychainSessionStore()
+    /// U5：配对成功且服务端下发了网关凭证时回调（由 MultiGatewayStore 接管落盘/建 profile）。
+    /// 参数：凭证、bridge 的 https 根 origin。缺失时不会调用。
+    var onGatewayCredential: ((BridgeGatewayCredential, String) -> Void)?
     private let store: SharedTeamStore
     private var observer: BridgeMviObserver?
     private var subscription: SharedMviSubscription?
@@ -521,6 +524,11 @@ final class BridgeTeamAdapter: ObservableObject {
                     if complete.isApproved, let sessionJson = complete.sessionJson {
                         self.transport = transport
                         store.sessionPaired(sessionJson: sessionJson)
+                        // U5：一次配对顺带下发的网关凭证——交给上层落 Keychain + 建 profile。
+                        if let session = try? BridgeDtosKt.parseBridgeSession(raw: sessionJson),
+                           let gateway = session.gateway {
+                            onGatewayCredential?(gateway, config.origin.absoluteString)
+                        }
                         pairingState = .paired
                         failureAttempt = 0
                         connectionIssue = nil

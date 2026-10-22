@@ -253,10 +253,34 @@ struct WorkspaceView: View {
                 }
             }
             .id("workspace-hero")
-            workspaceCard.id("workspace-card")
-            newSessionButton.id("workspace-new-session")
+            primaryTabPicker.id("workspace-primary-tab")
+            if primaryTab == .sessions {
+                workspaceCard.id("workspace-card")
+                newSessionButton.id("workspace-new-session")
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// U5：首页主分段。「会话」= 原版分组列表（含新建/搜索/归档）；「Bot」= 团队（bots + 群聊）。
+    private enum PrimaryTab: String, CaseIterable {
+        case sessions = "会话"
+        case bots = "Bot"
+    }
+    @AppStorage("workspace.primaryTab") private var primaryTabRaw = PrimaryTab.sessions.rawValue
+    private var primaryTab: PrimaryTab {
+        get { PrimaryTab(rawValue: primaryTabRaw) ?? .sessions }
+        nonmutating set { primaryTabRaw = newValue.rawValue }
+    }
+
+    private var primaryTabPicker: some View {
+        Picker("主分段", selection: Binding(get: { primaryTab }, set: { primaryTab = $0 })) {
+            ForEach(PrimaryTab.allCases, id: \.self) { tab in
+                Text(tab.rawValue).tag(tab)
+            }
+        }
+        .pickerStyle(.segmented)
+        .accessibilityLabel("首页分组")
     }
 
     private var recentSessions: some View {
@@ -266,9 +290,18 @@ struct WorkspaceView: View {
             if bridgeListReady, bridgeTeam.mirror?.isOffline == true {
                 bridgeOfflineBanner
             }
-            if bridgeListReady {
-                // U2：主列表数据源切到 bridge（一次配对即可用）；旧 gateway 列表仅作备用主机回退。
-                bridgeSessionsSection
+            if primaryTab == .bots {
+                // U5：「Bot」tab 用 bridge 的团队结构（bots + 群聊）；点入优先原版聊天窗口。
+                if bridgeListReady {
+                    bridgeSessionsSection
+                } else {
+                    Text("尚未配对桌面端。点上面的「更换服务器地址」完成一次配对后，这里会显示 Bot 与群聊。")
+                        .appFont(.subheadline)
+                        .foregroundStyle(.white.opacity(0.55))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(18)
+                        .background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 15))
+                }
             } else if displayedSessions.isEmpty {
                 emptySessions.id("workspace-sessions-empty")
             } else {
@@ -385,6 +418,11 @@ struct WorkspaceView: View {
     }
 
     private func openBridgeConversation(_ row: BridgeTeamRow) {
+        // U5：一次配对已顺带下发网关凭证——优先用原版聊天窗口（工具卡/审批卡齐全）。
+        if let session = store.sessions.first(where: { $0.id == row.sessionId }) {
+            onOpenSession(session)
+            return
+        }
         guard let engine = bridgeTeam.chatEngine(conversationId: row.id, sessionId: row.sessionId) else {
             store.lastError = "尚未完成配对或会话不可用，请先在团队页完成配对。"
             return
@@ -402,9 +440,6 @@ struct WorkspaceView: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("打开侧边栏")
             Spacer()
-            headerButton(systemName: "person.3.fill", accessibilityLabel: "团队") {
-                showsTeam = true
-            }
             settingsButton
                 // Match the outer glass circle to the workspace cards' trailing edge.
                 .padding(.trailing, -4)

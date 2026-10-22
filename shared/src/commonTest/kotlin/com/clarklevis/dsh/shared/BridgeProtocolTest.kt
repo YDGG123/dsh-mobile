@@ -3,6 +3,7 @@ package com.clarklevis.dsh.shared
 import com.clarklevis.dsh.shared.domain.TeamCapabilities
 import com.clarklevis.dsh.shared.protocol.BridgeConversationsPage
 import com.clarklevis.dsh.shared.protocol.BridgeDeviceSession
+import com.clarklevis.dsh.shared.protocol.BridgeGatewayCredential
 import com.clarklevis.dsh.shared.protocol.BridgePairing
 import com.clarklevis.dsh.shared.protocol.encodeBridgeAction
 import com.clarklevis.dsh.shared.protocol.encodeBridgeAuthFrame
@@ -238,5 +239,29 @@ class BridgeProtocolTest {
         assertEquals("https://host.ts.net", validateBridgeServerOrigin("https://host.ts.net/mobile/v1/"))
         assertNull(validateBridgeServerOrigin("http://192.168.1.5:7443"))
         assertNotNull(validateBridgeServerOrigin("http://127.0.0.1:7443", allowInsecure = true))
+    }
+}
+
+class BridgeGatewayCredentialTest {
+    @Test
+    fun sessionParsesOptionalGatewayCredential() {
+        val raw = """
+            {"accessToken":"a","refreshToken":"r","deviceId":"d","serverId":"s",
+             "gateway":{"deviceId":"gw","token":"tok","wsPath":"/ws/mobile"}}
+        """.trimIndent()
+        val session = parseBridgeSession(raw)
+        assertEquals("gw", session.gateway?.deviceId)
+        assertEquals("tok", session.gateway?.token)
+        assertEquals("/ws/mobile", session.gateway?.wsPath)
+    }
+
+    @Test
+    fun sessionWithoutGatewayStillParses() {
+        val session = parseBridgeSession(
+            """{"accessToken":"a","refreshToken":"r","deviceId":"d","serverId":"s"}"""
+        )
+        assertNull(session.gateway)
+        // wsPath 默认值：老服务端不带头部字段时用默认路径。
+        assertEquals("/ws/mobile", BridgeGatewayCredential("gw", "tok").wsPath)
     }
 }

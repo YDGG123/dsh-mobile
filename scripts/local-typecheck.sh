@@ -138,12 +138,24 @@ STUB
     "$DEPS/MarkdownUI.swift" >/dev/null 2>&1 || fail "生成 MarkdownUI 桩失败"
 fi
 
+# ---- 模块缓存：KMP 框架一更新就清空 ----
+# 否则 swiftc 会复用旧的 ObjC 头缓存，新加的共享类型表现为「cannot find type」。
+CACHE="$DEPS/module-cache"
+STAMP="$CACHE/.framework-stamp"
+FRAMEWORK_BIN="$FW/DeepSeekHarnessShared.framework/DeepSeekHarnessShared"
+FW_STAMP=$(stat -f %m "$FRAMEWORK_BIN" 2>/dev/null || echo 0)
+if [ ! -f "$STAMP" ] || [ "$(cat "$STAMP" 2>/dev/null)" != "$FW_STAMP" ]; then
+  rm -rf "$CACHE"
+  mkdir -p "$CACHE"
+  echo "$FW_STAMP" > "$STAMP"
+fi
+
 # ---- 类型检查:App(iOS 16.0) ----
 echo "→ 类型检查 App 源码 (iOS 16.0)..."
 LOG=$(mktemp)
 "$TC/swiftc" -typecheck \
   -sdk "$SDK" -target x86_64-apple-ios16.0-simulator -swift-version 5 \
-  -F "$FW" -F "$DEPS" -I "$DEPS" \
+  -F "$FW" -F "$DEPS" -I "$DEPS" -module-cache-path "$CACHE" \
   $(find DeepSeekHarnessMobile -name "*.swift") > "$LOG" 2>&1
 APP_ERRORS=$(grep -c "error:" "$LOG" 2>/dev/null | head -1)
 APP_ERRORS=${APP_ERRORS:-0}
@@ -153,7 +165,7 @@ echo "→ 类型检查 Widget 扩展 (iOS 16.2)..."
 WLOG=$(mktemp)
 "$TC/swiftc" -typecheck \
   -sdk "$SDK" -target x86_64-apple-ios16.2-simulator -swift-version 5 \
-  -F "$DEPS" -I "$DEPS" \
+  -F "$DEPS" -I "$DEPS" -module-cache-path "$CACHE" \
   AgentLiveActivityWidget/*.swift \
   DeepSeekHarnessMobile/LiveActivity/AgentActivityAttributes.swift \
   DeepSeekHarnessMobile/LiveActivity/AgentApprovalIntents.swift > "$WLOG" 2>&1

@@ -1,3 +1,4 @@
+import DeepSeekHarnessShared
 import SwiftUI
 import Combine
 
@@ -22,6 +23,10 @@ final class MultiGatewayStore: ObservableObject {
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         activeStore = AppStore(preferences: UserDefaultsAppPreferences(userDefaults: defaults, gatewayID: "unpaired"), gatewayLocalID: "unpaired")
+        // U5：bridge 配对批准后服务端会顺带下发网关凭证，这里接管落盘 + 建 profile。
+        bridgeTeam.onGatewayCredential = { [weak self] (credential: BridgeGatewayCredential, origin: String) in
+            Task { @MainActor [weak self] in self?.adoptGatewayCredential(credential, origin: origin) }
+        }
         do {
             if let data = defaults.data(forKey: Self.profilesKey) {
                 profiles = try JSONDecoder().decode([GatewayProfile].self, from: data)
@@ -132,6 +137,38 @@ final class MultiGatewayStore: ObservableObject {
 
     private func installPairingHandler(on store: AppStore) {
         store.pairingHandler = { [weak self] raw in try self?.pair(raw) }
+    }
+
+    /// U5：把 bridge 配对顺带下发的网关凭证落地——存 Keychain、建/更新 profile，
+    /// 并在还没有可用网关时激活它，让原版「会话」列表与富聊天窗口重新拿到数据。
+    func adoptGatewayCredential(_ credential: BridgeGatewayCredential, origin: String) {
+        guard let base = URL(string: origin), var components = URLComponents(url: base, resolvingAgainstBaseURL: false),
+              let host = base.host, !host.isEmpty else { return }
+        components.scheme = (components.scheme == "http") ? "ws" : "wss"
+        let wsPath = credential.wsPath.hasPrefix("/") ? credential.wsPath : "/" + credential.wsPath
+        components.path = wsPath
+        components.query = nil
+        components.fragment = nil
+        guard let endpoint = components.url?.absoluteString else { return }
+
+        var profile = profiles.first { $0.endpoints.contains(endpoint) }
+            ?? profiles.first { $0.endpoints.contains { URL(string: $0)?.host == host } }
+            ?? GatewayProfile(gatewayId: nil, gatewayName: host, endpoints: [endpoint], deviceKind: "desktopcomputer")
+        profile.endpoints = [endpoint] + profile.endpoints.filter { $0 != endpoint }
+        profile.preferredEndpoint = endpoint
+        profile.remoteDeviceId = credential.deviceId
+        do {
+            try GatewayCredentialVault.store(credential.token, for: URL(string: endpoint)!)
+        } catch {
+            self.error = "保存桌面端凭证失败：\(error.localizedDescription)"
+            return
+        }
+        if let index = profiles.firstIndex(where: { $0.id == profile.id }) { profiles[index] = profile }
+        else { profiles.append(profile) }
+        persist()
+        // 没有活跃网关、或活跃的不是这台桌面端 → 切过去（会话 tab 依赖它）。
+        if activeID != profile.id { activate(profile, connect: true) }
+        else { activeStore.connect() }
     }
 
     private func activate(_ profile: GatewayProfile, connect: Bool) {
