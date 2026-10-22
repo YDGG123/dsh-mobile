@@ -441,6 +441,9 @@ struct WorkspaceView: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("打开侧边栏")
             Spacer()
+            // U5：原版连接入口常驻——扫码 / 手动输入配对信息（已连接时也可重新配对）。
+            authenticationMenu
+                .padding(.trailing, 6)
             settingsButton
                 // Match the outer glass circle to the workspace cards' trailing edge.
                 .padding(.trailing, -4)
