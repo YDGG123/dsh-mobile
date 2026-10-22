@@ -16,6 +16,8 @@ struct BridgeTeamMirror: Decodable {
     let capabilities: BridgeTeamCapabilitiesMirror?
     let bots: [BridgeTeamRow]
     let rooms: [BridgeTeamRow]
+    /// U4：普通会话（kind == "session"）。
+    let sessions: [BridgeTeamRow]?
     let models: [BridgeTeamModelRow]?
     let lastError: BridgeTeamErrorMirror?
     let pendingActions: [String: BridgeTeamPendingMirror]?
@@ -77,6 +79,9 @@ struct BridgeTeamCapabilitiesMirror: Decodable {
 
     /// 群聊 Tab 仅在 bridge 声明 groups 后出现（fail-closed）。
     var groupsAllowed: Bool { features?["groups"] == true }
+
+    /// U4「会话」分段：bridge 宣告 sessions 才出现（fail-closed）。
+    var sessionsAllowed: Bool { features?["sessions"] == true }
 }
 
 struct BridgeAvatarMirror: Decodable, Hashable {
@@ -100,8 +105,15 @@ struct BridgeTeamRow: Decodable, Identifiable, Hashable {
     let admin: String?
     let mode: String?
     let avatar: BridgeAvatarMirror?
+    /// U4：普通会话的最近活跃时间（ms）。
+    let lastActiveAt: Int64?
+    /// U4：工作区名（服务端只下发末段）。
+    let workspace: String?
+    /// U4：会话正在运行。
+    let busy: Bool?
 
     var isRoom: Bool { kind == "room" }
+    var isSession: Bool { kind == "session" }
 }
 
 struct BridgeTeamErrorMirror: Decodable {

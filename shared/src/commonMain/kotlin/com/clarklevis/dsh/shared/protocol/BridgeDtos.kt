@@ -67,9 +67,16 @@ data class BridgeConversationRow(
     val members: List<String> = emptyList(),
     val admin: String? = null,
     val mode: String? = null,
-    val avatar: JsonObject? = null
+    val avatar: JsonObject? = null,
+    /** U4：普通会话行的最近活跃时间（ms），团队行不带。 */
+    val lastActiveAt: Long? = null,
+    /** U4：工作区名（服务端只下发末段，不下发完整路径）。 */
+    val workspace: String? = null,
+    /** U4：会话正在运行。 */
+    val busy: Boolean? = null
 ) {
     val isRoom: Boolean get() = kind == "room"
+    val isSession: Boolean get() = kind == "session"
 }
 
 @Serializable
@@ -122,6 +129,8 @@ data class BridgeTeamState(
     val readOnly: String? = null,
     val bots: List<BridgeConversationRow> = emptyList(),
     val rooms: List<BridgeConversationRow> = emptyList(),
+    /** U4：非团队的普通会话（kind:"session"）。 */
+    val sessions: List<BridgeConversationRow> = emptyList(),
     val models: List<BridgeModelRow> = emptyList(),
     val defaultModel: String? = null,
     val mainBotIds: List<String> = emptyList(),

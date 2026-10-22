@@ -38,6 +38,7 @@ class TeamReducerTest {
     private fun bridgeState(
         revision: Long = 7,
         readOnly: String? = null,
+        sessions: List<BridgeConversationRow> = emptyList(),
         bots: List<BridgeConversationRow> = listOf(
             BridgeConversationRow(id = "chief", kind = "bot", name = "Chief", sessionId = "s-chief", pinned = true),
             BridgeConversationRow(id = "coder", kind = "bot", name = "Coder", sessionId = "s-coder")
@@ -45,6 +46,7 @@ class TeamReducerTest {
     ) = BridgeTeamState(
         revision = kotlinx.serialization.json.JsonPrimitive(revision),
         readOnly = readOnly,
+        sessions = sessions,
         bots = bots,
         rooms = listOf(
             BridgeConversationRow(
@@ -119,6 +121,33 @@ class TeamReducerTest {
         assertEquals(3L, switched.revision)
         assertEquals(listOf("chief"), switched.bots.map { it.id })
         assertEquals("new-chief", switched.bots.first().sessionId)
+    }
+
+    @Test
+    fun sessionsAreSortedByLastActiveAndOpenIsAllowed() {
+        // U4：普通会话行（kind:"session"）进 state，按 lastActiveAt 倒序；点入放行。
+        val state = TeamReducer.reduce(
+            ready(),
+            TeamAction.RefreshSucceeded(
+                info(),
+                bridgeState(
+                    revision = 8,
+                    sessions = listOf(
+                        BridgeConversationRow(id = "s-old", kind = "session", name = "Old", sessionId = "s-old", lastActiveAt = 10),
+                        BridgeConversationRow(id = "s-new", kind = "session", name = "New", sessionId = "s-new", lastActiveAt = 90, workspace = "alpha"),
+                        BridgeConversationRow(id = "s-unknown", kind = "session", name = "Unknown", sessionId = "s-unknown")
+                    )
+                ),
+                BridgeConversationsPage()
+            )
+        )
+        assertEquals(listOf("s-new", "s-old", "s-unknown"), state.sessions.map { it.id })
+        assertEquals("alpha", state.sessions.first().workspace)
+        // 团队行不受影响。
+        assertEquals(listOf("chief", "coder"), state.bots.map { it.id })
+        val open = TeamReducer.resolveOpenTarget(state, "s-new")
+        assertTrue(open is OpenTargetResolution.Ready, "会话行应可打开")
+        assertEquals("s-new", (open as OpenTargetResolution.Ready).sessionId)
     }
 
     @Test

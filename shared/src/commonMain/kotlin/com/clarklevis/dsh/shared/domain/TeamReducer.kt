@@ -59,6 +59,8 @@ data class TeamUiState(
     val capabilities: TeamCapabilities = TeamCapabilities.Denied,
     val bots: List<BridgeConversationRow> = emptyList(),
     val rooms: List<BridgeConversationRow> = emptyList(),
+    /** U4：普通会话（顶部分段「会话」页）。 */
+    val sessions: List<BridgeConversationRow> = emptyList(),
     val models: List<BridgeModelRow> = emptyList(),
     val defaultModel: String? = null,
     val mainBotIds: List<String> = emptyList(),
@@ -298,6 +300,8 @@ object TeamReducer {
         }
         val bots = sortRows(action.state.bots, action.state.mainBotIds)
         val rooms = sortRows(action.state.rooms, emptyList())
+        // 普通会话按最近活跃倒序（无时间戳的排最后，保持服务端顺序）。
+        val sessions = sortSessions(action.state.sessions)
         return state.copy(
             phase = TeamPhase.READY,
             revision = incomingRevision ?: state.revision,
@@ -306,6 +310,7 @@ object TeamReducer {
             capabilities = TeamCapabilities.fromInfo(action.info),
             bots = bots,
             rooms = rooms,
+            sessions = sessions,
             models = action.state.models,
             defaultModel = action.state.defaultModel,
             mainBotIds = action.state.mainBotIds,
@@ -346,12 +351,16 @@ object TeamReducer {
         )
     }
 
+    /** U4：普通会话按最近活跃倒序；缺时间戳的排在最后（稳定排序保持服务端顺序）。 */
+    fun sortSessions(rows: List<BridgeConversationRow>): List<BridgeConversationRow> =
+        rows.sortedByDescending { it.lastActiveAt ?: Long.MIN_VALUE }
+
     /** 打开会话的解析：目标可见且带 sessionId 才放行；其余给出确定性失败原因。 */
     fun resolveOpenTarget(
         state: TeamUiState,
         conversationId: String
     ): OpenTargetResolution {
-        val row = state.bots.plus(state.rooms).firstOrNull { it.id == conversationId }
+        val row = state.bots.plus(state.rooms).plus(state.sessions).firstOrNull { it.id == conversationId }
             ?: return OpenTargetResolution.Denied(
                 BridgeTeamError(
                     source = BridgeTeamError.SOURCE_WIRE,

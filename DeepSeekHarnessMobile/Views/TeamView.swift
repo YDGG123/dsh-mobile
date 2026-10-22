@@ -9,7 +9,7 @@ struct TeamView: View {
     var onOpenConversation: (String) -> Bool
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
-    @State private var segment: Segment = .bots
+    @State private var segment: Segment = .team
     @State private var detail: BridgeTeamRow?
     @State private var openFailure: String?
     @State private var showsDevices = false
@@ -20,8 +20,8 @@ struct TeamView: View {
     @State private var bridgeChat: BridgeChatTarget?
 
     private enum Segment: String, CaseIterable {
-        case bots = "Bots"
-        case rooms = "群聊"
+        case team = "团队"
+        case sessions = "会话"
     }
 
     var body: some View {
@@ -123,7 +123,7 @@ struct TeamView: View {
 
     private func listContent(_ mirror: BridgeTeamMirror) -> some View {
         VStack(spacing: 12) {
-            if groupsAllowed(mirror) {
+            if showsSegment(mirror) {
                 Picker("分段", selection: $segment) {
                     ForEach(Segment.allCases, id: \.self) { item in
                         Text(item.rawValue).tag(item)
@@ -134,10 +134,13 @@ struct TeamView: View {
                 .padding(.top, 12)
             }
             List {
-                if segment == .bots || !groupsAllowed(mirror) {
-                    botsSection(mirror)
+                if segment == .sessions {
+                    sessionsSection(mirror)
                 } else {
-                    roomsSection(mirror)
+                    botsSection(mirror)
+                    if groupsAllowed(mirror) {
+                        roomsSection(mirror)
+                    }
                 }
                 if let error = mirror.lastError {
                     Section {
@@ -174,6 +177,70 @@ struct TeamView: View {
                 }
             }
         }
+    }
+
+    @ViewBuilder
+    private func sessionsSection(_ mirror: BridgeTeamMirror) -> some View {
+        Section("会话") {
+            let rows = mirror.sessions ?? []
+            if rows.isEmpty {
+                emptyRow("暂无其他会话")
+            } else {
+                ForEach(rows) { row in
+                    sessionCell(row)
+                }
+            }
+        }
+    }
+
+    /// 顶部分段：bridge 宣告 sessions 能力、或已拿到会话行时出现（旧服务端保持原样）。
+    private func showsSegment(_ mirror: BridgeTeamMirror) -> Bool {
+        if groupsAllowed(mirror) { return true }
+        if mirror.capabilities?.sessionsAllowed == true { return true }
+        return !(mirror.sessions ?? []).isEmpty
+    }
+
+    private func sessionCell(_ row: BridgeTeamRow) -> some View {
+        Button {
+            open(row)
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "bubble.left.and.text.bubble.right.fill")
+                    .frame(width: 38, height: 38)
+                    .background(Color.secondary.opacity(0.12), in: Circle())
+                    .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(row.name).font(.body).lineLimit(1)
+                    HStack(spacing: 6) {
+                        if let workspace = row.workspace, !workspace.isEmpty {
+                            Text(workspace).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        }
+                        if let active = row.lastActiveAt {
+                            Text(Self.relativeTime(active))
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                }
+                Spacer()
+                if row.busy == true {
+                    badge("运行中")
+                }
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// ms 时间戳 → 人话相对时间（iOS 16 可用的相对格式化器）。
+    static func relativeTime(_ millis: Int64) -> String {
+        let date = Date(timeIntervalSince1970: Double(millis) / 1000)
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        return formatter.localizedString(for: date, relativeTo: Date())
     }
 
     @ViewBuilder
