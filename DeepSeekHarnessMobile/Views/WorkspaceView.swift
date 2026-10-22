@@ -22,8 +22,6 @@ struct WorkspaceView: View {
     @State private var showsDirectoryBrowser = false
     @State private var showsQRScanner = false
     @State private var showsManualPairing = false
-    @State private var showsTeam = false
-    @State private var bridgeChat: BridgeChatTarget?
     @State private var showsBridgePairing = false
     @State private var drawerOffset: CGFloat = 0
     @State private var drawerDragStart: CGFloat?
@@ -156,23 +154,8 @@ struct WorkspaceView: View {
             ManualGatewayPairingSheet(gateway: hosts.pairingStore?.gateway ?? store.gateway)
                 .environmentObject(store)
         }
-        .sheet(item: $bridgeChat) { target in
-            BridgeConversationView(title: target.row.name, engine: target.engine)
-        }
         .sheet(isPresented: $showsBridgePairing) {
             BridgePairingSheet(team: bridgeTeam)
-        }
-        .sheet(isPresented: $showsTeam) {
-            TeamView(team: bridgeTeam) { sessionId in
-                // P1：团队页只做入口；命中现有 gateway 会话则复用既有聊天链路。
-                guard let session = store.sessions.first(where: { $0.id == sessionId }) else {
-                    return false
-                }
-                showsTeam = false
-                store.lastError = nil
-                onOpenSession(session)
-                return true
-            }
         }
     }
 
@@ -419,16 +402,14 @@ struct WorkspaceView: View {
     }
 
     private func openBridgeConversation(_ row: BridgeTeamRow) {
-        // U5：一次配对已顺带下发网关凭证——优先用原版聊天窗口（工具卡/审批卡齐全）。
+        // U5④：所有聊天入口统一走原版 ConversationView（工具卡/审批卡/附件齐全）。
+        // Bot 会话在网关侧就是一条 session——一次配对已顺带下发网关凭证，这里直接按 id 找。
         if let session = store.sessions.first(where: { $0.id == row.sessionId }) {
             onOpenSession(session)
             return
         }
-        guard let engine = bridgeTeam.chatEngine(conversationId: row.id, sessionId: row.sessionId) else {
-            store.lastError = "尚未完成配对或会话不可用，请先在团队页完成配对。"
-            return
-        }
-        bridgeChat = BridgeChatTarget(row: row, engine: engine)
+        // 找不到通常是网关凭据缺失（例如老版本配对）——给可执行的提示，不回退简陋聊天页。
+        store.lastError = "这个 Bot 的会话还没同步到本机。请稍等自动刷新，或在「会话」tab 顶部重新配对一次。"
     }
 
     private func header(openDrawer: @escaping () -> Void) -> some View {
