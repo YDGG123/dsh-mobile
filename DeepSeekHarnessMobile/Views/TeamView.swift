@@ -13,9 +13,6 @@ struct TeamView: View {
     @State private var detail: BridgeTeamRow?
     @State private var openFailure: String?
     @State private var showsDevices = false
-    @State private var showsBridgeScanner = false
-    @State private var showsBridgePairing = false
-    @State private var pastedPairingJson = ""
     @State private var didBootstrap = false
     @State private var bridgeChat: BridgeChatTarget?
 
@@ -52,12 +49,6 @@ struct TeamView: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     HStack(spacing: 16) {
-                        Button {
-                            showsBridgePairing = true
-                        } label: {
-                            Image(systemName: "server.rack")
-                        }
-                        .accessibilityLabel("服务器地址")
                         Button {
                             showsDevices = true
                         } label: {
@@ -97,24 +88,8 @@ struct TeamView: View {
             .sheet(isPresented: $showsDevices) {
                 devicesView
             }
-            .sheet(isPresented: $showsBridgePairing) {
-                BridgePairingSheet(team: team)
-            }
             .sheet(item: $bridgeChat) { target in
                 BridgeConversationView(title: target.row.name, engine: target.engine)
-            }
-            .fullScreenCover(isPresented: $showsBridgeScanner) {
-                GatewayQRScannerView(
-                    onCode: { code in
-                        showsBridgeScanner = false
-                        team.pairPastedPayload(code)
-                    },
-                    onCancel: { showsBridgeScanner = false },
-                    onFailure: { message in
-                        showsBridgeScanner = false
-                        team.setPairingFailure(message)
-                    }
-                )
             }
         }
     }
@@ -369,6 +344,10 @@ struct TeamView: View {
 
     // MARK: - 状态视图
 
+    /// B3：配对入口统一回到网关（扫码为主、手输地址 + 配对码为辅）。
+    /// 团队页不再自带 bridge 配对——粘贴配对资料 JSON 那条路径已退役，
+    /// bridge 凭证改由网关配对成功后的 `paired` 帧里 `bridgeSession` 字段下发；
+    /// 一次配对同时拿到会话与团队两套凭证，没有第二条路径需要用户理解。
     private var pairingPrompt: some View {
         ScrollView {
             VStack(spacing: 14) {
@@ -378,102 +357,32 @@ struct TeamView: View {
                     .padding(.top, 24)
                 Text("尚未连接桌面端")
                     .font(.headline)
-                Text("在电脑端「手机访问 → App」点生成配对码，把弹窗里的配对资料整段复制，粘贴到下面连接。")
+                Text("回主页点右上角钥匙图标 →「扫描二维码」或「手动输入配对信息」。\n一次配对会同时带上 Bot 团队。")
                     .font(.footnote)
                     .multilineTextAlignment(.center)
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 24)
 
-                ZStack(alignment: .topLeading) {
-                    if pastedPairingJson.isEmpty {
-                        Text("在此粘贴配对 JSON（{\"url\":…,\"code\":…}）")
-                            .font(.footnote)
-                            .foregroundStyle(.tertiary)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 10)
-                    }
-                    TextEditor(text: $pastedPairingJson)
-                        .font(.system(.footnote, design: .monospaced))
-                        .frame(minHeight: 96, maxHeight: 140)
-                        .padding(4)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled(true)
-                }
-                .background(Color(.secondarySystemGroupedBackground))
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .stroke(Color.secondary.opacity(0.25), lineWidth: 0.8)
-                )
-                .padding(.horizontal, 20)
-
-                Button {
-                    connectWithPastedPayload()
-                } label: {
-                    Text("连接桌面端")
-                        .frame(maxWidth: 280)
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(pastedPairingJson.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isPairingBusy)
-
-                switch team.pairingState {
-                case .awaitingApproval:
-                    HStack(spacing: 8) {
-                        ProgressView()
-                        Text("等待桌面端批准…请在电脑上点「批准」")
-                            .font(.footnote)
-                    }
-                    Button("取消") { team.cancelPairing() }
-                        .font(.footnote)
-                case .connecting:
-                    HStack(spacing: 8) {
-                        ProgressView()
-                        Text("正在连接服务器…").font(.footnote)
-                    }
-                case .failed(let message):
+                if case .failed(let message) = team.pairingState {
                     Text(message)
                         .font(.footnote)
                         .foregroundStyle(.red)
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 24)
-                case .idle, .paired:
-                    EmptyView()
                 }
-
-                Divider()
-                    .padding(.horizontal, 40)
-                    .padding(.vertical, 4)
 
                 Button {
-                    showsBridgePairing = true
+                    dismiss()
                 } label: {
-                    Label("手动输入服务器地址与配对码", systemImage: "keyboard")
+                    Label("回主页配对", systemImage: "key")
                         .frame(maxWidth: 280)
                 }
-                .buttonStyle(.bordered)
-
-                Button {
-                    showsBridgeScanner = true
-                } label: {
-                    Label("扫描配对二维码", systemImage: "qrcode.viewfinder")
-                        .frame(maxWidth: 280)
-                }
-                .buttonStyle(.bordered)
+                .buttonStyle(.borderedProminent)
+                .padding(.top, 4)
                 .padding(.bottom, 24)
             }
             .frame(maxWidth: .infinity)
         }
-    }
-
-    private var isPairingBusy: Bool {
-        if case .awaitingApproval = team.pairingState { return true }
-        return team.pairingState == .connecting
-    }
-
-    private func connectWithPastedPayload() {
-        let raw = pastedPairingJson.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !raw.isEmpty else { return }
-        team.pairPastedPayload(raw)
     }
 
     private var loadingView: some View {
@@ -495,10 +404,6 @@ struct TeamView: View {
             Spacer()
             Button("重试") {
                 Task { await team.refreshNow() }
-            }
-            .font(.footnote)
-            Button("更换地址") {
-                showsBridgePairing = true
             }
             .font(.footnote)
         }
@@ -851,122 +756,5 @@ private extension Color {
                 opacity: 1
             )
         }
-    }
-}
-
-// MARK: - 手动配对（服务器地址 + 配对码，或粘贴桌面端「复制配对资料」）
-
-struct BridgePairingSheet: View {
-    @ObservedObject var team: BridgeTeamAdapter
-    @Environment(\.dismiss) private var dismiss
-    @State private var pasted = ""
-    @State private var url = ""
-    @State private var code = ""
-    @State private var localError: String?
-
-    private var busy: Bool {
-        team.pairingState == .connecting || isAwaitingApproval
-    }
-
-    private var isAwaitingApproval: Bool {
-        if case .awaitingApproval = team.pairingState { return true }
-        return false
-    }
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section("粘贴配对资料（桌面端「复制配对资料」）") {
-                    TextEditor(text: $pasted)
-                        .frame(minHeight: 88)
-                        .font(.footnote)
-                    Button("解析并填入") {
-                        parsePasted()
-                    }
-                    .disabled(pasted.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
-
-                Section("服务器地址与配对码") {
-                    TextField("服务器地址（https://…）", text: $url)
-                        .keyboardType(.URL)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled(true)
-                    TextField("配对码", text: $code)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled(true)
-                }
-
-                if let localError {
-                    Section {
-                        Text(localError)
-                            .font(.footnote)
-                            .foregroundStyle(.red)
-                    }
-                }
-                if case .failed(let message) = team.pairingState {
-                    Section {
-                        Text(message)
-                            .font(.footnote)
-                            .foregroundStyle(.red)
-                    }
-                }
-                if isAwaitingApproval {
-                    Section {
-                        HStack(spacing: 8) {
-                            ProgressView()
-                            Text("等待桌面端批准…请到电脑上点「批准」")
-                                .font(.footnote)
-                        }
-                    }
-                }
-
-                Section {
-                    Button {
-                        start()
-                    } label: {
-                        Text("开始配对")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .disabled(busy)
-                }
-            }
-            .navigationTitle("配对桌面端")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("关闭") { dismiss() }
-                }
-            }
-            .onChange(of: team.pairingState) { state in
-                if state == .paired { dismiss() }
-            }
-        }
-    }
-
-    private func parsePasted() {
-        localError = nil
-        let nowMillis = Int64(Date().timeIntervalSince1970 * 1000)
-        let parsed = BridgePairingKt.parseBridgePairingPayload(raw: pasted, nowMillis: nowMillis)
-        guard parsed.isValid, let parsedUrl = parsed.url, let parsedCode = parsed.code else {
-            localError = BridgeTeamAdapter.parseFailureMessage(for: parsed.status)
-            return
-        }
-        url = parsedUrl
-        code = parsedCode
-    }
-
-    private func start() {
-        localError = nil
-        let trimmedUrl = url.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedCode = code.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedUrl.isEmpty else {
-            localError = "请填写服务器地址"
-            return
-        }
-        guard !trimmedCode.isEmpty else {
-            localError = "请填写配对码"
-            return
-        }
-        team.pair(url: trimmedUrl, code: trimmedCode)
     }
 }

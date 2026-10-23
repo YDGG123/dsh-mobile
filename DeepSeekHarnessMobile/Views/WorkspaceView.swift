@@ -26,7 +26,6 @@ struct WorkspaceView: View {
     @State private var showsManualPairing = false
     @State private var showsTeam = false
     @State private var bridgeChat: BridgeChatTarget?
-    @State private var showsBridgePairing = false
     @State private var drawerOffset: CGFloat = 0
     @State private var drawerDragStart: CGFloat?
     @State private var drawerFeedback = WorkspaceDrawerFeedback()
@@ -160,9 +159,6 @@ struct WorkspaceView: View {
         }
         .sheet(item: $bridgeChat) { target in
             BridgeConversationView(title: target.row.name, engine: target.engine)
-        }
-        .sheet(isPresented: $showsBridgePairing) {
-            BridgePairingSheet(team: bridgeTeam)
         }
         .sheet(isPresented: $showsTeam) {
             TeamView(team: bridgeTeam) { sessionId in
@@ -362,10 +358,12 @@ struct WorkspaceView: View {
                 .padding(.horizontal, 12).padding(.vertical, 6)
                 .background(palette.surface(0.1), in: Capsule())
 
+                // B3：配对统一回到网关（扫码为主、手输地址 + 配对码为辅）。
                 Button {
-                    showsBridgePairing = true
+                    store.lastError = nil
+                    showsManualPairing = true
                 } label: {
-                    Text("更换服务器地址").appFont(.caption.weight(.semibold))
+                    Text("重新配对").appFont(.caption.weight(.semibold))
                 }
                 .buttonStyle(.plain)
                 .padding(.horizontal, 12).padding(.vertical, 6)
@@ -629,10 +627,6 @@ struct WorkspaceView: View {
             onManualEntry: {
                 store.lastError = nil
                 showsManualPairing = true
-            },
-            onPasteBridgeJSON: {
-                store.lastError = nil
-                showsBridgePairing = true
             }
         )
     }
@@ -794,14 +788,6 @@ struct WorkspaceView: View {
                     }
                     .buttonStyle(.bordered)
                 }
-                Button {
-                    showsBridgePairing = true
-                } label: {
-                    Text("或粘贴配对资料 JSON")
-                        .appFont(.caption)
-                        .foregroundStyle(palette.ink(0.55))
-                }
-                .buttonStyle(.plain)
             }
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -825,12 +811,23 @@ struct WorkspaceView: View {
                 Text("原因：\(error)")
                     .appFont(.caption).foregroundStyle(.orange)
             }
-            Button {
-                showsBridgePairing = true
-            } label: {
-                Text("重新粘贴配对资料").appFont(.caption.weight(.semibold))
+            // B3：bridge 粘贴路径退役，重配只能走网关（一次配对双凭证）。
+            HStack(spacing: 8) {
+                Button {
+                    store.lastError = nil
+                    showsQRScanner = true
+                } label: {
+                    Label("扫码重配", systemImage: "qrcode.viewfinder").appFont(.caption.weight(.semibold))
+                }
+                .buttonStyle(.bordered)
+                Button {
+                    store.lastError = nil
+                    showsManualPairing = true
+                } label: {
+                    Label("手动输入", systemImage: "keyboard").appFont(.caption.weight(.semibold))
+                }
+                .buttonStyle(.bordered)
             }
-            .buttonStyle(.bordered)
             .padding(.top, 2)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1331,8 +1328,6 @@ private struct GatewayAuthenticationMenu: View {
     @ObservedObject var gateway: GatewayClient
     let onScan: () -> Void
     let onManualEntry: () -> Void
-    /// U5：bridge 配对资料 JSON（面板「生成配对资料」那条），任何连接状态都可点。
-    let onPasteBridgeJSON: () -> Void
 
     var body: some View {
         if #available(iOS 26.0, *) {
@@ -1354,9 +1349,6 @@ private struct GatewayAuthenticationMenu: View {
             }
             Button(action: onManualEntry) {
                 Label("手动输入配对信息", systemImage: "keyboard")
-            }
-            Button(action: onPasteBridgeJSON) {
-                Label("粘贴配对资料 JSON", systemImage: "doc.on.clipboard")
             }
         } label: {
             Image(systemName: "person.badge.key.fill")

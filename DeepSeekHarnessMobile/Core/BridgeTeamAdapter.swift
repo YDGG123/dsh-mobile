@@ -418,6 +418,11 @@ final class BridgeTeamAdapter: ObservableObject {
     // MARK: - 配对（§2.8：KMP 解析校验 → /info 校验 → /pairings → 轮询 /pairings/complete）
 
     /// 粘贴桌面端「复制配对资料」的 JSON（QR 同形）：解析与校验走 KMP。
+    ///
+    /// **B3 起已无 UI 入口**（粘贴 JSON 那条配对路径退役）：bridge 凭证改由网关配对成功后的
+    /// `paired` 帧 `bridgeSession` 字段下发，用户只需要走网关的扫码 / 手输地址 + 配对码。
+    /// 这里保留实现是给「网关降级、只能手工塞一份 bridge 会话」的应急排查用，
+    /// 不要在界面上重新接回来——那会让用户面对两条看起来都能配对的路径。
     func pairPastedPayload(_ raw: String) {
         let nowMillis = Int64(Date().timeIntervalSince1970 * 1000)
         let parsed = BridgePairingKt.parseBridgePairingPayload(raw: raw, nowMillis: nowMillis)
