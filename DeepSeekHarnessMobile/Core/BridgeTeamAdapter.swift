@@ -682,6 +682,35 @@ final class BridgeTeamAdapter: ObservableObject {
         return value.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// 诊断摘要：Bot tab 空态直接显示，省掉「猜为什么没数据」。
+    /// 只暴露非敏感信息（不含 token）。
+    struct Diagnostics {
+        let phase: String
+        let pairedState: String
+        let hasStoredSession: Bool
+        let serverUrl: String?
+        let error: String?
+    }
+
+    func diagnostics() -> Diagnostics {
+        let raw = sessionStore.loadJson()
+        return Diagnostics(
+            phase: mirror?.phase ?? "nil",
+            pairedState: {
+                switch pairingState {
+                case .idle: return "idle"
+                case .connecting: return "connecting"
+                case .awaitingApproval: return "awaitingApproval"
+                case .paired: return "paired"
+                case .failed(let message): return "failed((message))"
+                }
+            }(),
+            hasStoredSession: raw != nil,
+            serverUrl: raw.flatMap { Self.sessionServerUrl($0) },
+            error: lastTransportError ?? connectionIssue?.detail
+        )
+    }
+
     func restoreSession() {
         store.restoreSession()
     }

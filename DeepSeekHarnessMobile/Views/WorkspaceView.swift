@@ -296,12 +296,7 @@ struct WorkspaceView: View {
                 if bridgeListReady {
                     bridgeSessionsSection
                 } else {
-                    Text("尚未配对桌面端。点上面的「更换服务器地址」完成一次配对后，这里会显示 Bot 与群聊。")
-                        .appFont(.subheadline)
-                        .foregroundStyle(.white.opacity(0.55))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(18)
-                        .background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 15))
+                    botDiagnosticsCard
                 }
             } else if displayedSessions.isEmpty {
                 emptySessions.id("workspace-sessions-empty")
@@ -781,6 +776,35 @@ struct WorkspaceView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 16))
         }
+    }
+
+    /// Bot tab 未就绪时的诊断卡：直接给出 phase / Keychain 会话 / serverUrl，
+    /// 以后出问题不用再靠猜或反复索取日志。
+    @ViewBuilder
+    private var botDiagnosticsCard: some View {
+        let info = bridgeTeam.diagnostics()
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Bot 团队尚未就绪")
+                .appFont(.subheadline.weight(.semibold))
+            Text("phase：\(info.phase) · 配对态：\(info.pairedState)")
+                .appFont(.caption).foregroundStyle(.white.opacity(0.6))
+            Text("本机会话：\(info.hasStoredSession ? "有" : "无") · serverUrl：\(info.serverUrl ?? "（空）")")
+                .appFont(.caption).foregroundStyle(.white.opacity(0.6))
+            if let error = info.error {
+                Text("原因：\(error)")
+                    .appFont(.caption).foregroundStyle(.orange)
+            }
+            Button {
+                showsBridgePairing = true
+            } label: {
+                Text("重新粘贴配对资料").appFont(.caption.weight(.semibold))
+            }
+            .buttonStyle(.bordered)
+            .padding(.top, 2)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 15))
     }
 
     private var emptySessions: some View {
