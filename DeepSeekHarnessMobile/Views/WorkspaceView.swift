@@ -1680,26 +1680,32 @@ final class GatewayScannerController: UIViewController, AVCaptureMetadataOutputO
         previewLayer?.frame = view.bounds
         guard let connection = previewLayer?.connection,
               let orientation = view.window?.windowScene?.interfaceOrientation else { return }
-        let angle: CGFloat
-        switch orientation {
-        case .landscapeRight: angle = 0
-        case .landscapeLeft: angle = 180
-        case .portraitUpsideDown: angle = 270
-        default: angle = 90
-        }
-        // videoRotationAngle 自 iOS 17 起可用；更早系统用 videoOrientation。
+        // 两套 API 语义不同，必须分别映射：
+        // - iOS 17+ 的 videoRotationAngle 是「画面顺时针旋转角度」，竖屏=90
+        // - iOS 16 的 videoOrientation 是「设备/界面方向枚举」
+        // 曾经把角度直接拿去映射方向枚举（90 → .landscapeRight），导致竖着拿看到横画面。
         if #available(iOS 17.0, *) {
+            let angle: CGFloat
+            switch orientation {
+            case .landscapeRight: angle = 0
+            case .landscapeLeft: angle = 180
+            case .portraitUpsideDown: angle = 270
+            default: angle = 90
+            }
             if connection.isVideoRotationAngleSupported(angle) {
                 connection.videoRotationAngle = angle
             }
         } else if connection.isVideoOrientationSupported {
-            switch angle {
-            case 0: connection.videoOrientation = .portrait
-            case 90: connection.videoOrientation = .landscapeRight
-            case 180: connection.videoOrientation = .portraitUpsideDown
-            case 270: connection.videoOrientation = .landscapeLeft
-            default: connection.videoOrientation = .portrait
+            // iOS 16 回退：直接用界面方向，不经过角度中转。
+            let videoOrientation: AVCaptureVideoOrientation
+            switch orientation {
+            case .portrait: videoOrientation = .portrait
+            case .portraitUpsideDown: videoOrientation = .portraitUpsideDown
+            case .landscapeLeft: videoOrientation = .landscapeLeft
+            case .landscapeRight: videoOrientation = .landscapeRight
+            @unknown default: videoOrientation = .portrait
             }
+            connection.videoOrientation = videoOrientation
         }
     }
 

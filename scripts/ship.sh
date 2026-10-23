@@ -131,8 +131,8 @@ fi
 
 # 公开仓库的 macOS runner 在高峰时段可能长时间分配不到机器,任务会在
 # 约 15 分钟后被系统取消(表现为 conclusion=cancelled 且没有任何步骤)。
-# 这里检测到「排队超时取消」就自动重新触发,最多 RETRIES 次。
-RETRIES="${RETRIES:-3}"
+# 这里检测到「排队超时取消」就自动重新触发,RETRIES 次（默认 1，避免滥用构建额度）。
+RETRIES="${RETRIES:-1}"
 attempt=1
 while :; do
   echo "→ 等待构建(第 $attempt 轮,通常 10-20 分钟)..."

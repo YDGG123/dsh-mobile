@@ -8,6 +8,9 @@ struct SettingsView: View {
     @State private var pendingPermission: DefaultPermissionChoice?
     @State private var observedGatewayState: ConnectionState?
     @State private var showsPrivacyPolicy = false
+    /// 外观两项改为「点行 → 弹出选项层」，避免 .navigationLink Picker 的推入卡死。
+    @State private var showsInterfaceOptions = false
+    @State private var showsLanguageOptions = false
     @State private var showsReleaseNotes = false
     @AppStorage(AppFontScale.key) private var fontScale = 1.0
     @AppStorage(AppFontScale.followsSystemKey) private var fontFollowsSystem = false
@@ -199,22 +202,23 @@ struct SettingsView: View {
             }
 
             Section {
-                // 规则：这里**不要**用 .navigationLink 的 Picker。
-                // 它会为每个选项推入子页面，而 App 全局挂着动画背景（DeepOceanBackground），
-                // 二者组合在真机上会卡死（点「界面」后整页无响应，只能杀 App）。
-                // 改成内联渲染：选项直接展开在当前列表里，不涉及导航推入。
-                Picker("界面", selection: $store.interfaceStyle) {
-                    ForEach(InterfaceStyle.allCases) {
-                        Text($0.title).tag($0)
-                    }
+                // 规则：这里**不要**用 .navigationLink 的 Picker——它为每个选项推入子页面，
+                // 与全局动画背景（DeepOceanBackground）组合会在真机上卡死；.inline 又会平铺所有选项。
+                // 采用第三种形态：点行 → 弹出选项 sheet（不导航推入、不平铺）。
+                Button {
+                    showsInterfaceOptions = true
+                } label: {
+                    settingsValueRow(title: "界面", value: store.interfaceStyle.title)
                 }
-                .pickerStyle(.inline)
-                Picker("语言", selection: $store.appLanguage) {
-                    ForEach(AppLanguage.allCases) { language in
-                        Text(verbatim: language.title).tag(language)
-                    }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("appearance-style-row")
+                Button {
+                    showsLanguageOptions = true
+                } label: {
+                    settingsValueRow(title: "语言", value: store.appLanguage.title)
                 }
-                .pickerStyle(.inline)
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("appearance-language-row")
                 NavigationLink {
                     FontSizeSettingsView()
                 } label: {
@@ -285,9 +289,40 @@ struct SettingsView: View {
                 }
             }
         }
+        .sheet(isPresented: $showsInterfaceOptions) {
+            OptionListSheet(
+                title: "界面",
+                options: InterfaceStyle.allCases.map { OptionListSheet.Option(id: $0.rawValue, title: $0.title) },
+                selectedID: store.interfaceStyle.rawValue
+            ) { id in
+                if let style = InterfaceStyle(rawValue: id) { store.interfaceStyle = style }
+            }
+        }
+        .sheet(isPresented: $showsLanguageOptions) {
+            OptionListSheet(
+                title: "语言",
+                options: AppLanguage.allCases.map { OptionListSheet.Option(id: $0.rawValue, title: $0.title) },
+                selectedID: store.appLanguage.rawValue
+            ) { id in
+                if let language = AppLanguage(rawValue: id) { store.appLanguage = language }
+            }
+        }
         .sheet(isPresented: $showsPrivacyPolicy) {
             PrivacyPolicySheet()
         }
+    }
+
+    /// 「标题 + 当前值 + 右侧箭头」的设置行（点开弹出选项层用）。
+    private func settingsValueRow(title: String, value: String) -> some View {
+        HStack {
+            Text(title)
+            Spacer()
+            Text(verbatim: value).foregroundStyle(.secondary)
+            Image(systemName: "chevron.right")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.tertiary)
+        }
+        .contentShape(Rectangle())
     }
 }
 
@@ -959,5 +994,54 @@ private struct BundledAppReleaseInfo: Decodable {
               let notes = try? String(contentsOf: notesURL, encoding: .utf8) else { return nil }
         info.notes = notes
         return info
+    }
+}
+
+/// 通用选项弹出层：点一行即选中并关闭。
+/// 刻意不使用 NavigationStack 推入——历史 bug 是「导航推入 × 全局动画背景」导致卡死。
+private struct OptionListSheet: View {
+    struct Option: Identifiable {
+        let id: String
+        let title: String
+    }
+
+    let title: String
+    let options: [Option]
+    let selectedID: String
+    let onSelect: (String) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text(title).appFont(.headline)
+                Spacer()
+                Button(String(localized: "关闭")) { dismiss() }
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 14)
+
+            Divider()
+
+            List(options) { option in
+                Button {
+                    onSelect(option.id)
+                    dismiss()
+                } label: {
+                    HStack {
+                        Text(verbatim: option.title).foregroundStyle(.primary)
+                        Spacer()
+                        if option.id == selectedID {
+                            Image(systemName: "checkmark").foregroundStyle(DSHColor.ocean)
+                        }
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+            .listStyle(.plain)
+        }
+        .presentationDetents([.medium, .large])
     }
 }
