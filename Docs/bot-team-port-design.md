@@ -478,3 +478,47 @@ P1 明确不做：任何写操作、消息发送、通知、多 gateway 并存�
 2. `work` 工作态与 `instructions` 等字段依赖上游宿主的 team 投影/redaction 扩展（`bridge.describe v1 + redactedText`），bridge 快照恒空；P1 UI 必须对空值有体面降级。
 3. 双协议面（gateway + bridge）并存时 Keychain 里两套凭据的 profile 管理，需与 `MultiGatewayStore` 的多宿主模型对齐（开放问题，P1 评审时定）。
 4. bridge 团队状态无推送，8s 轮询在弱网/后台的耗电需要用 scenePhase 门控（已纳入 P1 验收 ③）。
+
+---
+
+## 9. Bot 提问的卡片渲染（U6 · 手机端必须可点选）
+
+### 9.1 现状核对（dsh-mobile 当前能力，读代码得出）
+
+| 能力 | 现状 | 证据 |
+| --- | --- | --- |
+| 可点选项卡片 | **已有**：`HumanQuestionView`（471 行）逐题渲染为卡片，选项是 `Button`，有选中态 | `HumanQuestionView.swift:176-217` |
+| 单选 / 多选 | **已有**：`GatewayQuestion.multiSelect` → `allowsMultipleSelections`，选中集合用 `[String]` | `GatewayDtos.kt:335-341`、`HumanQuestionView.swift:375` |
+| description 展示 | **已有**：选项可带 `description` 一起渲染 | `HumanQuestionView.swift:217` 起的 option 行 |
+| 整批一次提交 | **已有**：多题时「上一题/下一题/提交」，一次 `QuestionSubmission.Answer(answers)` 提交全部 | `HumanQuestionView.swift:273-292`、`QuestionReducer.kt:34-37` |
+| 提交值契约 | `selected` 必须是原始 `label`（不是索引） | `GatewayQuestionAnswer.selected` 注释与 reducer 校验 |
+| 自定义输入 | **已有**：选项之外可填 `custom` 文本 | `HumanQuestionView.swift:5-9`、`GatewayQuestionAnswer.custom` |
+| 跳过/取消 | **已有**：`QuestionSubmission.Cancel`（跳过并让 Agent 继续） | `HumanQuestionView.swift:55`、`Reducer` |
+| 计划批准变体 | **已有**：plan 类提问走「确认执行/拒绝」专用卡片 | `HumanQuestionView.swift:342-350` |
+| 群聊语境 | **缺归属信息**：`GatewayPendingQuestionRequest` 只有 `{rpcId, sessionId, questions, replay}`，**没有 roomId/群名**；卡片首行只显示题目 header，不显示「哪个 Bot、在哪个群问的」 | `GatewayDtos.kt:345-354`、`HumanQuestionView.swift:151-161` |
+| bridge（`/mobile/v1`）侧提问 | **未投影**：`TeamState.questions` 恒为 `{}`，`work.approvals` 恒空 | `dsh-plugin-mobile-gateway/lib/mobile-v1/adapter.mjs` 的 `state()` |
+
+**结论**：卡片本体不缺，缺的是**群聊归属**与**多来源聚合**。手机端要能回答「这是谁在哪个群问的」，否则群语境下两个 Bot 同时提问会混淆。
+
+### 9.2 群聊语义（为什么群语境是设计内的）
+
+MuQY1818 的 `TeamState.questions` 与 `TeamWork.approvals` 都按 `roomId/sessionId` 归属下发，说明**群内 Bot 提问是一等场景**，不是只给单聊。我们的实现要补两件事：
+
+1. **归属**：提问请求需带 `roomId`（或群 sessionId）+ 提问者 botId；可由 gateway 协议在 `question-requested` 上扩展（插件侧从 session → team 映射补两个字段），或由手机端用 `sessionId` 反查团队镜像（已有 `bots[].sessionId`，零协议改动，先用这条）。
+2. **聚合**：`QuestionState.pendingRequests` 已是列表，但 UI 目前一次只展示一个请求；群语境下要按「会话 → 提问」分组，并在对应会话行显示待答角标。
+
+### 9.3 MVP 切片（第一期必须包含）
+
+- 卡片渲染（可点选项、单选/多选、description、自定义输入、整批提交）：**已完成，纳入第一期基线**，不再重复开发
+- 群聊归属与待答角标：第一期做「用 `sessionId` 反查 bot/room 显示来源」的最小版本（零协议改动）
+- 多请求聚合列表：第一期做「按会话分组 + 未读数」，不引入复杂队列 UI
+
+### 9.4 路线取舍（A/B 的实际结论）
+
+题目给的两条路在实现过程中已经**合流**，真实架构是第三种：
+
+- 用户自有的 `dsh-plugin-mobile-gateway`（v0.10.4，适配 DSH 0.2.1-rc.1）**已移植 `/mobile/v1` 协议**（配对、团队投影、动作、WS、面板），且与旧网关协议共用同一进程/端口/隧道
+- 因此：**不需要安装第三方改造过的 DS Bot**（B 的信任问题不存在），也不需要另造一套团队协议（A 的重复劳动不存在）
+- 手机端两条连接一次配对即可拿到：网关凭证（原版会话列表 + 富聊天 + **提问卡片**）与 bridge 凭证（团队结构：bots/rooms）
+
+**推荐**：维持当前「一次配对、双协议」形态；提问卡片走**网关协议**（已实现且内容最全：工具卡/审批卡/提问卡同源），团队结构走 **bridge 协议**。`/mobile/v1` 的 `questions` 保持空投影即可，不重复实现一套卡片通道。
