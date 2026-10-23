@@ -274,13 +274,42 @@ struct WorkspaceView: View {
         nonmutating set { primaryTabRaw = newValue.rawValue }
     }
 
+    /// 自绘两段控件。
+    /// 不用系统 Picker(.segmented)：在深色自定义主题 + 滚动容器里它不吃点击（真机表现为
+    /// 「Bot 是灰的、点了不切换」），换成两个显式 Button，命中区域与选中态都自己控制。
     private var primaryTabPicker: some View {
-        Picker("主分段", selection: Binding(get: { primaryTab }, set: { primaryTab = $0 })) {
+        HStack(spacing: 0) {
             ForEach(PrimaryTab.allCases, id: \.self) { tab in
-                Text(tab.rawValue).tag(tab)
+                let selected = primaryTab == tab
+                Button {
+                    guard !selected else { return }
+                    withAnimation(.easeInOut(duration: 0.18)) { primaryTab = tab }
+                } label: {
+                    Text(tab.rawValue)
+                        .appFont(.subheadline.weight(selected ? .semibold : .regular))
+                        .foregroundStyle(selected ? Color.white : Color.white.opacity(0.6))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                        .background {
+                            if selected {
+                                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                                    .fill(Color.white.opacity(0.18))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 9, style: .continuous)
+                                            .stroke(Color.white.opacity(0.18), lineWidth: 0.5)
+                                    )
+                            }
+                        }
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(tab.rawValue)
+                .accessibilityAddTraits(selected ? [.isSelected, .isButton] : .isButton)
             }
         }
-        .pickerStyle(.segmented)
+        .padding(4)
+        .background(Color.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .accessibilityElement(children: .contain)
         .accessibilityLabel("首页分组")
     }
 
