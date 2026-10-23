@@ -199,18 +199,22 @@ struct SettingsView: View {
             }
 
             Section {
+                // 规则：这里**不要**用 .navigationLink 的 Picker。
+                // 它会为每个选项推入子页面，而 App 全局挂着动画背景（DeepOceanBackground），
+                // 二者组合在真机上会卡死（点「界面」后整页无响应，只能杀 App）。
+                // 改成内联渲染：选项直接展开在当前列表里，不涉及导航推入。
                 Picker("界面", selection: $store.interfaceStyle) {
                     ForEach(InterfaceStyle.allCases) {
                         Text($0.title).tag($0)
                     }
                 }
-                .pickerStyle(.navigationLink)
+                .pickerStyle(.inline)
                 Picker("语言", selection: $store.appLanguage) {
                     ForEach(AppLanguage.allCases) { language in
                         Text(verbatim: language.title).tag(language)
                     }
                 }
-                .pickerStyle(.navigationLink)
+                .pickerStyle(.inline)
                 NavigationLink {
                     FontSizeSettingsView()
                 } label: {
