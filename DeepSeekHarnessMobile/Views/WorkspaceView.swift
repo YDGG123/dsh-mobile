@@ -288,7 +288,7 @@ struct WorkspaceView: View {
         LazyVStack(alignment: .leading, spacing: 18) {
             sessionsHeader.id("workspace-sessions-header")
             sessionSearch.id("workspace-session-search")
-            if bridgeListReady, bridgeTeam.mirror?.isOffline == true {
+            if bridgeTeam.connectionIssue != nil || (bridgeListReady && bridgeTeam.mirror?.isOffline == true) {
                 bridgeOfflineBanner
             }
             if primaryTab == .bots {
@@ -603,6 +603,10 @@ struct WorkspaceView: View {
             onManualEntry: {
                 store.lastError = nil
                 showsManualPairing = true
+            },
+            onPasteBridgeJSON: {
+                store.lastError = nil
+                showsBridgePairing = true
             }
         )
     }
@@ -737,7 +741,8 @@ struct WorkspaceView: View {
     /// 所以这里既是「原版配对」，也顺带把 Bot tab 接上。
     @ViewBuilder
     private var pairingEntryCard: some View {
-        if !connectionIsReady && !bridgeListReady {
+        // 只要网关没连上就露出入口：残留的 bridge 会话不该把「重新配对」藏起来。
+        if !connectionIsReady {
             VStack(alignment: .leading, spacing: 10) {
                 Text("连接桌面端")
                     .appFont(.headline)
@@ -1265,6 +1270,8 @@ private struct GatewayAuthenticationMenu: View {
     @ObservedObject var gateway: GatewayClient
     let onScan: () -> Void
     let onManualEntry: () -> Void
+    /// U5：bridge 配对资料 JSON（面板「生成配对资料」那条），任何连接状态都可点。
+    let onPasteBridgeJSON: () -> Void
 
     var body: some View {
         if #available(iOS 26.0, *) {
@@ -1286,6 +1293,9 @@ private struct GatewayAuthenticationMenu: View {
             }
             Button(action: onManualEntry) {
                 Label("手动输入配对信息", systemImage: "keyboard")
+            }
+            Button(action: onPasteBridgeJSON) {
+                Label("粘贴配对资料 JSON", systemImage: "doc.on.clipboard")
             }
         } label: {
             Image(systemName: "person.badge.key.fill")
