@@ -642,14 +642,44 @@ final class BridgeTeamAdapter: ObservableObject {
                 payload = merged
             }
         }
-        store.sessionPaired(sessionJson: payload)
+        // 落库前先确认有可用的 serverUrl：否则存下去也建不了连接，还会顶掉现有可用会话。
+        guard let serverUrl = Self.sessionServerUrl(payload),
+              BridgeOriginValidation.origin(from: serverUrl) != nil else {
+            let message = "配对资料缺少可用的服务器地址（需要 https 根地址），请重新配对"
+            pairingState = .failed(message)
+            lastTransportError = message
+            return
+        }
+        let outcome = store.sessionPaired(sessionJson: payload)
+        guard outcome.isSuccess else {
+            let message = "配对资料保存失败：" + (outcome.errorMessage ?? outcome.errorCode ?? "未知原因")
+            pairingState = .failed(message)
+            lastTransportError = message
+            return
+        }
+        // 关键：adopt 时**强制重建**。旧 transport 可能指向失效 origin（或来自上一条会话），
+        // 而 restoreTransportFromStoredSession() 有 guard transport == nil —— 不复位就等于沿用一个死连接。
+        transport = nil
         restoreTransportFromStoredSession()
+        guard transport != nil else {
+            let message = "已保存会话但无法建立连接（serverUrl=" + serverUrl + "），请重新配对"
+            pairingState = .failed(message)
+            lastTransportError = message
+            return
+        }
         pairingState = .paired
         lastTransportError = nil
         failureAttempt = 0
         connectionIssue = nil
         startPolling()
         armWatchdog()
+    }
+
+    /// 从待落库的会话 JSON 里取 serverUrl（用于落库前校验）。
+    static func sessionServerUrl(_ json: String) -> String? {
+        guard let object = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any],
+              let value = object["serverUrl"] as? String, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        return value.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     func restoreSession() {
