@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct GatewaySwitcherBar: View {
+    @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var hosts: MultiGatewayStore
     @State private var showsHosts = false
 
@@ -17,8 +18,8 @@ struct GatewaySwitcherBar: View {
             }
             .appFont(.system(size: 12, weight: .medium))
             .padding(.horizontal, 11).padding(.vertical, 7)
-            .background(.white.opacity(0.09), in: Capsule())
-            .overlay(Capsule().stroke(.white.opacity(0.14), lineWidth: 0.5))
+            .background((colorScheme == .dark ? Color.white : DSHColor.ink).opacity(colorScheme == .dark ? 0.09 : 0.06), in: Capsule())
+            .overlay(Capsule().stroke((colorScheme == .dark ? Color.white : DSHColor.ink).opacity(colorScheme == .dark ? 0.14 : 0.10), lineWidth: 0.5))
         }
         .buttonStyle(.plain)
         .accessibilityLabel("当前主机：\(hosts.activeProfile?.displayName ?? String(localized: "未选择"))，切换主机")

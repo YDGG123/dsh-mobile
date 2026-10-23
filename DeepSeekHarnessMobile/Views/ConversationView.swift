@@ -4145,7 +4145,8 @@ private struct AttachmentImageGrid: View {
                 .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
                 .overlay {
                     RoundedRectangle(cornerRadius: 11, style: .continuous)
-                        .stroke(.white.opacity(0.16), lineWidth: 0.7)
+                        // 用语义色自动适配深浅色（浅色下变墨色、深色下变白），无需条件表达式
+                        .stroke(Color.primary.opacity(0.14), lineWidth: 0.7)
                 }
                 .accessibilityLabel(attachment.name ?? String(localized: "图片附件"))
             }

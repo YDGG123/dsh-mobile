@@ -141,9 +141,79 @@ enum DSHColor {
     static let success = Color(red: 0.18, green: 0.72, blue: 0.36)
 }
 
-struct DeepOceanBackground: View {
+/// 主题感知色板：主页所有前景/容器色都从它取，禁止再写死 `.white.opacity(…)`。
+/// 深色沿用原来的白色叠加；浅色映射成墨色/白卡片，层次比例保持一致。
+/// iOS 16 可用（只用 `@Environment(\.colorScheme)`，无 17+ API）。
+struct DSHPalette {
+    let scheme: ColorScheme
+
+    var isLight: Bool { scheme == .light }
+
+    /// 前景（文字/图标）：opacity 越大越强调。
+    func ink(_ opacity: Double) -> Color {
+        isLight
+            ? DSHColor.ink.opacity(min(1, 0.35 + opacity))
+            : Color.white.opacity(opacity)
+    }
+
+    /// 卡片/输入框等半透明容器填充。
+    func surface(_ opacity: Double) -> Color {
+        isLight
+            ? Color.white.opacity(min(1, 0.5 + opacity * 2.2))
+            : Color.white.opacity(opacity)
+    }
+
+    /// 描边/分隔线。
+    func stroke(_ opacity: Double) -> Color {
+        isLight
+            ? DSHColor.ink.opacity(opacity * 0.5)
+            : Color.white.opacity(opacity)
+    }
+
+    static func resolve(_ scheme: ColorScheme) -> DSHPalette { DSHPalette(scheme: scheme) }
+}
+
+/// 浅色版品牌背景：浅蓝渐变 + 点阵，保持与深色同一视觉语言但不做逐帧动画（省电、也不与列表抢手势）。
+struct HarnessLightBackground: View {
     var body: some View {
-        HarnessAnimatedBackground(style: UIDevice.current.userInterfaceIdiom == .pad ? .pad : .phone)
+        ZStack {
+            LinearGradient(
+                colors: [
+                    Color(red: 0.93, green: 0.96, blue: 1.0),
+                    Color(red: 0.98, green: 0.99, blue: 1.0),
+                    Color(red: 0.90, green: 0.95, blue: 1.0),
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            Canvas { context, size in
+                let spacing: CGFloat = 26
+                let dot = CGSize(width: 1.4, height: 1.4)
+                let color = DSHColor.ink.opacity(0.07)
+                var y: CGFloat = 0
+                while y < size.height {
+                    var x: CGFloat = 0
+                    while x < size.width {
+                        context.fill(Path(ellipseIn: CGRect(origin: CGPoint(x: x, y: y), size: dot)), with: .color(color))
+                        x += spacing
+                    }
+                    y += spacing
+                }
+            }
+        }
+        .ignoresSafeArea()
+    }
+}
+
+struct DeepOceanBackground: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        if colorScheme == .light {
+            HarnessLightBackground()
+        } else {
+            HarnessAnimatedBackground(style: UIDevice.current.userInterfaceIdiom == .pad ? .pad : .phone)
+        }
     }
 }
 
