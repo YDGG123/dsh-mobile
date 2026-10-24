@@ -47,35 +47,61 @@ BASE_TREE=$(gh api "repos/$REPO/git/commits/$BASE_SHA" --jq '.tree.sha') || { ec
 echo "  base ${BASE_SHA:0:7}  tree ${BASE_TREE:0:7}"
 
 # base 提交是经 API 建的，本地对象库里没有它（本机 github.com 不通，fetch 不了）。
-# 找一个**本地存在的、tree 与 base 完全相同**的提交来当 diff 基准。
-BASE_LOCAL=$(git rev-list --all | while read -r c; do
-  [ "$(git rev-parse "$c^{tree}")" = "$BASE_TREE" ] && { echo "$c"; break; }
-done)
-if [ -z "$BASE_LOCAL" ]; then
-  echo "❌ 找不到 tree=${BASE_TREE:0:7} 的本地提交，无法计算差异"
-  echo "   先把 base 内容落到本地（例如把出包分支对应的提交重新做一次），再运行。"
-  exit 1
-fi
-echo "  diff 基准（本地） ${BASE_LOCAL:0:7}"
+# 旧逻辑要求「本地存在 tree 完全相同的提交」，但出包提交按约定不回写 workflow，
+# tree 天然永远不同 → 必然失败。改为**逐文件**与远端 base 比对。
+CHANGED_FILE=$(mktemp)
+DELETED_FILE=$(mktemp)
+trap 'rm -f "$CHANGED_FILE" "$DELETED_FILE"' EXIT
+REPO="$REPO" BASE_TREE="$BASE_TREE" python3 - "$CHANGED_FILE" "$DELETED_FILE" <<'PYFILES'
+import json, os, subprocess, sys
+repo, base_tree = os.environ['REPO'], os.environ['BASE_TREE']
+out_changed, out_deleted = sys.argv[1], sys.argv[2]
+
+remote = subprocess.run(['gh', 'api', f'repos/{repo}/git/trees/{base_tree}?recursive=1'],
+                        text=True, capture_output=True)
+if remote.returncode != 0:
+    sys.exit('读取 base tree 失败: ' + remote.stderr.strip())
+base = {}
+for item in json.loads(remote.stdout).get('tree', []):
+    if item.get('type') == 'blob' and not item['path'].startswith('.github/workflows/'):
+        base[item['path']] = item['sha']
+
+local = {}
+listing = subprocess.run(['git', 'ls-tree', '-r', 'HEAD'], text=True, capture_output=True)
+for line in listing.stdout.splitlines():
+    meta, path = line.split('\t', 1)
+    if path.startswith('.github/workflows/'):
+        continue
+    local[path] = meta.split()[2]
+
+changed = [path for path in local if base.get(path) != local[path]]
+deleted = [path for path in base if path not in local]
+open(out_changed, 'w').write(''.join(f'{q}\n' for q in changed))
+open(out_deleted, 'w').write(''.join(f'{q}\n' for q in deleted))
+print(f'  base 逐文件比对：改动/新增 {len(changed)} 个，删除 {len(deleted)} 个')
+PYFILES
 
 # 相对 base 的改动，排除 workflow 文件（沿用 base 版本）
-CHANGED=$(git diff --name-only "$BASE_LOCAL" "$LOCAL_SHA" | grep -v '^\.github/workflows/' || true)
-if [ -z "$CHANGED" ]; then
+CHANGED=$(cat "$CHANGED_FILE")
+DELETED=$(cat "$DELETED_FILE")
+if [ -z "$CHANGED" ] && [ -z "$DELETED" ]; then
   echo "⚠️  App 代码与 base 相同（只差 workflow 配置），无需新建提交"
 else
   echo "→ 将写入 ${BRANCH} 的文件："
-  echo "$CHANGED" | sed 's/^/    /'
+  echo "$CHANGED" | sed '/^$/d' | sed 's/^/    /'
+  if [ -n "$DELETED" ]; then echo "→ 将删除的文件："; echo "$DELETED" | sed '/^$/d' | sed 's/^/    - /'; fi
 fi
 
 if [ "$DRY" -eq 1 ]; then echo "→ dry-run，结束"; exit 0; fi
 
-NEW_SHA=$(BASE_SHA="$BASE_SHA" BASE_LOCAL="$BASE_LOCAL" LOCAL_SHA="$LOCAL_SHA" REPO="$REPO" python3 - <<'PY'
+NEW_SHA=$(BASE_SHA="$BASE_SHA" LOCAL_SHA="$LOCAL_SHA" REPO="$REPO" CHANGED_FILE="$CHANGED_FILE" DELETED_FILE="$DELETED_FILE" python3 - <<'PY'
 import base64, json, os, subprocess, sys
 
 repo = os.environ['REPO']
 base = os.environ['BASE_SHA']
 local = os.environ['LOCAL_SHA']
-base_local = os.environ['BASE_LOCAL']
+changed_file = os.environ['CHANGED_FILE']
+deleted_file = os.environ['DELETED_FILE']
 
 def gh(args, payload=None):
     cmd = ['gh', 'api'] + (['--input', '-'] if payload is not None else []) + args
@@ -86,9 +112,8 @@ def gh(args, payload=None):
     return json.loads(p.stdout) if p.stdout.strip() else {}
 
 base_tree = gh([f'repos/{repo}/git/commits/{base}'])['tree']['sha']
-files = [f for f in subprocess.run(['git', 'diff', '--name-only', base_local, local],
-                                   text=True, capture_output=True).stdout.split('\n')
-         if f.strip() and not f.startswith('.github/workflows/')]
+files = [f for f in open(changed_file).read().split('\n') if f.strip()]
+deletions = [f for f in open(deleted_file).read().split('\n') if f.strip()]
 
 entries = []
 for path in files:
@@ -100,6 +125,9 @@ for path in files:
     created = gh([f'repos/{repo}/git/blobs'],
                  {'content': base64.b64encode(content).decode(), 'encoding': 'base64'})
     entries.append({'path': path, 'mode': '100644', 'type': 'blob', 'sha': created['sha']})
+# 删除用 sha=None 表达（Git Data API 语义）。
+for path in deletions:
+    entries.append({'path': path, 'mode': '100644', 'type': 'blob', 'sha': None})
 
 tree = gh([f'repos/{repo}/git/trees'], {'base_tree': base_tree, 'tree': entries}) if entries else {'sha': base_tree}
 message = subprocess.run(['git', 'log', '-1', '--pretty=%s'], text=True, capture_output=True).stdout.strip()
