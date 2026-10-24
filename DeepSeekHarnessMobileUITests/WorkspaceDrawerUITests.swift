@@ -80,7 +80,8 @@ final class WorkspaceDrawerUITests: XCTestCase {
         if followsSystem.value as? String == "1" { tapFontSystemSwitch(followsSystem) }
         let reset = app.buttons["font-size-reset"]
         reset.tap()
-        let title = app.staticTexts["font-size-preview-title"]
+        // U6 起字体大小是底部面板（CompactSheet 形态），预览文字没有独立标识，用文案定位。
+        let title = app.staticTexts["预览文字大小"]
         XCTAssertTrue(title.exists)
         let initialHeight = title.frame.height
         slider.adjust(toNormalizedSliderPosition: 1)
@@ -97,7 +98,7 @@ final class WorkspaceDrawerUITests: XCTestCase {
         tapFontSystemSwitch(followsSystem)
         XCTAssertEqual(slider.value as? String, "150%")
 
-        app.navigationBars["字体大小"].buttons.element(boundBy: 0).tap()
+        app.buttons["关闭"].tap()
         XCTAssertTrue(app.navigationBars["设置"].exists)
         XCTAssertFalse(slider.exists)
         app.terminate()
@@ -128,7 +129,8 @@ final class WorkspaceDrawerUITests: XCTestCase {
         XCTAssertTrue(entry.waitForExistence(timeout: 3))
         XCTAssertFalse(app.sliders["font-size-slider"].exists, "设置页只应显示入口")
         entry.tap()
-        XCTAssertTrue(app.navigationBars["字体大小"].waitForExistence(timeout: 3))
+        // U6 起是 sheet，不再是推入页：没有导航栏，靠面板标题与滑杆确认已打开。
+        XCTAssertTrue(app.staticTexts["字体大小"].waitForExistence(timeout: 3))
         XCTAssertTrue(app.sliders["font-size-slider"].exists)
     }
 
