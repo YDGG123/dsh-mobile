@@ -440,10 +440,14 @@ struct WorkspaceView: View {
 
     private func gatewayTeamRow(_ row: GatewayTeamFeed.Row) -> some View {
         HStack(spacing: 11) {
-            Circle()
-                .fill(statusTint(for: row))
-                .frame(width: 7, height: 7)
-                .shadow(color: gatewayTeam.isLive(row) ? palette.success : .clear, radius: 5)
+            // 头像（静态字段）：有 data URL 用它，没有就回落默认块（色块 + 首字母），**不留空白**。
+            gatewayAvatar(row)
+                .overlay(alignment: .bottomTrailing) {
+                    Circle()
+                        .fill(statusTint(for: row))
+                        .frame(width: 9, height: 9)
+                        .overlay(Circle().stroke(palette.surface(0.9), lineWidth: 1.5))
+                }
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text(row.name).lineLimit(1).appFont(.subheadline.weight(.medium))
@@ -467,6 +471,57 @@ struct WorkspaceView: View {
         .padding(.horizontal, 4)
         .padding(.vertical, 10)
         .contentShape(Rectangle())
+    }
+
+    /// 头像：Bot 用 avatar 或默认块；群聊用**成员头像堆叠**（room 没有 avatar 字段，用 members join）。
+    @ViewBuilder
+    private func gatewayAvatar(_ row: GatewayTeamFeed.Row, size: CGFloat = 38) -> some View {
+        if row.kind == .room {
+            let members = gatewayTeam.memberAvatars(for: row, limit: 3)
+            ZStack(alignment: .leading) {
+                if members.isEmpty {
+                    Circle()
+                        .fill(Color(red: 0.06, green: 0.27, blue: 0.66))
+                        .frame(width: size, height: size)
+                        .overlay {
+                            Image(systemName: "person.2.fill")
+                                .appFont(.system(size: size * 0.38, weight: .semibold))
+                                .foregroundStyle(.white)
+                        }
+                } else {
+                    ForEach(Array(members.enumerated()), id: \.element.id) { index, member in
+                        avatarBlock(member, size: size * 0.72)
+                            .overlay(Circle().stroke(palette.surface(0.9), lineWidth: 1.5))
+                            .offset(x: CGFloat(index) * size * 0.42)
+                            .zIndex(Double(3 - index))
+                    }
+                }
+            }
+            .frame(width: size + CGFloat(max(0, members.count - 1)) * size * 0.42, height: size, alignment: .leading)
+        } else {
+            avatarBlock(row, size: size)
+        }
+    }
+
+    /// 单个头像块：有 data URL 就画图，否则「深色不透明底 + 白色首字母」（白字 ≥4.6:1，方案 A）。
+    @ViewBuilder
+    private func avatarBlock(_ row: GatewayTeamFeed.Row, size: CGFloat) -> some View {
+        if let image = GatewayTeamFeed.avatarImage(row) {
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFill()
+                .frame(width: size, height: size)
+                .clipShape(Circle())
+        } else {
+            Circle()
+                .fill(GatewayTeamFeed.avatarColor(row))
+                .frame(width: size, height: size)
+                .overlay {
+                    Text(String(row.name.prefix(1)))
+                        .appFont(.system(size: size * 0.42, weight: .semibold))
+                        .foregroundStyle(.white)
+                }
+        }
     }
 
     private func statusTint(for row: GatewayTeamFeed.Row) -> Color {
@@ -496,7 +551,8 @@ struct WorkspaceView: View {
         store.lastError = "这条对话还没同步到会话列表，稍后重试。"
     }
 
-    /// 诊断可关闭的工作区包裹样式（见 `SettingsDiagnostics.compositingKey`）。
+    /// 诊断逃逸口：`dsh.diag.noCompositing` 可关掉离屏合成 + 双层阴影。
+    /// **有意保留**（UI 已无开关，见 `SettingsDiagnostics` 注释）；默认 false = 正常形态。
     private struct WorkspaceCardComposition: ViewModifier {
         let progress: CGFloat
         @AppStorage(SettingsDiagnostics.compositingKey) private var disabled = false
@@ -1091,7 +1147,12 @@ struct WorkspaceView: View {
                 newSessionButtonLabel
             }
             .buttonStyle(.plain)
-            .glassSurface(radius: 18, dark: colorScheme == .dark, tint: palette.veil(0.08))
+            // 用户反馈「新建会话」灰底偏深：浅色下原来是 thinMaterial + veil(0.08) 双叠，
+            // 现在浅色改用与卡片一致的实色浅面（surface(0.12) ≈ 92% 白），不再叠 tint；
+            // 文字仍是 ink(1) 近黑，压在 92% 白上 ≈17:1，对比度不受影响。深色档一个字没动。
+            .glassSurface(radius: 18, dark: colorScheme == .dark,
+                          tint: colorScheme == .dark ? palette.veil(0.08) : nil,
+                          lightFill: colorScheme == .dark ? nil : palette.surface(0.12))
         }
     }
 

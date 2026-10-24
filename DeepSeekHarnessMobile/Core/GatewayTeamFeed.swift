@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import UIKit
 
 /// 网关团队帧客户端（手机端团队页的新数据源）。
 ///
@@ -73,6 +74,10 @@ final class GatewayTeamFeed: ObservableObject {
         var waiting: Waiting?
         var preview: String?
         var updatedAt: Int64?
+        /// 静态字段：data URL（或本地路径）。只在快照/结构帧出现，patch 不带（契约 §4）。
+        var avatar: String?
+        /// ds-bot 调色板 key（契约明写「手机端需同名映射」），默认块颜色优先用它。
+        var colorKey: String?
         var placeholderCards: Int = 0
     }
 
@@ -428,6 +433,8 @@ final class GatewayTeamFeed: ObservableObject {
         if let waiting = raw["waiting"] as? [String: Any] { row.waiting = waitingValue(waiting) }
         row.preview = raw["preview"] as? String
         row.updatedAt = (raw["updatedAt"] as? NSNumber)?.int64Value
+        row.avatar = (raw["avatar"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        row.colorKey = raw["color"] as? String
         return row
     }
 
@@ -506,6 +513,66 @@ final class GatewayTeamFeed: ObservableObject {
         let members = row.members.prefix(4).map { botNames[$0] ?? $0 }.joined(separator: "、")
         let extra = row.members.count > 4 ? " 等 \(row.members.count) 人" : ""
         return members.isEmpty ? "群聊" : "\(members)\(extra)"
+    }
+
+    // MARK: - 头像（静态字段，缺失时回落默认块）
+
+    /// ds-bot 调色板 key → 合规色块。QA 复核（方案 A）：**不透明压深色 + 白字**，
+    /// 白字对比度全部 ≥4.6:1（原来的 `opacity(0.75)` 系统色只有 1.86–3.49:1，浅色下看不见）。
+    static func blockColor(forKey key: String?) -> Color? {
+        switch (key ?? "").lowercased() {
+        case "deepseek": return Color(red: 0.06, green: 0.27, blue: 0.66)
+        case "blue": return Color(red: 0.00, green: 0.44, blue: 0.92)
+        case "violet", "purple": return Color(red: 0.64, green: 0.30, blue: 0.81)
+        case "orange": return Color(red: 0.67, green: 0.39, blue: 0.00)
+        case "green": return Color(red: 0.14, green: 0.52, blue: 0.24)
+        case "magenta": return Color(red: 0.77, green: 0.17, blue: 0.46)
+        case "cyan", "teal": return Color(red: 0.14, green: 0.50, blue: 0.56)
+        case "red": return Color(red: 0.70, green: 0.15, blue: 0.13)
+        case "yellow": return Color(red: 0.54, green: 0.42, blue: 0.00)
+        case "brown": return Color(red: 0.48, green: 0.29, blue: 0.14)
+        case "gray", "graphite": return Color(red: 0.29, green: 0.31, blue: 0.33)
+        case "black", "charcoal": return Color(red: 0.12, green: 0.14, blue: 0.16)
+        case "aurora", "cobalt": return Color(red: 0.07, green: 0.36, blue: 0.62)
+        case "rose": return Color(red: 0.76, green: 0.15, blue: 0.29)
+        case "sky": return Color(red: 0.09, green: 0.43, blue: 0.62)
+        case "tangerine": return Color(red: 0.66, green: 0.35, blue: 0.00)
+        case "indigo": return Color(red: 0.35, green: 0.34, blue: 0.84)
+        default: return nil
+        }
+    }
+
+    /// 没有 `color` 时的兜底：按名字稳定取同一套深色（白字照样达标）。
+    static func fallbackBlockColor(for name: String) -> Color {
+        let palette: [Color] = [
+            Color(red: 0.06, green: 0.27, blue: 0.66), Color(red: 0.14, green: 0.52, blue: 0.24),
+            Color(red: 0.67, green: 0.39, blue: 0.00), Color(red: 0.64, green: 0.30, blue: 0.81),
+            Color(red: 0.14, green: 0.50, blue: 0.56), Color(red: 0.35, green: 0.34, blue: 0.84),
+        ]
+        var hash = 5381
+        for scalar in name.unicodeScalars { hash = (hash &* 33) &+ Int(scalar.value) }
+        return palette[abs(hash) % palette.count]
+    }
+
+    /// room 没有 avatar 字段（契约静态列表里只有 members/admin/mode/notice）：
+    /// 成员头像堆叠要用 members 去 join 各 bot 现拼，不给 room 加契约字段。
+    func memberAvatars(for room: Row, limit: Int = 3) -> [Row] {
+        let byId = Dictionary(uniqueKeysWithValues: rows.filter { $0.kind == .bot }.map { ($0.id, $0) })
+        return room.members.prefix(limit).compactMap { byId[$0] }
+    }
+
+    static func avatarColor(_ row: Row) -> Color {
+        blockColor(forKey: row.colorKey) ?? fallbackBlockColor(for: row.name)
+    }
+
+    /// data URL → UIImage。非 data URL（本地路径）这里不解，交给默认块。
+    static func avatarImage(_ row: Row) -> UIImage? {
+        guard let raw = row.avatar, raw.hasPrefix("data:"),
+              let comma = raw.firstIndex(of: ","),
+              raw[raw.startIndex..<comma].contains("base64"),
+              let data = Data(base64Encoded: String(raw[raw.index(after: comma)...])),
+              let image = UIImage(data: data) else { return nil }
+        return image
     }
 
     func isLive(_ row: Row) -> Bool { row.activity == "working" || row.activity == "thinking" }

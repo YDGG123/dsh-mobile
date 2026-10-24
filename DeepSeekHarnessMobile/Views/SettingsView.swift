@@ -2,78 +2,69 @@ import SwiftUI
 import WebKit
 import MarkdownUI
 
-/// B4 诊断开关（下一版随包提供给用户点两下，用来把「呈现方式 / 页面内容 / 背景」三者分开）。
-/// - `settingsSheet`：设置里的子页改用 sheet 呈现（卡不卡跟着呈现方式走还是跟着内容走）
-/// - `backgroundOff`：写 UserDefaults 让 `HarnessBackgroundLayers` 关掉全部背景图层
+/// 诊断「逃逸口」键：**有意保留，不是死码**。
+///
+/// U6 按用户要求把设置里的四个诊断 Toggle 撤掉了（用户诉求是"别在设置里添乱"），
+/// 但底层的三个读取点仍然在职：`RootIdentityBinding`、`WorkspaceCardComposition`、
+/// `HarnessAnimatedBackground`。保留它们的原因只有一个——将来再遇到"呈现/转场/背景"
+/// 类问题，维护者还能用一条命令做二分，不必重新加 UI、重新出包：
+///
+/// ```
+/// defaults write com.lichaofan.dshmobile dsh.diag.noCompositing -bool YES   # 关离屏合成+阴影
+/// defaults write com.lichaofan.dshmobile dsh.diag.noRootIdentity -bool YES  # 关根 identity 绑定
+/// defaults write com.lichaofan.dshmobile dsh.background.layers -string none # 关全部背景图层
+/// defaults delete com.lichaofan.dshmobile dsh.diag.noCompositing             # 复位
+/// ```
+///
+/// 默认值全部是「关闭诊断 = 正常形态」；没有 UI 入口，普通用户不会误触。
+/// **请勿把这些键当作无引用死码清掉**——删了就只能改代码、重新出包才能二分。
+/// `resetLegacyTogglesIfNeeded()` 负责在升级后首次启动时清掉旧版本 Toggle 留下的值。
 enum SettingsDiagnostics {
-    static let sheetKey = "dsh.diag.settingsSheet"
+    /// `none` 关掉全部背景图层（也读同名环境变量 `DSH_BACKGROUND_LAYERS`）。
     static let backgroundKey = "dsh.background.layers"
     /// 关掉工作区的「离屏合成 + 双层实时阴影」（B4 候选 2：呈现时快照撞上离屏合成）。
     static let compositingKey = "dsh.diag.noCompositing"
     /// 关掉根视图的 `.id(ObjectIdentifier(activeStore))`（B4 候选 1：整棵树身份绑在实例指针上）。
     static let rootIdentityKey = "dsh.diag.noRootIdentity"
 
-    static func backgroundDisabled(_ defaults: UserDefaults = .standard) -> Bool {
-        (defaults.string(forKey: backgroundKey) ?? "").contains("none")
-    }
-    static func setBackgroundDisabled(_ disabled: Bool, defaults: UserDefaults = .standard) {
-        if disabled { defaults.set("none", forKey: backgroundKey) }
-        else { defaults.removeObject(forKey: backgroundKey) }
-    }
-}
+    /// 一次性清理标记：清理过就不再重复，保证 `defaults write` 设进去的值不会被下次启动抹掉。
+    private static let legacyResetKey = "dsh.diag.legacyReset.v1"
 
-
-/// B4 诊断用：设置子页在「推入」与「sheet」之间切换，用来把「呈现方式」与「页面内容」分开。
-/// 默认（诊断关闭）仍是原来的 NavigationLink，行为不变。
-private struct SettingsSubpageRow<Label: View, Destination: View>: View {
-    @AppStorage(SettingsDiagnostics.sheetKey) private var usesSheet = false
-    @ViewBuilder let label: () -> Label
-    @ViewBuilder let destination: () -> Destination
-    @State private var showsSheet = false
-
-    var body: some View {
-        if usesSheet {
-            Button {
-                showsSheet = true
-            } label: {
-                label()
-            }
-            .sheet(isPresented: $showsSheet) {
-                NavigationStack {
-                    destination()
-                        .toolbar {
-                            ToolbarItem(placement: .topBarTrailing) {
-                                Button("关闭") { showsSheet = false }
-                            }
-                        }
-                }
-            }
-        } else {
-            NavigationLink {
-                destination()
-            } label: {
-                label()
-            }
-        }
+    /// U6 升级清理（幂等）。
+    ///
+    /// 上个版本设置里有四个 Toggle，用户做过二分实验，键可能已被拨成「开」。
+    /// 新版本没有 UI 能关回去 → App 会永远带着「关离屏合成 / 关根 identity 绑定 /
+    /// 关背景图层」跑，且用户无从察觉。所以升级后**首次**启动把这些键复位一次。
+    /// 复位之后仍可用上面的 `defaults write` 手动设，逃逸口不受影响。
+    static func resetLegacyTogglesIfNeeded(_ defaults: UserDefaults = .standard) {
+        guard !defaults.bool(forKey: legacyResetKey) else { return }
+        // 前三个是当前键；后两个是旧 Toggle 自己的存储键，一并清掉免得残留。
+        let keys = [
+            compositingKey,
+            rootIdentityKey,
+            backgroundKey,
+            "dsh.diag.backgroundOff",
+            "dsh.diag.settingsSheet",
+        ]
+        for key in keys { defaults.removeObject(forKey: key) }
+        defaults.set(true, forKey: legacyResetKey)
     }
 }
 
 struct SettingsView: View {
     @Environment(\.openURL) private var openURL
     @EnvironmentObject private var store: AppStore
-    @State private var pendingPermission: DefaultPermissionChoice?
     @State private var observedGatewayState: ConnectionState?
     @State private var showsPrivacyPolicy = false
     /// 外观两项改为「点行 → 弹出选项层」，避免 .navigationLink Picker 的推入卡死。
     @State private var showsInterfaceOptions = false
     @State private var showsLanguageOptions = false
     @State private var showsReleaseNotes = false
-    // B4 诊断开关（见 SettingsDiagnostics）
-    @AppStorage(SettingsDiagnostics.sheetKey) private var diagnosticSheet = false
-    @AppStorage("dsh.diag.backgroundOff") private var diagnosticNoBackground = false
-    @AppStorage(SettingsDiagnostics.compositingKey) private var diagnosticNoCompositing = false
-    @AppStorage(SettingsDiagnostics.rootIdentityKey) private var diagnosticNoRootIdentity = false
-    @State private var showsPermissionSheet = false
+    /// 新会话默认配置三项 + 字体大小：用户裁决一律不走推入，改用紧凑弹层。
+    @State private var showsPresetOptions = false
+    @State private var showsModelOptions = false
+    @State private var showsPermissionOptions = false
+    @State private var showsFontSizePanel = false
     @AppStorage(AppFontScale.key) private var fontScale = 1.0
     @AppStorage(AppFontScale.followsSystemKey) private var fontFollowsSystem = false
     private let releaseInfo = BundledAppReleaseInfo.load()
@@ -170,70 +161,46 @@ struct SettingsView: View {
     var body: some View {
         Form {
             Section {
-                SettingsSubpageRow {
+                // 用户裁决：这四项一律不走推入——既避开「推入 × 设置」的死锁面，
+                // 也让设置页保持一屏可读完。选项用紧凑弹层（同「界面 / 语言」的形态）。
+                Button {
+                    showsPresetOptions = true
+                } label: {
                     DefaultConfigurationRow(
                         title: String(localized: "Agent 预设"),
                         value: selectedPresetName,
                         isLoading: defaultsAreLoading
                     )
-                } destination: {
-                    AgentPresetSelectionView()
                 }
+                .buttonStyle(.plain)
                 .disabled(!gatewayState.isConnected)
+                .accessibilityIdentifier("default-agent-preset-row")
 
-                SettingsSubpageRow {
+                Button {
+                    showsModelOptions = true
+                } label: {
                     DefaultConfigurationRow(
                         title: String(localized: "默认模型"),
                         value: defaultModelValueText,
                         isLoading: defaultModelIsLoading
                     )
-                } destination: {
-                    DefaultModelSelectionView()
                 }
+                .buttonStyle(.plain)
                 .disabled(!gatewayState.isConnected)
+                .accessibilityIdentifier("default-model-row")
 
-                // 权限本来就不是推入页（Menu 弹出），所以诊断开关打开时改成 sheet，
-                // 这才是判断「卡死跟呈现方式走还是跟内容走」的正确对照。
-                if diagnosticSheet {
-                    Button {
-                        showsPermissionSheet = true
-                    } label: {
-                        DefaultConfigurationRow(
-                            title: String(localized: "权限"),
-                            value: selectedPermissionName,
-                            isLoading: defaultsAreLoading
-                        )
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .sheet(isPresented: $showsPermissionSheet) {
-                        permissionOptionsSheet
-                    }
-                    .disabled(!gatewayState.isConnected || store.defaultConfigurationLoadingKinds.contains("set-default"))
-                } else {
-                    Menu {
-                        ForEach(store.permissionDefaultOptions.map(DefaultPermissionChoice.init)) { option in
-                            Button {
-                                pendingPermission = option
-                            } label: {
-                                if option.id == store.permissionDefault {
-                                    Label(option.title, systemImage: "checkmark")
-                                } else {
-                                    Text(option.title)
-                                }
-                            }
-                        }
-                    } label: {
-                        DefaultConfigurationRow(
-                            title: String(localized: "权限"),
-                            value: selectedPermissionName,
-                            isLoading: defaultsAreLoading
-                        )
-                        .contentShape(Rectangle())
-                    }
-                    .tint(.primary)
-                    .disabled(!gatewayState.isConnected || store.defaultConfigurationLoadingKinds.contains("set-default"))
+                Button {
+                    showsPermissionOptions = true
+                } label: {
+                    DefaultConfigurationRow(
+                        title: String(localized: "权限"),
+                        value: selectedPermissionName,
+                        isLoading: defaultsAreLoading
+                    )
                 }
+                .buttonStyle(.plain)
+                .disabled(!gatewayState.isConnected || store.defaultConfigurationLoadingKinds.contains("set-default"))
+                .accessibilityIdentifier("default-permission-row")
             } header: {
                 Text("新会话默认配置")
             } footer: {
@@ -301,7 +268,9 @@ struct SettingsView: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("appearance-language-row")
-                SettingsSubpageRow {
+                Button {
+                    showsFontSizePanel = true
+                } label: {
                     HStack {
                         Text("字体大小")
                         Spacer()
@@ -309,9 +278,9 @@ struct SettingsView: View {
                             : "\(Int((AppFontScale.normalized(fontScale) * 100).rounded()))%")
                             .foregroundStyle(.secondary)
                     }
-                } destination: {
-                    FontSizeSettingsView()
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
                 .accessibilityIdentifier("font-size-settings-row")
             } header: {
                 Text("外观")
@@ -331,31 +300,23 @@ struct SettingsView: View {
             }
 
             Section {
-                Toggle("设置子页改用 sheet 呈现", isOn: $diagnosticSheet)
-                    .accessibilityIdentifier("diag-settings-sheet")
-                Toggle("关闭背景动画图层", isOn: $diagnosticNoBackground)
-                    .accessibilityIdentifier("diag-background-off")
-                Toggle("关闭工作区离屏合成与阴影", isOn: $diagnosticNoCompositing)
-                    .accessibilityIdentifier("diag-no-compositing")
-                Toggle("关闭根视图 identity 绑定", isOn: $diagnosticNoRootIdentity)
-                    .accessibilityIdentifier("diag-no-root-identity")
+                // 唯一保留的诊断入口：一次推入，页内只有一个 Text（无请求、无布局、无暂停修饰符）。
+                // 它卡 → 问题在导航推入本身；它正常 → 问题在原先那四个设置子页的内容。
+                NavigationLink {
+                    BlankPushTestView()
+                } label: {
+                    Label("推入空白测试页", systemImage: "rectangle.dashed")
+                }
+                .accessibilityIdentifier("diag-blank-push")
             } header: {
-                Text("诊断（临时）")
+                Text("诊断")
             } footer: {
-                Text("用于排查「点进设置子页卡死」：① 子页改成 sheet 后不再卡 → 问题在导航推入/呈现机制；② 关掉背景图层后不再卡 → 逐帧动画；③ 关掉离屏合成与阴影后不再卡 → 呈现时的来源快照；④ 关掉根视图 identity 绑定后不再卡 → 呈现中途整棵树被重建。全部退回关闭即为正常状态。")
+                Text("点进去只有一个文本，不发请求、不做布局。若这一页也卡死，说明问题在「推入」本身；若正常，说明原来的问题在那些设置子页的内容里。")
             }
         }
         .navigationTitle("设置")
         // B4：容器级推入页同样整屏盖住背景，推入期间暂停动画（与设置子页同一策略）。
         .pausesBackgroundAnimation()
-        .onChange(of: diagnosticNoBackground) { disabled in
-            // HarnessBackgroundLayers 读的是 dsh.background.layers，这里把开关映射成 none/清除。
-            SettingsDiagnostics.setBackgroundDisabled(disabled)
-        }
-        .onAppear {
-            // 启动时把开关状态与底层键对齐（避免上次被环境变量/手工改键后不一致）。
-            diagnosticNoBackground = SettingsDiagnostics.backgroundDisabled()
-        }
         .task {
             store.refreshDefaultConfiguration()
             if gatewayState.isConnected { store.refreshPlugins() }
@@ -367,16 +328,6 @@ struct SettingsView: View {
                 store.refreshPlugins()
                 store.refreshDefaultConfiguration()
             }
-        }
-        .alert(item: $pendingPermission) { option in
-            Alert(
-                title: Text("修改全局默认权限？"),
-                message: Text(String(localized: "defaults.permission.confirm.body", defaultValue: "将新会话的默认权限改为“\(option.title)”。这会更新部署级设置，并同步影响 WebUI。")),
-                primaryButton: .cancel(Text("取消")),
-                secondaryButton: .default(Text("确认修改")) {
-                    store.setDefaultPermission(option.id)
-                }
-            )
         }
         .sheet(isPresented: $showsReleaseNotes) {
             NavigationStack {
@@ -417,44 +368,21 @@ struct SettingsView: View {
         .sheet(isPresented: $showsPrivacyPolicy) {
             PrivacyPolicySheet()
         }
-    }
-
-    /// 「标题 + 当前值 + 右侧箭头」的设置行（点开弹出选项层用）。
-    /// 诊断用：把「权限」的选项从 Menu 挪到 sheet，内容与原菜单完全一致。
-    private var permissionOptionsSheet: some View {
-        NavigationStack {
-            List {
-                Section {
-                    ForEach(store.permissionDefaultOptions.map(DefaultPermissionChoice.init)) { option in
-                        Button {
-                            showsPermissionSheet = false
-                            pendingPermission = option
-                        } label: {
-                            HStack {
-                                Text(option.title)
-                                Spacer()
-                                if option.id == store.permissionDefault {
-                                    Image(systemName: "checkmark")
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                        }
-                        .buttonStyle(.plain)
-                    }
-                } footer: {
-                    Text("诊断模式：与「权限」菜单内容一致，只是改用 sheet 呈现。")
-                }
-            }
-            .navigationTitle("权限")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("关闭") { showsPermissionSheet = false }
-                }
-            }
+        .sheet(isPresented: $showsPresetOptions) {
+            AgentPresetOptionsSheet()
+        }
+        .sheet(isPresented: $showsModelOptions) {
+            DefaultModelOptionsSheet()
+        }
+        .sheet(isPresented: $showsPermissionOptions) {
+            PermissionOptionsSheet()
+        }
+        .sheet(isPresented: $showsFontSizePanel) {
+            FontSizePanel()
         }
     }
 
+    /// 「标题 + 当前值 + 右侧箭头」的设置行（点开弹出选项层用）。
     private func settingsValueRow(title: String, value: String) -> some View {
         HStack {
             Text(title)
@@ -468,7 +396,11 @@ struct SettingsView: View {
     }
 }
 
-struct FontSizeSettingsView: View {
+/// 字体大小：底部紧凑面板，不推入。
+/// 刻意不在面板里写「校正值」：原页面 `onAppear` 会把越界的值写回 `@AppStorage`，
+/// 而该键被根级 `AppFontScope` 读取并应用到 `.dynamicTypeSize` —— 写入会让整棵树重排，
+/// 正好落在推入转场里。这里只由用户拖动写值，正常路径不产生额外的根部失效。
+private struct FontSizePanel: View {
     @AppStorage(AppFontScale.key) private var fontScale = 1.0
     @AppStorage(AppFontScale.followsSystemKey) private var fontFollowsSystem = false
     @Environment(\.colorScheme) private var colorScheme
@@ -476,12 +408,12 @@ struct FontSizeSettingsView: View {
 
     private var sliderFontScale: Binding<Double> {
         Binding(
-            get: { fontScale },
+            get: { AppFontScale.normalized(fontScale) },
             set: { value in
                 guard !fontFollowsSystem else { return }
-                let oldTick = Int((fontScale * 20).rounded())
+                let oldTick = Int((AppFontScale.normalized(fontScale) * 20).rounded())
                 let newTick = Int((value * 20).rounded())
-                fontScale = value
+                fontScale = min(1.5, max(0.8, value))
                 if oldTick != newTick {
                     fontFeedback.impactOccurred()
                     fontFeedback.prepare()
@@ -495,74 +427,44 @@ struct FontSizeSettingsView: View {
             : Color(red: 0.93, green: 0.95, blue: 1)
     }
 
-    var body: some View {
-        GeometryReader { geometry in
-            ScrollView {
-                fontSizeContent(previewHeight: max(220, geometry.size.height - 290))
-                    .frame(maxWidth: 720)
-                    .padding(.horizontal, 20)
-                    .padding(.top, 16)
-                    .padding(.bottom, 20)
-                    .frame(maxWidth: .infinity)
-            }
-        }
-        .background(Color(uiColor: .systemGroupedBackground))
-        // B4：推入页覆盖背景期间暂停背景动画（卡死根因见 BackgroundAnimationPause）。
-        .pausesBackgroundAnimation()
-        .navigationTitle("字体大小")
-        .navigationBarTitleDisplayMode(.inline)
-        .onAppear {
-            // 只在真的越界时才写（写 @AppStorage 会让根部的 AppFontScope 重设 dynamicTypeSize，
-            // 推入过渡中触发全树重排）。正常值 1.0 不写。
-            let normalized = AppFontScale.normalized(fontScale)
-            if normalized != fontScale { fontScale = normalized }
-        }
+    private var percentText: String {
+        fontFollowsSystem ? String(localized: "跟随系统")
+            : AppFontScale.normalized(fontScale) == 1 ? String(localized: "标准")
+            : "\(Int((AppFontScale.normalized(fontScale) * 100).rounded()))%"
     }
 
-    private func fontSizeContent(previewHeight: CGFloat) -> some View {
-        VStack(spacing: 24) {
-            // B4 候选根因：这里原来是「外层 ScrollView 里再套一个 ScrollView」，
-            // 内层高度又由 GeometryReader 算出来的 previewHeight 固定——
-            // 纵向嵌套滚动 + 依赖容器高度 = 布局回路/手势争抢的经典组合。
-            // 预览内容本来就只有三段，改成普通 VStack + minHeight，外层统一滚动。
-            VStack(alignment: .leading, spacing: 28) {
+    var body: some View {
+        CompactSheet(title: String(localized: "字体大小"), detents: [.height(392)]) {
+            VStack(spacing: 18) {
+                VStack(alignment: .leading, spacing: 10) {
                     HStack {
                         Spacer(minLength: 0)
                         Text("预览文字大小")
                             .appFont(.system(size: 17))
-                            .accessibilityIdentifier("font-size-preview-title")
-                            .padding(.horizontal, 18)
-                            .padding(.vertical, 14)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 12)
                             .background(bubbleColor, in: UnevenRoundedRectangle(
-                                topLeadingRadius: 24, bottomLeadingRadius: 24,
-                                bottomTrailingRadius: 6, topTrailingRadius: 24
+                                topLeadingRadius: 22, bottomLeadingRadius: 22,
+                                bottomTrailingRadius: 6, topTrailingRadius: 22
                             ))
                     }
-                    Text("你可以拖动滑块来调整字体大小。")
-                        .appFont(.system(size: 17))
-                        .lineSpacing(6)
-                    MarkdownContent(String(localized: "调整后的字体大小会应用到所有页面，包括对话、按钮和 `代码`。"))
+                    Text("调整后会应用到所有页面，包括对话、按钮和代码。")
+                        .appFont(.system(size: 15))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 20)
-                .padding(.vertical, 32)
-                .frame(minHeight: previewHeight, alignment: .topLeading)
-                .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 20))
 
-            VStack(spacing: 16) {
                 Toggle("跟随系统", isOn: $fontFollowsSystem)
                     .tint(DSHColor.ocean)
                     .appFont(.system(size: 16))
                     .accessibilityIdentifier("font-size-follow-system")
-                Divider()
+
                 VStack(spacing: 8) {
                     HStack {
                         Text(verbatim: "A").appFont(.system(size: 14, weight: .medium))
                         Spacer()
-                        Text(verbatim: fontFollowsSystem ? String(localized: "跟随系统")
-                            : fontScale == 1 ? String(localized: "标准")
-                            : "\(Int((AppFontScale.normalized(fontScale) * 100).rounded()))%")
-                            .appFont(.system(size: 14))
+                        Text(verbatim: percentText).appFont(.system(size: 14))
                         Spacer()
                         Text(verbatim: "A").appFont(.system(size: 22, weight: .medium))
                     }
@@ -575,31 +477,17 @@ struct FontSizeSettingsView: View {
                         .accessibilityIdentifier("font-size-slider")
                         .accessibilityLabel("字体大小")
                         .accessibilityValue("\(Int((AppFontScale.normalized(fontScale) * 100).rounded()))%")
-                        .background {
-                            // B4 线索：这里原来是「Slider 背景里挂 GeometryReader{Canvas}」，
-                            // 与已删掉的内层 ScrollView 属同一类构造（在尺寸不确定的上下文里读几何）。
-                            // 刻度是固定 15 格的等分装饰，用普通 HStack 就够，不需要测量容器。
-                            HStack(spacing: 0) {
-                                ForEach(0...14, id: \.self) { _ in
-                                    Rectangle()
-                                        .fill(Color(uiColor: .systemGray3))
-                                        .frame(width: 1.5, height: 8)
-                                    if true { Spacer(minLength: 0) }
-                                }
-                            }
-                            .padding(.horizontal, 14)
-                        }
                     Button("恢复默认") { fontScale = 1 }
                         .appFont(.system(size: 13))
                         .foregroundStyle(.secondary)
                         .accessibilityIdentifier("font-size-reset")
-                        .padding(.vertical, 6)
                 }
-                .padding(.top, 12)
                 .disabled(fontFollowsSystem)
                 .opacity(fontFollowsSystem ? 0.45 : 1)
             }
-            .padding(.horizontal, 12)
+            .padding(.horizontal, 20)
+            .padding(.top, 6)
+            .padding(.bottom, 18)
         }
     }
 }
@@ -771,284 +659,6 @@ private struct DefaultPermissionChoice: Identifiable, Hashable {
     }
 }
 
-private struct AgentPresetSelectionView: View {
-    @EnvironmentObject private var store: AppStore
-    @State private var pendingPreset: GatewayAgentPreset?
-
-    private var isChangingDefault: Bool {
-        store.defaultConfigurationLoadingKinds.contains("set-default")
-    }
-
-    var body: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 14) {
-                VStack(alignment: .leading, spacing: 7) {
-                    Text("Agent 预设")
-                        .appFont(.title2.bold())
-                    Text("预设决定 Agent 使用的工具、提示词与能力。选择后只对新建会话生效。")
-                        .appFont(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.bottom, 4)
-
-                if let error = store.agentPresetsLoadError {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Label(error, systemImage: "exclamationmark.circle")
-                            .foregroundStyle(.secondary)
-                        Button("重试") { store.retryAgentPresets() }
-                            .disabled(store.defaultConfigurationLoadingKinds.contains("agent-presets"))
-                    }
-                    .padding(.vertical, 12)
-                }
-
-                if store.defaultConfigurationLoadingKinds.contains("agent-presets") && store.agentPresets.isEmpty {
-                    HStack(spacing: 10) {
-                        ProgressView()
-                        Text("正在读取 Agent 预设…")
-                            .foregroundStyle(.secondary)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 48)
-                } else if store.agentPresets.isEmpty && store.agentPresetsLoadError == nil {
-                    ContentUnavailableView(
-                        "没有可用的 Agent 预设",
-                        systemImage: "point.3.filled.connected.trianglepath.dotted",
-                        description: Text("网关暂无可用预设，可下拉刷新。")
-                    )
-                    .padding(.vertical, 24)
-                } else {
-                    ForEach(store.agentPresets) { preset in
-                        AgentPresetCard(
-                            preset: preset,
-                            isSelected: preset.id == store.agentPresetDefault,
-                            isBusy: isChangingDefault
-                        ) {
-                            pendingPreset = preset
-                        }
-                    }
-                }
-
-                if store.agentPresetsAuthorable || store.agentPresetsHasDocument {
-                    Label(presetCapabilityText, systemImage: "info.circle")
-                        .appFont(.footnote)
-                        .foregroundStyle(.secondary)
-                        .padding(.top, 4)
-                }
-            }
-            .padding(20)
-            .readableContentWidth()
-        }
-        .background(Color(uiColor: .systemGroupedBackground))
-        .navigationTitle("Agent 预设")
-        .pausesBackgroundAnimation()
-        .navigationBarTitleDisplayMode(.inline)
-        .refreshable {
-            store.refreshDefaultConfiguration()
-        }
-        .task {
-            if store.agentPresets.isEmpty {
-                store.refreshDefaultConfiguration()
-            }
-        }
-        .alert(item: $pendingPreset) { preset in
-            Alert(
-                title: Text("设为全局默认预设？"),
-                message: Text(String(localized: "defaults.preset.confirm.body", defaultValue: "将“\(preset.displayName)”设为新会话的默认 Agent 预设。这会更新部署级设置，并同步影响 WebUI。")),
-                primaryButton: .cancel(Text("取消")),
-                secondaryButton: .default(Text("设为默认")) {
-                    store.setDefaultAgentPreset(preset.id)
-                }
-            )
-        }
-    }
-
-    private var presetCapabilityText: String {
-        switch (store.agentPresetsAuthorable, store.agentPresetsHasDocument) {
-        case (true, true): return String(localized: "服务端支持编写自定义预设，并提供预设配置文档。")
-        case (true, false): return String(localized: "服务端支持编写自定义 Agent 预设。")
-        case (false, true): return String(localized: "服务端提供 Agent 预设配置文档。")
-        case (false, false): return ""
-        }
-    }
-}
-
-private struct AgentPresetCard: View {
-    let preset: GatewayAgentPreset
-    let isSelected: Bool
-    let isBusy: Bool
-    let select: () -> Void
-
-    var body: some View {
-        Button(action: select) {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(preset.displayName)
-                        .appFont(.headline)
-                        .foregroundStyle(.primary)
-                    Text(preset.id)
-                        .appFont(.caption.monospaced())
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3)
-                        .background(.secondary.opacity(0.1), in: Capsule())
-                    Spacer()
-                    if isSelected {
-                        Text("当前使用")
-                            .appFont(.caption.weight(.semibold))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 5)
-                            .background(.black, in: Capsule())
-                    }
-                }
-
-                Text(preset.displayDescription)
-                    .appFont(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                if preset.broken == true {
-                    Label("该预设存在配置错误，暂时不能设为默认值", systemImage: "exclamationmark.triangle.fill")
-                        .appFont(.caption)
-                        .foregroundStyle(.orange)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(16)
-            .background(Color(uiColor: .secondarySystemGroupedBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(isSelected ? Color.primary : Color.secondary.opacity(0.18), lineWidth: isSelected ? 1.5 : 1)
-            }
-        }
-        .buttonStyle(.plain)
-        .allowsHitTesting(!isSelected && !isBusy && preset.broken != true)
-        .opacity(preset.broken == true ? 0.68 : 1)
-    }
-}
-
-private struct DefaultModelSelectionView: View {
-    @EnvironmentObject private var store: AppStore
-    @State private var pendingChange: PendingDefaultModelChange?
-
-    private var isBusy: Bool {
-        store.defaultConfigurationLoadingKinds.contains("save-default-model")
-    }
-    private var modelGroups: [GatewayModelGroup] {
-        store.anyModelCatalog?.groups ?? []
-    }
-    private var isLoadingCatalog: Bool {
-        store.sessionControlLoadingKinds.contains("models") && modelGroups.isEmpty
-    }
-
-    var body: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 20) {
-                VStack(alignment: .leading, spacing: 7) {
-                    Text("默认模型")
-                        .appFont(.title2.bold())
-                    Text("为之后新建的会话设置默认模型与思考等级。这会更新部署级设置，同步影响 WebUI，运行中的会话保持启动时的配置。")
-                        .appFont(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.bottom, 4)
-
-                if isLoadingCatalog {
-                    HStack(spacing: 10) {
-                        ProgressView()
-                        Text("正在读取模型列表…")
-                            .foregroundStyle(.secondary)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 48)
-                } else if modelGroups.isEmpty {
-                    ContentUnavailableView(
-                        "暂无可用模型",
-                        systemImage: "cpu",
-                        description: Text("未能读取到模型列表，请检查网关连接后下拉重试。")
-                    )
-                    .padding(.vertical, 24)
-                } else {
-                    ForEach(modelGroups) { group in
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text(group.name)
-                                .appFont(.subheadline.weight(.semibold))
-                                .foregroundStyle(.secondary)
-                            ForEach(group.models) { model in
-                                DefaultModelCard(
-                                    group: group,
-                                    model: model,
-                                    isSelected: isDefault(group: group, model: model),
-                                    currentEffort: store.defaultModelSelection?.reasoningEffort,
-                                    isBusy: isBusy,
-                                    onSelectModel: { select(group: group, model: model) },
-                                    onSelectEffort: { effort in selectEffort(effort, group: group, model: model) }
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-            .padding(20)
-            .readableContentWidth()
-        }
-        .background(Color(uiColor: .systemGroupedBackground))
-        .navigationTitle("默认模型")
-        .pausesBackgroundAnimation()
-        .navigationBarTitleDisplayMode(.inline)
-        .refreshable {
-            store.ensureModelCatalogForDefaults()
-        }
-        .task {
-            store.ensureModelCatalogForDefaults()
-        }
-        .alert(item: $pendingChange) { change in
-            Alert(
-                title: Text("修改默认模型？"),
-                message: Text(String(localized: "defaults.model.confirm.body", defaultValue: "将新会话的默认模型改为“\(change.summary)”。这会更新部署级设置，并同步影响 WebUI。")),
-                primaryButton: .cancel(Text("取消")),
-                secondaryButton: .default(Text("确认修改")) {
-                    store.saveDefaultModel(provider: change.provider, model: change.model, reasoningEffort: change.reasoningEffort)
-                }
-            )
-        }
-    }
-
-    private func isDefault(group: GatewayModelGroup, model: GatewayModelItem) -> Bool {
-        store.defaultModelSelection?.provider == group.id && store.defaultModelSelection?.model == model.id
-    }
-
-    private func select(group: GatewayModelGroup, model: GatewayModelItem) {
-        let efforts = model.reasoning?.efforts ?? []
-        let retainedEffort = store.defaultModelSelection?.reasoningEffort.flatMap { current in
-            efforts.contains(where: { $0.id == current }) ? current : nil
-        }
-        let effortId = retainedEffort ?? model.reasoning?.defaultEffort
-        pendingChange = PendingDefaultModelChange(
-            provider: group.id,
-            providerName: group.name,
-            model: model.id,
-            modelName: model.name,
-            reasoningEffort: effortId,
-            effortName: effortId.flatMap { id in efforts.first(where: { $0.id == id })?.name }
-        )
-    }
-
-    private func selectEffort(_ effort: GatewayReasoningEffort, group: GatewayModelGroup, model: GatewayModelItem) {
-        pendingChange = PendingDefaultModelChange(
-            provider: group.id,
-            providerName: group.name,
-            model: model.id,
-            modelName: model.name,
-            reasoningEffort: effort.id,
-            effortName: effort.name
-        )
-    }
-}
-
 private struct PendingDefaultModelChange: Identifiable {
     let id = UUID()
     let provider: String
@@ -1065,73 +675,6 @@ private struct PendingDefaultModelChange: Identifiable {
     }
 }
 
-private struct DefaultModelCard: View {
-    let group: GatewayModelGroup
-    let model: GatewayModelItem
-    let isSelected: Bool
-    let currentEffort: String?
-    let isBusy: Bool
-    let onSelectModel: () -> Void
-    let onSelectEffort: (GatewayReasoningEffort) -> Void
-
-    private var efforts: [GatewayReasoningEffort] { model.reasoning?.efforts ?? [] }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(model.name)
-                    .appFont(.headline)
-                    .foregroundStyle(.primary)
-                Spacer()
-                if isSelected {
-                    Text("当前使用")
-                        .appFont(.caption.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .background(.black, in: Capsule())
-                }
-            }
-            .contentShape(Rectangle())
-            .onTapGesture { if !isBusy { onSelectModel() } }
-
-            if !efforts.isEmpty {
-                HStack(spacing: 8) {
-                    Text("思考等级")
-                        .appFont(.caption)
-                        .foregroundStyle(.secondary)
-                    ForEach(efforts) { effort in
-                        let isCurrentEffort = isSelected && effort.id == currentEffort
-                        Button {
-                            onSelectEffort(effort)
-                        } label: {
-                            Text(effort.name)
-                                .appFont(.caption.weight(.medium))
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 5)
-                                .background(isCurrentEffort ? Color.primary : Color.secondary.opacity(0.12), in: Capsule())
-                                .foregroundStyle(isCurrentEffort ? Color(uiColor: .systemBackground) : .primary)
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(isBusy)
-                    }
-                    Spacer(minLength: 0)
-                }
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16)
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(isSelected ? Color.primary : Color.secondary.opacity(0.18), lineWidth: isSelected ? 1.5 : 1)
-        }
-        .opacity(isBusy ? 0.7 : 1)
-    }
-}
-
-
 private struct BundledAppReleaseInfo: Decodable {
     let version: String
     let minimumGatewayVersion: String
@@ -1147,6 +690,344 @@ private struct BundledAppReleaseInfo: Decodable {
               let notes = try? String(contentsOf: notesURL, encoding: .utf8) else { return nil }
         info.notes = notes
         return info
+    }
+}
+
+/// 紧凑弹层容器：标题 + 关闭，内容自管。
+/// 刻意不套 `NavigationStack`——本次改造就是要让设置里的这些选项彻底离开「推入」这条路径。
+private struct CompactSheet<Content: View>: View {
+    let title: String
+    let detents: Set<PresentationDetent>
+    let content: () -> Content
+
+    @Environment(\.dismiss) private var dismiss
+
+    init(title: String, detents: Set<PresentationDetent>, @ViewBuilder content: @escaping () -> Content) {
+        self.title = title
+        self.detents = detents
+        self.content = content
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text(title).appFont(.headline)
+                Spacer()
+                Button(String(localized: "关闭")) { dismiss() }
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 14)
+
+            Divider()
+
+            content()
+        }
+        .presentationDetents(detents)
+        .presentationDragIndicator(.visible)
+    }
+}
+
+/// 弹层里的单行选项（标题 + 可选副标题 + 勾选）。
+private struct CompactOptionRow: View {
+    let title: String
+    var subtitle: String? = nil
+    var selected: Bool = false
+    var disabled: Bool = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title).foregroundStyle(.primary)
+                    if let subtitle, !subtitle.isEmpty {
+                        Text(subtitle)
+                            .appFont(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                    }
+                }
+                Spacer(minLength: 0)
+                if selected {
+                    Image(systemName: "checkmark").foregroundStyle(DSHColor.ocean)
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(disabled)
+        .opacity(disabled ? 0.5 : 1)
+    }
+}
+
+/// 弹层里的加载/空态一行（带可选重试）。
+private struct CompactStatusRow: View {
+    let text: String
+    var isLoading = false
+    var retry: (() -> Void)? = nil
+
+    var body: some View {
+        VStack(spacing: 12) {
+            HStack(spacing: 10) {
+                if isLoading { ProgressView() }
+                Text(text).foregroundStyle(.secondary)
+            }
+            if let retry {
+                Button(String(localized: "重试"), action: retry)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 40)
+    }
+}
+
+/// Agent 预设：紧凑选项弹层（原来是一整页推入）。
+private struct AgentPresetOptionsSheet: View {
+    @EnvironmentObject private var store: AppStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var pendingPreset: GatewayAgentPreset?
+
+    private var isLoading: Bool {
+        store.defaultConfigurationLoadingKinds.contains("agent-presets") && store.agentPresets.isEmpty
+    }
+
+    private var isChangingDefault: Bool {
+        store.defaultConfigurationLoadingKinds.contains("set-default")
+    }
+
+    var body: some View {
+        CompactSheet(title: String(localized: "Agent 预设"), detents: [.medium, .large]) {
+            if isLoading {
+                CompactStatusRow(text: String(localized: "正在读取 Agent 预设…"), isLoading: true)
+            } else if store.agentPresets.isEmpty {
+                CompactStatusRow(
+                    text: store.agentPresetsLoadError ?? String(localized: "没有可用的 Agent 预设")
+                ) { store.retryAgentPresets() }
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach(store.agentPresets) { preset in
+                            CompactOptionRow(
+                                title: preset.displayName,
+                                subtitle: preset.broken == true
+                                    ? String(localized: "该预设存在配置错误，暂时不能设为默认值")
+                                    : preset.displayDescription,
+                                selected: preset.id == store.agentPresetDefault,
+                                disabled: preset.broken == true || isChangingDefault
+                            ) {
+                                pendingPreset = preset
+                            }
+                            Divider().padding(.leading, 20)
+                        }
+                    }
+                }
+                .alert(item: $pendingPreset) { preset in
+                    Alert(
+                        title: Text("设为全局默认预设？"),
+                        message: Text(String(localized: "defaults.preset.confirm.body", defaultValue: "将“\(preset.displayName)”设为新会话的默认 Agent 预设。这会更新部署级设置，并同步影响 WebUI。")),
+                        primaryButton: .cancel(Text("取消")),
+                        secondaryButton: .default(Text("设为默认")) {
+                            store.setDefaultAgentPreset(preset.id)
+                            dismiss()
+                        }
+                    )
+                }
+            }
+        }
+        .task {
+            if store.agentPresets.isEmpty { store.refreshDefaultConfiguration() }
+        }
+    }
+}
+
+/// 默认模型：紧凑选项弹层（模型列表 + 思考等级 chips，原来是一整页推入）。
+private struct DefaultModelOptionsSheet: View {
+    @EnvironmentObject private var store: AppStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var pendingChange: PendingDefaultModelChange?
+
+    private var modelGroups: [GatewayModelGroup] { store.anyModelCatalog?.groups ?? [] }
+    private var isLoadingCatalog: Bool {
+        store.sessionControlLoadingKinds.contains("models") && modelGroups.isEmpty
+    }
+    private var isBusy: Bool {
+        store.defaultConfigurationLoadingKinds.contains("save-default-model")
+    }
+
+    var body: some View {
+        CompactSheet(title: String(localized: "默认模型"), detents: [.medium, .large]) {
+            if isLoadingCatalog {
+                CompactStatusRow(text: String(localized: "正在读取模型列表…"), isLoading: true)
+            } else if modelGroups.isEmpty {
+                CompactStatusRow(text: String(localized: "暂无可用模型")) {
+                    store.ensureModelCatalogForDefaults()
+                }
+            } else {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 16) {
+                        ForEach(modelGroups) { group in
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(group.name)
+                                    .appFont(.caption.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+                                    .padding(.horizontal, 20)
+                                ForEach(group.models) { model in
+                                    modelRow(group: group, model: model)
+                                }
+                            }
+                        }
+                    }
+                    .padding(.vertical, 14)
+                }
+                .alert(item: $pendingChange) { change in
+                    Alert(
+                        title: Text("修改默认模型？"),
+                        message: Text(String(localized: "defaults.model.confirm.body", defaultValue: "将新会话的默认模型改为“\(change.summary)”。这会更新部署级设置，并同步影响 WebUI。")),
+                        primaryButton: .cancel(Text("取消")),
+                        secondaryButton: .default(Text("确认修改")) {
+                            store.saveDefaultModel(
+                                provider: change.provider,
+                                model: change.model,
+                                reasoningEffort: change.reasoningEffort
+                            )
+                            dismiss()
+                        }
+                    )
+                }
+            }
+        }
+        .task { store.ensureModelCatalogForDefaults() }
+    }
+
+    @ViewBuilder
+    private func modelRow(group: GatewayModelGroup, model: GatewayModelItem) -> some View {
+        let efforts = model.reasoning?.efforts ?? []
+        let selected = store.defaultModelSelection?.provider == group.id
+            && store.defaultModelSelection?.model == model.id
+        let currentEffort = store.defaultModelSelection?.reasoningEffort
+
+        VStack(alignment: .leading, spacing: 6) {
+            Button {
+                pendingChange = change(group: group, model: model, effort: nil)
+            } label: {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(model.name).foregroundStyle(.primary)
+                    Spacer(minLength: 0)
+                    if selected {
+                        Text("当前使用")
+                            .appFont(.caption.weight(.semibold))
+                            .foregroundStyle(Color(uiColor: .systemBackground))
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 4)
+                            .background(Color.primary, in: Capsule())
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 9)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(isBusy)
+
+            if !efforts.isEmpty {
+                HStack(spacing: 8) {
+                    Text("思考等级")
+                        .appFont(.caption)
+                        .foregroundStyle(.secondary)
+                    ForEach(efforts) { effort in
+                        let isCurrent = selected && effort.id == currentEffort
+                        Button {
+                            pendingChange = change(group: group, model: model, effort: effort)
+                        } label: {
+                            Text(effort.name)
+                                .appFont(.caption.weight(.medium))
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 5)
+                                .background(isCurrent ? Color.primary : Color.secondary.opacity(0.12), in: Capsule())
+                                .foregroundStyle(isCurrent ? Color(uiColor: .systemBackground) : .primary)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(isBusy)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 4)
+            }
+        }
+    }
+
+    private func change(
+        group: GatewayModelGroup,
+        model: GatewayModelItem,
+        effort: GatewayReasoningEffort?
+    ) -> PendingDefaultModelChange {
+        let efforts = model.reasoning?.efforts ?? []
+        let retained = store.defaultModelSelection?.reasoningEffort.flatMap { current in
+            efforts.contains(where: { $0.id == current }) ? current : nil
+        }
+        let effortId = effort?.id ?? retained ?? model.reasoning?.defaultEffort
+        return PendingDefaultModelChange(
+            provider: group.id,
+            providerName: group.name,
+            model: model.id,
+            modelName: model.name,
+            reasoningEffort: effortId,
+            effortName: effortId.flatMap { id in efforts.first(where: { $0.id == id })?.name }
+        )
+    }
+}
+
+/// 权限：紧凑选项弹层（原来是一个 Menu）。
+private struct PermissionOptionsSheet: View {
+    @EnvironmentObject private var store: AppStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var pendingPermission: DefaultPermissionChoice?
+
+    var body: some View {
+        CompactSheet(title: String(localized: "权限"), detents: [.medium]) {
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(store.permissionDefaultOptions.map(DefaultPermissionChoice.init)) { option in
+                        CompactOptionRow(
+                            title: option.title,
+                            subtitle: option.description,
+                            selected: option.id == store.permissionDefault
+                        ) {
+                            pendingPermission = option
+                        }
+                        Divider().padding(.leading, 20)
+                    }
+                }
+            }
+            .alert(item: $pendingPermission) { option in
+                Alert(
+                    title: Text("修改全局默认权限？"),
+                    message: Text(String(localized: "defaults.permission.confirm.body", defaultValue: "将新会话的默认权限改为“\(option.title)”。这会更新部署级设置，并同步影响 WebUI。")),
+                    primaryButton: .cancel(Text("取消")),
+                    secondaryButton: .default(Text("确认修改")) {
+                        store.setDefaultPermission(option.id)
+                        dismiss()
+                    }
+                )
+            }
+        }
+    }
+}
+
+/// 诊断用：一次「纯推入」。没有请求、没有定时器、没有滚动容器、也没有暂停背景的修饰符——
+/// 页内唯一变量就是「推入」这件事本身。
+private struct BlankPushTestView: View {
+    var body: some View {
+        VStack {
+            Text("空白测试页")
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .navigationTitle("空白测试页")
+        .navigationBarTitleDisplayMode(.inline)
+        .accessibilityIdentifier("diag-blank-page")
     }
 }
 

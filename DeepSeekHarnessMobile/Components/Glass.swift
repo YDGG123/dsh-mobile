@@ -4,6 +4,8 @@ struct GlassSurface: ViewModifier {
     let radius: CGFloat
     let dark: Bool
     let tint: Color?
+    /// 浅色专用实色面：传了就不再走 `thinMaterial + tint` 的双叠（那组合在浅色下偏深）。
+    let lightFill: Color?
     let clear: Bool
     let shadowOpacity: Double
 
@@ -31,7 +33,9 @@ struct GlassSurface: ViewModifier {
             content
                 .background {
                     RoundedRectangle(cornerRadius: radius, style: .continuous)
-                        .fill(dark ? AnyShapeStyle(.ultraThinMaterial.opacity(tint == nil ? 0.75 : 0.82)) : AnyShapeStyle(.thinMaterial))
+                        .fill(dark
+                            ? AnyShapeStyle(.ultraThinMaterial.opacity(tint == nil ? 0.75 : 0.82))
+                            : (lightFill.map { AnyShapeStyle($0) } ?? AnyShapeStyle(.thinMaterial)))
                         .overlay {
                             RoundedRectangle(cornerRadius: radius, style: .continuous)
                                 .fill(tint ?? .clear)
@@ -44,8 +48,10 @@ struct GlassSurface: ViewModifier {
 }
 
 extension View {
-    func glassSurface(radius: CGFloat = 22, dark: Bool = false, tint: Color? = nil, clear: Bool = false, shadowOpacity: Double = 0.18) -> some View {
-        modifier(GlassSurface(radius: radius, dark: dark, tint: tint, clear: clear, shadowOpacity: shadowOpacity))
+    func glassSurface(radius: CGFloat = 22, dark: Bool = false, tint: Color? = nil,
+                      lightFill: Color? = nil, clear: Bool = false, shadowOpacity: Double = 0.18) -> some View {
+        modifier(GlassSurface(radius: radius, dark: dark, tint: tint, lightFill: lightFill,
+                              clear: clear, shadowOpacity: shadowOpacity))
     }
 
     /// Button 与 Menu 共用原生圆形液态玻璃交互，旧系统沿用材质样式。

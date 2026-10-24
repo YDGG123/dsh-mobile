@@ -242,16 +242,25 @@ struct TeamView: View {
         }
     }
 
+    /// 头像与 Bot tab 同一套：有 data URL 画图，否则深色不透明底 + 白色首字母
+    /// （原来的「系统色 0.75 透明 + 白字 / room 的 accentColor 0.18 + 白字」在浅色下只有 1.33–3.49:1）。
+    @ViewBuilder
     private func gatewayAvatar(_ row: GatewayTeamFeed.Row, size: CGFloat) -> some View {
-        let color: Color = row.kind == .room ? Color.accentColor.opacity(0.18) : avatarColor(row.name)
-        return Circle()
-            .fill(color)
-            .frame(width: size, height: size)
-            .overlay {
-                Text(String(row.name.prefix(1)))
-                    .font(.system(size: size * 0.42, weight: .semibold))
-                    .foregroundStyle(.white)
-            }
+        if let image = GatewayTeamFeed.avatarImage(row) {
+            Image(uiImage: image)
+                .resizable().scaledToFill()
+                .frame(width: size, height: size)
+                .clipShape(Circle())
+        } else {
+            Circle()
+                .fill(GatewayTeamFeed.avatarColor(row))
+                .frame(width: size, height: size)
+                .overlay {
+                    Text(String(row.name.prefix(1)))
+                        .font(.system(size: size * 0.42, weight: .semibold))
+                        .foregroundStyle(.white)
+                }
+        }
     }
 
     private func statusColor(_ row: GatewayTeamFeed.Row) -> Color {
@@ -521,14 +530,6 @@ struct TeamView: View {
                     .font(.system(size: size * 0.42, weight: .semibold))
                     .foregroundStyle(.white)
             }
-    }
-
-    /// 网关帧的头像暂不渲染（data URL 体积大、降级态也拿不到），先按名字稳定取色。
-    private func avatarColor(_ name: String) -> Color {
-        let palette: [Color] = [.blue, .green, .orange, .purple, .pink, .teal, .indigo]
-        var hash = 5381
-        for scalar in name.unicodeScalars { hash = (hash &* 33) &+ Int(scalar.value) }
-        return palette[abs(hash) % palette.count].opacity(0.75)
     }
 
     private func avatarColor(_ row: BridgeTeamRow) -> Color {
