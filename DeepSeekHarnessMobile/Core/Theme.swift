@@ -138,6 +138,22 @@ enum DSHColor {
     static let purple = Color(red: 0.48, green: 0.33, blue: 0.78)
     static let orange = Color(red: 0.94, green: 0.49, blue: 0.08)
     static let amber = Color(red: 1.0, green: 0.68, blue: 0.12)
+
+    // MARK: 主题自适应状态色（渲染层没有 colorScheme 时用这一组）
+    // UIKit 动态色按 traitCollection 解析，SwiftUI 的 preferredColorScheme 会改到 window 的
+    // overrideUserInterfaceStyle，所以这套色在任何视图里都能自动跟随主题，不必逐层加
+    // `@Environment(\.colorScheme)`。深色档 = 原品牌色（观感不变），浅色档 = 压暗版（达标 AA/≥3:1）。
+    private static func dynamic(dark: (CGFloat, CGFloat, CGFloat), light: (CGFloat, CGFloat, CGFloat)) -> Color {
+        Color(uiColor: UIColor { traits in
+            let (r, g, b) = traits.userInterfaceStyle == .dark ? dark : light
+            return UIColor(red: r, green: g, blue: b, alpha: 1)
+        })
+    }
+
+    static let successAA = dynamic(dark: (0.18, 0.72, 0.36), light: (0.07, 0.42, 0.18))
+    static let warningAA = dynamic(dark: (1.0, 0.68, 0.12), light: (0.55, 0.32, 0.0))
+    static let cautionAA = dynamic(dark: (0.94, 0.49, 0.08), light: (0.62, 0.30, 0.0))
+    static let dangerAA = dynamic(dark: (1.0, 0.23, 0.19), light: (0.72, 0.12, 0.10))
     static let success = Color(red: 0.18, green: 0.72, blue: 0.36)
 }
 

@@ -2396,7 +2396,7 @@ private struct TaskGoalPanels: View {
                 Image(systemName: "checkmark.circle")
                     .resizable()
                     .scaledToFit()
-                    .foregroundStyle(.green)
+                    .foregroundStyle(DSHColor.successAA)
                     .frame(width: 16, height: 16)
             case "in_progress":
                 ProgressView()
@@ -3258,7 +3258,7 @@ private struct ContextUsagePopover: View {
             } else if let usage = snapshot?.tokenUsage {
                 usageRow(String(localized: "未缓存输入"), value: usage.uncachedInputTokens, color: DSHColor.ocean)
                 usageRow(String(localized: "缓存读取"), value: usage.cacheReadTokens, color: DSHColor.purple)
-                usageRow(String(localized: "模型输出"), value: usage.outputTokens, color: DSHColor.orange)
+                usageRow(String(localized: "模型输出"), value: usage.outputTokens, color: DSHColor.cautionAA)
             } else {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
@@ -3810,7 +3810,7 @@ private struct ConversationEventHeaderRow: View {
 
     private var tint: Color {
         switch role {
-        case .context: .green
+        case .context: DSHColor.successAA
         }
     }
 }
@@ -3984,7 +3984,7 @@ private struct ConversationProcessToolHeaderRow: View {
                     ? .system("exclamationmark.triangle")
                     : conversationToolGlyph(tool.call?.title)
             )
-                .foregroundStyle(tool.result?.isError == true ? .red : DSHColor.orange)
+                .foregroundStyle(tool.result?.isError == true ? DSHColor.dangerAA : DSHColor.cautionAA)
                 .frame(width: 17)
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 7) {
@@ -4194,7 +4194,7 @@ struct ConversationRow: View {
                 title: item.title,
                 text: item.text,
                 icon: .asset("DshContextInjection"),
-                tint: .green
+                tint: DSHColor.successAA
             )
         case .assistant:
             VStack(alignment: .leading, spacing: 7) {
@@ -4235,7 +4235,7 @@ struct ConversationRow: View {
                     : item.kind == .tool
                         ? conversationToolGlyph(item.title)
                         : .system("wrench.and.screwdriver"),
-                tint: item.isError ? .red : DSHColor.orange,
+                tint: item.isError ? DSHColor.dangerAA : DSHColor.cautionAA,
                 rendersOutput: item.title == L10n.toolResultDoneTitle || item.title == L10n.toolResultFailedTitle
             )
         case .jsonTool:
@@ -4243,7 +4243,7 @@ struct ConversationRow: View {
                 title: item.title,
                 text: item.text,
                 icon: .system("curlybraces.square"),
-                tint: DSHColor.orange,
+                tint: DSHColor.cautionAA,
                 rendersJSON: true
             )
         case .status:
@@ -4678,7 +4678,7 @@ enum JSONSyntaxHighlighter {
         }
         if token == "true" || token == "false" { return DSHColor.purple }
         if token == "null" { return .red.opacity(0.8) }
-        return DSHColor.orange
+        return DSHColor.cautionAA
     }
 
     private static func styled(_ value: String, color: Color) -> AttributedString {

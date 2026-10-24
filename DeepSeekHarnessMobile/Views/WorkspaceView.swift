@@ -422,7 +422,7 @@ struct WorkspaceView: View {
         HStack(spacing: 11) {
             Circle()
                 // 图形判据 ≥3:1：等待用压暗绿，未等待用 stroke 档（原来 ink(0.35) 在浅色下是 0.71 的近黑点）。
-                .fill(row.waiting == true ? palette.success : palette.stroke(0.45))
+                .fill(row.waiting == true ? palette.success : palette.veil(0.35))
                 .frame(width: 7, height: 7)
                 .shadow(color: row.waiting == true ? palette.success : .clear, radius: 5)
             VStack(alignment: .leading, spacing: 3) {
@@ -917,7 +917,7 @@ struct WorkspaceView: View {
     private func sessionRow(_ session: SessionSummary) -> some View {
         HStack(spacing: 11) {
             Circle()
-                .fill(session.isRunning ? palette.success : (session.hasUnread ? DSHColor.ocean : palette.stroke(0.45)))
+                .fill(session.isRunning ? palette.success : (session.hasUnread ? DSHColor.ocean : palette.veil(0.35)))
                 .frame(width: 7, height: 7)
                 .shadow(color: session.isRunning ? palette.success : .clear, radius: 5)
             VStack(alignment: .leading, spacing: 3) {
@@ -1487,7 +1487,7 @@ private struct ManualGatewayPairingSheet: View {
             resultCard(
                 title: String(localized: "配对信息无效"),
                 detail: validationError,
-                color: .red,
+                color: DSHColor.dangerAA,
                 symbol: "exclamationmark.triangle.fill"
             )
         } else if didAttemptConnection {
@@ -1496,21 +1496,21 @@ private struct ManualGatewayPairingSheet: View {
                 resultCard(
                     title: String(localized: "正在连接"),
                     detail: String(localized: "pairing.submitting.detail", defaultValue: "正在提交一次性配对码并等待 Mobile Gateway 完成设备鉴权…"),
-                    color: DSHColor.amber,
+                    color: DSHColor.warningAA,
                     symbol: "arrow.triangle.2.circlepath"
                 )
             case .connected:
                 resultCard(
                     title: String(localized: "连接成功"),
                     detail: String(localized: "设备鉴权已完成，长期 token 已安全保存到 Keychain。"),
-                    color: DSHColor.success,
+                    color: DSHColor.successAA,
                     symbol: "checkmark.circle.fill"
                 )
             case .failed(let reason):
                 resultCard(
                     title: String(localized: "连接失败"),
                     detail: reason,
-                    color: .red,
+                    color: DSHColor.dangerAA,
                     symbol: "xmark.octagon.fill"
                 )
             case .disconnected:
