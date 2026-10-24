@@ -1,0 +1,1386 @@
+bucket,bundle,file,line,context,label,text
+registered,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,113,(目录键命中),,待审批
+registered,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,115,(目录键命中),,已允许
+registered,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,117,(目录键命中),,失败
+registered,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,460,(目录键命中),,查看会话
+registered,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,584,(目录键命中),,拒绝
+registered,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,591,(目录键命中),,允许一次
+registered,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,719,(目录键命中),,待审批
+registered,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,721,(目录键命中),,已允许
+registered,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,723,(目录键命中),,失败
+registered,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,865,(目录键命中),,已允许本次操作
+registered,App,DeepSeekHarnessMobile/App/DeepSeekHarnessMobileApp.swift,49,(目录键命中),,主机连接
+registered,App,DeepSeekHarnessMobile/App/DeepSeekHarnessMobileApp.swift,50,(目录键命中),,好
+registered,App,DeepSeekHarnessMobile/Components/ConversationViewport.swift,1811,(目录键命中),,图片附件
+registered,App,DeepSeekHarnessMobile/Components/ConversationViewport.swift,1830,(目录键命中),,查看\(images.count)张图片
+registered,App,DeepSeekHarnessMobile/Components/ConversationViewport.swift,1831,(目录键命中),,查看图片
+registered,App,DeepSeekHarnessMobile/Components/ConversationViewport.swift,1944,(目录键命中),,复制正文
+registered,App,DeepSeekHarnessMobile/Components/ConversationViewport.swift,2144,(目录键命中),,已复制
+registered,App,DeepSeekHarnessMobile/Components/ConversationViewport.swift,2144,(目录键命中),,复制正文
+registered,App,DeepSeekHarnessMobile/Components/ConversationViewport.swift,2208,(目录键命中),,关闭图片预览
+registered,App,DeepSeekHarnessMobile/Components/ConversationViewport.swift,2311,(目录键命中),,图片
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,67,(目录键命中),,思考
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,97,(目录键命中),,命令执行失败
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,129,(目录键命中),,思考
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,147,(目录键命中),,工具
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,156,(目录键命中),,修改
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,157,(目录键命中),,读取
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,158,(目录键命中),,执行
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,159,(目录键命中),,搜索
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,252,(目录键命中),,跟随系统
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,252,(目录键命中),,浅色
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,252,(目录键命中),,深色
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,289,(目录键命中),,跟随系统
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,944,(目录键命中),,尚未连接到 DeepSeek Harness。请点击主页右上角的 🔑 按钮，扫描配对二维码或手动输入 Token 进行连接。
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,995,(目录键命中),,请连接网关后重试。
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,1021,(目录键命中),,请先连接 DeepSeek Harness
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,1305,(目录键命中),,WebSocket 尚未连接，无法加载历史记录
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,1352,(目录键命中),,历史记录刷新超时
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,1353,(目录键命中),,已保留本地内容并继续接收实时事件
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,1357,(目录键命中),,历史记录加载超时，请重试
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,1390,(目录键命中),,请先连接 DeepSeek Harness
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,1398,(目录键命中),,请先打开一个已有会话
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,1402,(目录键命中),,请先连接 DeepSeek Harness
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,1406,(目录键命中),,当前 Mobile Gateway 不支持文件下载，请升级并重启网关。
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,1475,(目录键命中),,请先连接 DeepSeek Harness
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,1480,(目录键命中),,文件夹名称不能为空
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,1493,(目录键命中),,请先连接 DeepSeek Harness
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,1622,(目录键命中),,请先连接 DeepSeek Harness
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,1626,(目录键命中),,当前 Mobile Gateway 不支持目标管理，请升级并重启网关。
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,1690,(目录键命中),,请先在设置中连接 DeepSeek Harness
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,1692,(目录键命中),,当前 Mobile Gateway 不支持图片，请升级并重启 dsh web。
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,1698,(目录键命中),,此命令不支持图片
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,1745,(目录键命中),,斜杠命令操作失败
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,2074,(目录键命中),,命令执行失败
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,2088,(目录键命中),,未知网关响应
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,2096,(目录键命中),,设备配对成功
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,2097,(目录键命中),,长期凭据已安全保存到 Keychain
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,2128,(目录键命中),,设备鉴权成功
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,2129,(目录键命中),,Debug 未鉴权
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,2131,(目录键命中),,网关已连接
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,2169,(目录键命中),,心跳正常
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,2173,(目录键命中),,接收全部会话事件
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,2237,(目录键命中),,文件分块无法写入临时文件
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,2283,(目录键命中),,下载文件的本地大小校验失败
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,2342,(目录键命中),,文件完整性校验失败，请重新下载。
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,2343,(目录键命中),,已有文件正在下载，请稍后再试。
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,2344,(目录键命中),,文件分块顺序异常，下载已取消。
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,2351,(目录键命中),,请先在设置中连接 DeepSeek Harness
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,2359,(目录键命中),,请先在设置中连接 DeepSeek Harness
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,2439,(目录键命中),,宿主信息
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,2482,(目录键命中),,默认模型已更新
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,2488,(目录键命中),,服务端未确认默认模型更新。
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,2490,(目录键命中),,默认模型更新失败
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,2510,(目录键命中),,服务端未确认默认配置更新。
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,2512,(目录键命中),,默认配置更新失败
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,2523,(目录键命中),,模型已切换
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,2549,(目录键命中),,权限已切换
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,2568,(目录键命中),,目录已加载
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,2577,(目录键命中),,文件夹已创建
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,2595,(目录键命中),,工作区已创建
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,2595,(目录键命中),,工作区已存在
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,2616,(目录键命中),,待回答问题已恢复
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,2616,(目录键命中),,Agent 正在等待回答
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,2617,(目录键命中),,请回答 Agent 的问题
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,2622,(目录键命中),,问题请求无效
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,2623,(目录键命中),,缺少 rpcId、sessionId 或 questions。
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,2631,(目录键命中),,问题已在其他端处理
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,2632,(目录键命中),,当前响应未生效。
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,2670,(目录键命中),,已跳过
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,2670,(目录键命中),,已提交
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,2673,(目录键命中),,等待 Agent 继续执行。
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,2706,(目录键命中),,待审批操作已恢复
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,2706,(目录键命中),,Agent 正在等待审批
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,2714,(目录键命中),,审批请求无效
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,2715,(目录键命中),,缺少 rpcId、sessionId、approvalId 或 toolName。
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,2756,(目录键命中),,审批已在其他端处理
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,2757,(目录键命中),,当前决定未生效。
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,2792,(目录键命中),,已允许本次操作。
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,2793,(目录键命中),,操作未获允许。
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,2794,(目录键命中),,审批已处理
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,2868,(目录键命中),,Agent 预设加载失败，请重试。
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,2889,(目录键命中),,消息已发送
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,2889,(目录键命中),,命令已执行
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,3381,(目录键命中),,请先连接 DeepSeek Harness
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,3413,(目录键命中),,控制请求失败
+registered,App,DeepSeekHarnessMobile/Core/AppStore.swift,3836,(目录键命中),,Agent 预设加载超时，请重试。
+registered,App,DeepSeekHarnessMobile/Core/GatewayClient.swift,211,(目录键命中),,二维码中的 publicUrl 不是有效的 ws:// 或 wss:// 地址
+registered,App,DeepSeekHarnessMobile/Core/GatewayModels.swift,390,(目录键命中),,运行中
+registered,App,DeepSeekHarnessMobile/Core/GatewayModels.swift,1346,(目录键命中),,未连接
+registered,App,DeepSeekHarnessMobile/Core/GatewayModels.swift,1347,(目录键命中),,连接中
+registered,App,DeepSeekHarnessMobile/Core/GatewayModels.swift,1348,(目录键命中),,已连接
+registered,App,DeepSeekHarnessMobile/Core/GatewayModels.swift,1349,(目录键命中),,连接失败
+registered,App,DeepSeekHarnessMobile/Core/ImagePreprocessor.swift,15,(目录键命中),,无法解码所选图片。
+registered,App,DeepSeekHarnessMobile/Core/ImagePreprocessor.swift,16,(目录键命中),,无法将图片压缩到 DSH 允许的大小。
+registered,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,1811,(目录键命中),,答案必须按原顺序覆盖整组问题。
+registered,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,1818,(目录键命中),,单选题只能选择一个选项，且不能同时填写自定义答案。
+registered,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,1823,(目录键命中),,服务端拒绝了问题响应。
+registered,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,1831,(目录键命中),,服务端拒绝了问题响应。
+registered,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,2240,(目录键命中),,WebSocket 已断开，重连后再处理审批。
+registered,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,2242,(目录键命中),,服务端未接受审批决定（%@），请重试。
+registered,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,2246,(目录键命中),,审批响应发送失败，请重试。
+registered,App,DeepSeekHarnessMobile/Core/L10n.swift,13,(目录键命中),,新建 Harness 会话
+registered,App,DeepSeekHarnessMobile/Core/L10n.swift,16,(目录键命中),,远端会话
+registered,App,DeepSeekHarnessMobile/Core/L10n.swift,35,(目录键命中),,你
+registered,App,DeepSeekHarnessMobile/Core/L10n.swift,36,(目录键命中),,DeepSeek · 正在生成
+registered,App,DeepSeekHarnessMobile/Core/L10n.swift,37,(目录键命中),,Think · 正在推理
+registered,App,DeepSeekHarnessMobile/Core/L10n.swift,38,(目录键命中),,Tool Call · 正在组装
+registered,App,DeepSeekHarnessMobile/Core/L10n.swift,39,(目录键命中),,工具完成
+registered,App,DeepSeekHarnessMobile/Core/L10n.swift,40,(目录键命中),,工具失败
+registered,App,DeepSeekHarnessMobile/Core/L10n.swift,54,(目录键命中),,标准模式
+registered,App,DeepSeekHarnessMobile/Core/L10n.swift,55,(目录键命中),,PTC 模式
+registered,App,DeepSeekHarnessMobile/Core/L10n.swift,56,(目录键命中),,极简模式
+registered,App,DeepSeekHarnessMobile/Core/L10n.swift,57,(目录键命中),,创造模式
+registered,App,DeepSeekHarnessMobile/Core/L10n.swift,81,(目录键命中),,只读
+registered,App,DeepSeekHarnessMobile/Core/L10n.swift,82,(目录键命中),,工作区写入
+registered,App,DeepSeekHarnessMobile/Core/L10n.swift,83,(目录键命中),,完全访问
+registered,App,DeepSeekHarnessMobile/Core/L10n.swift,92,(目录键命中),,低
+registered,App,DeepSeekHarnessMobile/Core/L10n.swift,93,(目录键命中),,中
+registered,App,DeepSeekHarnessMobile/Core/L10n.swift,94,(目录键命中),,高
+registered,App,DeepSeekHarnessMobile/Core/PairingPayloadParser.swift,66,(目录键命中),,配对内容不是有效的 Base64URL 字符串。
+registered,App,DeepSeekHarnessMobile/Core/PairingPayloadParser.swift,68,(目录键命中),,Base64URL 解码后的内容不是有效的 DeepSeek Harness 配对 JSON。
+registered,App,DeepSeekHarnessMobile/Core/PairingPayloadParser.swift,72,(目录键命中),,二维码中的 publicUrl 不是有效的 WebSocket 地址。
+registered,App,DeepSeekHarnessMobile/Core/PairingPayloadParser.swift,74,(目录键命中),,二维码中的一次性 pairingCode 无效。
+registered,App,DeepSeekHarnessMobile/Core/PairingPayloadParser.swift,76,(目录键命中),,二维码配对码已经过期，请在 WebUI 中重新生成。
+registered,Widget/LiveActivity,DeepSeekHarnessMobile/LiveActivity/AgentApprovalIntents.swift,37,(目录键命中),,允许本次操作
+registered,Widget/LiveActivity,DeepSeekHarnessMobile/LiveActivity/AgentApprovalIntents.swift,38,(目录键命中),,允许 Agent 执行当前待审批操作。
+registered,Widget/LiveActivity,DeepSeekHarnessMobile/LiveActivity/AgentApprovalIntents.swift,70,(目录键命中),,拒绝操作
+registered,Widget/LiveActivity,DeepSeekHarnessMobile/LiveActivity/AgentApprovalIntents.swift,71,(目录键命中),,拒绝 Agent 执行当前待审批操作。
+registered,Widget/LiveActivity,DeepSeekHarnessMobile/LiveActivity/AgentLiveActivityManager.swift,274,(目录键命中),,等待 Agent 继续执行
+registered,Widget/LiveActivity,DeepSeekHarnessMobile/LiveActivity/AgentLiveActivityManager.swift,374,(目录键命中),,已允许本次操作
+registered,App,DeepSeekHarnessMobile/Views/ApprovalRequestView.swift,50,(目录键命中),,Agent 正在等待审批
+registered,App,DeepSeekHarnessMobile/Views/ApprovalRequestView.swift,68,(目录键命中),,展开审批卡片
+registered,App,DeepSeekHarnessMobile/Views/ApprovalRequestView.swift,115,(目录键命中),,等待审批
+registered,App,DeepSeekHarnessMobile/Views/ApprovalRequestView.swift,135,(目录键命中),,收起审批卡片
+registered,App,DeepSeekHarnessMobile/Views/ApprovalRequestView.swift,147,(目录键命中),,拒绝
+registered,App,DeepSeekHarnessMobile/Views/ApprovalRequestView.swift,149,(目录键命中),,允许一次
+registered,App,DeepSeekHarnessMobile/Views/ApprovalRequestView.swift,166,(目录键命中),,审批详情
+registered,App,DeepSeekHarnessMobile/Views/BridgeConversationView.swift,55,(目录键命中),,关闭
+registered,App,DeepSeekHarnessMobile/Views/BridgeConversationView.swift,141,(目录键命中),,发送
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,205,(目录键命中),,按住说话
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,397,(目录键命中),,视图
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,398,(目录键命中),,对话
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,399,(目录键命中),,轨迹
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,761,(目录键命中),,编辑目标
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,762,(目录键命中),,目标
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,763,(目录键命中),,取消
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,764,(目录键命中),,保存
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,767,(目录键命中),,删除当前目标？
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,768,(目录键命中),,取消
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,769,(目录键命中),,删除
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,771,(目录键命中),,删除后，智能体不再持有这个持续目标。
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,787,(目录键命中),,语音输入暂不可用
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,791,(目录键命中),,知道了
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,849,(目录键命中),,操作远端 DSH Agent
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,850,(目录键命中),,发送任务后，工具调用、推理进度和最终回复会通过 Mobile Gateway 实时返回。
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,864,(目录键命中),,历史记录加载失败
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,870,(目录键命中),,重新加载历史
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,921,(目录键命中),,正在加载历史记录
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,938,(目录键命中),,正在加载历史记录
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,938,(目录键命中),,正在准备会话
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,940,(目录键命中),,正在定位到最新消息…
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,1058,(目录键命中),,草稿已更改，请确认插入识别文字
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,1060,(目录键命中),,插入
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,1061,(目录键命中),,丢弃
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,1084,(目录键命中),,添加图片
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,1084,(目录键命中),,当前网关不支持图片
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,1172,(目录键命中),,切换到文字输入
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,1172,(目录键命中),,切换到语音输入
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,1359,(目录键命中),,排队消息 · \(items.count)
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,1472,(目录键命中),,移除图片
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,1506,(目录键命中),,所选图片不是受支持的 PNG、JPEG、WebP 或 GIF。
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,1521,(目录键命中),,一条消息中的图片总大小不能超过 100 MiB。
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,1618,(目录键命中),,选择会话模式
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,1683,(目录键命中),,正在读取会话统计…
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,1703,(目录键命中),,查看会话执行状态
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,1716,(目录键命中),,读取默认权限…
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,1722,(目录键命中),,默认权限
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,1763,(目录键命中),,正在读取权限…
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,1804,(目录键命中),,默认模型
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,1811,(目录键命中),,默认 Agent
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,1915,(目录键命中),,加载更早记录
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2307,(目录键命中),,任务
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2320,(目录键命中),,收起任务
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2320,(目录键命中),,展开任务
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2371,(目录键命中),,编辑目标
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2452,(目录键命中),,读取默认模型…
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2517,(目录键命中),,正在读取模型…
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2536,(目录键命中),,推理等级
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2872,(目录键命中),,正在读取会话统计…
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2935,(目录键命中),,执行
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2936,(目录键命中),,轮次
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2937,(目录键命中),,步骤
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2939,(目录键命中),,工具调用
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2940,(目录键命中),,首 token 平均
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2941,(目录键命中),,解码吞吐
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2945,(目录键命中),,Token 用量
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2946,(目录键命中),,输入
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2947,(目录键命中),,输出
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2948,(目录键命中),,缓存读取
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2949,(目录键命中),,缓存写入
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2950,(目录键命中),,推理
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2951,(目录键命中),,缓存命中
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2956,(目录键命中),,上下文
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2957,(目录键命中),,当前压力
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2958,(目录键命中),,预计用量
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2959,(目录键命中),,上下文窗口
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2964,(目录键命中),,数据截至事件 #\(asOfSeq)
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2969,(目录键命中),,正在读取会话统计
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2969,(目录键命中),,统计会在本轮结束后自动更新。
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2975,(目录键命中),,会话状态
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2979,(目录键命中),,完成
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,3099,(目录键命中),,关闭
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,3183,(目录键命中),,轮次 · 步骤
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,3189,(目录键命中),,工具调用
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,3192,(目录键命中),,首 token 平均
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,3195,(目录键命中),,解码吞吐
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,3198,(目录键命中),,缓存命中
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,3201,(目录键命中),,输入
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,3208,(目录键命中),,查看完整统计
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,3245,(目录键命中),,上下文已用
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,3258,(目录键命中),,系统提示词
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,3260,(目录键命中),,对话消息
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,3262,(目录键命中),,未缓存输入
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,3263,(目录键命中),,缓存读取
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,3264,(目录键命中),,模型输出
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,3268,(目录键命中),,正在读取上下文用量…
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,3381,(目录键命中),,工具
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,3487,(目录键命中),,上下文
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,3502,(目录键命中),,思考过程
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,4003,(目录键命中),,失败
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,4005,(目录键命中),,等待结果
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,4035,(目录键命中),,调用参数
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,4041,(目录键命中),,错误
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,4041,(目录键命中),,结果
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,4156,(目录键命中),,图片附件
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,4320,(目录键命中),,已复制
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,4320,(目录键命中),,复制正文
+registered,App,DeepSeekHarnessMobile/Views/GatewaySwitcherView.swift,12,(目录键命中),,选择主机
+registered,App,DeepSeekHarnessMobile/Views/GatewaySwitcherView.swift,25,(目录键命中),,当前主机：\(hosts.activeProfile?.displayName ?? String(localized: 
+registered,App,DeepSeekHarnessMobile/Views/GatewaySwitcherView.swift,79,(目录键命中),,当前主机
+registered,App,DeepSeekHarnessMobile/Views/GatewaySwitcherView.swift,79,(目录键命中),,点击连接
+registered,App,DeepSeekHarnessMobile/Views/GatewaySwitcherView.swift,93,(目录键命中),,在线
+registered,App,DeepSeekHarnessMobile/Views/GatewaySwitcherView.swift,93,(目录键命中),,未连接或不可用
+registered,App,DeepSeekHarnessMobile/Views/GatewaySwitcherView.swift,106,(目录键命中),,编辑 \(profile.displayName)
+registered,App,DeepSeekHarnessMobile/Views/GatewaySwitcherView.swift,113,(目录键命中),,我的主机
+registered,App,DeepSeekHarnessMobile/Views/GatewaySwitcherView.swift,115,(目录键命中),,暂无已连接的主机
+registered,App,DeepSeekHarnessMobile/Views/GatewaySwitcherView.swift,120,(目录键命中),,删除主机？
+registered,App,DeepSeekHarnessMobile/Views/GatewaySwitcherView.swift,120,(目录键命中),,批量删除主机？
+registered,App,DeepSeekHarnessMobile/Views/GatewaySwitcherView.swift,121,(目录键命中),,取消
+registered,App,DeepSeekHarnessMobile/Views/GatewaySwitcherView.swift,122,(目录键命中),,删除
+registered,App,DeepSeekHarnessMobile/Views/GatewaySwitcherView.swift,127,(目录键命中),,从 App 移除选中的 \(selectedIDs.count) 台主机及连接凭证；网关上的会话和工作区不会被删除。再次连接需重新配对。
+registered,App,DeepSeekHarnessMobile/Views/GatewaySwitcherView.swift,129,(目录键命中),,切换主机
+registered,App,DeepSeekHarnessMobile/Views/GatewaySwitcherView.swift,133,(目录键命中),,完成编辑
+registered,App,DeepSeekHarnessMobile/Views/GatewaySwitcherView.swift,133,(目录键命中),,编辑
+registered,App,DeepSeekHarnessMobile/Views/GatewaySwitcherView.swift,142,(目录键命中),,删除
+registered,App,DeepSeekHarnessMobile/Views/GatewaySwitcherView.swift,142,(目录键命中),,批量删除
+registered,App,DeepSeekHarnessMobile/Views/GatewaySwitcherView.swift,164,(目录键命中),,主机类型
+registered,App,DeepSeekHarnessMobile/Views/GatewaySwitcherView.swift,167,(目录键命中),,主机类型
+registered,App,DeepSeekHarnessMobile/Views/GatewaySwitcherView.swift,168,(目录键命中),,电脑
+registered,App,DeepSeekHarnessMobile/Views/GatewaySwitcherView.swift,169,(目录键命中),,服务器
+registered,App,DeepSeekHarnessMobile/Views/GatewaySwitcherView.swift,176,(目录键命中),,服务器
+registered,App,DeepSeekHarnessMobile/Views/GatewaySwitcherView.swift,176,(目录键命中),,电脑
+registered,App,DeepSeekHarnessMobile/Views/GatewaySwitcherView.swift,182,(目录键命中),,主机类型
+registered,App,DeepSeekHarnessMobile/Views/GatewaySwitcherView.swift,183,(目录键命中),,服务器
+registered,App,DeepSeekHarnessMobile/Views/GatewaySwitcherView.swift,183,(目录键命中),,电脑
+registered,App,DeepSeekHarnessMobile/Views/GatewaySwitcherView.swift,186,(目录键命中),,留空使用网关提供的名称：\(profile.gatewayName)
+registered,App,DeepSeekHarnessMobile/Views/GatewaySwitcherView.swift,192,(目录键命中),,编辑主机
+registered,App,DeepSeekHarnessMobile/Views/GatewaySwitcherView.swift,195,(目录键命中),,取消
+registered,App,DeepSeekHarnessMobile/Views/GatewaySwitcherView.swift,197,(目录键命中),,保存
+registered,App,DeepSeekHarnessMobile/Views/HumanQuestionView.swift,55,(目录键命中),,放弃这组问题？
+registered,App,DeepSeekHarnessMobile/Views/HumanQuestionView.swift,56,(目录键命中),,跳过并让 Agent 继续
+registered,App,DeepSeekHarnessMobile/Views/HumanQuestionView.swift,57,(目录键命中),,继续回答
+registered,App,DeepSeekHarnessMobile/Views/HumanQuestionView.swift,59,(目录键命中),,当前填写的答案不会提交。
+registered,App,DeepSeekHarnessMobile/Views/HumanQuestionView.swift,73,(目录键命中),,Agent 正在等待回答
+registered,App,DeepSeekHarnessMobile/Views/HumanQuestionView.swift,121,(目录键命中),,需要你的回答
+registered,App,DeepSeekHarnessMobile/Views/HumanQuestionView.swift,124,(目录键命中),,已从断线前恢复
+registered,App,DeepSeekHarnessMobile/Views/HumanQuestionView.swift,137,(目录键命中),,收起问题卡片
+registered,App,DeepSeekHarnessMobile/Views/HumanQuestionView.swift,143,(目录键命中),,放弃整组问题
+registered,App,DeepSeekHarnessMobile/Views/HumanQuestionView.swift,168,(目录键命中),,可以选择多项
+registered,App,DeepSeekHarnessMobile/Views/HumanQuestionView.swift,192,(目录键命中),,输入你的答案
+registered,App,DeepSeekHarnessMobile/Views/HumanQuestionView.swift,203,(目录键命中),,或输入自定义答案
+registered,App,DeepSeekHarnessMobile/Views/HumanQuestionView.swift,235,(目录键命中),,推荐
+registered,App,DeepSeekHarnessMobile/Views/HumanQuestionView.swift,290,(目录键命中),,跳过问题
+registered,App,DeepSeekHarnessMobile/Views/HumanQuestionView.swift,293,(目录键命中),,提交
+registered,App,DeepSeekHarnessMobile/Views/HumanQuestionView.swift,293,(目录键命中),,下一题
+registered,App,DeepSeekHarnessMobile/Views/HumanQuestionView.swift,315,(目录键命中),,服务端已接收，正在恢复 Agent…
+registered,App,DeepSeekHarnessMobile/Views/HumanQuestionView.swift,329,(目录键命中),,计划待审
+registered,App,DeepSeekHarnessMobile/Views/HumanQuestionView.swift,343,(目录键命中),,去聊天里说
+registered,App,DeepSeekHarnessMobile/Views/HumanQuestionView.swift,347,(目录键命中),,拒绝
+registered,App,DeepSeekHarnessMobile/Views/HumanQuestionView.swift,351,(目录键命中),,确认执行
+registered,App,DeepSeekHarnessMobile/Views/PluginsView.swift,15,(目录键命中),,安装、启用和配置插件
+registered,App,DeepSeekHarnessMobile/Views/PluginsView.swift,18,(目录键命中),,网关已断开，插件状态待重新连接确认
+registered,App,DeepSeekHarnessMobile/Views/PluginsView.swift,27,(目录键命中),,请检查网关连接后重试
+registered,App,DeepSeekHarnessMobile/Views/PluginsView.swift,34,(目录键命中),,官方
+registered,App,DeepSeekHarnessMobile/Views/PluginsView.swift,43,(目录键命中),,已安装
+registered,App,DeepSeekHarnessMobile/Views/PluginsView.swift,55,(目录键命中),,插件
+registered,App,DeepSeekHarnessMobile/Views/PluginsView.swift,66,(目录键命中),,刷新插件
+registered,App,DeepSeekHarnessMobile/Views/PluginsView.swift,70,(目录键命中),,停用移动网关？
+registered,App,DeepSeekHarnessMobile/Views/PluginsView.swift,73,(目录键命中),,取消
+registered,App,DeepSeekHarnessMobile/Views/PluginsView.swift,74,(目录键命中),,停用
+registered,App,DeepSeekHarnessMobile/Views/PluginsView.swift,80,(目录键命中),,停用后手机会断开连接。只能从 DSH Web 或 CLI 重新开启此插件。
+registered,App,DeepSeekHarnessMobile/Views/PluginsView.swift,179,(目录键命中),,网关已断开，插件状态待重新连接确认
+registered,App,DeepSeekHarnessMobile/Views/PluginsView.swift,188,(目录键命中),,包含的组件
+registered,App,DeepSeekHarnessMobile/Views/PluginsView.swift,189,(目录键命中),,共 \(entries.count) 个 · \(entries.filter { $0.enabled && $0.phase == 
+registered,App,DeepSeekHarnessMobile/Views/PluginsView.swift,214,(目录键命中),,查看\(entry.name)详情
+registered,App,DeepSeekHarnessMobile/Views/PluginsView.swift,230,(目录键命中),,查看\(entry.name)详情
+registered,App,DeepSeekHarnessMobile/Views/PluginsView.swift,239,(目录键命中),,插件详情
+registered,App,DeepSeekHarnessMobile/Views/PluginsView.swift,245,(目录键命中),,停用移动网关？
+registered,App,DeepSeekHarnessMobile/Views/PluginsView.swift,246,(目录键命中),,取消
+registered,App,DeepSeekHarnessMobile/Views/PluginsView.swift,247,(目录键命中),,停用
+registered,App,DeepSeekHarnessMobile/Views/PluginsView.swift,248,(目录键命中),,停用后手机会断开连接。只能从 DSH Web 或 CLI 重新开启此插件。
+registered,App,DeepSeekHarnessMobile/Views/PluginsView.swift,284,(目录键命中),,组件详情
+registered,App,DeepSeekHarnessMobile/Views/PluginsView.swift,286,(目录键命中),,完成
+registered,App,DeepSeekHarnessMobile/Views/PluginsView.swift,314,(目录键命中),,配置项
+registered,App,DeepSeekHarnessMobile/Views/PluginsView.swift,321,(目录键命中),,插件详情
+registered,App,DeepSeekHarnessMobile/Views/PluginsView.swift,358,(目录键命中),,实验性
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,17,(目录键命中),,好
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,143,(目录键命中),,会话
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,249,(目录键命中),,全部
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,250,(目录键命中),,已开启
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,251,(目录键命中),,已结束
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,301,(目录键命中),,正在加载定时任务…
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,308,(目录键命中),,无法显示定时任务
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,312,(目录键命中),,重试
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,318,(目录键命中),,暂无定时任务
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,318,(目录键命中),,在会话中创建的定时任务会显示在这里
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,324,(目录键命中),,没有符合条件的定时任务
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,327,(目录键命中),,试试其他任务状态
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,328,(目录键命中),,试试其他关键词或任务状态
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,349,(目录键命中),,删除
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,354,(目录键命中),,编辑
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,369,(目录键命中),,定时任务
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,396,(目录键命中),,删除定时任务？
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,397,(目录键命中),,删除后任务及投递记录无法恢复；已进入会话队列的消息不会撤回。
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,398,(目录键命中),,删除任务及投递记录
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,401,(目录键命中),,取消
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,404,(目录键命中),,定时任务操作失败
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,404,(目录键命中),,好
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,416,(目录键命中),,搜索定时任务
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,423,(目录键命中),,搜索定时任务
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,438,(目录键命中),,关闭搜索
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,451,(目录键命中),,搜索定时任务
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,470,(目录键命中),,筛选定时任务，当前\(statusFilter.title)
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,536,(目录键命中),,已结束
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,556,(目录键命中),,收起任务详情
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,556,(目录键命中),,展开任务详情
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,562,(目录键命中),,执行规则
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,563,(目录键命中),,下次计划时间
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,563,(目录键命中),,无
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,564,(目录键命中),,所属会话
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,565,(目录键命中),,状态
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,565,(目录键命中),,运行中
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,565,(目录键命中),,已结束
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,566,(目录键命中),,最近投递
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,568,(目录键命中),,暂无投递记录
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,676,(目录键命中),,取消
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,678,(目录键命中),,编辑定时任务
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,680,(目录键命中),,保存
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,690,(目录键命中),,标题
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,691,(目录键命中),,任务标题
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,695,(目录键命中),,最多 120 个字
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,698,(目录键命中),,任务内容
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,706,(目录键命中),,执行时间
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,708,(目录键命中),,改为指定日期执行一次
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,712,(目录键命中),,执行日期
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,714,(目录键命中),,执行时刻
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,716,(目录键命中),,按当前设备时区 \(TimeZone.current.identifier) 选择，保存后按该时间执行一次。
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,719,(目录键命中),,请选择未来的日期和时间。
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,723,(目录键命中),,执行时刻
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,726,(目录键命中),,保留原有\(task.kind == 
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,729,(目录键命中),,当前规则：\(ScheduledTaskFormat.fullRule(task))。选择上方选项后，可用日期和时间选择器改为单次执行。
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,736,(目录键命中),,正在保存…
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,765,(目录键命中),,操作正在进行，请稍后重试
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,788,(目录键命中),,每天
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,789,(目录键命中),,每周
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,795,(目录键命中),,一次
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,808,(目录键命中),,周一
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,808,(目录键命中),,周二
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,808,(目录键命中),,周三
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,809,(目录键命中),,周四
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,809,(目录键命中),,周五
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,809,(目录键命中),,周六
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,810,(目录键命中),,周日
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,823,(目录键命中),,指定时间执行一次
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,906,(目录键命中),,工作区文件
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,939,(目录键命中),,正在读取工作区文件…
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,943,(目录键命中),,此目录为空
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,960,(目录键命中),,工作区文件
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,968,(目录键命中),,上一级
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,974,(目录键命中),,完成
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,983,(目录键命中),,正在下载 · \(Int(progress * 100))%
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,987,(目录键命中),,取消
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,1163,(目录键命中),,文件
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,1188,(目录键命中),,正在加载中
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,1194,(目录键命中),,文件加载失败
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,1294,(目录键命中),,关闭文件预览
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,1307,(目录键命中),,保存
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,1316,(目录键命中),,文件菜单
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,1361,(目录键命中),,无法在应用内预览
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,1365,(目录键命中),,使用系统预览
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,1368,(目录键命中),,正在准备代码预览…
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,1444,(目录键命中),,源码
+registered,App,DeepSeekHarnessMobile/Views/RootView.swift,1445,(目录键命中),,预览
+registered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,74,(目录键命中),,未知
+registered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,116,(目录键命中),,未读取
+registered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,121,(目录键命中),,未读取
+registered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,135,(目录键命中),,未读取
+registered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,155,(目录键命中),,低
+registered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,156,(目录键命中),,中
+registered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,157,(目录键命中),,高
+registered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,171,(目录键命中),,Agent 预设
+registered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,184,(目录键命中),,默认模型
+registered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,197,(目录键命中),,权限
+registered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,206,(目录键命中),,新会话默认配置
+registered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,208,(目录键命中),,与 WebUI 使用同一份部署级设置。修改只影响之后新建的会话，运行中的会话保持启动时的配置。
+registered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,224,(目录键命中),,断开连接
+registered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,224,(目录键命中),,连接
+registered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,231,(目录键命中),,Ping 网关
+registered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,236,(目录键命中),,版本
+registered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,238,(目录键命中),,已连接会话
+registered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,261,(目录键命中),,界面
+registered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,270,(目录键命中),,语言
+registered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,278,(目录键命中),,字体大小
+registered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,280,(目录键命中),,跟随系统
+registered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,289,(目录键命中),,外观
+registered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,291,(目录键命中),,语言设置将在重新启动应用后生效。
+registered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,294,(目录键命中),,关于
+registered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,298,(目录键命中),,未连接
+registered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,301,(目录键命中),,本版本新功能
+registered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,302,(目录键命中),,隐私政策
+registered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,320,(目录键命中),,设置
+registered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,341,(目录键命中),,本版本新功能
+registered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,345,(目录键命中),,完成
+registered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,348,(目录键命中),,GitHub 发布页
+registered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,355,(目录键命中),,界面
+registered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,364,(目录键命中),,语言
+registered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,450,(目录键命中),,跟随系统
+registered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,451,(目录键命中),,标准
+registered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,456,(目录键命中),,字体大小
+registered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,461,(目录键命中),,预览文字大小
+registered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,477,(目录键命中),,跟随系统
+registered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,497,(目录键命中),,字体大小
+registered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,499,(目录键命中),,恢复默认
+registered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,536,(目录键命中),,无法打开隐私政策
+registered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,537,(目录键命中),,重试
+registered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,545,(目录键命中),,隐私政策
+registered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,549,(目录键命中),,完成
+registered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,735,(目录键命中),,关闭
+registered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,797,(目录键命中),,重试
+registered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,820,(目录键命中),,Agent 预设
+registered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,822,(目录键命中),,正在读取 Agent 预设…
+registered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,825,(目录键命中),,没有可用的 Agent 预设
+registered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,834,(目录键命中),,该预设存在配置错误，暂时不能设为默认值
+registered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,847,(目录键命中),,设为全局默认预设？
+registered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,849,(目录键命中),,取消
+registered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,850,(目录键命中),,设为默认
+registered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,879,(目录键命中),,默认模型
+registered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,881,(目录键命中),,正在读取模型列表…
+registered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,883,(目录键命中),,暂无可用模型
+registered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,905,(目录键命中),,修改默认模型？
+registered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,907,(目录键命中),,取消
+registered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,908,(目录键命中),,确认修改
+registered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,938,(目录键命中),,当前使用
+registered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,955,(目录键命中),,思考等级
+registered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,1009,(目录键命中),,权限
+registered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,1026,(目录键命中),,修改全局默认权限？
+registered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,1028,(目录键命中),,取消
+registered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,1029,(目录键命中),,确认修改
+registered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,1073,(目录键命中),,关闭
+registered,App,DeepSeekHarnessMobile/Views/TeamView.swift,26,(目录键命中),,会话
+registered,App,DeepSeekHarnessMobile/Views/TeamView.swift,55,(目录键命中),,完成
+registered,App,DeepSeekHarnessMobile/Views/TeamView.swift,356,(目录键命中),,会话
+registered,App,DeepSeekHarnessMobile/Views/TeamView.swift,399,(目录键命中),,运行中
+registered,App,DeepSeekHarnessMobile/Views/TeamView.swift,602,(目录键命中),,重试
+registered,App,DeepSeekHarnessMobile/Views/TeamView.swift,650,(目录键命中),,待审批
+registered,App,DeepSeekHarnessMobile/Views/TeamView.swift,650,(目录键命中),,工具调用
+registered,App,DeepSeekHarnessMobile/Views/TeamView.swift,656,(目录键命中),,会话
+registered,App,DeepSeekHarnessMobile/Views/TeamView.swift,669,(目录键命中),,关闭
+registered,App,DeepSeekHarnessMobile/Views/TeamView.swift,688,(目录键命中),,关闭
+registered,App,DeepSeekHarnessMobile/Views/TeamView.swift,699,(目录键命中),,好
+registered,App,DeepSeekHarnessMobile/Views/TeamView.swift,775,(目录键命中),,隐藏
+registered,App,DeepSeekHarnessMobile/Views/TeamView.swift,785,(目录键命中),,模型
+registered,App,DeepSeekHarnessMobile/Views/TeamView.swift,786,(目录键命中),,默认
+registered,App,DeepSeekHarnessMobile/Views/TeamView.swift,794,(目录键命中),,默认
+registered,App,DeepSeekHarnessMobile/Views/TeamView.swift,823,(目录键命中),,会话
+registered,App,DeepSeekHarnessMobile/Views/TeamView.swift,823,(目录键命中),,暂无
+registered,App,DeepSeekHarnessMobile/Views/TeamView.swift,825,(目录键命中),,状态
+registered,App,DeepSeekHarnessMobile/Views/TeamView.swift,902,(目录键命中),,设备
+registered,App,DeepSeekHarnessMobile/Views/TeamView.swift,906,(目录键命中),,刷新
+registered,App,DeepSeekHarnessMobile/Views/TeamView.swift,909,(目录键命中),,关闭
+registered,App,DeepSeekHarnessMobile/Views/TrajectoryView.swift,456,(目录键命中),,打开
+registered,App,DeepSeekHarnessMobile/Views/TrajectoryView.swift,493,(目录键命中),,摘要
+registered,App,DeepSeekHarnessMobile/Views/TrajectoryView.swift,493,(目录键命中),,预览
+registered,App,DeepSeekHarnessMobile/Views/TrajectoryView.swift,493,(目录键命中),,原始
+registered,App,DeepSeekHarnessMobile/Views/TrajectoryView.swift,500,(目录键命中),,摘要
+registered,App,DeepSeekHarnessMobile/Views/TrajectoryView.swift,500,(目录键命中),,选项
+registered,App,DeepSeekHarnessMobile/Views/TrajectoryView.swift,500,(目录键命中),,用量
+registered,App,DeepSeekHarnessMobile/Views/TrajectoryView.swift,500,(目录键命中),,耗时
+registered,App,DeepSeekHarnessMobile/Views/TrajectoryView.swift,507,(目录键命中),,摘要
+registered,App,DeepSeekHarnessMobile/Views/TrajectoryView.swift,507,(目录键命中),,参数
+registered,App,DeepSeekHarnessMobile/Views/TrajectoryView.swift,507,(目录键命中),,结果
+registered,App,DeepSeekHarnessMobile/Views/TrajectoryView.swift,507,(目录键命中),,耗时
+registered,App,DeepSeekHarnessMobile/Views/TrajectoryView.swift,534,(目录键命中),,完成
+registered,App,DeepSeekHarnessMobile/Views/TrajectoryView.swift,700,(目录键命中),,没有记录模型选项
+registered,App,DeepSeekHarnessMobile/Views/TrajectoryView.swift,742,(目录键命中),,没有参数
+registered,App,DeepSeekHarnessMobile/Views/TrajectoryView.swift,754,(目录键命中),,等待工具返回…
+registered,App,DeepSeekHarnessMobile/Views/TrajectoryView.swift,773,(目录键命中),,没有记录工具 Schema
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,78,(目录键命中),,关闭侧边栏
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,116,(目录键命中),,重命名会话
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,120,(目录键命中),,会话名称
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,121,(目录键命中),,取消
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,122,(目录键命中),,保存
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,128,(目录键命中),,删除会话？
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,132,(目录键命中),,取消
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,133,(目录键命中),,删除
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,138,(目录键命中),,会话将被归档并从列表隐藏，历史记录会保留。
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,245,(目录键命中),,探索未至之境
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,248,(目录键命中),,已连接Deepseek Harness预览版
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,265,(目录键命中),,会话
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,369,(目录键命中),,重新配对
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,644,(目录键命中),,隐藏
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,683,(目录键命中),,打开侧边栏
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,701,(目录键命中),,插件
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,709,(目录键命中),,定时任务
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,853,(目录键命中),,设置
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,886,(目录键命中),,未分组
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,911,(目录键命中),,添加工作区
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,917,(目录键命中),,选择工作区
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,939,(目录键命中),,最近会话
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,962,(目录键命中),,搜索会话内容
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1003,(目录键命中),,手动输入
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1044,(目录键命中),,手动输入
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1087,(目录键命中),,未分组
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1094,(目录键命中),,通过 Mobile Gateway 连接
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1111,(目录键命中),,重命名
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1114,(目录键命中),,删除（归档）
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1136,(目录键命中),,运行中
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1175,(目录键命中),,新建会话
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1337,(目录键命中),,返回上一级
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1348,(目录键命中),,隐藏目录
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1363,(目录键命中),,当前目录
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1364,(目录键命中),,正在读取…
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1374,(目录键命中),,正在读取远程目录…
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1380,(目录键命中),,选择工作区目录
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1388,(目录键命中),,新建文件夹
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1393,(目录键命中),,取消
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1423,(目录键命中),,新建文件夹
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1424,(目录键命中),,文件夹名称
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1427,(目录键命中),,取消
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1428,(目录键命中),,创建
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1431,(目录键命中),,将在当前目录中创建一个新的子文件夹。
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1502,(目录键命中),,在当前目录创建工作区
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1530,(目录键命中),,正在创建文件夹…
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1574,(目录键命中),,扫描二维码
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1577,(目录键命中),,手动输入配对信息
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1628,(目录键命中),,手动输入配对信息
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1630,(目录键命中),,粘贴 Harness WebUI 提供的 Base64URL 配对字符串。长期设备 token 仍只会保存到 Keychain。
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1669,(目录键命中),,取消连接
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1671,(目录键命中),,重新配对并连接
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1672,(目录键命中),,连接
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1688,(目录键命中),,设备认证
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1692,(目录键命中),,完成
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1704,(目录键命中),,配对信息无效
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1713,(目录键命中),,正在连接
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1720,(目录键命中),,连接成功
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1721,(目录键命中),,设备鉴权已完成，长期 token 已安全保存到 Keychain。
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1727,(目录键命中),,连接失败
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1734,(目录键命中),,未连接
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1735,(目录键命中),,请检查配对信息后重新连接。
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1743,(目录键命中),,输入 Base64URL 配对字符串后点击连接，结果会显示在这里。
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1830,(目录键命中),,扫描设备配对码
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1832,(目录键命中),,请扫描 Harness WebUI 生成的二维码
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1844,(目录键命中),,取消扫描
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1855,(目录键命中),,将二维码完整放入框内
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1949,(目录键命中),,无法确定当前相机权限状态。
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1963,(目录键命中),,此设备没有可用的相机。
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1969,(目录键命中),,无法把相机接入扫码会话。
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1976,(目录键命中),,当前设备不支持二维码识别。
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1982,(目录键命中),,当前相机不支持二维码元数据识别。
+localized_default,App,DeepSeekHarnessMobile/Core/AgentUserNotificationManager.swift,51,String(localized:…defaultValue:),,需要审批
+localized_default,App,DeepSeekHarnessMobile/Core/AgentUserNotificationManager.swift,55,String(localized:…defaultValue:),,\(sessionTitle)：\(normalizedDetail!)
+localized_default,App,DeepSeekHarnessMobile/Core/AgentUserNotificationManager.swift,59,String(localized:…defaultValue:),,\(sessionTitle)：Agent 请求批准本次操作
+localized_default,App,DeepSeekHarnessMobile/Core/AgentUserNotificationManager.swift,77,String(localized:…defaultValue:),,执行失败
+localized_default,App,DeepSeekHarnessMobile/Core/AgentUserNotificationManager.swift,78,String(localized:…defaultValue:),,执行完成
+localized_default,App,DeepSeekHarnessMobile/Core/AgentUserNotificationManager.swift,82,String(localized:…defaultValue:),,\(sessionTitle)：打开 App 查看执行结果
+localized_default,App,DeepSeekHarnessMobile/Core/AgentUserNotificationManager.swift,86,String(localized:…defaultValue:),,\(sessionTitle)：Agent 已完成本次任务
+localized_default,App,DeepSeekHarnessMobile/Core/AppStore.swift,2134,String(localized:…defaultValue:),,\(authentication) · Mobile protocol v\(payload.protocolVersion) · \(payload.clients) 个客户端
+localized_default,App,DeepSeekHarnessMobile/Core/AppStore.swift,2172,String(localized:…defaultValue:),,仅接收 \($0.prefix(12))…
+localized_default,App,DeepSeekHarnessMobile/Core/AppStore.swift,2175,String(localized:…defaultValue:),,事件订阅
+localized_default,App,DeepSeekHarnessMobile/Core/AppStore.swift,2384,String(localized:…defaultValue:),,工作区已同步
+localized_default,App,DeepSeekHarnessMobile/Core/AppStore.swift,2385,String(localized:…defaultValue:),,\(workspaces.count) 个工作区
+localized_default,App,DeepSeekHarnessMobile/Core/AppStore.swift,2420,String(localized:…defaultValue:),,会话列表已同步
+localized_default,App,DeepSeekHarnessMobile/Core/AppStore.swift,2421,String(localized:…defaultValue:),,\(sessions.count) 个会话
+localized_default,App,DeepSeekHarnessMobile/Core/AppStore.swift,2430,String(localized:…defaultValue:),,搜索完成
+localized_default,App,DeepSeekHarnessMobile/Core/AppStore.swift,2433,String(localized:…defaultValue:),,\(received.count) 条结果\(hasMore ? String(localized: 
+localized_default,App,DeepSeekHarnessMobile/Core/AppStore.swift,2466,String(localized:…defaultValue:),,停止请求未被服务端接受
+localized_default,App,DeepSeekHarnessMobile/Core/AppStore.swift,2470,String(localized:…defaultValue:),,停止生成失败
+localized_default,App,DeepSeekHarnessMobile/Core/AppStore.swift,2499,String(localized:…defaultValue:),,默认配置已更新
+localized_default,App,DeepSeekHarnessMobile/Core/AppStore.swift,2672,String(localized:…defaultValue:),,Agent 问题\(outcome)
+localized_default,App,DeepSeekHarnessMobile/Core/AppStore.swift,2876,String(localized:…defaultValue:),,请求失败\(payload.requestType.map { 
+localized_default,App,DeepSeekHarnessMobile/Core/AppStore.swift,3009,String(localized:…defaultValue:),,图片加载失败
+localized_default,App,DeepSeekHarnessMobile/Core/AppStore.swift,3010,String(localized:…defaultValue:),,附件 \(attachment.id.prefix(12))… 的 Base64 或字节数无效。
+localized_default,App,DeepSeekHarnessMobile/Core/AppStore.swift,3410,String(localized:…defaultValue:),,服务端未确认 \(kind) 请求。
+localized_default,App,DeepSeekHarnessMobile/Core/AppStore.swift,3670,String(localized:…defaultValue:),,网关返回 hasMore:true，但缺少 nextBeforeSeq，已停止自动续页。
+localized_default,App,DeepSeekHarnessMobile/Core/AppStore.swift,3672,String(localized:…defaultValue:),,网关重复返回历史游标，已停止自动续页以避免循环。
+localized_default,App,DeepSeekHarnessMobile/Core/AppStore.swift,3678,String(localized:…defaultValue:),,历史记录分页失败
+localized_default,App,DeepSeekHarnessMobile/Core/AppStore.swift,3691,String(localized:…defaultValue:),, · 向上滑动加载更早记录
+localized_default,App,DeepSeekHarnessMobile/Core/AppStore.swift,3694,String(localized:…defaultValue:),,历史记录已加载
+localized_default,App,DeepSeekHarnessMobile/Core/AppStore.swift,3695,String(localized:…defaultValue:),,\(eventCount) 个事件\(byteDetail)\(moreDetail)
+localized_default,App,DeepSeekHarnessMobile/Core/AppStore.swift,3841,String(localized:…defaultValue:),,\(effect.requestKey) 请求超时，请检查 Mobile Gateway。
+localized_default,App,DeepSeekHarnessMobile/Core/GatewayClient.swift,230,String(localized:…defaultValue:),,无法读取或创建设备唯一标识：\(error.localizedDescription)
+localized_default,App,DeepSeekHarnessMobile/Core/GatewayClient.swift,471,String(localized:…defaultValue:),,WebSocket 尚未连接
+localized_default,App,DeepSeekHarnessMobile/Core/GatewayClient.swift,506,String(localized:…defaultValue:),,WebSocket 尚未连接
+localized_default,App,DeepSeekHarnessMobile/Core/GatewayClient.swift,577,String(localized:…defaultValue:),,WebSocket 尚未连接
+localized_default,App,DeepSeekHarnessMobile/Core/GatewayClient.swift,592,String(localized:…defaultValue:),,WebSocket 尚未连接
+localized_default,App,DeepSeekHarnessMobile/Core/GatewayClient.swift,699,String(localized:…defaultValue:),,配对响应缺少长期设备 token，未保存凭据
+localized_default,App,DeepSeekHarnessMobile/Core/GatewayClient.swift,706,String(localized:…defaultValue:),,配对成功，但无法将设备 token 写入 Keychain：\(error.localizedDescription)
+localized_default,App,DeepSeekHarnessMobile/Core/GatewayClient.swift,807,String(localized:…defaultValue:),,鉴权失败（HTTP 401）：设备 token 无效、已被吊销，或配对码已过期/使用过，请重新扫码配对。
+localized_default,App,DeepSeekHarnessMobile/Core/GatewayClient.swift,811,String(localized:…defaultValue:),,移动网关暂未开启（HTTP 503）。已保留设备凭据，开启网关后会自动重连。
+localized_default,App,DeepSeekHarnessMobile/Core/GatewayClient.swift,815,String(localized:…defaultValue:),,服务端已重新开启设备鉴权（WebSocket 4003），请使用已保存的设备凭据重连或重新扫码。
+localized_default,App,DeepSeekHarnessMobile/Core/GatewayClient.swift,819,String(localized:…defaultValue:),,移动网关已关闭（WebSocket 4004）。已保留设备凭据，重新开启后会自动重连。
+localized_default,App,DeepSeekHarnessMobile/Core/GatewayClient.swift,823,String(localized:…defaultValue:),,；服务端原因：\($0)
+localized_default,App,DeepSeekHarnessMobile/Core/GatewayClient.swift,826,String(localized:…defaultValue:),,WebSocket 连接失败：\(nsError.localizedDescription)（\(nsError.domain) \(nsError.code)）\(reasonSuffix)
+localized_default,App,DeepSeekHarnessMobile/Core/GatewayClient.swift,848,String(localized:…defaultValue:),,如果确认这是安全的个人服务器，请在网关中更新公网配置，并确保其公网证书有效后重试。
+localized_default,App,DeepSeekHarnessMobile/Core/GatewayClient.swift,963,String(localized:…defaultValue:),,连接超时，请检查网络或配对信息后重试。
+localized_default,App,DeepSeekHarnessMobile/Core/GatewayClient.swift,1043,String(localized:…defaultValue:),,Keychain 错误 \(status)
+localized_default,App,DeepSeekHarnessMobile/Core/GatewayClient.swift,1113,String(localized:…defaultValue:),,Keychain 错误 \(status)
+localized_default,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,167,String(localized:…defaultValue:),,正在执行…
+localized_default,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,168,String(localized:…defaultValue:),,正在压缩…
+localized_default,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,169,String(localized:…defaultValue:),,已完成
+localized_default,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,170,String(localized:…defaultValue:),,执行失败
+localized_default,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,173,String(localized:…defaultValue:),,已压缩 {items} 条历史记录（约 {tokens} tokens）
+localized_default,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,175,String(localized:…defaultValue:),,生成已中断
+localized_default,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,176,String(localized:…defaultValue:),,模型请求失败
+localized_default,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,177,String(localized:…defaultValue:),,正在重试模型请求
+localized_default,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,178,String(localized:…defaultValue:),,已重试模型请求
+localized_default,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,179,String(localized:…defaultValue:),,生成失败
+localized_default,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,180,String(localized:…defaultValue:),,生成已取消
+localized_default,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,181,String(localized:…defaultValue:),,输出已截断，保留开头和末尾
+localized_default,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,1807,String(localized:…defaultValue:),,WebSocket 已断开，重连后再提交答案。
+localized_default,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,1809,String(localized:…defaultValue:),,WebSocket 已断开，重连后再跳过问题。
+localized_default,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,1814,String(localized:…defaultValue:),,“%@”包含无效或重复选项。
+localized_default,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,1827,String(localized:…defaultValue:),,服务端未接受答案（%@），请检查后重试。
+localized_default,App,DeepSeekHarnessMobile/Core/L10n.swift,20,String(localized:…defaultValue:),,远端会话 \(idPrefix)
+localized_default,App,DeepSeekHarnessMobile/Core/L10n.swift,25,String(localized:…defaultValue:),,空白会话 \(idPrefix)
+localized_default,App,DeepSeekHarnessMobile/Core/L10n.swift,44,String(localized:…defaultValue:),,上下文注入 · \(source)
+localized_default,App,DeepSeekHarnessMobile/Core/L10n.swift,65,String(localized:…defaultValue:),,功能完整的编码 Agent，支持文件编辑、Shell、检索、Skills、计划与工作流。
+localized_default,App,DeepSeekHarnessMobile/Core/L10n.swift,67,String(localized:…defaultValue:),,通过 Code Mode SDK 组合多步工具操作。
+localized_default,App,DeepSeekHarnessMobile/Core/L10n.swift,69,String(localized:…defaultValue:),,精简工具集合，适合轻量、直接的编码任务。
+localized_default,App,DeepSeekHarnessMobile/Core/L10n.swift,71,String(localized:…defaultValue:),,用于创建和维护自定义 Agent 预设。
+localized_default,App,DeepSeekHarnessMobile/Core/L10n.swift,73,String(localized:…defaultValue:),,由 DeepSeek Harness 提供的 Agent 预设。
+localized_default,App,DeepSeekHarnessMobile/Core/PairingPayloadParser.swift,70,String(localized:…defaultValue:),,不支持的配对协议版本 \(version)，当前客户端需要 version 2。
+localized_default,App,DeepSeekHarnessMobile/Views/ConversationView.swift,442,String(localized:…defaultValue:),,新建 DeepSeek Harness
+localized_default,App,DeepSeekHarnessMobile/Views/ConversationView.swift,965,String(localized:…defaultValue:),,正在从 Mobile Gateway 同步会话内容…
+localized_default,App,DeepSeekHarnessMobile/Views/ConversationView.swift,969,String(localized:…defaultValue:),,正在加载更早记录 · 已同步 \(progress.loaded) 个事件
+localized_default,App,DeepSeekHarnessMobile/Views/ConversationView.swift,970,String(localized:…defaultValue:),,正在加载更早记录…
+localized_default,App,DeepSeekHarnessMobile/Views/ConversationView.swift,974,String(localized:…defaultValue:),,正在自动加载更早记录 · 已同步 \(progress.loaded) 个事件
+localized_default,App,DeepSeekHarnessMobile/Views/ConversationView.swift,975,String(localized:…defaultValue:),,正在从 Mobile Gateway 同步会话内容…
+localized_default,App,DeepSeekHarnessMobile/Views/ConversationView.swift,977,String(localized:…defaultValue:),,正在加载历史记录 · \(progress.loaded)/\(total)
+localized_default,App,DeepSeekHarnessMobile/Views/ConversationView.swift,989,String(localized:…defaultValue:),,正在生成，滚动到最新消息
+localized_default,App,DeepSeekHarnessMobile/Views/ConversationView.swift,989,String(localized:…defaultValue:),,滚动到最新消息
+localized_default,App,DeepSeekHarnessMobile/Views/ConversationView.swift,996,String(localized:…defaultValue:),,正在生成，滚动到最新消息
+localized_default,App,DeepSeekHarnessMobile/Views/ConversationView.swift,996,String(localized:…defaultValue:),,滚动到最新消息
+localized_default,App,DeepSeekHarnessMobile/Views/ConversationView.swift,1101,String(localized:…defaultValue:),,上下文已用 \(Int(contextProgress * 100))%
+localized_default,App,DeepSeekHarnessMobile/Views/ConversationView.swift,1170,String(localized:…defaultValue:),,停止生成
+localized_default,App,DeepSeekHarnessMobile/Views/ConversationView.swift,1171,String(localized:…defaultValue:),,发送
+localized_default,App,DeepSeekHarnessMobile/Views/ConversationView.swift,1514,String(localized:…defaultValue:),,处理所选图片失败：\(error.localizedDescription)
+localized_default,App,DeepSeekHarnessMobile/Views/ConversationView.swift,1730,String(localized:…defaultValue:),,新会话默认权限：\(store.permissionDefault.map(permissionTitle) ?? String(localized: 
+localized_default,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2475,String(localized:…defaultValue:),,新会话默认模型：\(title)\(effortTitle.map { String(localized: 
+localized_default,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2856,String(localized:…defaultValue:),,工具调用 \(duration($0))
+localized_default,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2862,String(localized:…defaultValue:),,首 token 平均 \(duration($0))
+localized_default,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2867,String(localized:…defaultValue:),,缓存命中 \(Int((cacheRate * 100).rounded()))%
+localized_default,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2870,String(localized:…defaultValue:),,输入 \(compact(input)) tok
+localized_default,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2877,String(localized:…defaultValue:),,\(stats?.turns ?? 0) 轮 · \(stats?.steps ?? 0) 步
+localized_default,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2936,String(localized:…defaultValue:),,\(stats.turns ?? 0) 轮
+localized_default,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2937,String(localized:…defaultValue:),,\(stats.steps ?? 0) 步
+localized_default,App,DeepSeekHarnessMobile/Views/ConversationView.swift,3259,String(localized:…defaultValue:),,工具
+localized_default,App,DeepSeekHarnessMobile/Views/ConversationView.swift,3488,String(localized:…defaultValue:),,\(contextCount) 项上下文
+localized_default,App,DeepSeekHarnessMobile/Views/ConversationView.swift,3494,String(localized:…defaultValue:),,耗时 \(Int(duration) / 60) 分钟 \(Int(duration) % 60) 秒
+localized_default,App,DeepSeekHarnessMobile/Views/ConversationView.swift,3499,String(localized:…defaultValue:),,耗时 \(Int(duration.rounded())) 秒
+localized_default,App,DeepSeekHarnessMobile/Views/ConversationView.swift,3506,String(localized:…defaultValue:),,\(contextCount) 项上下文
+localized_default,App,DeepSeekHarnessMobile/Views/ConversationView.swift,3509,String(localized:…defaultValue:),,\(toolCount) 次工具调用
+localized_default,App,DeepSeekHarnessMobile/Views/ConversationView.swift,3955,String(localized:…defaultValue:),,查看 \(tools.count) 个工具结果
+localized_default,App,DeepSeekHarnessMobile/Views/ConversationView.swift,3958,String(localized:…defaultValue:),,使用了 \(names)\(tools.count > 2 ? String(localized: 
+localized_default,App,DeepSeekHarnessMobile/Views/GatewaySwitcherView.swift,63,String(localized:…defaultValue:),,取消选择 \(profile.displayName)
+localized_default,App,DeepSeekHarnessMobile/Views/GatewaySwitcherView.swift,64,String(localized:…defaultValue:),,选择 \(profile.displayName)
+localized_default,App,DeepSeekHarnessMobile/Views/HumanQuestionView.swift,312,String(localized:…defaultValue:),,正在提交整组答案…
+localized_default,App,DeepSeekHarnessMobile/Views/HumanQuestionView.swift,312,String(localized:…defaultValue:),,正在跳过问题…
+localized_default,App,DeepSeekHarnessMobile/Views/HumanQuestionView.swift,410,String(localized:…defaultValue:),,请选择一个选项或填写自定义答案。
+localized_default,App,DeepSeekHarnessMobile/Views/HumanQuestionView.swift,418,String(localized:…defaultValue:),,请先完成这道问题。
+localized_default,App,DeepSeekHarnessMobile/Views/RootView.swift,71,String(localized:…defaultValue:),,新建 DeepSeek Harness
+localized_default,App,DeepSeekHarnessMobile/Views/RootView.swift,167,String(localized:…defaultValue:),,新建 DeepSeek Harness
+localized_default,App,DeepSeekHarnessMobile/Views/RootView.swift,567,String(localized:…defaultValue:),,已投递 · \(ScheduledTaskFormat.date($0))
+localized_default,App,DeepSeekHarnessMobile/Views/RootView.swift,792,String(localized:…defaultValue:),,每 \(duration(Int(task.raw[
+localized_default,App,DeepSeekHarnessMobile/Views/RootView.swift,804,String(localized:…defaultValue:),,每天 \(time) · \(zone)
+localized_default,App,DeepSeekHarnessMobile/Views/RootView.swift,812,String(localized:…defaultValue:),,、
+localized_default,App,DeepSeekHarnessMobile/Views/RootView.swift,814,String(localized:…defaultValue:),,每周 \(weekdays) · \(time) · \(zone)
+localized_default,App,DeepSeekHarnessMobile/Views/RootView.swift,816,String(localized:…defaultValue:),,每 \(duration(Int(task.raw[
+localized_default,App,DeepSeekHarnessMobile/Views/RootView.swift,821,String(localized:…defaultValue:),,\(seconds) 秒后执行一次
+localized_default,App,DeepSeekHarnessMobile/Views/RootView.swift,834,String(localized:…defaultValue:),,\(seconds) 秒
+localized_default,App,DeepSeekHarnessMobile/Views/SettingsView.swift,848,String(localized:…defaultValue:),,将“\(preset.displayName)”设为新会话的默认 Agent 预设。这会更新部署级设置，并同步影响 WebUI。
+localized_default,App,DeepSeekHarnessMobile/Views/SettingsView.swift,906,String(localized:…defaultValue:),,将新会话的默认模型改为“\(change.summary)”。这会更新部署级设置，并同步影响 WebUI。
+localized_default,App,DeepSeekHarnessMobile/Views/SettingsView.swift,1027,String(localized:…defaultValue:),,将新会话的默认权限改为“\(option.title)”。这会更新部署级设置，并同步影响 WebUI。
+localized_default,App,DeepSeekHarnessMobile/Views/TrajectoryView.swift,43,String(localized:…defaultValue:),,正在生成轨迹…
+localized_default,App,DeepSeekHarnessMobile/Views/TrajectoryView.swift,43,String(localized:…defaultValue:),,正在补齐较早的轨迹记录…
+localized_default,App,DeepSeekHarnessMobile/Views/TrajectoryView.swift,382,String(localized:…defaultValue:),,打开 Request #\(requestNode.request?.number ?? 0)
+localized_default,App,DeepSeekHarnessMobile/Views/TrajectoryView.swift,422,String(localized:…defaultValue:),,打开 \(node.kind.label) #\(node.startSeq)
+localized_default,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1092,String(localized:…defaultValue:),,\(store.ungroupedSessions.count) 个未归属会话
+localized_default,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1585,String(localized:…defaultValue:),,设备认证，\(gateway.state.label)
+localized_default,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1714,String(localized:…defaultValue:),,正在提交一次性配对码并等待 Mobile Gateway 完成设备鉴权…
+localized_default,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1942,String(localized:…defaultValue:),,未获得相机权限。请在系统设置中允许 Whaleness 使用相机后重试。
+localized_default,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1947,String(localized:…defaultValue:),,相机权限不可用。请在系统设置中允许 Whaleness 使用相机后重试。
+localized_default,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1997,String(localized:…defaultValue:),,相机启动失败：\(error.localizedDescription)
+unregistered,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,190,Text,,详情
+unregistered,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,304,Text,,查看详情
+unregistered,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,309,Label,,检查结果
+unregistered,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,400,Text,,详情
+unregistered,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,412,Text,,等待操作详情
+unregistered,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,479,Text,,正在等待主机确认
+unregistered,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,491,Text,,查看详情
+unregistered,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,496,Label,,检查结果
+unregistered,App,DeepSeekHarnessMobile/Views/BridgeConversationView.swift,26,Text,,加载更早的消息
+unregistered,App,DeepSeekHarnessMobile/Views/BridgeConversationView.swift,115,Text,,发送失败
+unregistered,App,DeepSeekHarnessMobile/Views/BridgeConversationView.swift,125,TextField,,发消息…
+unregistered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,866,Text,,Host 无法读取旧格式会话，请修复或升级 Host 后重试。原始记录未修改。
+unregistered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,1407,Text,,\(item.attachmentCount) 个附件
+unregistered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,1597,Text,,切换中…
+unregistered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,1637,Text,,模式不可用
+unregistered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2226,Text,,\(phrase)，用时 \(elapsed) 秒…
+unregistered,App,DeepSeekHarnessMobile/Views/GatewaySwitcherView.swift,25,accessibilityLabel,,))，切换主机
+unregistered,App,DeepSeekHarnessMobile/Views/PluginsView.swift,130,accessibilityLabel,,\(bundle.title)开关
+unregistered,App,DeepSeekHarnessMobile/Views/PluginsView.swift,189,Text,, }.count) 运行中
+unregistered,App,DeepSeekHarnessMobile/Views/RootView.swift,726,Text,,)规则和时区 \(zone.identifier)。
+unregistered,App,DeepSeekHarnessMobile/Views/RootView.swift,1035,Text,,工作区根目录
+unregistered,App,DeepSeekHarnessMobile/Views/RootView.swift,1136,accessibilityLabel,,\(item.name) 已下载，点击重新下载
+unregistered,App,DeepSeekHarnessMobile/Views/RootView.swift,1434,Text,,\(document.lineCount) 行 · UTF-8
+unregistered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,237,LabeledContent,,未提供
+unregistered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,311,Label,,推入空白测试页
+unregistered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,315,Text,,诊断
+unregistered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,317,Text,,点进去只有一个文本，不发请求、不做布局。若这一页也卡死，说明问题在「推入」本身；若正常，说明原来的问题在那些设置子页的内容里。
+unregistered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,390,alert,,语言已切换
+unregistered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,391,Button,,退出 App
+unregistered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,392,Button,,稍后重启
+unregistered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,394,Text,,界面语言只在 App 启动时读取系统语言设置，因此需要重启一次才会切换：请从后台把 App 彻底划掉再打开。\n\n如果重启后仍是中文，请检查 iOS「设置 → App → 语言」是否被单独设置过。
+unregistered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,470,Text,,调整后会应用到所有页面，包括对话、按钮和代码。
+unregistered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,1044,Text,,空白测试页
+unregistered,App,DeepSeekHarnessMobile/Views/SettingsView.swift,1047,navigationTitle,,空白测试页
+unregistered,App,DeepSeekHarnessMobile/Views/TeamView.swift,52,navigationTitle,,团队
+unregistered,App,DeepSeekHarnessMobile/Views/TeamView.swift,64,accessibilityLabel,,设备管理
+unregistered,App,DeepSeekHarnessMobile/Views/TeamView.swift,71,accessibilityLabel,,刷新团队
+unregistered,App,DeepSeekHarnessMobile/Views/TeamView.swift,135,Picker,,分段
+unregistered,App,DeepSeekHarnessMobile/Views/TeamView.swift,147,Text,,实时状态暂不可用：网关目前只拿到名册（名字/角色/成员）。干活中、等你回答、等你审批要等桌面端发布团队服务后才显示。
+unregistered,App,DeepSeekHarnessMobile/Views/TeamView.swift,156,Text,,团队连接中断：\(reason)
+unregistered,App,DeepSeekHarnessMobile/Views/TeamView.swift,182,badge,,主
+unregistered,App,DeepSeekHarnessMobile/Views/TeamView.swift,231,accessibilityLabel,,详情
+unregistered,App,DeepSeekHarnessMobile/Views/TeamView.swift,240,Label,,查看详情
+unregistered,App,DeepSeekHarnessMobile/Views/TeamView.swift,299,Picker,,分段
+unregistered,App,DeepSeekHarnessMobile/Views/TeamView.swift,339,Section,,主 Bot
+unregistered,App,DeepSeekHarnessMobile/Views/TeamView.swift,420,Section,,群聊
+unregistered,App,DeepSeekHarnessMobile/Views/TeamView.swift,444,Text,,主
+unregistered,App,DeepSeekHarnessMobile/Views/TeamView.swift,555,Text,,尚未连接桌面端
+unregistered,App,DeepSeekHarnessMobile/Views/TeamView.swift,557,Text,,回主页点右上角钥匙图标 →「扫描二维码」或「手动输入配对信息」。\n一次配对会同时带上 Bot 团队。
+unregistered,App,DeepSeekHarnessMobile/Views/TeamView.swift,574,Label,,回主页配对
+unregistered,App,DeepSeekHarnessMobile/Views/TeamView.swift,588,Text,,正在同步团队…
+unregistered,App,DeepSeekHarnessMobile/Views/TeamView.swift,599,Text,,离线：显示最后一次同步的数据
+unregistered,App,DeepSeekHarnessMobile/Views/TeamView.swift,618,Section,,基本信息
+unregistered,App,DeepSeekHarnessMobile/Views/TeamView.swift,619,LabeledContent,,名称
+unregistered,App,DeepSeekHarnessMobile/Views/TeamView.swift,621,LabeledContent,,角色
+unregistered,App,DeepSeekHarnessMobile/Views/TeamView.swift,623,LabeledContent,,类型
+unregistered,App,DeepSeekHarnessMobile/Views/TeamView.swift,623,LabeledContent,,群聊
+unregistered,App,DeepSeekHarnessMobile/Views/TeamView.swift,624,LabeledContent,,身份
+unregistered,App,DeepSeekHarnessMobile/Views/TeamView.swift,624,LabeledContent,value,主 Bot
+unregistered,App,DeepSeekHarnessMobile/Views/TeamView.swift,625,LabeledContent,,置顶
+unregistered,App,DeepSeekHarnessMobile/Views/TeamView.swift,625,LabeledContent,value,是
+unregistered,App,DeepSeekHarnessMobile/Views/TeamView.swift,627,LabeledContent,,成员
+unregistered,App,DeepSeekHarnessMobile/Views/TeamView.swift,629,LabeledContent,,发言模式
+unregistered,App,DeepSeekHarnessMobile/Views/TeamView.swift,629,LabeledContent,,所有人轮流
+unregistered,App,DeepSeekHarnessMobile/Views/TeamView.swift,629,LabeledContent,,管理员指派
+unregistered,App,DeepSeekHarnessMobile/Views/TeamView.swift,633,Section,,实时状态
+unregistered,App,DeepSeekHarnessMobile/Views/TeamView.swift,637,Text,,实时状态暂不可用（网关降级：只拿到名册）
+unregistered,App,DeepSeekHarnessMobile/Views/TeamView.swift,641,Text,,当前没有进行中的动作
+unregistered,App,DeepSeekHarnessMobile/Views/TeamView.swift,644,LabeledContent,,在做
+unregistered,App,DeepSeekHarnessMobile/Views/TeamView.swift,647,LabeledContent,,开始于
+unregistered,App,DeepSeekHarnessMobile/Views/TeamView.swift,653,LabeledContent,,最近活动
+unregistered,App,DeepSeekHarnessMobile/Views/TeamView.swift,661,Label,,进入对话
+unregistered,App,DeepSeekHarnessMobile/Views/TeamView.swift,684,navigationTitle,,群聊
+unregistered,App,DeepSeekHarnessMobile/Views/TeamView.swift,693,alert,,无法进入聊天
+unregistered,App,DeepSeekHarnessMobile/Views/TeamView.swift,732,Label,,发消息
+unregistered,App,DeepSeekHarnessMobile/Views/TeamView.swift,759,Text,,主
+unregistered,App,DeepSeekHarnessMobile/Views/TeamView.swift,770,Section,,显示
+unregistered,App,DeepSeekHarnessMobile/Views/TeamView.swift,771,Toggle,,置顶
+unregistered,App,DeepSeekHarnessMobile/Views/TeamView.swift,783,Section,,模型与档位
+unregistered,App,DeepSeekHarnessMobile/Views/TeamView.swift,793,Picker,,档位
+unregistered,App,DeepSeekHarnessMobile/Views/TeamView.swift,808,Label,,设为主 Bot
+unregistered,App,DeepSeekHarnessMobile/Views/TeamView.swift,817,Label,,发消息
+unregistered,App,DeepSeekHarnessMobile/Views/TeamView.swift,889,Section,,已配对设备
+unregistered,App,DeepSeekHarnessMobile/Views/TeamView.swift,892,Text,,加载中…
+unregistered,App,DeepSeekHarnessMobile/Views/TeamView.swift,892,Text,,暂无设备
+unregistered,App,DeepSeekHarnessMobile/Views/TeamView.swift,925,badge,,本机
+unregistered,App,DeepSeekHarnessMobile/Views/TeamView.swift,928,Text,,最近活跃 \(formatted(lastSeen))
+unregistered,App,DeepSeekHarnessMobile/Views/TeamView.swift,940,Text,,撤销
+unregistered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,312,accessibilityLabel,,首页分组
+unregistered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,348,Text,,连接已断开
+unregistered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,351,Text,,正在自动重连…
+unregistered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,358,Text,,立即重试
+unregistered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,402,Text,,实时状态暂不可用：网关目前只拿到名册（名字/角色/成员）。干活中、等你回答、等你审批要等桌面端发布团队服务后才显示。
+unregistered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,411,Text,,团队连接中断：\(reason)
+unregistered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,421,Text,,暂无 Bot 或群聊。桌面端有 Bot 团队后这里会出现。
+unregistered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,454,Text,,主
+unregistered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,607,Text,,暂无会话。在桌面端与 Bot 对话后，这里会出现会话。
+unregistered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,642,Text,,置顶
+unregistered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,984,Text,,连接桌面端
+unregistered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,986,Text,,扫码或在手机上输入桌面端显示的配对码；配对成功后会自动带上 Bot 团队。
+unregistered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,994,Label,,扫码配对
+unregistered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1021,Text,,Bot 团队尚未就绪
+unregistered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1023,Text,,phase：\(info.phase) · 配对态：\(info.pairedState)
+unregistered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1025,Text,,本机会话：\(info.hasStoredSession ? 
+unregistered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1025,Text,,) · serverUrl：\(info.serverUrl ?? 
+unregistered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1028,Text,,原因：\(error)
+unregistered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1037,Label,,扫码重配
+unregistered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1060,Text,,暂无已知会话。点这里连接桌面端后创建第一个任务。
+hardcoded,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,108,(无调用),,待同步
+hardcoded,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,111,(无调用),,执行中
+hardcoded,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,112,(无调用),,待选择
+hardcoded,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,114,(无调用),,提交中
+hardcoded,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,116,(无调用),,已拒绝
+hardcoded,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,118,(无调用),,已完成
+hardcoded,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,228,(无调用),,等待操作详情
+hardcoded,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,325,(无调用),,打开 App 获取最新进度
+hardcoded,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,510,(无调用),,打开 App 获取最新进度
+hardcoded,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,718,(无调用),,待选择
+hardcoded,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,720,(无调用),,提交中
+hardcoded,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,722,(无调用),,已拒绝
+hardcoded,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,723,(无调用),,执行失败
+hardcoded,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,723,(无调用),,待确认
+hardcoded,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,724,(无调用),,已完成
+hardcoded,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,730,(无调用),,Agent 正在处理
+hardcoded,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,731,(无调用),,请打开 App 完成选择
+hardcoded,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,732,(无调用),,批准已送达
+hardcoded,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,733,(无调用),,本次命令未执行
+hardcoded,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,734,(无调用),,任务已完成
+hardcoded,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,735,(无调用),,执行未完成
+hardcoded,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,736,(无调用),,等待操作
+hardcoded,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,742,(无调用),,正在等待下一步
+hardcoded,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,743,(无调用),,Agent 正在等待你的回答
+hardcoded,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,744,(无调用),,等待 Agent 更新下一步
+hardcoded,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,745,(无调用),,决定已送达，等待 Agent 后续状态
+hardcoded,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,746,(无调用),,Agent 已完成本次任务
+hardcoded,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,747,(无调用),,打开 App 查看详情
+hardcoded,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,748,(无调用),,仅授权本次操作
+hardcoded,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,779,AgentActivityAttributes,sessionTitle,修复 Android 构建
+hardcoded,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,792,ContentState,sessionTitle,修复 Android 构建
+hardcoded,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,807,Preview,,运行中 · 紧凑
+hardcoded,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,812,previewState,status,正在执行
+hardcoded,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,813,previewState,detail,正在分析构建日志
+hardcoded,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,818,Preview,,运行中 · 展开
+hardcoded,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,823,previewState,status,正在执行
+hardcoded,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,824,previewState,detail,正在分析构建日志
+hardcoded,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,829,Preview,,等待审批 · 展开
+hardcoded,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,834,previewState,status,需要批准 · 仅限本次
+hardcoded,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,835,previewState,detail,运行构建命令
+hardcoded,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,840,Preview,,等待选择 · 展开
+hardcoded,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,845,previewState,status,需要选择
+hardcoded,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,846,previewState,detail,请打开 App 完成选择
+hardcoded,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,847,previewState,secondaryDetail,请选择希望 Agent 接下来处理的方向
+hardcoded,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,851,Preview,,等待选择 · 锁屏
+hardcoded,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,856,previewState,status,需要选择
+hardcoded,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,857,previewState,detail,请打开 App 完成选择
+hardcoded,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,858,previewState,secondaryDetail,请选择希望 Agent 接下来处理的方向
+hardcoded,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,862,Preview,,已允许 · 展开
+hardcoded,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,865,previewState,detail,批准已送达
+hardcoded,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,868,Preview,,已拒绝 · 展开
+hardcoded,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,871,previewState,status,已拒绝本次操作
+hardcoded,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,871,previewState,detail,本次命令未执行
+hardcoded,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,874,Preview,,提交失败 · 展开
+hardcoded,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,879,previewState,status,未能确认审批结果
+hardcoded,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,880,previewState,detail,确认结果后才能继续操作
+hardcoded,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,885,Preview,,运行中 · 锁屏
+hardcoded,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,890,previewState,status,正在执行
+hardcoded,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,891,previewState,detail,正在分析构建日志
+hardcoded,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,896,Preview,,等待审批 · 锁屏
+hardcoded,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,901,previewState,status,需要批准 · 仅限本次
+hardcoded,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,902,previewState,detail,运行构建命令
+hardcoded,App,DeepSeekHarnessMobile/Components/ConversationViewport.swift,1816,(无调用),,\(images.count)张
+hardcoded,App,DeepSeekHarnessMobile/Core/AgentBackgroundKeepAliveManager.swift,310,print,,[AgentKeepAlive] 无法启动静音音频：\(error.localizedDescription)
+hardcoded,App,DeepSeekHarnessMobile/Core/AgentBackgroundKeepAliveManager.swift,426,print,,[AgentKeepAlive] 后台定位失败：\(error.localizedDescription)
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,28,progress,,上下文注入 · \(event.source!)
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,34,progress,,正在分析执行步骤
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,35,progress,,第 \($0) 步
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,40,progress,,第 \($0) 步已完成
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,40,progress,,当前步骤已完成
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,41,progress,detail,正在准备下一步
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,50,progress,,上下文注入 · \($0)
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,50,progress,,上下文注入
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,58,progress,,准备 Agent 上下文
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,64,progress,,Agent 回复
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,74,progress,,正在重新生成回复
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,74,progress,detail,Agent 正在重试当前步骤
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,82,(无调用),,工具执行失败
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,82,(无调用),,工具执行完成
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,91,progress,,执行命令
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,97,progress,,命令执行完成
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,102,progress,,正在整理会话上下文
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,102,progress,detail,压缩历史记录以继续执行
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,104,progress,,会话上下文已整理
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,104,progress,detail,Agent 正在继续执行
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,107,progress,,交付文件
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,113,progress,,应用权限配置
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,131,progress,,正在生成回复
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,134,progress,,准备调用 \(toolName!)
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,134,progress,,正在准备工具调用
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,155,(无调用),,写入
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,159,(无调用),,列出
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,159,(无调用),,获取
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,290,(无调用),,简体中文
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,501,failPending,message,队列操作超时，请检查队列最新状态后重试
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,1077,(无调用),,连接网关后可查看定时任务
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,1090,(无调用),,定时任务请求超时，请重试
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,1098,(无调用),,连接网关后可查看插件
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,1110,(无调用),,插件目录请求超时，请重试
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,1131,(无调用),,操作结果待确认，请刷新插件目录
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,1149,(无调用),,当前 Host 不支持插件管理
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,1159,(无调用),,设置已保存，请重启 DSH Web 后刷新目录
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,1160,(无调用),,插件状态被其他配置覆盖，请检查 Host 配置
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,1161,(无调用),,插件操作未生效
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,1168,(无调用),,插件目录加载失败
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,1172,(无调用),,插件操作失败
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,1201,(无调用),,连接网关后才能修改定时任务
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,1206,(无调用),,任务已变化，列表已刷新，请重新操作
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,1218,finishScheduledTaskMutation,error,操作超时，请刷新任务后重试
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,1448,(无调用),,请先连接支持文件下载的 Mobile Gateway。
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,1552,requestFailed,message,模式请求超时，请重试
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,1718,(无调用),,发送确认超时，请确认队列状态后重试
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,1745,(无调用),,：\(error)
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,1897,sendRequestPayload,,定时任务加载失败
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,2058,sendRequestPayload,,任务已被其他设备修改，列表已刷新，请重新打开编辑
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,2059,sendRequestPayload,,任务已结束，无法再编辑
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,2060,sendRequestPayload,,任务已不存在，列表已刷新
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,2061,sendRequestPayload,,操作失败，请稍后重试
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,2228,String,localized,无法创建文件下载临时文件：\(error.localizedDescription)
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,2245,String,localized,写入下载文件失败：\(error.localizedDescription)
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,2341,(无调用),,此文件需要新版网关解析，请升级 Mobile Gateway。
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,2345,String,localized,工作区文件请求失败：\(code)
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,2451,notice,,Agent 预设诊断
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,2451,notice,,收到响应，开始处理
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,2456,notice,,Agent 预设诊断
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,2456,notice,,响应处理完成 applied=\(transition.applied)
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,2569,sendRequestPayload,,) · \(entries.count) 项
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,2869,notice,,Agent 预设诊断
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,2869,notice,,网关返回错误 code=\(payload.code ?? 
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,3275,hasPrefix,,第 \(step) 步
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,3276,sendRequestPayload,,第 \(step) 步 · \(progressDetail)
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,3278,sendRequestPayload,,第 \(step) 步
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,3316,sendRequestPayload,,网关连接已断开，停用结果待重连确认。若已停用，请从 DSH Web 或 CLI 重新开启。
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,3317,sendRequestPayload,,连接已断开，操作结果待重连确认
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,3324,failPending,message,连接已中断，请重新连接后确认队列状态
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,3552,sendRequestPayload,,KMP Question 返回未知 effect：\(effect.action)
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,3654,sendRequestPayload,,KMP History 返回未知 effect：\(effect.action)
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,3674,sendRequestPayload,,KMP History 分页失败（\(change.failureCode ?? 
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,3674,sendRequestPayload,,)）
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,3699,(无调用),,KMP History 返回未知 outcome：\(change.outcome)
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,3823,notice,,Agent 预设诊断
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,3823,notice,,开始请求 token=\(effect.requestToken) connected=\(gateway.state.isConnected)
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,3837,notice,,Agent 预设诊断
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,3837,notice,,请求超时 token=\(effect.requestToken) elapsed=\(Date().timeIntervalSince(startedAt))s connected=\(self.gateway.state.isConnected)
+hardcoded,App,DeepSeekHarnessMobile/Core/AppStore.swift,3884,(无调用),,KMP SessionControl 返回未知 effect：\(effect.kind)
+hardcoded,App,DeepSeekHarnessMobile/Core/BridgeChatEngine.swift,119,failed,,会话不可用，请重新配对
+hardcoded,App,DeepSeekHarnessMobile/Core/BridgeChatEngine.swift,181,failed,,会话已失效，请重新配对
+hardcoded,App,DeepSeekHarnessMobile/Core/BridgeTeamAdapter.swift,129,(无调用),,服务器错误（\(code)）
+hardcoded,App,DeepSeekHarnessMobile/Core/BridgeTeamAdapter.swift,130,(无调用),,操作失败（\(code)）
+hardcoded,App,DeepSeekHarnessMobile/Core/BridgeTeamAdapter.swift,212,(无调用),,服务器入口已失效
+hardcoded,App,DeepSeekHarnessMobile/Core/BridgeTeamAdapter.swift,213,(无调用),,网络不通
+hardcoded,App,DeepSeekHarnessMobile/Core/BridgeTeamAdapter.swift,214,(无调用),,服务器异常
+hardcoded,App,DeepSeekHarnessMobile/Core/BridgeTeamAdapter.swift,215,(无调用),,连接已断开
+hardcoded,App,DeepSeekHarnessMobile/Core/BridgeTeamAdapter.swift,221,(无调用),,隧道域名可能已更换，请更换服务器地址后重新连接。
+hardcoded,App,DeepSeekHarnessMobile/Core/BridgeTeamAdapter.swift,222,(无调用),,正在自动重连，请检查手机网络或隧道是否在线。
+hardcoded,App,DeepSeekHarnessMobile/Core/BridgeTeamAdapter.swift,223,(无调用),,服务器暂时不可用，正在自动重试。
+hardcoded,App,DeepSeekHarnessMobile/Core/BridgeTeamAdapter.swift,224,(无调用),,正在自动重连。
+hardcoded,App,DeepSeekHarnessMobile/Core/BridgeTeamAdapter.swift,324,(无调用),,已保存的服务器地址无效，请重新配对
+hardcoded,App,DeepSeekHarnessMobile/Core/BridgeTeamAdapter.swift,339,refreshFailed,message,同步超时，请检查网络后重试
+hardcoded,App,DeepSeekHarnessMobile/Core/BridgeTeamAdapter.swift,464,failed,,二维码不是有效的配对资料，请用桌面端「手机访问 → App」生成的码
+hardcoded,App,DeepSeekHarnessMobile/Core/BridgeTeamAdapter.swift,479,failed,,请填写配对码
+hardcoded,App,DeepSeekHarnessMobile/Core/BridgeTeamAdapter.swift,487,failed,,服务器地址无效：需要 https:// 开头的根地址（不要带路径）
+hardcoded,App,DeepSeekHarnessMobile/Core/BridgeTeamAdapter.swift,496,failed,,桌面端 bridge 协议版本不兼容（需要 protocolVersion 1），请升级桌面插件
+hardcoded,App,DeepSeekHarnessMobile/Core/BridgeTeamAdapter.swift,500,failed,,配对码与服务器身份不匹配，请重新生成配对码
+hardcoded,App,DeepSeekHarnessMobile/Core/BridgeTeamAdapter.swift,545,failed,,桌面端返回的配对结果无法解析，请重试
+hardcoded,App,DeepSeekHarnessMobile/Core/BridgeTeamAdapter.swift,554,failed,,等待桌面批准超时（5 分钟），请重新生成配对码
+hardcoded,App,DeepSeekHarnessMobile/Core/BridgeTeamAdapter.swift,561,failed,,无法连接服务器：\(error.localizedDescription)（检查地址与网络）
+hardcoded,App,DeepSeekHarnessMobile/Core/BridgeTeamAdapter.swift,568,(无调用),,配对资料格式不对，请整段复制桌面端的配对 JSON
+hardcoded,App,DeepSeekHarnessMobile/Core/BridgeTeamAdapter.swift,569,(无调用),,配对资料里的服务器地址无效（需要 https:// 根地址）
+hardcoded,App,DeepSeekHarnessMobile/Core/BridgeTeamAdapter.swift,570,(无调用),,配对资料里没有有效的配对码
+hardcoded,App,DeepSeekHarnessMobile/Core/BridgeTeamAdapter.swift,571,(无调用),,配对码已过期（生成后 2 分钟内有效），请在桌面端重新生成
+hardcoded,App,DeepSeekHarnessMobile/Core/BridgeTeamAdapter.swift,572,(无调用),,配对资料里的设备指纹格式无效
+hardcoded,App,DeepSeekHarnessMobile/Core/BridgeTeamAdapter.swift,573,(无调用),,配对资料无法解析，请重新从桌面端复制
+hardcoded,App,DeepSeekHarnessMobile/Core/BridgeTeamAdapter.swift,599,(无调用),,配对码无效或已过期（桌面端生成后 2 分钟内有效）
+hardcoded,App,DeepSeekHarnessMobile/Core/BridgeTeamAdapter.swift,600,(无调用),,桌面端拒绝了这次配对
+hardcoded,App,DeepSeekHarnessMobile/Core/BridgeTeamAdapter.swift,601,(无调用),,配对请求已过期，请重新生成配对码
+hardcoded,App,DeepSeekHarnessMobile/Core/BridgeTeamAdapter.swift,602,(无调用),,待批的配对请求过多，稍后再试
+hardcoded,App,DeepSeekHarnessMobile/Core/BridgeTeamAdapter.swift,603,(无调用),,设备数已达上限，先在桌面端撤销不用的设备
+hardcoded,App,DeepSeekHarnessMobile/Core/BridgeTeamAdapter.swift,604,(无调用),,设备名称不合法，请改名后重试
+hardcoded,App,DeepSeekHarnessMobile/Core/BridgeTeamAdapter.swift,607,(无调用),,配对失败（\(envelope.code)）
+hardcoded,App,DeepSeekHarnessMobile/Core/BridgeTeamAdapter.swift,653,(无调用),,配对资料缺少可用的服务器地址（需要 https 根地址），请重新配对
+hardcoded,App,DeepSeekHarnessMobile/Core/BridgeTeamAdapter.swift,660,(无调用),,配对资料保存失败：
+hardcoded,App,DeepSeekHarnessMobile/Core/BridgeTeamAdapter.swift,660,(无调用),,未知原因
+hardcoded,App,DeepSeekHarnessMobile/Core/BridgeTeamAdapter.swift,670,(无调用),,已保存会话但无法建立连接（serverUrl=
+hardcoded,App,DeepSeekHarnessMobile/Core/BridgeTeamAdapter.swift,670,(无调用),,），请重新配对
+hardcoded,App,DeepSeekHarnessMobile/Core/BridgeTeamAdapter.swift,850,(无调用),,服务器入口不可达：隧道域名可能已更换，请更换服务器地址
+hardcoded,App,DeepSeekHarnessMobile/Core/BridgeTeamAdapter.swift,852,(无调用),,网络不通，正在自动重连
+hardcoded,App,DeepSeekHarnessMobile/Core/BridgeTeamAdapter.swift,854,(无调用),,服务器异常，正在自动重试
+hardcoded,App,DeepSeekHarnessMobile/Core/BridgeTransport.swift,24,(无调用),,服务器地址无效
+hardcoded,App,DeepSeekHarnessMobile/Core/BridgeTransport.swift,25,(无调用),,必须使用 HTTPS
+hardcoded,App,DeepSeekHarnessMobile/Core/BridgeTransport.swift,26,(无调用),,配对码中的设备身份无效
+hardcoded,App,DeepSeekHarnessMobile/Core/BridgeTransport.swift,27,(无调用),,请求地址与已配对服务器不一致
+hardcoded,App,DeepSeekHarnessMobile/Core/BridgeTransport.swift,28,(无调用),,服务器返回 \(status)
+hardcoded,App,DeepSeekHarnessMobile/Core/BridgeTransport.swift,29,(无调用),,无法解析服务器响应
+hardcoded,App,DeepSeekHarnessMobile/Core/BridgeTransport.swift,338,(无调用),,服务器返回 \(status)
+hardcoded,App,DeepSeekHarnessMobile/Core/GatewayClient.swift,118,NSError,,创建会话失败
+hardcoded,App,DeepSeekHarnessMobile/Core/GatewayClient.swift,215,fail,,地址未经此主机确认，请重新扫码添加地址。
+hardcoded,App,DeepSeekHarnessMobile/Core/GatewayClient.swift,624,fail,,会话通道尚未就绪，请稍后重试。
+hardcoded,App,DeepSeekHarnessMobile/Core/GatewayClient.swift,681,fail,,配对未返回长期凭据，请重新生成二维码。
+hardcoded,App,DeepSeekHarnessMobile/Core/GatewayModels.swift,388,(无调用),,已停用
+hardcoded,App,DeepSeekHarnessMobile/Core/GatewayModels.swift,391,(无调用),,运行失败
+hardcoded,App,DeepSeekHarnessMobile/Core/GatewayModels.swift,392,(无调用),,加载中
+hardcoded,App,DeepSeekHarnessMobile/Core/GatewayModels.swift,393,(无调用),,卸载中
+hardcoded,App,DeepSeekHarnessMobile/Core/GatewayModels.swift,394,(无调用),,待启动
+hardcoded,App,DeepSeekHarnessMobile/Core/GatewayModels.swift,395,(无调用),,空闲
+hardcoded,App,DeepSeekHarnessMobile/Core/GatewayModels.swift,406,(无调用),,终端
+hardcoded,App,DeepSeekHarnessMobile/Core/GatewayModels.swift,407,(无调用),,Agent 循环
+hardcoded,App,DeepSeekHarnessMobile/Core/GatewayModels.swift,408,(无调用),,子智能体
+hardcoded,App,DeepSeekHarnessMobile/Core/GatewayModels.swift,409,(无调用),,网页搜索
+hardcoded,App,DeepSeekHarnessMobile/Core/GatewayModels.swift,415,(无调用),,限制每条命令最多能跑多久、最多输出多少内容。
+hardcoded,App,DeepSeekHarnessMobile/Core/GatewayModels.swift,416,(无调用),,控制 Agent 派发工具调用的方式。
+hardcoded,App,DeepSeekHarnessMobile/Core/GatewayModels.swift,417,(无调用),,设置子智能体的递归层级、数量和模型。
+hardcoded,App,DeepSeekHarnessMobile/Core/GatewayModels.swift,418,(无调用),,设置 DeepSeek 的搜索提供方。
+hardcoded,App,DeepSeekHarnessMobile/Core/GatewayProfile.swift,81,(无调用),,网关身份缺失、无效或与已保存的主机不一致。连接已停止，请确认主机后重新配对。
+hardcoded,App,DeepSeekHarnessMobile/Core/GatewayProfile.swift,82,(无调用),,网关地址无效或候选地址超过 16 个。公网连接必须使用 WSS，地址不能包含账号、查询参数或片段。
+hardcoded,App,DeepSeekHarnessMobile/Core/GatewayProfile.swift,83,(无调用),,此网关身份已属于另一条主机记录，请从主机列表选择原记录后重新配对。
+hardcoded,App,DeepSeekHarnessMobile/Core/GatewayTeamFeed.swift,178,offline,,配对地址无效，无法建立团队连接。
+hardcoded,App,DeepSeekHarnessMobile/Core/GatewayTeamFeed.swift,229,(无调用),,团队连接被拒（会话可能已过期），正在重新配对会话…
+hardcoded,App,DeepSeekHarnessMobile/Core/GatewayTeamFeed.swift,231,offline,,连接中断
+hardcoded,App,DeepSeekHarnessMobile/Core/GatewayTeamFeed.swift,261,(无调用),,团队流被拒绝
+hardcoded,App,DeepSeekHarnessMobile/Core/GatewayTeamFeed.swift,500,(无调用),,等你确认卡片
+hardcoded,App,DeepSeekHarnessMobile/Core/GatewayTeamFeed.swift,500,(无调用),,等你填密钥
+hardcoded,App,DeepSeekHarnessMobile/Core/GatewayTeamFeed.swift,500,(无调用),,等你回答
+hardcoded,App,DeepSeekHarnessMobile/Core/GatewayTeamFeed.swift,502,(无调用),,等你审批\(row.approvals.first?.tool.map { 
+hardcoded,App,DeepSeekHarnessMobile/Core/GatewayTeamFeed.swift,503,(无调用),,实时状态暂不可用（网关降级）
+hardcoded,App,DeepSeekHarnessMobile/Core/GatewayTeamFeed.swift,508,(无调用),, · 在 \($0)
+hardcoded,App,DeepSeekHarnessMobile/Core/GatewayTeamFeed.swift,509,(无调用),,干活中
+hardcoded,App,DeepSeekHarnessMobile/Core/GatewayTeamFeed.swift,510,(无调用),,正在干活：\(what)\(where_)
+hardcoded,App,DeepSeekHarnessMobile/Core/GatewayTeamFeed.swift,512,(无调用),,正在干活
+hardcoded,App,DeepSeekHarnessMobile/Core/GatewayTeamFeed.swift,513,(无调用),,等待中
+hardcoded,App,DeepSeekHarnessMobile/Core/GatewayTeamFeed.swift,514,(无调用),,需要你处理
+hardcoded,App,DeepSeekHarnessMobile/Core/GatewayTeamFeed.swift,515,(无调用),,空闲
+hardcoded,App,DeepSeekHarnessMobile/Core/GatewayTeamFeed.swift,522,joined,separator,、
+hardcoded,App,DeepSeekHarnessMobile/Core/GatewayTeamFeed.swift,523,(无调用),, 等 \(row.members.count) 人
+hardcoded,App,DeepSeekHarnessMobile/Core/GatewayTeamFeed.swift,524,(无调用),,群聊
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,82,(无调用),,无法编码 iOS Conversation 输入：\(message)
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,84,(无调用),,KMP Conversation 失败（\(code)）：\(message ?? 
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,86,(无调用),,KMP Conversation 增量事件无效：\(message)
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,88,(无调用),,KMP Conversation 事件流已停止：\(message)
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,184,runtimeFailed,,Conversation bridge 不支持 MVI event stream
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,214,invalidEvent,,独立流需要共享 Conversation Store
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,284,invalidEvent,,MVI 信封 schema、domain 或 transactionId 无效
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,292,invalidEvent,,订阅基线无效
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,300,runtimeFailed,,MVI event sequence 不连续
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,314,invalidEvent,,transition 缺少 patch
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,328,runtimeFailed,,未知 MVI event kind：\(event.kind)
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,337,invalidEvent,,patch schema 或 sessionId 无效
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,344,invalidEvent,,临时流改变了持久流水位
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,352,invalidEvent,,live patch 与当前 event intent 不一致
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,360,invalidEvent,,replace patch 与当前 intent 不一致
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,368,invalidEvent,,clear patch 与当前 intent 不一致
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,371,invalidEvent,,transition 缺少对应 UI intent
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,377,invalidEvent,,replace patch 缺少 replacementItems
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,381,invalidEvent,,replacement item wire value 无效
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,386,invalidEvent,,replacement item id 重复
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,398,invalidEvent,,insert operation 无效
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,407,invalidEvent,,append-text operation 无效
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,427,invalidEvent,,replace operation 无效
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,436,invalidEvent,,remove operation 无效
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,440,invalidEvent,,未知 operation：\(operation.kind)
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,595,(无调用),,无法编码 iOS Trajectory 输入：\(message)
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,596,(无调用),,KMP Trajectory 失败（\(code)）：\(message ?? 
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,597,(无调用),,KMP Trajectory 增量事件无效：\(message)
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,598,(无调用),,KMP Trajectory 事件流已停止：\(message)
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,660,runtimeFailed,,Trajectory bridge 不支持 MVI event stream
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,685,encoding,,Trajectory batch 包含多个 session
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,728,invalidEvent,,MVI 信封无效
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,736,invalidEvent,,订阅基线无效
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,743,runtimeFailed,,MVI event sequence 不连续
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,757,invalidEvent,,transition 缺少 patch
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,770,runtimeFailed,,未知 MVI event kind：\(event.kind)
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,779,invalidEvent,,patch schema 或 sessionId 无效
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,788,invalidEvent,,live patch 与 event intent 不一致
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,796,invalidEvent,,replace patch 与 intent 不一致
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,804,invalidEvent,,clear patch 与 intent 不一致
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,807,invalidEvent,,transition 缺少对应 intent
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,814,invalidEvent,,replacement node wire value 无效
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,819,invalidEvent,,replacement node id 重复
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,845,invalidEvent,,insert operation 无效
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,852,invalidEvent,,remove operation 无效
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,861,invalidEvent,,move operation 无效
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,869,invalidEvent,,replace operation 无效
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,882,invalidEvent,,update operation 无效
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,889,invalidEvent,,未知 operation：\(operation.kind)
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,989,(无调用),,无法编码 iOS History 输入：\(message)
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,990,(无调用),,KMP History 失败（\(code)）：\(message ?? 
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,991,(无调用),,KMP History 增量事件无效：\(message)
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,992,(无调用),,KMP History 事件流已停止：\(message)
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,1099,runtimeFailed,,History bridge 不支持 MVI event stream
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,1167,invalidEvent,,订阅快照需要共享 History Store
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,1177,invalidEvent,,订阅快照需要共享 History Store
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,1213,invalidEvent,,MVI 信封无效
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,1227,invalidEvent,,订阅基线无效
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,1237,runtimeFailed,,MVI event sequence 不连续
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,1251,invalidEvent,,transition 缺少 patch
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,1257,invalidEvent,,effect 数量无效
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,1267,runtimeFailed,,未知 MVI event kind：\(event.kind)
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,1289,invalidEvent,,patch 与 intent 或 wire state 不一致
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,1296,invalidEvent,,effect 与同事务 intent/state 不一致
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,1299,invalidEvent,,request-page 缺少 effect
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,1310,invalidEvent,,live intent 缺少 event patch
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,1354,invalidEvent,,append event patch 无效
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,1366,invalidEvent,,upsert event patch 无效
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,1377,invalidEvent,,stream event patch 无效
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,1385,invalidEvent,,upsert 后事件顺序无效
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,1396,invalidEvent,,replace event patch 无效
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,1400,invalidEvent,,未知 event patch：\(patch.kind)
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,1455,encoding,,Int 超出 KMP Int 范围
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,1536,(无调用),,无法编码 iOS SessionList 输入：\(message)
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,1538,(无调用),,KMP SessionList 失败（\(code)）：\(message ?? 
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,1540,(无调用),,无法解码 KMP SessionList 快照：\(message)
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,1542,(无调用),,KMP SessionList 初始化失败，已停止后续状态写入：\(message)
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,1544,(无调用),,KMP SessionList 运行期快照失效，已停止后续状态写入：\(message)
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,1680,runtimeFailed,,KMP mutation 未发布对应的 MVI event
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,1704,runtimeFailed,,KMP SessionList event 信封无效
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,1715,invalidSnapshot,,订阅基线与初始化快照不一致
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,1723,runtimeFailed,,KMP SessionList event sequence 不连续
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,1735,runtimeFailed,,未知 SessionList event kind：\(event.kind)
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,1902,(无调用),,无法编码 iOS Question 输入：\(message)
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,1903,(无调用),,KMP Question 失败（\(code)）：\(message ?? 
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,1904,(无调用),,无法解码 KMP Question 快照：\(message)
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,1905,(无调用),,无法解码 KMP Question effect：\(message)
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,1906,(无调用),,KMP Question 初始化失败，已停止后续状态写入：\(message)
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,1907,(无调用),,KMP Question 运行期结果失效，已停止后续状态写入：\(message)
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,2031,runtimeFailed,,KMP mutation 未发布对应的 MVI event
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,2043,runtimeFailed,,KMP Question event 信封无效
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,2055,invalidSnapshot,,订阅基线与初始化快照不一致
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,2063,runtimeFailed,,KMP Question event sequence 不连续
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,2077,runtimeFailed,,未知 Question event kind：\(event.kind)
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,2087,invalidEffect,,Question event 至多包含一个 effect
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,2138,invalidSnapshot,,KMP 返回了未知状态或动作
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,2141,invalidSnapshot,,KMP 未返回初始化快照
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,2149,invalidEffect,,effect 缺少同事务快照
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,2157,invalidEffect,,KMP 返回了未知动作或不完整 payload
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,2161,invalidEffect,,effect 与同事务快照或提交 intent 语义不一致
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,2288,(无调用),,无法编码 iOS Approval 输入：\(message)
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,2289,(无调用),,KMP Approval 失败（\(code)）：\(message ?? 
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,2290,(无调用),,无法解码 KMP Approval 快照：\(message)
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,2291,(无调用),,无法解码 KMP Approval effect：\(message)
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,2376,invalidSnapshot,,KMP 未返回初始化快照
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,2389,invalidEffect,,effect 与待审批请求不匹配
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,2712,(无调用),,无法编码 iOS SessionControl 输入：\(message)
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,2713,(无调用),,KMP SessionControl 失败（\(code)）：\(message ?? 
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,2714,(无调用),,无法解码 KMP SessionControl 快照：\(message)
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,2715,(无调用),,KMP SessionControl 增量 patch 无效：\(message)
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,2716,(无调用),,无法解码 KMP SessionControl effect：\(message)
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,2717,(无调用),,KMP SessionControl 初始化失败，已停止后续状态写入：\(message)
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,2718,(无调用),,KMP SessionControl 运行期结果失效，已停止后续状态写入：\(message)
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,2952,runtimeFailed,,KMP mutation 未发布对应的 MVI event
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,2964,runtimeFailed,,KMP MVI event 信封无效
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,2976,invalidSnapshot,,订阅基线与初始化快照不一致
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,2984,runtimeFailed,,KMP MVI event sequence 不连续
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,3003,invalidPatch,,SessionControl event metadata 无效
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,3020,runtimeFailed,,未知 KMP MVI event kind：\(event.kind)
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,3060,encoding,,模型投影缺少 sessionId
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,3066,encoding,,权限投影缺少 sessionId
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,3072,encoding,,权限事件投影缺少 sessionId
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,3079,encoding,,Context 投影缺少 sessionId
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,3095,encoding,,Stats 投影缺少 sessionId
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,3109,encoding,,Swift 不得直接启动 KMP 请求状态
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,3117,encoding,,Swift 不得直接启动 KMP 默认配置请求状态
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,3125,encoding,,请求 target 必须与 KMP effect 在同一事务建立
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,3160,invalidPatch,,patch payload 缺少 committed 信号
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,3168,invalidSnapshot,,loading kind、request token 或 target 关联无效
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,3171,invalidSnapshot,,KMP 未返回初始化快照
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,3178,invalidSnapshot,,committed 结果缺少同事务快照
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,3183,invalidSnapshot,,completed kind/token 必须同时存在
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,3195,invalidPatch,,committed 与增量 patch 必须同时存在
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,3199,invalidSnapshot,,未 committed 的完整快照不得修改状态
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,3202,invalidSnapshot,,未 applied 的结果不得提交、完成 generation 或产生 effect
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,3205,invalidEffect,,非空 effect 必须来自 applied + committed 的同事务快照
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,3212,invalidSnapshot,,同 token 的 active target 不得变化
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,3226,invalidSnapshot,,completed generation 与提交前后快照不一致
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,3238,invalidSnapshot,,request token 已变化但缺少 completed generation 信号
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,3253,invalidEffect,,effect 与快照、request token 或 intent 语义不一致
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,3261,invalidPatch,,patch 携带了当前 intent 不允许的 session 或字段
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,3283,invalidSnapshot,,未知 patch schema: \(patch.schema)
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,3301,invalidSnapshot,,patch upsert/remove 重叠、冗余或引用了不存在的 key
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,3344,invalidSnapshot,,globalModelCatalog payload 缺少 changed 标记
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,3348,invalidSnapshot,,globalModelCatalog patch 没有变化
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,3354,invalidSnapshot,,agentPresets payload 与 changed 标记不一致
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,3358,invalidSnapshot,,agentPresets patch 没有变化
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,3365,invalidSnapshot,,agentPresetsAuthorable patch 没有变化
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,3372,invalidSnapshot,,agentPresetsHasDocument patch 没有变化
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,3395,invalidSnapshot,,permissionDefaultOptions patch 没有变化
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,3411,invalidSnapshot,,control patch 没有变化
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,3418,invalidSnapshot,,patch 为空或生成了非法状态
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,3786,invalidPatch,,patch 顶层必须是 object
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,3791,invalidPatch,,\(path) 必须是 object
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,3797,invalidPatch,,\(path) 必须是 array
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,3806,invalidPatch,,\(path) 包含未知字段 \(unknown.sorted())；新语义必须升级 schema
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,4012,invalidSnapshot,,\(name) payload 缺少 changed 标记
+hardcoded,App,DeepSeekHarnessMobile/Core/KMPSharedAdapter.swift,4017,invalidSnapshot,,\(name) patch 没有变化
+hardcoded,App,DeepSeekHarnessMobile/Core/MultiGatewayStore.swift,40,GatewayProfile,,原有主机
+hardcoded,App,DeepSeekHarnessMobile/Core/MultiGatewayStore.swift,58,(无调用),,读取或迁移主机资料失败：\(error.localizedDescription)
+hardcoded,App,DeepSeekHarnessMobile/Core/MultiGatewayStore.swift,80,approvalFailed,reason,该审批已失效或已在其他设备处理
+hardcoded,App,DeepSeekHarnessMobile/Core/MultiGatewayStore.swift,92,approvalFailed,reason,当前未连接 Gateway，请打开 App 后重试
+hardcoded,App,DeepSeekHarnessMobile/Core/MultiGatewayStore.swift,168,(无调用),,保存桌面端凭证失败：\(error.localizedDescription)
+hardcoded,App,DeepSeekHarnessMobile/Core/MultiGatewayStore.swift,206,GatewayProfile,,新主机
+hardcoded,App,DeepSeekHarnessMobile/Core/MultiGatewayStore.swift,378,(无调用),,保存主机资料失败：\(error.localizedDescription)
+hardcoded,App,DeepSeekHarnessMobile/Core/VoiceInputAdapter.swift,180,captureFailed,message,麦克风录音失败，请重试
+hardcoded,App,DeepSeekHarnessMobile/Core/VoiceInputAdapter.swift,187,captureFailed,message,无法开启麦克风，请检查权限或通话状态
+hardcoded,App,DeepSeekHarnessMobile/Core/VoiceInputAdapter.swift,209,captureFailed,message,无法完成录音数据转换，请重试
+hardcoded,Widget/LiveActivity,DeepSeekHarnessMobile/LiveActivity/AgentLiveActivityManager.swift,121,state,status,正在执行
+hardcoded,Widget/LiveActivity,DeepSeekHarnessMobile/LiveActivity/AgentLiveActivityManager.swift,122,state,detail,Agent 正在处理
+hardcoded,Widget/LiveActivity,DeepSeekHarnessMobile/LiveActivity/AgentLiveActivityManager.swift,123,state,,第 \($0) 轮 · 等待执行步骤
+hardcoded,Widget/LiveActivity,DeepSeekHarnessMobile/LiveActivity/AgentLiveActivityManager.swift,123,state,,正在等待执行步骤
+hardcoded,Widget/LiveActivity,DeepSeekHarnessMobile/LiveActivity/AgentLiveActivityManager.swift,143,state,status,正在执行
+hardcoded,Widget/LiveActivity,DeepSeekHarnessMobile/LiveActivity/AgentLiveActivityManager.swift,144,state,detail,正在分析执行步骤
+hardcoded,Widget/LiveActivity,DeepSeekHarnessMobile/LiveActivity/AgentLiveActivityManager.swift,145,state,,第 \($0) 步 · Agent 正在处理
+hardcoded,Widget/LiveActivity,DeepSeekHarnessMobile/LiveActivity/AgentLiveActivityManager.swift,145,state,,Agent 正在处理
+hardcoded,Widget/LiveActivity,DeepSeekHarnessMobile/LiveActivity/AgentLiveActivityManager.swift,169,state,status,正在执行
+hardcoded,Widget/LiveActivity,DeepSeekHarnessMobile/LiveActivity/AgentLiveActivityManager.swift,193,state,status,正在执行
+hardcoded,Widget/LiveActivity,DeepSeekHarnessMobile/LiveActivity/AgentLiveActivityManager.swift,194,state,,正在执行 \(displayName!)
+hardcoded,Widget/LiveActivity,DeepSeekHarnessMobile/LiveActivity/AgentLiveActivityManager.swift,194,state,,正在调用工具
+hardcoded,Widget/LiveActivity,DeepSeekHarnessMobile/LiveActivity/AgentLiveActivityManager.swift,195,state,secondaryDetail,Agent 正在处理当前步骤
+hardcoded,Widget/LiveActivity,DeepSeekHarnessMobile/LiveActivity/AgentLiveActivityManager.swift,216,state,status,需要批准 · 仅限本次
+hardcoded,Widget/LiveActivity,DeepSeekHarnessMobile/LiveActivity/AgentLiveActivityManager.swift,218,state,secondaryDetail,仅授权本次操作
+hardcoded,Widget/LiveActivity,DeepSeekHarnessMobile/LiveActivity/AgentLiveActivityManager.swift,242,state,status,需要选择
+hardcoded,Widget/LiveActivity,DeepSeekHarnessMobile/LiveActivity/AgentLiveActivityManager.swift,243,state,detail,请打开 App 完成选择
+hardcoded,Widget/LiveActivity,DeepSeekHarnessMobile/LiveActivity/AgentLiveActivityManager.swift,246,state,normalizedPrompt,Agent 正在等待你的回答
+hardcoded,Widget/LiveActivity,DeepSeekHarnessMobile/LiveActivity/AgentLiveActivityManager.swift,272,state,status,正在执行
+hardcoded,Widget/LiveActivity,DeepSeekHarnessMobile/LiveActivity/AgentLiveActivityManager.swift,273,state,,已跳过选择
+hardcoded,Widget/LiveActivity,DeepSeekHarnessMobile/LiveActivity/AgentLiveActivityManager.swift,273,state,,选择已提交
+hardcoded,Widget/LiveActivity,DeepSeekHarnessMobile/LiveActivity/AgentLiveActivityManager.swift,340,(无调用),,正在提交「允许一次」
+hardcoded,Widget/LiveActivity,DeepSeekHarnessMobile/LiveActivity/AgentLiveActivityManager.swift,340,(无调用),,正在提交「拒绝」
+hardcoded,Widget/LiveActivity,DeepSeekHarnessMobile/LiveActivity/AgentLiveActivityManager.swift,347,state,status,正在提交决定
+hardcoded,Widget/LiveActivity,DeepSeekHarnessMobile/LiveActivity/AgentLiveActivityManager.swift,349,state,secondaryDetail,正在等待主机确认
+hardcoded,Widget/LiveActivity,DeepSeekHarnessMobile/LiveActivity/AgentLiveActivityManager.swift,374,state,,已拒绝本次操作
+hardcoded,Widget/LiveActivity,DeepSeekHarnessMobile/LiveActivity/AgentLiveActivityManager.swift,375,state,,批准已送达
+hardcoded,Widget/LiveActivity,DeepSeekHarnessMobile/LiveActivity/AgentLiveActivityManager.swift,375,state,,本次命令未执行
+hardcoded,Widget/LiveActivity,DeepSeekHarnessMobile/LiveActivity/AgentLiveActivityManager.swift,376,state,,等待 Agent 更新下一步
+hardcoded,Widget/LiveActivity,DeepSeekHarnessMobile/LiveActivity/AgentLiveActivityManager.swift,376,state,,决定已送达，等待 Agent 后续状态
+hardcoded,Widget/LiveActivity,DeepSeekHarnessMobile/LiveActivity/AgentLiveActivityManager.swift,397,state,status,未能确认审批结果
+hardcoded,Widget/LiveActivity,DeepSeekHarnessMobile/LiveActivity/AgentLiveActivityManager.swift,398,state,reason,确认结果后才能继续操作
+hardcoded,Widget/LiveActivity,DeepSeekHarnessMobile/LiveActivity/AgentLiveActivityManager.swift,399,state,secondaryDetail,确认结果后才能继续操作
+hardcoded,Widget/LiveActivity,DeepSeekHarnessMobile/LiveActivity/AgentLiveActivityManager.swift,421,state,status,已拒绝本次操作
+hardcoded,Widget/LiveActivity,DeepSeekHarnessMobile/LiveActivity/AgentLiveActivityManager.swift,422,state,detail,本次命令未执行
+hardcoded,Widget/LiveActivity,DeepSeekHarnessMobile/LiveActivity/AgentLiveActivityManager.swift,423,state,secondaryDetail,决定已送达，Agent 已停止当前操作
+hardcoded,Widget/LiveActivity,DeepSeekHarnessMobile/LiveActivity/AgentLiveActivityManager.swift,430,state,,执行失败
+hardcoded,Widget/LiveActivity,DeepSeekHarnessMobile/LiveActivity/AgentLiveActivityManager.swift,430,state,,执行完成
+hardcoded,Widget/LiveActivity,DeepSeekHarnessMobile/LiveActivity/AgentLiveActivityManager.swift,431,state,,执行未完成
+hardcoded,Widget/LiveActivity,DeepSeekHarnessMobile/LiveActivity/AgentLiveActivityManager.swift,431,state,,任务已完成
+hardcoded,Widget/LiveActivity,DeepSeekHarnessMobile/LiveActivity/AgentLiveActivityManager.swift,432,state,,打开 App 查看详情
+hardcoded,Widget/LiveActivity,DeepSeekHarnessMobile/LiveActivity/AgentLiveActivityManager.swift,432,state,,Agent 已完成本次任务
+hardcoded,Widget/LiveActivity,DeepSeekHarnessMobile/LiveActivity/AgentLiveActivityManager.swift,609,print,,[AgentLiveActivity] 无法创建实时活动：\(error.localizedDescription)
+hardcoded,Widget/LiveActivity,DeepSeekHarnessMobile/LiveActivity/AgentLiveActivityManager.swift,679,AlertConfiguration,title,需要审批
+hardcoded,Widget/LiveActivity,DeepSeekHarnessMobile/LiveActivity/AgentLiveActivityManager.swift,680,AlertConfiguration,body,Agent 请求批准本次操作
+hardcoded,Widget/LiveActivity,DeepSeekHarnessMobile/LiveActivity/AgentLiveActivityManager.swift,685,AlertConfiguration,title,需要选择
+hardcoded,Widget/LiveActivity,DeepSeekHarnessMobile/LiveActivity/AgentLiveActivityManager.swift,686,AlertConfiguration,body,Agent 正在等待你的回答
+hardcoded,Widget/LiveActivity,DeepSeekHarnessMobile/LiveActivity/AgentLiveActivityManager.swift,819,print,,[AgentLiveActivity] 检测到 \(systemActivities.count) 个实时活动，开始重建唯一实例
+hardcoded,Widget/LiveActivity,DeepSeekHarnessMobile/LiveActivity/AgentLiveActivityManager.swift,869,print,,[AgentLiveActivity] 实时活动重建完成 id=\(replacement.id)
+hardcoded,Widget/LiveActivity,DeepSeekHarnessMobile/LiveActivity/AgentLiveActivityManager.swift,874,print,,[AgentLiveActivity] 无法重建重复实时活动：\(error.localizedDescription)
+hardcoded,App,DeepSeekHarnessMobile/Views/ApprovalRequestView.swift,179,String,localized,\(request.toolName) 请求执行需要审批的操作
+hardcoded,App,DeepSeekHarnessMobile/Views/BridgeConversationView.swift,70,banner,,正在连接…
+hardcoded,App,DeepSeekHarnessMobile/Views/BridgeConversationView.swift,72,banner,,连接断开，正在重连（第 \(attempt) 次）
+hardcoded,App,DeepSeekHarnessMobile/Views/BridgeConversationView.swift,74,banner,,连接异常：\(message)
+hardcoded,App,DeepSeekHarnessMobile/Views/ConversationView.swift,1414,queueActionButton,label,编辑排队消息
+hardcoded,App,DeepSeekHarnessMobile/Views/ConversationView.swift,1415,queueActionButton,label,删除排队消息
+hardcoded,App,DeepSeekHarnessMobile/Views/ConversationView.swift,1416,queueActionButton,label,立即插话
+hardcoded,App,DeepSeekHarnessMobile/Views/ConversationView.swift,1598,(无调用),,读取模式…
+hardcoded,App,DeepSeekHarnessMobile/Views/ConversationView.swift,1598,(无调用),,重试模式
+hardcoded,App,DeepSeekHarnessMobile/Views/ConversationView.swift,1666,(无调用),,完整工具，适合日常开发
+hardcoded,App,DeepSeekHarnessMobile/Views/ConversationView.swift,1667,(无调用),,用代码组合多步工具操作
+hardcoded,App,DeepSeekHarnessMobile/Views/ConversationView.swift,1668,(无调用),,仅用 Shell，轻量直接
+hardcoded,App,DeepSeekHarnessMobile/Views/ConversationView.swift,1669,(无调用),,创建和调试自定义 Agent
+hardcoded,App,DeepSeekHarnessMobile/Views/ConversationView.swift,1670,(无调用),,自定义 Agent 模式
+hardcoded,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2164,(无调用),,梳理脉络中
+hardcoded,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2164,(无调用),,推敲细节中
+hardcoded,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2164,(无调用),,酝酿下一步中
+hardcoded,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2164,(无调用),,沿着思路前行中
+hardcoded,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2165,(无调用),,翻阅已有线索中
+hardcoded,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2165,(无调用),,收拢相关信息中
+hardcoded,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2165,(无调用),,寻找切入点中
+hardcoded,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2165,(无调用),,铺开问题脉络中
+hardcoded,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2166,(无调用),,向外寻找线索中
+hardcoded,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2166,(无调用),,打捞新线索中
+hardcoded,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2166,(无调用),,沿途探查中
+hardcoded,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2166,(无调用),,搜集更多拼图中
+hardcoded,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2167,(无调用),,对照新发现中
+hardcoded,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2167,(无调用),,拼合新线索中
+hardcoded,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2167,(无调用),,检视所得中
+hardcoded,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2167,(无调用),,把发现串起来中
+hardcoded,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2168,(无调用),,回看已有线索中
+hardcoded,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2168,(无调用),,重新校准方向中
+hardcoded,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2168,(无调用),,再推敲一遍中
+hardcoded,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2168,(无调用),,换个角度审视中
+hardcoded,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2169,(无调用),,组织回应中
+hardcoded,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2169,(无调用),,整理表达中
+hardcoded,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2169,(无调用),,将思路落成文字中
+hardcoded,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2169,(无调用),,勾勒答案中
+hardcoded,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2170,(无调用),,继续推进中
+hardcoded,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2170,(无调用),,稳步探索中
+hardcoded,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2170,(无调用),,梳理当前进展中
+hardcoded,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2170,(无调用),,逐步展开中
+hardcoded,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2193,(无调用),,梳理脉络中
+hardcoded,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2368,goalActionButton,,暂停目标
+hardcoded,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2368,goalActionButton,,继续目标
+hardcoded,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2372,goalActionButton,,删除目标
+hardcoded,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2386,(无调用),,\(completedCount) 已完成
+hardcoded,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2387,(无调用),,\(activeCount) 进行中
+hardcoded,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2388,(无调用),,\(pendingCount) 待处理
+hardcoded,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2435,(无调用),,进行中的目标
+hardcoded,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2436,(无调用),,已暂停的目标
+hardcoded,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2437,(无调用),,受阻的目标
+hardcoded,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2438,(无调用),,当前目标
+hardcoded,App,DeepSeekHarnessMobile/Views/ConversationView.swift,3953,joined,separator,、
+hardcoded,App,DeepSeekHarnessMobile/Views/HumanQuestionView.swift,439,(无调用),,（recommended）
+hardcoded,App,DeepSeekHarnessMobile/Views/HumanQuestionView.swift,439,(无调用),, (推荐)
+hardcoded,App,DeepSeekHarnessMobile/Views/HumanQuestionView.swift,439,(无调用),,（推荐）
+hardcoded,App,DeepSeekHarnessMobile/Views/PluginsView.swift,274,componentField,,组件 ID
+hardcoded,App,DeepSeekHarnessMobile/Views/PluginsView.swift,275,componentField,,模块
+hardcoded,App,DeepSeekHarnessMobile/Views/PluginsView.swift,276,componentField,,运行条目 ID
+hardcoded,App,DeepSeekHarnessMobile/Views/PluginsView.swift,277,componentField,,不可修改原因
+hardcoded,App,DeepSeekHarnessMobile/Views/RootView.swift,816,String,,]?.doubleValue ?? 0)))执行一次
+hardcoded,App,DeepSeekHarnessMobile/Views/RootView.swift,1136,(无调用),,下载 \(item.name)
+hardcoded,App,DeepSeekHarnessMobile/Views/RootView.swift,1401,(无调用),,文件超过 2 MB，请使用系统应用打开
+hardcoded,App,DeepSeekHarnessMobile/Views/RootView.swift,1404,(无调用),,读取代码失败：\(error.localizedDescription)
+hardcoded,App,DeepSeekHarnessMobile/Views/SettingsView.swift,295,releaseRow,,当前版本
+hardcoded,App,DeepSeekHarnessMobile/Views/SettingsView.swift,296,releaseRow,,要求网关版本
+hardcoded,App,DeepSeekHarnessMobile/Views/SettingsView.swift,296,releaseRow,,未提供
+hardcoded,App,DeepSeekHarnessMobile/Views/SettingsView.swift,298,releaseRow,,已连接网关版本
+hardcoded,App,DeepSeekHarnessMobile/Views/SettingsView.swift,299,releaseRow,,读取中…
+hardcoded,App,DeepSeekHarnessMobile/Views/SettingsView.swift,299,releaseRow,,未提供
+hardcoded,App,DeepSeekHarnessMobile/Views/SettingsView.swift,338,Markdown,notes,本版本发布说明暂未提供，请查看 GitHub 发布页。
+hardcoded,App,DeepSeekHarnessMobile/Views/SettingsView.swift,401,(无调用),, · 需重启后生效
+hardcoded,App,DeepSeekHarnessMobile/Views/TeamView.swift,25,(无调用),,团队
+hardcoded,App,DeepSeekHarnessMobile/Views/TeamView.swift,162,emptyRow,,暂无 Bot 或群聊
+hardcoded,App,DeepSeekHarnessMobile/Views/TeamView.swift,291,(无调用),,这条对话还没同步到会话列表，稍后重试或下拉刷新团队页。
+hardcoded,App,DeepSeekHarnessMobile/Views/TeamView.swift,345,emptyRow,,暂无 Bot
+hardcoded,App,DeepSeekHarnessMobile/Views/TeamView.swift,359,emptyRow,,暂无其他会话
+hardcoded,App,DeepSeekHarnessMobile/Views/TeamView.swift,422,emptyRow,,暂无群聊
+hardcoded,App,DeepSeekHarnessMobile/Views/TeamView.swift,494,joined,separator,、
+hardcoded,App,DeepSeekHarnessMobile/Views/TeamView.swift,719,labeledRow,,成员
+hardcoded,App,DeepSeekHarnessMobile/Views/TeamView.swift,719,joined,separator,、
+hardcoded,App,DeepSeekHarnessMobile/Views/TeamView.swift,722,labeledRow,,管理员
+hardcoded,App,DeepSeekHarnessMobile/Views/TeamView.swift,725,labeledRow,,发言模式
+hardcoded,App,DeepSeekHarnessMobile/Views/TeamView.swift,725,labeledRow,,管理员主导
+hardcoded,App,DeepSeekHarnessMobile/Views/TeamView.swift,825,labeledRow,,工作中
+hardcoded,App,DeepSeekHarnessMobile/Views/TeamView.swift,975,(无调用),,尚未完成配对或会话不可用，请先配对桌面端。
+hardcoded,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,553,(无调用),,这条对话还没同步到会话列表，稍后重试。
+hardcoded,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,655,joined,separator,、
+hardcoded,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,656,(无调用),,群聊
+hardcoded,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,666,(无调用),,尚未完成配对或会话不可用，请先在团队页完成配对。
+hardcoded,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,715,drawerItem,,备用主机
