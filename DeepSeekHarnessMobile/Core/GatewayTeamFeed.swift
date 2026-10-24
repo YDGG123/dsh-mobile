@@ -287,14 +287,21 @@ final class GatewayTeamFeed: ObservableObject {
     /// 主帧带 `avatarDeferred: true` 时头像随后到；这里把 image 合回对应行。
     private func applyAvatarBatches(_ object: [String: Any]) {
         guard let items = object["items"] as? [[String: Any]], !items.isEmpty else { return }
-        var index = Dictionary(uniqueKeysWithValues: rows.enumerated().map { ($1.id, $0) })
+        let index = Dictionary(uniqueKeysWithValues: rows.enumerated().map { ($1.id, $0) })
         for item in items {
-            guard let id = item["id"] as? String, let position = index[id],
-                  let avatar = item["avatar"] as? [String: Any] else { continue }
-            rows[position].avatarShape = (avatar["shape"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-            rows[position].avatarImage = (avatar["image"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            guard let id = item["id"] as? String, let position = index[id] else { continue }
+            let avatar = (item["avatar"] as? [String: Any]) ?? [:]
+            if avatar["shape"] != nil || avatar["image"] != nil {
+                rows[position].avatarShape = (avatar["shape"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+                rows[position].avatarImage = (avatar["image"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            }
+            // 旁路帧的 glyph 也在**项顶层**（与 avatar 平级）：合并时不能丢，
+            // 否则大快照延后头像的那批会退化成符号层。
+            if let glyph = (item["glyph"] as? [String: Any]).flatMap(TeamGlyph.init(json:))
+                ?? avatar["glyph"].flatMap({ $0 as? [String: Any] }).flatMap(TeamGlyph.init(json:)) {
+                rows[position].glyph = glyph
+            }
         }
-        _ = index
         objectWillChange.send()
     }
 
@@ -441,7 +448,8 @@ final class GatewayTeamFeed: ObservableObject {
 
     // MARK: - 解码
 
-    private func row(from raw: [String: Any], kind: Row.Kind) -> Row? {
+    /// internal（非 private）仅为让 `TeamGlyphTests` 用真实发布形态构造行，逻辑不变。
+    func row(from raw: [String: Any], kind: Row.Kind) -> Row? {
         guard let id = raw["id"] as? String, !id.isEmpty else { return nil }
         let name = raw["name"] as? String ?? id
         let sessionId = raw["sessionId"] as? String ?? id
@@ -462,11 +470,15 @@ final class GatewayTeamFeed: ObservableObject {
         if let avatar = raw["avatar"] as? [String: Any] {
             row.avatarShape = (avatar["shape"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             row.avatarImage = (avatar["image"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-            row.glyph = avatar["glyph"].flatMap(TeamGlyph.init(json:))
         } else if let single = raw["avatar"] as? String, !single.isEmpty {
             row.avatarShape = nil
             row.avatarImage = single
         }
+        // ⚠️ glyph 在**bot 顶层**（与 avatar 平级），不是 avatar 里的字段——
+        // ds-bot 发布端就是这么发的。之前写成 `avatar["glyph"]` 导致恒 nil、
+        // 所有头像永远走符号层（方案 C 等于没做）。这里以顶层为准，同时兼容旧的嵌套形态。
+        row.glyph = (raw["glyph"] as? [String: Any]).flatMap(TeamGlyph.init(json:))
+            ?? (raw["avatar"] as? [String: Any])?["glyph"].flatMap { $0 as? [String: Any] }.flatMap(TeamGlyph.init(json:))
         row.colorKey = raw["color"] as? String
         return row
     }
