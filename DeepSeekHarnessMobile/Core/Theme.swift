@@ -150,73 +150,47 @@ struct DSHPalette {
     var isLight: Bool { scheme == .light }
 
     /// 前景（文字/图标）：opacity 越大越强调。
+    /// 浅色按「对比度优先」重算：0.92 的正文≈近全黑，0.55 的次要文字在纯白上仍有约 4.5:1，
+    /// 不会再出现「浅底白字看不见」；深色沿用原来的白色叠加，观感不变。
     func ink(_ opacity: Double) -> Color {
         isLight
-            ? DSHColor.ink.opacity(min(1, 0.35 + opacity))
+            ? DSHColor.ink.opacity(min(1, 0.55 + opacity * 0.45))
             : Color.white.opacity(opacity)
     }
 
-    /// 卡片/输入框等半透明容器填充。
+    /// 卡片/输入框等容器填充。浅色不用低透明白（在白底上等于没有），改用高不透明白衬底，
+    /// 层次交给 `stroke` 的墨色描边表达。
     func surface(_ opacity: Double) -> Color {
         isLight
-            ? Color.white.opacity(min(1, 0.5 + opacity * 2.2))
+            ? Color.white.opacity(min(1, 0.72 + opacity * 1.6))
             : Color.white.opacity(opacity)
     }
 
-    /// 描边/分隔线。
+    /// 描边/分隔线。浅色需要真正可见的细线（≥0.06），否则卡片边界在浅底上消失。
     func stroke(_ opacity: Double) -> Color {
         isLight
-            ? DSHColor.ink.opacity(opacity * 0.5)
+            ? DSHColor.ink.opacity(min(0.3, 0.06 + opacity * 0.6))
             : Color.white.opacity(opacity)
     }
+
+    // 状态色（文字/图标用）。深色沿用品牌色；浅色必须压暗，否则在浅底上达不到 4.5:1：
+    // 绿 2.59:1 / 琥珀 1.86:1 / 橙 2.75:1（原值），压暗后 6.6 / 6.3 / 4.9。
+    var success: Color { isLight ? Color(red: 0.07, green: 0.42, blue: 0.18) : DSHColor.success }
+    var warning: Color { isLight ? Color(red: 0.55, green: 0.32, blue: 0.0) : DSHColor.amber }
+    var caution: Color { isLight ? Color(red: 0.70, green: 0.34, blue: 0.0) : DSHColor.orange }
+    var danger: Color { isLight ? Color(red: 0.72, green: 0.12, blue: 0.10) : Color.red.opacity(0.9) }
 
     static func resolve(_ scheme: ColorScheme) -> DSHPalette { DSHPalette(scheme: scheme) }
 }
 
-/// 浅色版品牌背景：浅蓝渐变 + 点阵，保持与深色同一视觉语言但不做逐帧动画（省电、也不与列表抢手势）。
-struct HarnessLightBackground: View {
-    var body: some View {
-        ZStack {
-            LinearGradient(
-                colors: [
-                    Color(red: 0.93, green: 0.96, blue: 1.0),
-                    Color(red: 0.98, green: 0.99, blue: 1.0),
-                    Color(red: 0.90, green: 0.95, blue: 1.0),
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            Canvas { context, size in
-                let spacing: CGFloat = 26
-                let dot = CGSize(width: 1.4, height: 1.4)
-                let color = DSHColor.ink.opacity(0.07)
-                var y: CGFloat = 0
-                while y < size.height {
-                    var x: CGFloat = 0
-                    while x < size.width {
-                        context.fill(Path(ellipseIn: CGRect(origin: CGPoint(x: x, y: y), size: dot)), with: .color(color))
-                        x += spacing
-                    }
-                    y += spacing
-                }
-            }
-        }
-        .ignoresSafeArea()
-    }
-}
-
+/// B7：浅色**不再是静态占位**。鲸鱼（吉祥物）在浅色下同样逐帧动，只换配色与帧率；
+/// 具体形态由 `HarnessAnimatedBackground` 按 `colorScheme` 分支处理。
+/// B4：被子页覆盖时（`BackgroundAnimationPause`）自动暂停逐帧重绘，避免推入卡死。
 struct DeepOceanBackground: View {
-    @Environment(\.colorScheme) private var colorScheme
-
     var body: some View {
-        if colorScheme == .light {
-            HarnessLightBackground()
-        } else {
-            HarnessAnimatedBackground(style: UIDevice.current.userInterfaceIdiom == .pad ? .pad : .phone)
-        }
+        HarnessAnimatedBackground(style: UIDevice.current.userInterfaceIdiom == .pad ? .pad : .phone)
     }
 }
-
 
 /// 根据当前容器伸缩；不读取设备型号或 UIScreen，分屏和台前调度同样生效。
 enum AdaptiveLayout {

@@ -251,6 +251,20 @@ enum InterfaceStyle: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var title: String { switch self { case .system: String(localized: "跟随系统"); case .light: String(localized: "浅色"); case .dark: String(localized: "深色") } }
     var colorScheme: ColorScheme? { switch self { case .system: nil; case .light: .light; case .dark: .dark } }
+
+    /// B5：界面选项以前是纯内存状态，杀进程就回默认。这里照 `AppLanguage` 的模式落盘：
+    /// 存 rawValue、启动时读回，读不到或值非法一律回 `.system`（fail-safe，不崩）。
+    static let preferenceKey = "app.interfaceStyle"
+
+    static func load(from defaults: UserDefaults = .standard) -> InterfaceStyle {
+        guard let value = defaults.string(forKey: preferenceKey),
+              let style = InterfaceStyle(rawValue: value) else { return .system }
+        return style
+    }
+
+    func apply(to defaults: UserDefaults = .standard) {
+        defaults.set(rawValue, forKey: Self.preferenceKey)
+    }
 }
 
 enum AppLanguage: String, CaseIterable, Identifiable {
@@ -352,7 +366,12 @@ final class AppStore: ObservableObject {
     @Published var workspaceCreationIsLoading = false
     @Published var protocolNotices: [GatewayNotice] = []
     @Published var endpoint: String { didSet { preferences.endpoint = endpoint } }
-    @Published var interfaceStyle: InterfaceStyle = .system
+    @Published var interfaceStyle: InterfaceStyle = InterfaceStyle.load() {
+        didSet {
+            guard oldValue != interfaceStyle else { return }
+            interfaceStyle.apply()
+        }
+    }
     @Published var appLanguage: AppLanguage {
         didSet { appLanguage.apply() }
     }

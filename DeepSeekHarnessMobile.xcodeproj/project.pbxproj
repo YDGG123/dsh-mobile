@@ -32,6 +32,7 @@
 		A1B2C3D4E5F60718293A4B5C /* ApprovalRequestView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B5D /* ApprovalRequestView.swift */; };
 		B0A100000000000000000001 /* BridgeTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A100000000000000000002 /* BridgeTransport.swift */; };
 		B0A100000000000000000003 /* BridgeTeamAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A100000000000000000004 /* BridgeTeamAdapter.swift */; };
+		B0A10000000000000000000E /* GatewayTeamFeed.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A10000000000000000000D /* GatewayTeamFeed.swift */; };
 		B0A100000000000000000005 /* TeamView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A100000000000000000006 /* TeamView.swift */; };
 		B0A100000000000000000007 /* BridgeTransportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A100000000000000000008 /* BridgeTransportTests.swift */; };
 		B0A100000000000000000009 /* BridgeChatEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A10000000000000000000A /* BridgeChatEngine.swift */; };
@@ -49,6 +50,7 @@
 		A9FE00000000000000000001 /* AgentUserNotificationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9FE00000000000000000002 /* AgentUserNotificationManager.swift */; };
 		AFAE90EEB4462AD84169D356 /* GatewayModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 954FCEA4A6E71F3D1A22BB53 /* GatewayModels.swift */; };
 		B0C0FFEE0000000000000001 /* HarnessAnimatedBackground.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0C0FFEE0000000000000002 /* HarnessAnimatedBackground.swift */; };
+		B0A10000000000000000000F /* BackgroundAnimationPause.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A100000000000000000010 /* BackgroundAnimationPause.swift */; };
 		B10000000000000000000001 /* PluginsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000002 /* PluginsView.swift */; };
 		C075849EE750C3CCD2C87FC7 /* MultiGatewayStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5FF365A80AA28B4D4CF2347 /* MultiGatewayStore.swift */; };
 		C5F737EBF5077A9BF35E9F64 /* TrajectoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65009160A0642089906B54DF /* TrajectoryView.swift */; };
@@ -145,6 +147,7 @@
 		A9FD00000000000000000002 /* AgentBackgroundKeepAliveManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentBackgroundKeepAliveManager.swift; sourceTree = "<group>"; };
 		A9FE00000000000000000002 /* AgentUserNotificationManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentUserNotificationManager.swift; sourceTree = "<group>"; };
 		B0C0FFEE0000000000000002 /* HarnessAnimatedBackground.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HarnessAnimatedBackground.swift; sourceTree = "<group>"; };
+		B0A100000000000000000010 /* BackgroundAnimationPause.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BackgroundAnimationPause.swift; sourceTree = "<group>"; };
 		B0C0FFEE0000000000000004 /* HarnessBackground.metal */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.metal; path = HarnessBackground.metal; sourceTree = "<group>"; };
 		B10000000000000000000002 /* PluginsView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PluginsView.swift; sourceTree = "<group>"; };
 		B64F29E9B8346B9A678CA487 /* DeepSeekHarnessMobileTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = DeepSeekHarnessMobileTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -166,6 +169,7 @@
 		EEABECFD00017A6E10B1F4A3 /* HumanQuestionView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HumanQuestionView.swift; sourceTree = "<group>"; };
 		B0A100000000000000000002 /* BridgeTransport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BridgeTransport.swift; sourceTree = "<group>"; };
 		B0A100000000000000000004 /* BridgeTeamAdapter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BridgeTeamAdapter.swift; sourceTree = "<group>"; };
+		B0A10000000000000000000D /* GatewayTeamFeed.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GatewayTeamFeed.swift; sourceTree = "<group>"; };
 		B0A100000000000000000006 /* TeamView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TeamView.swift; sourceTree = "<group>"; };
 		B0A100000000000000000008 /* BridgeTransportTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BridgeTransportTests.swift; sourceTree = "<group>"; };
 		B0A10000000000000000000A /* BridgeChatEngine.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BridgeChatEngine.swift; sourceTree = "<group>"; };
@@ -246,6 +250,7 @@
 				E61E231D0CD3E07857F861B0 /* GatewayClient.swift */,
 				B0A100000000000000000002 /* BridgeTransport.swift */,
 				B0A100000000000000000004 /* BridgeTeamAdapter.swift */,
+				B0A10000000000000000000D /* GatewayTeamFeed.swift */,
 				B0A10000000000000000000A /* BridgeChatEngine.swift */,
 				954FCEA4A6E71F3D1A22BB53 /* GatewayModels.swift */,
 				CA11E000000000000000000A /* L10n.swift */,
@@ -353,6 +358,7 @@
 				AF19C0000000000000000002 /* WorkspaceLoadingLogo.swift */,
 				A0C0FFEE0000000000000002 /* ConversationViewport.swift */,
 				B0C0FFEE0000000000000002 /* HarnessAnimatedBackground.swift */,
+				B0A100000000000000000010 /* BackgroundAnimationPause.swift */,
 			);
 			path = Components;
 			sourceTree = "<group>";
@@ -669,10 +675,12 @@
 				AF19C0000000000000000001 /* WorkspaceLoadingLogo.swift in Sources */,
 				A0C0FFEE0000000000000001 /* ConversationViewport.swift in Sources */,
 				B0C0FFEE0000000000000001 /* HarnessAnimatedBackground.swift in Sources */,
+				B0A10000000000000000000F /* BackgroundAnimationPause.swift in Sources */,
 				605DCE79952E970820A95606 /* ConversationView.swift in Sources */,
 				605DCE79952E970820A95607 /* HumanQuestionView.swift in Sources */,
 				B0A100000000000000000001 /* BridgeTransport.swift in Sources */,
 				B0A100000000000000000003 /* BridgeTeamAdapter.swift in Sources */,
+				B0A10000000000000000000E /* GatewayTeamFeed.swift in Sources */,
 				B0A100000000000000000009 /* BridgeChatEngine.swift in Sources */,
 				B0A100000000000000000005 /* TeamView.swift in Sources */,
 				B0A10000000000000000000B /* BridgeConversationView.swift in Sources */,
