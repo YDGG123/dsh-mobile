@@ -172,6 +172,17 @@ WLOG=$(mktemp)
 WIDGET_ERRORS=$(grep -c "error:" "$WLOG" 2>/dev/null | head -1)
 WIDGET_ERRORS=${WIDGET_ERRORS:-0}
 
+# ---- 退役路径守卫（B3）----
+# bridge「粘贴配对资料 JSON」这条配对路径已退役：bridge 凭证改由网关配对成功后的
+# `paired` 帧 bridgeSession 字段下发。BridgeTeamAdapter.pairPastedPayload 只留作应急排查，
+# **界面层不得再引用**（重新接回界面 = 让用户又面对两条看起来都能配对的路径）。
+RETIRED_UI=$(grep -rn "pairPastedPayload" DeepSeekHarnessMobile/Views/ 2>/dev/null)
+if [ -n "$RETIRED_UI" ]; then
+  echo "❌ 退役配对路径被界面引用（B3 红线）:"
+  echo "$RETIRED_UI"
+  exit 1
+fi
+
 echo
 if [ "$APP_ERRORS" -eq 0 ] && [ "$WIDGET_ERRORS" -eq 0 ]; then
   echo "✅ 类型检查通过 (App 0 错误, Widget 0 错误)"
