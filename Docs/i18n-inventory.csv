@@ -191,7 +191,7 @@ registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,791,(目录键
 registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,849,(目录键命中),,操作远端 DSH Agent
 registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,850,(目录键命中),,发送任务后，工具调用、推理进度和最终回复会通过 Mobile Gateway 实时返回。
 registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,864,(目录键命中),,历史记录加载失败
-registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,866,(目录键命中),,Host 无法读取旧格式会话，请修复或升级 Host 后重试。原始记录未修改。
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,866,(目录键命中),,Host 无法读取旧格式༚话，请修复或升级 Host 后重试。原始记录未修改。
 registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,870,(目录键命中),,重新加载历史
 registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,921,(目录键命中),,正在加载历史记录
 registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,938,(目录键命中),,正在加载历史记录
@@ -531,6 +531,7 @@ registered,App,DeepSeekHarnessMobile/Views/TeamView.swift,64,(目录键命中),,
 registered,App,DeepSeekHarnessMobile/Views/TeamView.swift,71,(目录键命中),,刷新团队
 registered,App,DeepSeekHarnessMobile/Views/TeamView.swift,135,(目录键命中),,分段
 registered,App,DeepSeekHarnessMobile/Views/TeamView.swift,147,(目录键命中),,实时状态暂不可用：网关目前只拿到名册（名字/角色/成员）。干活中、等你回答、等你审批要等桌面端发布团队服务后才显示。
+registered,App,DeepSeekHarnessMobile/Views/TeamView.swift,156,(目录键命中),,团队连接中断：\(…)
 registered,App,DeepSeekHarnessMobile/Views/TeamView.swift,162,(目录键命中),,暂无 Bot 或群聊
 registered,App,DeepSeekHarnessMobile/Views/TeamView.swift,182,(目录键命中),,主
 registered,App,DeepSeekHarnessMobile/Views/TeamView.swift,231,(目录键命中),,详情
@@ -602,6 +603,7 @@ registered,App,DeepSeekHarnessMobile/Views/TeamView.swift,902,(目录键命中),
 registered,App,DeepSeekHarnessMobile/Views/TeamView.swift,906,(目录键命中),,刷新
 registered,App,DeepSeekHarnessMobile/Views/TeamView.swift,909,(目录键命中),,关闭
 registered,App,DeepSeekHarnessMobile/Views/TeamView.swift,925,(目录键命中),,本机
+registered,App,DeepSeekHarnessMobile/Views/TeamView.swift,928,(目录键命中),,最近活跃 \(…)
 registered,App,DeepSeekHarnessMobile/Views/TeamView.swift,940,(目录键命中),,撤销
 registered,App,DeepSeekHarnessMobile/Views/TrajectoryView.swift,456,(目录键命中),,打开
 registered,App,DeepSeekHarnessMobile/Views/TrajectoryView.swift,493,(目录键命中),,摘要
@@ -638,6 +640,7 @@ registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,351,(目录键命
 registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,358,(目录键命中),,立即重试
 registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,369,(目录键命中),,重新配对
 registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,402,(目录键命中),,实时状态暂不可用：网关目前只拿到名册（名字/角色/成员）。干活中、等你回答、等你审批要等桌面端发布团队服务后才显示。
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,411,(目录键命中),,团队连接中断：\(…)
 registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,421,(目录键命中),,暂无 Bot 或群聊。桌面端有 Bot 团队后这里会出现。
 registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,454,(目录键命中),,主
 registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,608,(目录键命中),,暂无会话。在桌面端与 Bot 对话后，这里会出现会话。
@@ -658,6 +661,9 @@ registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,987,(目录键命
 registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,995,(目录键命中),,扫码配对
 registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1004,(目录键命中),,手动输入
 registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1022,(目录键命中),,Bot 团队尚未就绪
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1024,(目录键命中),,phase：\(…) · 配对态：\(…)
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1026,(目录键命中),,本机会话：\(…) · serverUrl：\(…)
+registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1029,(目录键命中),,原因：\(…)
 registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1038,(目录键命中),,扫码重配
 registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1045,(目录键命中),,手动输入
 registered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1061,(目录键命中),,暂无已知会话。点这里连接桌面端后创建第一个任务。
@@ -848,12 +854,6 @@ unregistered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,2226,Text,,\
 unregistered,App,DeepSeekHarnessMobile/Views/PluginsView.swift,130,accessibilityLabel,,\(…)开关
 unregistered,App,DeepSeekHarnessMobile/Views/RootView.swift,1136,accessibilityLabel,,\(…) 已下载，点击重新下载
 unregistered,App,DeepSeekHarnessMobile/Views/RootView.swift,1434,Text,,\(…) 行 · UTF-8
-unregistered,App,DeepSeekHarnessMobile/Views/TeamView.swift,156,Text,,团队连接中断：\(…)
-unregistered,App,DeepSeekHarnessMobile/Views/TeamView.swift,928,Text,,最近活跃 \(…)
-unregistered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,411,Text,,团队连接中断：\(…)
-unregistered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1024,Text,,phase：\(…) · 配对态：\(…)
-unregistered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1026,Text,,本机会话：\(…) · serverUrl：\(…)
-unregistered,App,DeepSeekHarnessMobile/Views/WorkspaceView.swift,1029,Text,,原因：\(…)
 hardcoded,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,108,(无调用),,待同步
 hardcoded,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,111,(无调用),,执行中
 hardcoded,Widget/LiveActivity,AgentLiveActivityWidget/AgentLiveActivityWidget.swift,112,(无调用),,待选择

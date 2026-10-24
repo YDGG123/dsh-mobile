@@ -5,7 +5,7 @@
 
 ## ⚠️ 先读：不确定性
 
-- 带字符串插值的条目靠**前缀匹配目录键**判定：硬编码桶约 **101 条**、漏登记桶约 **11 条**，
+- 带字符串插值的条目靠**前缀匹配目录键**判定：硬编码桶约 **101 条**、漏登记桶约 **5 条**，
   **边缘计数有 ±10 的误差**，不要当精确值引用；不带插值的条目是确定判定。
 - `Localizable.xcstrings` 的键会被 Swift 提取成 `%@` / `%lld` 形式，脚本用前缀匹配近似。
 
@@ -13,26 +13,19 @@
 
 | 桶 | 条数 | 含义 |
 | --- | --- | --- |
-| `registered` | 706 | 键就是中文，已登记（重启后即可跟随语言） |
+| `registered` | 712 | 键就是中文，已登记（重启后即可跟随语言） |
 | `localized_default` | 135 | `String(localized:defaultValue:)` 的中文兜底（已本地化） |
-| `unregistered` (c) | 11 | **漏登记**：本地化调用里但目录无键 → 补目录（第 ① 步） |
+| `unregistered` (c) | 5 | **漏登记**：本地化调用里但目录无键 → 补目录（第 ① 步） |
 | `hardcoded` (a) | 527 | **真硬编码**：重启/免重启都救不了（第 ③ 步） |
 | **合计** | **1379** | 源码含中文字面量（50 个 Swift 文件） |
 
-- 能跟随语言（重启后）：**841**（61.0%）
-- 重启也不会变：**538**（39.0%）= 硬编码 527 + 漏登记 11，其中 Widget/LiveActivity 占 109
+- 能跟随语言（重启后）：**847**（61.4%）
+- 重启也不会变：**532**（38.6%）= 硬编码 527 + 漏登记 5，其中 Widget/LiveActivity 占 109
 - 目录自身缺 `en`：**0** 条；`en` 未翻译：**0** 条
 - `String(localized:)` 的键不在目录：**5** 处（多为插值键，见不确定性）
 - 结构：`AgentLiveActivityWidget` target 是否带 `Localizable.xcstrings`：**否**（否 → 该扩展的文案无论怎么切语言都不变）
 
 ## (c) 漏登记：本地化调用里、目录无键
-
-### `DeepSeekHarnessMobile/Views/WorkspaceView.swift` （4）
-
-- `:411` `[Text]` 团队连接中断：\(…)
-- `:1024` `[Text]` phase：\(…) · 配对态：\(…)
-- `:1026` `[Text]` 本机会话：\(…) · serverUrl：\(…)
-- `:1029` `[Text]` 原因：\(…)
 
 ### `DeepSeekHarnessMobile/Views/ConversationView.swift` （2）
 
@@ -43,11 +36,6 @@
 
 - `:1136` `[accessibilityLabel]` \(…) 已下载，点击重新下载
 - `:1434` `[Text]` \(…) 行 · UTF-8
-
-### `DeepSeekHarnessMobile/Views/TeamView.swift` （2）
-
-- `:156` `[Text]` 团队连接中断：\(…)
-- `:928` `[Text]` 最近活跃 \(…)
 
 ### `DeepSeekHarnessMobile/Views/PluginsView.swift` （1）
 

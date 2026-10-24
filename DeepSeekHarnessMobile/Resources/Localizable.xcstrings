@@ -9587,6 +9587,150 @@
           }
         }
       }
+    },
+    "团队连接中断：%@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Team connection lost: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "团队连接中断：%@"
+          }
+        }
+      }
+    },
+    "phase：%@ · 配对态：%@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "phase: %@ · pairing: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "phase：%@ · 配对态：%@"
+          }
+        }
+      }
+    },
+    "本机会话：%@ · serverUrl：%@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local session: %@ · serverUrl: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本机会话：%@ · serverUrl：%@"
+          }
+        }
+      }
+    },
+    "原因：%@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reason: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "原因：%@"
+          }
+        }
+      }
+    },
+    "%lld 个附件": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld attachment(s)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 个附件"
+          }
+        }
+      }
+    },
+    "%@，用时 %lld 秒…": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, %lld s…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@，用时 %lld 秒…"
+          }
+        }
+      }
+    },
+    "%@ 已下载，点击重新下载": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ downloaded. Tap to download again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 已下载，点击重新下载"
+          }
+        }
+      }
+    },
+    "%lld 行 · UTF-8": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld lines · UTF-8"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 行 · UTF-8"
+          }
+        }
+      }
+    },
+    "最近活跃 %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Last active %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最近活跃 %@"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
