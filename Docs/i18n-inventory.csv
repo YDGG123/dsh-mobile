@@ -191,7 +191,7 @@ registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,791,(目录键
 registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,849,(目录键命中),,操作远端 DSH Agent
 registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,850,(目录键命中),,发送任务后，工具调用、推理进度和最终回复会通过 Mobile Gateway 实时返回。
 registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,864,(目录键命中),,历史记录加载失败
-registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,866,(目录键命中),,Host 无法读取旧格式༚话，请修复或升级 Host 后重试。原始记录未修改。
+registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,866,(目录键命中),,Host 无法读取旧格式会话，请修复或升级 Host 后重试。原始记录未修改。
 registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,870,(目录键命中),,重新加载历史
 registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,921,(目录键命中),,正在加载历史记录
 registered,App,DeepSeekHarnessMobile/Views/ConversationView.swift,938,(目录键命中),,正在加载历史记录

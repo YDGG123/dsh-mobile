@@ -92,26 +92,6 @@
         }
       }
     },
-    "%@ 个附件": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ attachment(s)"
-          }
-        }
-      }
-    },
-    "%@ 行 · UTF-8": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ line(s) · UTF-8"
-          }
-        }
-      }
-    },
     "%@ 请求执行需要审批的操作": {
       "extractionState": "manual",
       "localizations": {
@@ -146,22 +126,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ switch"
-          }
-        }
-      }
-    },
-    "%@，用时 %@ 秒…": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@, took %2$@ seconds…"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@，用时 %2$@ 秒…"
           }
         }
       }
@@ -9609,7 +9573,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "phase: %@ · pairing: %@"
+            "value": "Phase: %@ · pairing: %@"
           }
         },
         "zh-Hans": {
