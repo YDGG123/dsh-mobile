@@ -577,17 +577,9 @@ final class GatewayTeamFeed: ObservableObject {
         }
     }
 
-    /// 没有 `color` 时的兜底：按名字稳定取同一套深色（白字照样达标）。
-    static func fallbackBlockColor(for name: String) -> Color {
-        let palette: [Color] = [
-            Color(red: 0.06, green: 0.27, blue: 0.66), Color(red: 0.14, green: 0.52, blue: 0.24),
-            Color(red: 0.67, green: 0.39, blue: 0.00), Color(red: 0.64, green: 0.30, blue: 0.81),
-            Color(red: 0.14, green: 0.50, blue: 0.56), Color(red: 0.35, green: 0.34, blue: 0.84),
-        ]
-        var hash = 5381
-        for scalar in name.unicodeScalars { hash = (hash &* 33) &+ Int(scalar.value) }
-        return palette[abs(hash) % palette.count]
-    }
+    /// 旧宿主（未按 v2 契约解析）没有 `color` 时的**中性**色块。
+    /// 不再按名字猜色：猜出来的值一定和电脑端不同，用户看到的就是「两边不一样」。
+    static let neutralBlockColor = Color(red: 0.29, green: 0.31, blue: 0.33)
 
     /// room 没有 avatar 字段（契约静态列表里只有 members/admin/mode/notice）：
     /// 成员头像堆叠要用 members 去 join 各 bot 现拼，不给 room 加契约字段。
@@ -596,12 +588,14 @@ final class GatewayTeamFeed: ObservableObject {
         return room.members.prefix(limit).compactMap { byId[$0] }
     }
 
+    /// 契约 v2 起 host 已在 roster 里解析好 `color`（ink key 或 hex），手机端**只映射**。
+    /// 真拿不到（旧宿主）时用中性色块，不按名字猜——猜测必然和电脑端不一致。
     static func avatarColor(_ row: Row) -> Color {
-        // 电脑端规则：颜色优先取 `color`（ink key 或 hex），没有才按 id/名字兜底。
-        color(fromInk: row.colorKey) ?? fallbackBlockColor(for: row.name)
+        color(fromInk: row.colorKey) ?? neutralBlockColor
     }
 
-    /// 电脑端规则：shape 缺省时按 bot id 推导；这里没有 id 推导表，用名字兜底成一个稳定形状。
+    /// 契约 v2 起 host 已解析好 `avatar.shape`（缺省按 bot id 推导），手机端**只映射符号**。
+    /// 旧宿主缺 shape 时落到中性圆点，同样不做名字推导。
     static func avatarSymbol(_ row: Row) -> String {
         shapeSymbol(row.avatarShape)
     }
