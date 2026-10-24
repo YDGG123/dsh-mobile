@@ -124,7 +124,11 @@ for item in json.loads(remote.stdout).get('tree', []):
         base[item['path']] = item['sha']
 
 local = {}
-listing = subprocess.run(['git', 'ls-tree', '-r', 'HEAD'], text=True, capture_output=True)
+# `core.quotePath=false` 必加：默认 git 会把非 ASCII 路径转义成 `"Docs/\345\216..."`（带引号），
+# 拿这种 key 去 `git show HEAD:<path>` 必然 "does not exist"，出包在建提交这一步就炸。
+# GitHub API 返回的 tree 路径是原始 UTF-8，两边口径统一后才能逐文件比对。
+listing = subprocess.run(['git', '-c', 'core.quotePath=false', 'ls-tree', '-r', 'HEAD'],
+                         text=True, capture_output=True)
 for line in listing.stdout.splitlines():
     meta, path = line.split('\t', 1)
     if path.startswith('.github/workflows/'):
@@ -210,7 +214,8 @@ if remote.returncode != 0:
     sys.exit('读取远端 tree 失败: ' + remote.stderr.strip())
 remote_map = {item['path']: item['sha'] for item in json.loads(remote.stdout).get('tree', [])
               if item.get('type') == 'blob' and not item['path'].startswith('.github/workflows/')}
-local = subprocess.run(['git', 'ls-tree', '-r', 'HEAD'], text=True, capture_output=True).stdout
+local = subprocess.run(['git', '-c', 'core.quotePath=false', 'ls-tree', '-r', 'HEAD'],
+                       text=True, capture_output=True).stdout
 local_map = {}
 for line in local.splitlines():
     meta, path = line.split('\t', 1)
