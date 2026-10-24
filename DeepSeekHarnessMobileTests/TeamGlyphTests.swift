@@ -96,6 +96,37 @@ final class TeamGlyphTests: XCTestCase {
         XCTAssertNotEqual(glyph.cacheKey, other.cacheKey, "换眼睛/换层必须换缓存键")
     }
 
+    // MARK: - 真实发布形态（glyph 在 bot 顶层）
+
+    /// 契约与 ds-bot `team-feed.js` 都把 glyph 放在 bot **顶层**（与 avatar 平级）。
+    /// 这条用例喂的是真实形态，能抓住「读成 avatar["glyph"] → row.glyph 恒 nil」的回归。
+    @MainActor
+    func testParsesGlyphFromBotTopLevel() throws {
+        let feed = GatewayTeamFeed()
+        let raw: [String: Any] = [
+            "id": "bot-whale", "kind": "bot", "name": "Whale", "sessionId": "s-whale",
+            "color": "deepseek",
+            "avatar": ["shape": "whale"],
+            "glyph": Self.whaleJSON,
+        ]
+        let row = try XCTUnwrap(feed.row(from: raw, kind: .bot))
+        let glyph = try XCTUnwrap(row.glyph, "顶层 glyph 必须被解析（否则方案 C 静默失效）")
+        XCTAssertEqual(glyph.layers.count, 3)
+        XCTAssertEqual(glyph.eyes.count, 2)
+    }
+
+    /// 过渡兼容：早期把 glyph 塞进 avatar 里的形态也要能读。
+    @MainActor
+    func testParsesGlyphNestedInAvatar() throws {
+        let feed = GatewayTeamFeed()
+        let raw: [String: Any] = [
+            "id": "bot-nested", "name": "Nested", "sessionId": "s-nested",
+            "avatar": ["shape": "whale", "glyph": Self.whaleJSON],
+        ]
+        let row = try XCTUnwrap(feed.row(from: raw, kind: .bot))
+        XCTAssertNotNil(row.glyph)
+    }
+
     // MARK: - 三层兜底顺序（契约：image > glyph > symbol）
 
     func testFallbackOrder() {

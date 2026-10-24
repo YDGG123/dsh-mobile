@@ -36,7 +36,8 @@ struct TeamGlyph: Hashable {
     let body: String
     let layers: [Layer]
     let eyes: [Eye]
-    /// 可选的 ink key / hex；缺省时由调用方按 roster 的 `color` 决定。
+    /// 可选的 ink key / hex。**绘制时不单独使用**：主剪影色取 roster 的 `color`
+    /// （两者同源，DSBotDev 发布时都来自 `lookOf`）；保留只为契约完整与排障对拍。
     let color: String?
 
     private static let log = Logger(subsystem: "ai.dsh.mobile.ios", category: "team-glyph")
@@ -187,7 +188,13 @@ struct TeamGlyph: Hashable {
                 renderLog.error("glyph 叠加层解析失败（fill=\(layer.fill, privacy: .public)），跳过该层")
                 continue
             }
-            layers.append((path, Color(hexString: layer.fill) ?? .black, layer.opacity))
+            if let color = Color(hexString: layer.fill) {
+                layers.append((path, color, layer.opacity))
+            } else {
+                // 非法色值不静默：留痕并用黑色兜底（与电脑端 SVG 的缺省行为一致）。
+                renderLog.error("glyph 层 fill 不是合法 hex（\(layer.fill, privacy: .public)），用黑色兜底")
+                layers.append((path, .black, layer.opacity))
+            }
         }
         let eyes = glyph.eyes.map { eye -> Path in
             let rect = CGRect(x: -eye.width / 2, y: -eye.height / 2, width: eye.width, height: eye.height)
