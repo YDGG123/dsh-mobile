@@ -1,577 +1,340 @@
 package com.clarklevis.dsh.shared.facade
 
-import com.clarklevis.dsh.shared.domain.BridgeSessionStore
-import com.clarklevis.dsh.shared.domain.BridgeTokenMachine
-import com.clarklevis.dsh.shared.domain.BridgeTokenOutcome
-import com.clarklevis.dsh.shared.domain.OpenTargetResolution
-import com.clarklevis.dsh.shared.domain.TeamAction
-import com.clarklevis.dsh.shared.domain.TeamPhase
-import com.clarklevis.dsh.shared.domain.TeamReducer
-import com.clarklevis.dsh.shared.domain.TeamUiState
-import com.clarklevis.dsh.shared.protocol.BridgeClientKnownCode
-import com.clarklevis.dsh.shared.protocol.BridgeTeamError
-import com.clarklevis.dsh.shared.protocol.BridgeWireKnownCode
-import com.clarklevis.dsh.shared.protocol.bridgeSetFlagsPayload
-import com.clarklevis.dsh.shared.protocol.bridgeSetMainPayload
-import com.clarklevis.dsh.shared.protocol.bridgeUpdateBotPayload
-import com.clarklevis.dsh.shared.protocol.classifyBridgeErrorCode
-import com.clarklevis.dsh.shared.protocol.decodeBridgeErrorEnvelope
-import com.clarklevis.dsh.shared.protocol.parseBridgeConversations
-import com.clarklevis.dsh.shared.protocol.parseBridgeDeviceRevoked
-import com.clarklevis.dsh.shared.protocol.parseBridgeDevicesPayload
-import com.clarklevis.dsh.shared.protocol.parseBridgeEffortsPayload
-import com.clarklevis.dsh.shared.protocol.parseBridgeInfo
-import com.clarklevis.dsh.shared.protocol.parseBridgeModelsPayload
-import com.clarklevis.dsh.shared.protocol.parseBridgeState
 import com.clarklevis.dsh.shared.protocol.wireJson
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
+import kotlinx.serialization.json.*
 
-/**
- * 团队页（Mobile Bridge）唯一业务状态来源；HTTP/WS 执行留在平台层。
- *
- * P1：三响应合流刷新、点 Bot 进聊天。
- * P2：写操作四件套（set-flags / update-bot / set-main / 设备管理）——
- * 立即乐观更新（1s 内 UI 反映），平台执行 bridge-http effect 后经
- * [acceptBridgeResponse] 回执；TARGET_CHANGED/READ_ONLY 自动追加 refresh-team 纠偏。
- * 全部 Intent 非抛出，失败走 [SharedTeamResult.errorCode]（fail-closed）。
- */
 @Serializable
-data class SharedTeamEffect(
-    val kind: String,
-    /** kind = open-conversation：进入聊天要用的会话 id（现有 gateway 链路）。 */
-    val sessionId: String? = null,
-    /** kind = session-clear：平台同步清掉内存镜像里的会话。 */
-    val reason: String? = null,
-    val effectId: String? = null,
-    /** kind = bridge-http：method/path 相对 origin（平台拼 /mobile/v1）。 */
-    val method: String? = null,
-    val path: String? = null,
-    val bodyJson: String? = null,
-    val requiresAuth: Boolean = true
-) {
+data class ConversationTarget(val sessionId: String, val parentSessionId: String? = null, val subagentMode: String? = null) {
+    val canSend: Boolean get() = parentSessionId == null || subagentMode == "continuable"
+
+    fun decorate(payload: String): String? {
+        if (parentSessionId == null) return payload
+        require(parentSessionId.isNotBlank() && parentSessionId != sessionId)
+        val objectValue = wireJson.parseToJsonElement(payload).jsonObject
+        val type = objectValue["type"]?.jsonPrimitive?.content
+        if (type !in CHILD_REQUESTS) return null
+        if (type in setOf("message", "session-cancel") && !canSend) return null
+        return JsonObject(objectValue.toMutableMap().apply {
+            put("parentSessionId", JsonPrimitive(parentSessionId))
+            put("subagentMode", JsonPrimitive(subagentMode ?: "unknown"))
+            remove("workspaceId")
+            if (type == "message") { remove("cwd"); remove("agentPreset") }
+        }).toString()
+    }
+
     companion object {
-        const val KIND_OPEN_CONVERSATION = "open-conversation"
-        const val KIND_SESSION_CLEAR = "session-clear"
-        const val KIND_REFRESH_TEAM = "refresh-team"
-        const val KIND_BRIDGE_HTTP = "bridge-http"
+        private val CHILD_REQUESTS = setOf("history", "subscribe", "message", "session-cancel", "tasks", "goal", "question-answer", "question-cancel", "approval-response")
     }
 }
 
-data class SharedTeamResult(
-    val snapshotJson: String?,
-    val effectJson: String?,
-    val errorCode: String?,
-    val errorMessage: String?
-) {
-    val isSuccess: Boolean get() = errorCode == null
-}
+@Serializable
+data class TeamMemberView(
+    val id: String, val name: String, val role: String = "teammate", val phase: String = "active",
+    val mode: String = "continuable", val parentSessionId: String? = null,
+    val model: String? = null, val detail: String? = null, val running: Boolean? = null,
+    val error: String? = null, val canOpen: Boolean = true, val avatarIndex: Int = 0
+)
 
-class SharedTeamStore(
-    private val sessionStore: BridgeSessionStore? = null
-) {
-    private var state = TeamUiState()
-    private val tokenMachine = BridgeTokenMachine(sessionStore)
-    private val events = SharedMviEventEmitter("team")
-    private var effectCounter = 0L
+@Serializable
+data class TeamAvatarAssignment(val leadSessionId: String, val sessionId: String, val index: Int)
 
-    /** effectId → 待回执的动作（仅平台执行中的 effect 存在这里，不进 state）。 */
-    private val pendingEffects = linkedMapOf<String, PendingEffect>()
+@Serializable
+data class TeamTaskView(
+    val id: String, val revision: Int = 0, val subject: String, val description: String = "",
+    val status: String, val ownerName: String? = null, val blockedBy: List<String> = emptyList(),
+    val writeScopes: List<String> = emptyList(), val ready: Boolean = false,
+    val writeScopeWarnings: List<String> = emptyList()
+)
 
-    private class PendingEffect(
-        val action: String,
-        val targetId: String,
-        val ref: String? = null
+@Serializable
+data class TeamSnapshot(
+    val leadSessionId: String = "", val members: List<TeamMemberView> = emptyList(),
+    val tasks: List<TeamTaskView> = emptyList(), val state: String = "loading",
+    val error: String? = null, val visible: Boolean = false, val isTeam: Boolean = false
+)
+
+@Serializable
+data class TeamMemberProfileRequest(val sessionId: String, val requestId: String, val payload: String)
+
+/** 每个网关实例独占。共享任务与成员内部 todos 完全分离；每个投影单独维护水位。 */
+class SharedTeamStore {
+    private data class Projection(val value: JsonElement?, val seq: Long?, val state: String)
+    private val projections = mutableMapOf<Pair<String, String>, Projection>()
+    private val lastValues = mutableMapOf<Pair<String, String>, JsonElement>()
+    private val running = mutableMapOf<String, Boolean>()
+    private val statusDuringQuery = mutableMapOf<String, Boolean>()
+    private var sessionsQueryPending = false
+    private val queryIds = mutableMapOf<Pair<String, String>, String>()
+    private val confirmedProjections = mutableSetOf<Pair<String, String>>()
+    private val profileAttempts = mutableSetOf<String>()
+    private val profileRequests = mutableMapOf<String, ConversationTarget>()
+    private val errors = mutableMapOf<String, String>()
+    private var capabilities = emptySet<String>()
+    private var controlKeys = emptySet<Pair<String, String>>()
+    private var nextRequest = 0L
+    private val targets = mutableMapOf<String, ConversationTarget>()
+    private val avatars = mutableMapOf<Pair<String, String>, TeamAvatarAssignment>()
+
+    fun avatarAssignmentsJson(): String = wireJson.encodeToString(
+        avatars.values.sortedWith(compareBy({ it.leadSessionId }, { it.sessionId }))
     )
 
-    private class Transition(
-        val next: TeamUiState,
-        val effects: List<SharedTeamEffect> = emptyList(),
-        val errorCode: String? = null,
-        val errorMessage: String? = null
-    )
-
-    fun subscribe(observer: SharedMviEventObserver): SharedMviSubscription = try {
-        events.subscribe(observer, wireJson.encodeToString(state))
-    } catch (error: Throwable) {
-        events.subscribeError(
-            observer,
-            "team-subscribe-failed",
-            error.message ?: error::class.simpleName ?: "unknown-error"
-        )
-    }
-
-    fun snapshot(): SharedTeamResult = try {
-        SharedTeamResult(wireJson.encodeToString(state), null, null, null)
-    } catch (error: Throwable) {
-        failure("team-snapshot-failed", error)
-    }
-
-    /** 平台启动时恢复持久化会话；恢复成功即进入 LOADING 等待首个刷新。 */
-    fun restoreSession(): SharedTeamResult = mutate("restore-session") {
-        when (val outcome = tokenMachine.restore()) {
-            is BridgeTokenOutcome.Restored ->
-                Transition(TeamReducer.reduce(state, TeamAction.SessionPaired(outcome.session)))
-            is BridgeTokenOutcome.NeedsPairing ->
-                Transition(TeamReducer.reduce(state, TeamAction.SessionLost(outcome.error)))
-            else -> Transition(state)
+    fun restoreAvatarAssignmentsJson(json: String): Boolean = runCatching {
+        require(json.length <= SharedOfflineCatalogCodec.MAXIMUM_BYTES)
+        val restored = wireJson.decodeFromString<List<TeamAvatarAssignment>>(json)
+        require(validTeamAvatarAssignments(restored))
+        restored.forEach { avatar ->
+            val key = avatar.leadSessionId to avatar.sessionId
+            if (key !in avatars && avatars.size < SharedOfflineCatalogCodec.MAXIMUM_SESSIONS) avatars[key] = avatar
         }
-    }
+        true
+    }.getOrDefault(false)
 
-    /** 配对完成：绑定并落库会话，进入 LOADING；平台随后开始 8s 前台轮询。 */
-    fun sessionPaired(sessionJson: String): SharedTeamResult = mutate("session-paired") {
-        when (val outcome = tokenMachine.bindFromPairing(sessionJson)) {
-            is BridgeTokenOutcome.NeedsPairing ->
-                Transition(TeamReducer.reduce(state, TeamAction.SessionLost(outcome.error)))
-            is BridgeTokenOutcome.Refreshed ->
-                Transition(TeamReducer.reduce(state, TeamAction.SessionPaired(outcome.session)))
-            else -> Transition(state)
-        }
-    }
-
-    /** 会话失效（server_changed / 配对撤销 / 手动登出）。 */
-    fun sessionLost(reason: String?, message: String?): SharedTeamResult = mutate("session-lost") {
-        tokenMachine.clear()
-        val error = reason?.let { classifyBridgeErrorCode(it).copy(message = message) }
-        Transition(
-            TeamReducer.reduce(state, TeamAction.SessionLost(error)),
-            effects = listOf(SharedTeamEffect(kind = SharedTeamEffect.KIND_SESSION_CLEAR, reason = reason))
-        )
-    }
-
-    /**
-     * 三响应合流（/info + /state + /conversations）。任一响应不可解码都按
-     * invalid_response 走 reducer 的失败路径，保证 UI 呈现 Offline 而不是静默。
-     */
-    fun refreshTeam(infoJson: String, stateJson: String, conversationsJson: String): SharedTeamResult =
-        mutate("refresh-team") {
-            runCatching {
-                Triple(
-                    parseBridgeInfo(infoJson),
-                    parseBridgeState(stateJson),
-                    parseBridgeConversations(conversationsJson)
-                )
-            }.fold(
-                onSuccess = { (info, bridgeState, conversations) ->
-                    Transition(
-                        TeamReducer.reduce(
-                            state,
-                            TeamAction.RefreshSucceeded(info, bridgeState, conversations)
-                        )
-                    )
-                },
-                onFailure = { error ->
-                    Transition(
-                        TeamReducer.reduce(state, TeamAction.RefreshFailed(invalidResponse(error.message)))
-                    )
-                }
-            )
-        }
-
-    /** 平台传输失败（超时/断网/4xx/5xx）：code 原样分族后进 reducer。 */
-    fun refreshFailed(code: String, message: String?): SharedTeamResult = mutate("refresh-failed") {
-        val error = classifyBridgeErrorCode(code).copy(message = message)
-        val next = TeamReducer.reduce(state, TeamAction.RefreshFailed(error))
-        if (next.phase == TeamPhase.NEEDS_PAIRING) {
-            tokenMachine.clear()
-            Transition(
-                next,
-                effects = listOf(SharedTeamEffect(kind = SharedTeamEffect.KIND_SESSION_CLEAR, reason = code))
-            )
-        } else {
-            Transition(next)
-        }
-    }
-
-    /** 点 Bot/群：目标可见且有 sessionId 才发 open-conversation effect。 */
-    fun openTeamConversation(conversationId: String): SharedTeamResult = mutate("open-team-conversation") {
-        when (val resolution = TeamReducer.resolveOpenTarget(state, conversationId)) {
-            is OpenTargetResolution.Ready -> Transition(
-                state,
-                effects = listOf(
-                    SharedTeamEffect(
-                        kind = SharedTeamEffect.KIND_OPEN_CONVERSATION,
-                        sessionId = resolution.sessionId,
-                        effectId = conversationId
-                    )
-                )
-            )
-            is OpenTargetResolution.Denied -> Transition(
-                TeamReducer.reduce(state, TeamAction.OpenRejected(resolution.error))
-            )
-        }
-    }
-
-    // ---- P2：写操作四件套（乐观更新 + bridge-http effect）----
-
-    /** `set-flags {id, pinned?, hidden?}`；能力/只读门控 fail-closed。 */
-    fun setFlags(id: String, pinned: Boolean?, hidden: Boolean?): SharedTeamResult =
-        writeIntent("set-flags", TeamReducer.ACTION_SET_FLAGS) {
-            val effectId = nextEffectId()
-            val payload = bridgeSetFlagsPayload(id, pinned, hidden)
-            pendingEffects[effectId] = PendingEffect(TeamReducer.ACTION_SET_FLAGS, id)
-            Transition(
-                TeamReducer.reduce(state, TeamAction.SetFlagsRequested(id, pinned, hidden, effectId)),
-                effects = listOf(actionEffect(effectId, TeamReducer.ACTION_SET_FLAGS, payload))
-            )
-        }
-
-    /** `update-bot {id, model?, effort?}`；`model: null` = 使用默认模型。 */
-    fun updateBot(
-        id: String,
-        includeModel: Boolean,
-        model: String?,
-        includeEffort: Boolean,
-        effort: String?
-    ): SharedTeamResult = writeIntent("update-bot", TeamReducer.ACTION_UPDATE_BOT) {
-        val effectId = nextEffectId()
-        val payload = bridgeUpdateBotPayload(id, includeModel, model, includeEffort, effort)
-        pendingEffects[effectId] = PendingEffect(TeamReducer.ACTION_UPDATE_BOT, id)
-        Transition(
-            TeamReducer.reduce(
-                state,
-                TeamAction.UpdateBotRequested(id, includeModel, model, includeEffort, effort, effectId)
-            ),
-            effects = listOf(actionEffect(effectId, TeamReducer.ACTION_UPDATE_BOT, payload))
-        )
-    }
-
-    /** `set-main {id, main:true, primary:true}`：把目标设为唯一主 Bot。 */
-    fun setMain(id: String): SharedTeamResult = writeIntent("set-main", TeamReducer.ACTION_SET_MAIN) {
-        val effectId = nextEffectId()
-        val payload = bridgeSetMainPayload(id, main = true, primary = true)
-        pendingEffects[effectId] = PendingEffect(TeamReducer.ACTION_SET_MAIN, id)
-        Transition(
-            TeamReducer.reduce(state, TeamAction.SetMainRequested(id, effectId)),
-            effects = listOf(actionEffect(effectId, TeamReducer.ACTION_SET_MAIN, payload))
-        )
-    }
-
-    /** `models` 动作：模型选择面板数据。 */
-    fun loadModels(): SharedTeamResult = mutate("load-models") {
-        denyFor(TeamReducer.ACTION_MODELS)?.let { return@mutate denied(it) }
-        val effectId = nextEffectId()
-        pendingEffects[effectId] = PendingEffect(TeamReducer.ACTION_MODELS, "")
-        Transition(
-            state,
-            effects = listOf(
-                actionEffect(effectId, TeamReducer.ACTION_MODELS, JsonObject(emptyMap()))
-            )
-        )
-    }
-
-    /** `efforts {ref}` 动作：按模型取档位。 */
-    fun loadEfforts(ref: String): SharedTeamResult = mutate("load-efforts") {
-        denyFor(TeamReducer.ACTION_EFFORTS)?.let { return@mutate denied(it) }
-        val effectId = nextEffectId()
-        pendingEffects[effectId] = PendingEffect(TeamReducer.ACTION_EFFORTS, "", ref)
-        val payload = buildJsonObject { put("ref", ref) }
-        Transition(
-            state,
-            effects = listOf(actionEffect(effectId, TeamReducer.ACTION_EFFORTS, payload))
-        )
-    }
-
-    /** `GET /devices`：设备列表（含 currentDeviceId）。 */
-    fun loadDevices(): SharedTeamResult = mutate("load-devices") {
-        if (state.phase != TeamPhase.READY) {
-            return@mutate denied(
-                BridgeTeamError(
-                    source = BridgeTeamError.SOURCE_CLIENT,
-                    code = BridgeClientKnownCode.OPEN_UNAVAILABLE.wireValue,
-                    knownClientCode = BridgeClientKnownCode.OPEN_UNAVAILABLE.name,
-                    message = "团队尚未就绪"
-                )
-            )
-        }
-        val effectId = nextEffectId()
-        pendingEffects[effectId] = PendingEffect(TeamReducer.ACTION_DEVICES, "")
-        Transition(
-            TeamReducer.reduce(state, TeamAction.DevicesRequested(effectId)),
-            effects = listOf(
-                SharedTeamEffect(
-                    kind = SharedTeamEffect.KIND_BRIDGE_HTTP,
-                    method = "GET",
-                    path = "/devices",
-                    effectId = effectId
-                )
-            )
-        )
-    }
-
-    /** `DELETE /devices/{id}`：撤销设备。 */
-    fun revokeDevice(id: String): SharedTeamResult = mutate("revoke-device") {
-        if (state.phase != TeamPhase.READY || state.readOnlyReason != null) {
-            return@mutate denied(readOnlyOrNotReady())
-        }
-        val effectId = nextEffectId()
-        pendingEffects[effectId] = PendingEffect(TeamReducer.ACTION_DEVICE_REVOKE, id)
-        Transition(
-            TeamReducer.reduce(state, TeamAction.DeviceRevokeRequested(id, effectId)),
-            effects = listOf(
-                SharedTeamEffect(
-                    kind = SharedTeamEffect.KIND_BRIDGE_HTTP,
-                    method = "DELETE",
-                    path = "/devices/$id",
-                    effectId = effectId
-                )
-            )
-        )
-    }
-
-    /**
-     * 平台执行 bridge-http effect 后的回执入口。
-     * 成功按动作种类解析响应；失败走错误信封 → WriteFailed + 自动纠偏 effect。
-     */
-    fun acceptBridgeResponse(effectId: String, status: Int, bodyJson: String): SharedTeamResult =
-        mutate("accept-response") {
-            val pending = pendingEffects.remove(effectId) ?: return@mutate Transition(state)
-            if (status !in 200..299) {
-                val error = decodeBridgeErrorEnvelope(status, bodyJson)
-                transitionForFailure(effectId, pending, error)
-            } else {
-                when (pending.action) {
-                    TeamReducer.ACTION_SET_FLAGS -> Transition(
-                        TeamReducer.reduce(state, TeamAction.WriteApplied(effectId))
-                    )
-                    TeamReducer.ACTION_UPDATE_BOT -> Transition(
-                        TeamReducer.reduce(state, TeamAction.WriteApplied(effectId))
-                    )
-                    TeamReducer.ACTION_SET_MAIN -> Transition(
-                        TeamReducer.reduce(state, TeamAction.WriteApplied(effectId))
-                    )
-                    TeamReducer.ACTION_MODELS -> Transition(
-                        TeamReducer.reduce(
-                            state,
-                            TeamAction.ModelsLoaded(parseBridgeModelsPayload(bodyJson))
-                        )
-                    )
-                    TeamReducer.ACTION_EFFORTS -> Transition(
-                        TeamReducer.reduce(
-                            state,
-                            TeamAction.EffortsLoaded(
-                                pending.ref.orEmpty(),
-                                parseBridgeEffortsPayload(bodyJson)
-                            )
-                        )
-                    )
-                    TeamReducer.ACTION_DEVICES -> Transition(
-                        TeamReducer.reduce(state, TeamAction.DevicesLoaded(parseBridgeDevicesPayload(bodyJson)))
-                    )
-                    TeamReducer.ACTION_DEVICE_REVOKE -> Transition(
-                        TeamReducer.reduce(
-                            state,
-                            TeamAction.DeviceRevokeApplied(
-                                pending.targetId,
-                                parseBridgeDeviceRevoked(bodyJson)
-                            )
-                        )
-                    )
-                    else -> Transition(state)
-                }
+    private fun assignAvatars(leadSessionId: String, members: List<TeamMemberView>): List<TeamMemberView> {
+        val occupied = avatars.values.filter { it.leadSessionId == leadSessionId }.map { it.index }.toMutableSet()
+        members.sortedBy { it.id }.forEach { member ->
+            val key = leadSessionId to member.id
+            if (key !in avatars && avatars.size < SharedOfflineCatalogCodec.MAXIMUM_SESSIONS) {
+                // 固定哈希跨平台一致；优先使用十二种不同轮廓，再扩展不同配色。
+                var hash = 2166136261u
+                member.id.encodeToByteArray().forEach { hash = (hash xor it.toUByte().toUInt()) * 16777619u }
+                val first = (hash % 12u).toInt()
+                val index = (0 until 144).map { ((first + it % 12) % 12) + (it / 12) * 12 }
+                    .firstOrNull { it !in occupied } ?: (hash % 144u).toInt()
+                avatars[key] = TeamAvatarAssignment(leadSessionId, member.id, index)
+                occupied += index
             }
         }
+        return members.map { it.copy(avatarIndex = avatars[leadSessionId to it.id]?.index ?: 0) }
+    }
 
-    /** 平台传输层失败（超时/断网/解析失败）：按 client 码走同一条纠偏路径。 */
-    fun acceptBridgeTransportFailure(effectId: String, code: String): SharedTeamResult =
-        mutate("accept-transport-failure") {
-            val pending = pendingEffects.remove(effectId) ?: return@mutate Transition(state)
-            transitionForFailure(effectId, pending, classifyBridgeErrorCode(code))
+    /** 只持久化已由 Host 确认的父子地址，不保存投影水位或订阅状态。 */
+    fun routingJson(): String = wireJson.encodeToString(targets.values.sortedBy { it.sessionId })
+
+    fun restoreRoutingJson(json: String): Boolean = runCatching {
+        require(json.length <= SharedOfflineCatalogCodec.MAXIMUM_BYTES)
+        val restored = wireJson.decodeFromString<List<ConversationTarget>>(json)
+        require(validConversationTargets(restored))
+        // 异步磁盘恢复不能覆盖本次连接已经确认的地址。
+        restored.forEach { if (it.sessionId !in targets) targets[it.sessionId] = it }
+        true
+    }.getOrDefault(false)
+
+    fun snapshotJson(leadSessionId: String): String = wireJson.encodeToString(snapshot(leadSessionId))
+    fun snapshot(leadSessionId: String): TeamSnapshot {
+        val team = projections[leadSessionId to "agentTeam"]
+        val value = (team?.value ?: lastValues[leadSessionId to "agentTeam"]) as? JsonObject
+        val catalog = (projections[leadSessionId to "subagentCatalog"]?.value ?: lastValues[leadSessionId to "subagentCatalog"]) as? JsonArray
+        val members = value?.get("members")?.jsonArray.orEmpty().mapNotNull { raw ->
+            val m = raw as? JsonObject ?: return@mapNotNull null
+            val id = m.text("id")?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            val role = m.text("role") ?: "teammate"
+            member(id, m.text("name") ?: id, role, m.text("phase") ?: "unknown", m.text("error"),
+                if (role == "lead") null else leadSessionId, if (role == "lead") "continuable" else "continuable")
+        }.toMutableList()
+        if (members.isEmpty() && !catalog.isNullOrEmpty()) members += member(leadSessionId, "lead", "lead", "active", null, null, "continuable")
+        catalog.orEmpty().forEach { raw ->
+            val m = raw as? JsonObject ?: return@forEach
+            val id = m.text("id")?.takeIf { it.isNotBlank() && it != leadSessionId } ?: return@forEach
+            if (members.none { it.id == id }) members += member(id, m.text("label") ?: id, "subagent", "active", null, leadSessionId, resolvedMode(id, m.text("mode") ?: "unknown"))
         }
+        val tasks = value?.get("tasks")?.let { runCatching { wireJson.decodeFromJsonElement<List<TeamTaskView>>(it) }.getOrNull() }.orEmpty().filter { it.status != "deleted" }
+        // 能力声明和 Lead 本身不能证明已启用团队；只根据真实成员投影显示入口。
+        val hasTeamMembers = "agent-team-v1" in capabilities && members.any { it.id != leadSessionId && it.role == "teammate" }
+        val hasSubagents = "subagent-conversations-v1" in capabilities && members.any { it.id != leadSessionId && it.role == "subagent" }
+        return TeamSnapshot(leadSessionId, assignAvatars(leadSessionId, members), tasks,
+            if ("agent-team-v1" !in capabilities) "unsupported" else team?.state ?: "loading",
+            errors[leadSessionId] ?: value?.text("failure"),
+            hasTeamMembers || hasSubagents,
+            members.any { it.role == "teammate" } || tasks.isNotEmpty())
+    }
 
-    private fun transitionForFailure(
-        effectId: String,
-        pending: PendingEffect,
-        error: BridgeTeamError
-    ): Transition {
-        val next = when (pending.action) {
-            TeamReducer.ACTION_DEVICES ->
-                TeamReducer.reduce(state, TeamAction.DevicesFailed(error))
-            TeamReducer.ACTION_DEVICE_REVOKE ->
-                TeamReducer.reduce(state, TeamAction.DeviceRevokeFailed(pending.targetId, error))
-            else -> TeamReducer.reduce(state, TeamAction.WriteFailed(effectId, error))
+    private fun member(id: String, name: String, role: String, phase: String, error: String?, parent: String?, mode: String): TeamMemberView {
+        val values = (projections[id to "modelSelection"]?.value ?: lastValues[id to "modelSelection"]) as? JsonObject
+        val model = (values?.get("next") as? JsonObject)?.text("model") ?: values?.text("model")
+        val identity = (projections[id to "subagent"]?.value ?: lastValues[id to "subagent"]) as? JsonObject
+        val catalog = parent?.let { (projections[it to "subagentCatalog"]?.value ?: lastValues[it to "subagentCatalog"]) as? JsonArray }
+        val label = catalog.orEmpty().mapNotNull { it as? JsonObject }.firstOrNull { it.text("id") == id }?.text("label")
+        return TeamMemberView(id, name, role, phase, mode, parent, model, identity?.text("label") ?: label, running[id], error,
+            phase == "active" && mode != "external" && (parent == null || "subagent-conversations-v1" in capabilities))
+    }
+
+    private fun resolvedMode(id: String, fallback: String): String = (projections[id to "subagent"]?.value as? JsonObject)?.text("mode") ?: fallback
+    fun isChild(sessionId: String): Boolean = targets[sessionId]?.parentSessionId != null
+    fun canSend(sessionId: String): Boolean {
+        val target = targets[sessionId] ?: return true
+        if (!target.canSend || "subagent-conversations-v1" !in capabilities) return false
+        val parent = target.parentSessionId ?: return true
+        val team = projections[parent to "agentTeam"]
+        val member = (team?.value as? JsonObject)?.get("members")?.jsonArray.orEmpty()
+            .mapNotNull { it as? JsonObject }.firstOrNull { it.text("id") == sessionId }
+        return member == null || (member.text("phase") == "active" && team?.state == "ready")
+    }
+    fun targetJson(sessionId: String): String = wireJson.encodeToString(targets[sessionId] ?: ConversationTarget(sessionId))
+
+    /** 文件属于根会话工作区；会话内容仍使用子智能体的直接父级地址。 */
+    fun workspaceSessionId(sessionId: String): String {
+        var current = sessionId
+        val visited = mutableSetOf<String>()
+        while (visited.add(current)) {
+            current = targets[current]?.parentSessionId ?: return current
         }
-        return Transition(next, effects = recoveryEffects(error, pending))
+        // 异常地址不可借用其他团队的工作区，交由原会话请求路径报告失败。
+        return sessionId
     }
+    fun decorateRequestJson(payload: String): String? = runCatching {
+        val obj = wireJson.parseToJsonElement(payload).jsonObject
+        val id = obj.text("sessionId") ?: return payload
+        if (obj.text("type") in setOf("message", "session-cancel") && !canSend(id)) return null
+        (targets[id] ?: ConversationTarget(id)).decorate(payload)
+    }.getOrNull()
 
-    /** 平台刷新 token 成功后喂回；身份变化会把团队页打回配对。 */
-    fun tokenRefreshSucceeded(sessionJson: String): SharedTeamResult = mutate("token-refresh-succeeded") {
-        when (val outcome = tokenMachine.refreshSucceeded(sessionJson)) {
-            is BridgeTokenOutcome.NeedsPairing -> Transition(
-                TeamReducer.reduce(state, TeamAction.SessionLost(outcome.error)),
-                effects = listOf(
-                    SharedTeamEffect(
-                        kind = SharedTeamEffect.KIND_SESSION_CLEAR,
-                        reason = outcome.error.code
-                    )
-                )
-            )
-            else -> Transition(state)
+    /** 会话初始化按需补齐缓存；菜单和看板只读取快照，不负责请求。 */
+    fun queryIfNeededJson(leadSessionId: String, kind: String): String? {
+        val key = when (kind) {
+            "agent-team" -> "agentTeam"
+            "subagents" -> "subagentCatalog"
+            else -> return null
         }
+        val address = leadSessionId to key
+        val projection = projections[address]
+        if (address in confirmedProjections && projection?.state == "ready" && projection.value != null) return null
+        if ((leadSessionId to kind) in queryIds) return null
+        return queryJson(leadSessionId, kind)
     }
 
-    /** 平台刷新 token 被拒；permanent 失效（unauthorized/invalid_session）打回配对。 */
-    fun tokenRefreshRejected(code: String): SharedTeamResult = mutate("token-refresh-rejected") {
-        when (val outcome = tokenMachine.refreshRejected(code)) {
-            is BridgeTokenOutcome.NeedsPairing -> Transition(
-                TeamReducer.reduce(state, TeamAction.SessionLost(outcome.error)),
-                effects = listOf(SharedTeamEffect(kind = SharedTeamEffect.KIND_SESSION_CLEAR, reason = code))
-            )
-            else -> Transition(state)
+    fun queryJson(leadSessionId: String, kind: String): String? {
+        if (kind == "agent-team" && "agent-team-v1" !in capabilities) return null
+        if (kind == "subagents" && "subagent-conversations-v1" !in capabilities) return null
+        if (kind !in setOf("agent-team", "subagents")) return null
+        val requestId = "team-${++nextRequest}"
+        queryIds[leadSessionId to kind] = requestId
+        return buildJsonObject { put("type", kind); put("sessionId", leadSessionId); put("requestId", requestId) }.toString()
+    }
+
+    /** 会话发现成员后预取少量历史元数据；最多两条并发，不订阅、不切换视图。 */
+    fun memberProfileRequestsJson(leadSessionId: String): String {
+        val requests = mutableListOf<TeamMemberProfileRequest>()
+        if ("subagent-conversations-v1" !in capabilities) return "[]"
+        for (member in snapshot(leadSessionId).members) {
+            if (profileRequests.size >= 2) break
+            if (member.role == "lead" || !member.canOpen || member.id in profileAttempts) continue
+            if ((member.id to "modelSelection") in confirmedProjections && member.detail != null) continue
+            val target = targets[member.id] ?: continue
+            if (target.parentSessionId == null || target.subagentMode == "external") continue
+            val requestId = "team-profile-${++nextRequest}"
+            val payload = buildJsonObject {
+                put("type", "history"); put("sessionId", member.id); put("requestId", requestId)
+                put("maxMessages", 1); put("maxBytes", 4096); put("view", "conversation")
+            }.toString()
+            val decorated = target.decorate(payload) ?: continue
+            profileRequests[requestId] = target
+            profileAttempts += member.id
+            requests += TeamMemberProfileRequest(member.id, requestId, decorated)
         }
+        return wireJson.encodeToString(requests)
     }
 
-    /** 平台执行 /auth/refresh 前的单飞问询；false = 本次不要发请求。 */
-    fun beginTokenRefresh(): Boolean = tokenMachine.beginRefresh()
+    fun finishMemberProfileRequest(requestId: String) { profileRequests.remove(requestId) }
+    fun memberProfileRequestPending(requestId: String): Boolean = requestId in profileRequests
 
-    fun currentAccessToken(): String? = tokenMachine.accessToken()
-
-    fun currentServerId(): String? = state.serverId
-
-    // ---- 内部 ----
-
-    private fun nextEffectId(): String = "team-effect:${++effectCounter}"
-
-    private fun actionEffect(effectId: String, endpoint: String, payload: JsonObject): SharedTeamEffect {
-        val body = buildJsonObject {
-            put("endpoint", endpoint)
-            put("payload", payload)
-        }
-        return SharedTeamEffect(
-            kind = SharedTeamEffect.KIND_BRIDGE_HTTP,
-            method = "POST",
-            path = "/actions",
-            bodyJson = wireJson.encodeToString(body),
-            effectId = effectId
-        )
-    }
-
-    /** 写操作门控：能力白名单（fail-closed）→ 只读 → 就绪态。 */
-    private fun denyFor(action: String): BridgeTeamError? = when {
-        !state.capabilities.supportsAction(action) -> BridgeTeamError(
-            source = BridgeTeamError.SOURCE_WIRE,
-            code = BridgeWireKnownCode.ACTION_NOT_ALLOWED.wireValue,
-            knownWireCode = BridgeWireKnownCode.ACTION_NOT_ALLOWED.name,
-            message = "服务器未开放该操作"
-        )
-        state.readOnlyReason != null -> BridgeTeamError(
-            source = BridgeTeamError.SOURCE_WIRE,
-            code = BridgeWireKnownCode.READ_ONLY.wireValue,
-            knownWireCode = BridgeWireKnownCode.READ_ONLY.name,
-            message = state.readOnlyReason
-        )
-        state.phase != TeamPhase.READY -> BridgeTeamError(
-            source = BridgeTeamError.SOURCE_CLIENT,
-            code = BridgeClientKnownCode.OPEN_UNAVAILABLE.wireValue,
-            knownClientCode = BridgeClientKnownCode.OPEN_UNAVAILABLE.name,
-            message = "团队尚未就绪"
-        )
-        else -> null
-    }
-
-    private fun readOnlyOrNotReady(): BridgeTeamError = when {
-        state.readOnlyReason != null -> BridgeTeamError(
-            source = BridgeTeamError.SOURCE_WIRE,
-            code = BridgeWireKnownCode.READ_ONLY.wireValue,
-            knownWireCode = BridgeWireKnownCode.READ_ONLY.name,
-            message = state.readOnlyReason
-        )
-        else -> BridgeTeamError(
-            source = BridgeTeamError.SOURCE_CLIENT,
-            code = BridgeClientKnownCode.OPEN_UNAVAILABLE.wireValue,
-            knownClientCode = BridgeClientKnownCode.OPEN_UNAVAILABLE.name,
-            message = "团队尚未就绪"
-        )
-    }
-
-    private fun denied(error: BridgeTeamError): Transition =
-        Transition(
-            state,
-            effects = emptyList(),
-            errorCode = error.code,
-            errorMessage = error.message
-        )
-
-    /** 失败后的自动纠偏：TARGET_CHANGED/READ_ONLY → 全量刷新；设备类 → 重拉设备列表。 */
-    private fun recoveryEffects(
-        error: BridgeTeamError,
-        pending: PendingEffect
-    ): List<SharedTeamEffect> {
-        val code = error.knownWireCode
-        return when {
-            code == BridgeWireKnownCode.TARGET_CHANGED.name ||
-                code == BridgeWireKnownCode.READ_ONLY.name ->
-                listOf(SharedTeamEffect(kind = SharedTeamEffect.KIND_REFRESH_TEAM))
-            pending.action == TeamReducer.ACTION_DEVICES ||
-                pending.action == TeamReducer.ACTION_DEVICE_REVOKE -> {
-                val effectId = nextEffectId()
-                pendingEffects[effectId] = PendingEffect(TeamReducer.ACTION_DEVICES, "")
-                listOf(
-                    SharedTeamEffect(
-                        kind = SharedTeamEffect.KIND_BRIDGE_HTTP,
-                        method = "GET",
-                        path = "/devices",
-                        effectId = effectId
-                    )
-                )
+    private fun acceptMemberProfile(frame: JsonObject): Boolean {
+        val requestId = frame.text("requestId") ?: return false
+        val target = profileRequests[requestId] ?: return false
+        if (frame.text("sessionId") != target.sessionId) return false
+        frame.text("parentSessionId")?.let { if (it != target.parentSessionId) return false }
+        profileRequests.remove(requestId)
+        if (frame.text("kind") != "history" || targets[target.sessionId] != target) return false
+        val projection = frame["projections"] as? JsonObject ?: return false
+        (projection["values"] as? JsonObject).orEmpty().forEach { (key, value) ->
+            if (key in setOf("modelSelection", "subagent", "subagentTiming")) {
+                install(target.sessionId, key, value, projection["asOfSeq"]?.jsonPrimitive?.longOrNull, "ready")
             }
-            else -> emptyList()
         }
+        rebuildTargets()
+        return true
     }
 
-    private inline fun writeIntent(
-        operation: String,
-        action: String,
-        transform: () -> Transition
-    ): SharedTeamResult = mutate(operation) {
-        denyFor(action)?.let { return@mutate denied(it) }
-        transform()
-    }
+    fun sessionsRequested() { sessionsQueryPending = true; statusDuringQuery.clear() }
 
-    private inline fun mutate(operation: String, transform: () -> Transition): SharedTeamResult = try {
-        val transition = transform()
-        if (transition.errorCode != null) {
-            failureResult(operation, transition.errorCode, transition.errorMessage)
-        } else {
-            success(transition.next, transition.effects)
+    /** 返回是否影响团队 UI；token 帧不会触发快照桥接。 */
+    fun acceptFrameJson(json: String): Boolean = runCatching {
+        val frame = wireJson.parseToJsonElement(json).jsonObject
+        val kind = frame.text("kind") ?: return false
+        val id = frame.text("sessionId")
+        if (kind in setOf("history", "error") && frame.text("requestId")?.startsWith("team-profile-") == true) {
+            return acceptMemberProfile(frame)
         }
-    } catch (error: Throwable) {
-        failure("team-$operation-failed", error)
-    }
-
-    private fun success(next: TeamUiState, effects: List<SharedTeamEffect>): SharedTeamResult {
-        val changed = next != state
-        val snapshotJson = if (changed) wireJson.encodeToString(next) else null
-        val effectJson = effects.takeIf { it.isNotEmpty() }?.let { wireJson.encodeToString(it) }
-        if (snapshotJson != null || effectJson != null) {
-            state = next
-            events.emitTransition(
-                transactionId = "team:${events.currentSequence + 1}",
-                statePayloadJson = snapshotJson,
-                effectsJson = effectJson ?: "[]"
-            )
+        when (kind) {
+            "hello" -> { capabilities = frame["capabilities"]?.jsonArray.orEmpty().map { it.jsonPrimitive.content }.toSet(); running.clear(); statusDuringQuery.clear(); sessionsQueryPending = false; queryIds.clear(); confirmedProjections.clear(); profileAttempts.clear(); profileRequests.clear(); true }
+            "session-status" -> { if (id != null) frame["running"]?.jsonPrimitive?.booleanOrNull?.let { running[id] = it; if (sessionsQueryPending) statusDuringQuery[id] = it }; true }
+            "sessions" -> {
+                frame["items"]?.jsonArray.orEmpty().forEach { raw -> val item = raw.jsonObject; item.text("sessionId")?.let { sid -> item["running"]?.jsonPrimitive?.booleanOrNull?.let { running[sid] = it } } }
+                running.putAll(statusDuringQuery); statusDuringQuery.clear(); sessionsQueryPending = false; true
+            }
+            "projection-baseline" -> {
+                val entries = (frame["projections"] as? JsonObject).orEmpty()
+                val keys = mutableSetOf<Pair<String, String>>()
+                entries.forEach { (sid, raw) ->
+                    val p = raw as? JsonObject ?: return@forEach
+                    (p["values"] as? JsonObject).orEmpty().forEach { (key, v) ->
+                        if (key in KEYS) { keys += sid to key; install(sid, key, v, p["asOfSeq"]?.jsonPrimitive?.longOrNull, "ready", true) }
+                    }
+                }
+                (controlKeys - keys).forEach { projections[it] = Projection(null, null, "unavailable"); confirmedProjections.remove(it) }
+                controlKeys = keys; rebuildTargets(); true
+            }
+            "agent-team", "subagents", "agent-team-updated", "subagents-updated", "subagent-identity-updated", "subagent-timing-updated" -> {
+                if (id == null) return false
+                val queryKind = kind.removeSuffix("-updated")
+                if (kind in setOf("agent-team", "subagents") && frame.text("requestId") != queryIds[id to queryKind]) return false
+                if (kind in setOf("agent-team", "subagents")) queryIds.remove(id to queryKind)
+                val key = when(kind) { "agent-team", "agent-team-updated" -> "agentTeam"; "subagents", "subagents-updated" -> "subagentCatalog"; "subagent-identity-updated" -> "subagent"; else -> "subagentTiming" }
+                install(id, key, frame[key], frame["asOfSeq"]?.jsonPrimitive?.longOrNull, frame.text("projectionState") ?: "ready")
+                if (kind.endsWith("-updated")) controlKeys = controlKeys + (id to key)
+                errors.remove(id); rebuildTargets(); true
+            }
+            "session-snapshot", "history" -> {
+                if (id == null) return false
+                val p = frame["projections"] as? JsonObject ?: return false
+                (p["values"] as? JsonObject).orEmpty().forEach { (key, v) -> if (key in KEYS) install(id, key, v, p["asOfSeq"]?.jsonPrimitive?.longOrNull, "ready") }
+                rebuildTargets(); true
+            }
+            "error" -> if (id != null && frame.text("requestType") in setOf("agent-team", "subagents")) {
+                val requestKind = frame.text("requestType")!!
+                if (frame.text("requestId") != queryIds[id to requestKind]) return false
+                queryIds.remove(id to requestKind)
+                errors[id] = frame.text("message") ?: "团队数据加载失败"; true
+            } else false
+            else -> false
         }
-        return SharedTeamResult(snapshotJson, effectJson, null, null)
-    }
+    }.getOrDefault(false)
 
-    private fun failure(operation: String, error: Throwable): SharedTeamResult {
-        val message = error.message ?: error::class.simpleName ?: "unknown-error"
-        events.emitError("$operation:${events.currentSequence + 1}", operation, message)
-        return SharedTeamResult(null, null, operation, message)
+    private fun install(id: String, key: String, raw: JsonElement?, seq: Long?, state: String, baseline: Boolean = false) {
+        val old = projections[id to key]
+        val value = raw?.takeUnless { it is JsonNull }
+        if (!baseline && old?.seq != null && (seq == null || seq < old.seq)) return
+        if (value != null) lastValues[id to key] = value
+        projections[id to key] = Projection(value, seq, if (value == null && state == "ready") "unavailable" else state)
+        if (value != null && state == "ready") confirmedProjections.add(id to key)
+        else confirmedProjections.remove(id to key)
     }
-
-    private fun failureResult(operation: String, code: String, message: String?): SharedTeamResult {
-        events.emitError("$operation:${events.currentSequence + 1}", code, message)
-        return SharedTeamResult(null, null, code, message)
+    private fun rebuildTargets() {
+        projections.forEach { (address, projection) ->
+            if (address.second == "agentTeam") (projection.value as? JsonObject)?.get("members")?.jsonArray.orEmpty().forEach { raw ->
+                val m = raw.jsonObject; val id = m.text("id") ?: return@forEach
+                if (m.text("role") != "lead") targets[id] = ConversationTarget(id, address.first, "continuable")
+            }
+            if (address.second == "subagentCatalog") (projection.value as? JsonArray).orEmpty().forEach { raw ->
+                val m = raw.jsonObject; val id = m.text("id") ?: return@forEach
+                if (!targets.containsKey(id) || targets[id]?.subagentMode != "continuable") targets[id] = ConversationTarget(id, address.first, resolvedMode(id, m.text("mode") ?: "unknown"))
+            }
+        }
+        targets.toMap().forEach { (id, t) -> targets[id] = t.copy(subagentMode = resolvedMode(id, t.subagentMode ?: "unknown")) }
     }
-
-    private fun invalidResponse(message: String?): BridgeTeamError = BridgeTeamError(
-        source = BridgeTeamError.SOURCE_CLIENT,
-        code = BridgeClientKnownCode.INVALID_RESPONSE.wireValue,
-        knownClientCode = BridgeClientKnownCode.INVALID_RESPONSE.name,
-        message = message
-    )
+    companion object { private val KEYS = setOf("agentTeam", "subagentCatalog", "subagent", "subagentTiming", "modelSelection") }
 }
+
+private fun JsonObject.text(key: String): String? = (get(key) as? JsonPrimitive)?.contentOrNull

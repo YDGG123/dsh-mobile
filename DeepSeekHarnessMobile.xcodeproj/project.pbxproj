@@ -7,6 +7,14 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		CF2060000000000000000001 /* FileUploadController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF2060000000000000000002 /* FileUploadController.swift */; };
+		CF2050000000000000000001 /* DebugHistoryScrollMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF2050000000000000000002 /* DebugHistoryScrollMetrics.swift */; };
+		CF2050000000000000000011 /* HistoryPresentationAdmission.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF2050000000000000000012 /* HistoryPresentationAdmission.swift */; };
+		CF2040000000000000000001 /* RealSessionScrollPerformanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF2040000000000000000002 /* RealSessionScrollPerformanceTests.swift */; };
+		CF2030000000000000000001 /* ChatSessionPrefetcherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF2030000000000000000002 /* ChatSessionPrefetcherTests.swift */; };
+		CF2020000000000000000001 /* ChatSessionPrefetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF2020000000000000000002 /* ChatSessionPrefetcher.swift */; };
+		CF2010000000000000000003 /* ChatHistoryCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF2010000000000000000004 /* ChatHistoryCacheTests.swift */; };
+		CF2010000000000000000001 /* ChatHistoryCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF2010000000000000000002 /* ChatHistoryCache.swift */; };
 		AF19C0000000000000000001 /* WorkspaceLoadingLogo.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF19C0000000000000000002 /* WorkspaceLoadingLogo.swift */; };
         AF18C0000000000000000001 /* WorkspacePreviewCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF18C0000000000000000002 /* WorkspacePreviewCache.swift */; };
         AF18C0000000000000000003 /* WorkspacePreviewCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF18C0000000000000000004 /* WorkspacePreviewCacheTests.swift */; };
@@ -118,6 +126,14 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		CF2060000000000000000002 /* FileUploadController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileUploadController.swift; sourceTree = "<group>"; };
+		CF2050000000000000000002 /* DebugHistoryScrollMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugHistoryScrollMetrics.swift; sourceTree = "<group>"; };
+		CF2050000000000000000012 /* HistoryPresentationAdmission.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryPresentationAdmission.swift; sourceTree = "<group>"; };
+		CF2040000000000000000002 /* RealSessionScrollPerformanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RealSessionScrollPerformanceTests.swift; sourceTree = "<group>"; };
+		CF2030000000000000000002 /* ChatSessionPrefetcherTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatSessionPrefetcherTests.swift; sourceTree = "<group>"; };
+		CF2020000000000000000002 /* ChatSessionPrefetcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatSessionPrefetcher.swift; sourceTree = "<group>"; };
+		CF2010000000000000000004 /* ChatHistoryCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatHistoryCacheTests.swift; sourceTree = "<group>"; };
+		CF2010000000000000000002 /* ChatHistoryCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatHistoryCache.swift; sourceTree = "<group>"; };
 		AF19C0000000000000000002 /* WorkspaceLoadingLogo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceLoadingLogo.swift; sourceTree = "<group>"; };
         AF18C0000000000000000002 /* WorkspacePreviewCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspacePreviewCache.swift; sourceTree = "<group>"; };
         AF18C0000000000000000004 /* WorkspacePreviewCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspacePreviewCacheTests.swift; sourceTree = "<group>"; };
@@ -253,6 +269,10 @@
 				A9FC00000000000000000002 /* KMPSharedAdapter.swift */,
 				61A1F439244BA594BF547C92 /* AppStore.swift */,
                 AF18C0000000000000000002 /* WorkspacePreviewCache.swift */,
+				CF2010000000000000000002 /* ChatHistoryCache.swift */,
+				CF2020000000000000000002 /* ChatSessionPrefetcher.swift */,
+				CF2050000000000000000002 /* DebugHistoryScrollMetrics.swift */,
+				CF2050000000000000000012 /* HistoryPresentationAdmission.swift */,
 				CA11E0000000000000000002 /* ImageAttachmentCache.swift */,
 				CA11E0000000000000000004 /* ImagePreprocessor.swift */,
 				A0C0FFEE0000000000000004 /* ConversationTimeline.swift */,
@@ -261,6 +281,7 @@
 				B0A100000000000000000004 /* BridgeTeamAdapter.swift */,
 				B0A10000000000000000000D /* GatewayTeamFeed.swift */,
 				B0A10000000000000000000A /* BridgeChatEngine.swift */,
+				CF2060000000000000000002 /* FileUploadController.swift */,
 				954FCEA4A6E71F3D1A22BB53 /* GatewayModels.swift */,
 				CA11E000000000000000000A /* L10n.swift */,
 				12863E736F832D8F502B94A0 /* Theme.swift */,
@@ -280,6 +301,8 @@
 				81886703A6C3AB2164852990 /* VoiceInputTests.swift */,
 				AF17C0000000000000000004 /* FileIconAssetTests.swift */,
                 AF18C0000000000000000004 /* WorkspacePreviewCacheTests.swift */,
+				CF2010000000000000000004 /* ChatHistoryCacheTests.swift */,
+				CF2030000000000000000002 /* ChatSessionPrefetcherTests.swift */,
 				CA11E0000000000000000011 /* LocalizationCatalogTests.swift */,
 				FEABDA4B6DAF199B320B1BA1 /* MultiGatewayTests.swift */,
 				B0A100000000000000000008 /* BridgeTransportTests.swift */,
@@ -291,6 +314,7 @@
 			isa = PBXGroup;
 			children = (
 				F2B000000000000000000002 /* WorkspaceDrawerUITests.swift */,
+				CF2040000000000000000002 /* RealSessionScrollPerformanceTests.swift */,
 			);
 			path = DeepSeekHarnessMobileUITests;
 			sourceTree = "<group>";
@@ -634,6 +658,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				F2B000000000000000000001 /* WorkspaceDrawerUITests.swift in Sources */,
+				CF2040000000000000000001 /* RealSessionScrollPerformanceTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -648,6 +673,8 @@
 				CD86C5C4C6FF6F4BD8D715A6 /* VoiceInputTests.swift in Sources */,
 				AF17C0000000000000000003 /* FileIconAssetTests.swift in Sources */,
                 AF18C0000000000000000003 /* WorkspacePreviewCacheTests.swift in Sources */,
+				CF2010000000000000000003 /* ChatHistoryCacheTests.swift in Sources */,
+				CF2030000000000000000001 /* ChatSessionPrefetcherTests.swift in Sources */,
 				CA11E000000000000000000F /* LocalizationCatalogTests.swift in Sources */,
 				75392054CB69B9596796C57A /* MultiGatewayTests.swift in Sources */,
 				B0A100000000000000000007 /* BridgeTransportTests.swift in Sources */,
@@ -679,10 +706,15 @@
 				A9FC00000000000000000001 /* KMPSharedAdapter.swift in Sources */,
 				5ED39F22065A71FC54D755AC /* AppStore.swift in Sources */,
                 AF18C0000000000000000001 /* WorkspacePreviewCache.swift in Sources */,
+				CF2010000000000000000001 /* ChatHistoryCache.swift in Sources */,
+				CF2020000000000000000001 /* ChatSessionPrefetcher.swift in Sources */,
+				CF2050000000000000000001 /* DebugHistoryScrollMetrics.swift in Sources */,
+				CF2050000000000000000011 /* HistoryPresentationAdmission.swift in Sources */,
 				CA11E0000000000000000001 /* ImageAttachmentCache.swift in Sources */,
 				CA11E0000000000000000003 /* ImagePreprocessor.swift in Sources */,
 				A0C0FFEE0000000000000003 /* ConversationTimeline.swift in Sources */,
 				80E777AC0855635BC3D12EA7 /* GatewayClient.swift in Sources */,
+				CF2060000000000000000001 /* FileUploadController.swift in Sources */,
 				AFAE90EEB4462AD84169D356 /* GatewayModels.swift in Sources */,
 				CA11E0000000000000000009 /* L10n.swift in Sources */,
 				991D4FD90B81F84A0B8B79AD /* Theme.swift in Sources */,
@@ -960,7 +992,7 @@
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CLANG_ENABLE_OBJC_WEAK = NO;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 29;
+				CURRENT_PROJECT_VERSION = 31;
 				DEVELOPMENT_TEAM = "$(LOCAL_DEVELOPMENT_TEAM)";
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = AgentLiveActivityWidget/Info.plist;
@@ -970,7 +1002,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.7.8;
+				MARKETING_VERSION = 1.7.10;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(LOCAL_BUNDLE_IDENTIFIER).AgentLiveActivityWidget";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
@@ -987,7 +1019,7 @@
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CLANG_ENABLE_OBJC_WEAK = NO;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 29;
+				CURRENT_PROJECT_VERSION = 31;
 				DEVELOPMENT_TEAM = T58RY5HUA7;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = AgentLiveActivityWidget/Info.plist;
@@ -997,7 +1029,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.7.8;
+				MARKETING_VERSION = 1.7.10;
 				PRODUCT_BUNDLE_IDENTIFIER = com.lichaofan.dshmobile.AgentLiveActivityWidget;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;

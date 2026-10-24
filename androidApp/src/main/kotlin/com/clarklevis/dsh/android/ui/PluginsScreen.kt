@@ -176,7 +176,7 @@ private fun PluginGatewayDisableDialog(stateHolder: AndroidSharedStateHolder, on
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(appText("停用移动网关？")) },
-        text = { Text(appText("停用后手机会断开连接。只能从 DSH Web 或 CLI 重新开启此插件。")) },
+        text = { DshMenuHost { Text(appText("停用后手机会断开连接。只能从 DSH Web 或 CLI 重新开启此插件。"))  } },
         confirmButton = {
             TextButton(onClick = {
                 onDismiss()
@@ -354,27 +354,29 @@ private fun PluginComponentSheet(entry: MobilePluginRow, onDismiss: () -> Unit) 
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false),
         containerColor = MaterialTheme.colorScheme.surface
     ) {
-        Column(
-            Modifier.fillMaxWidth().navigationBarsPadding().verticalScroll(rememberScrollState())
-                .padding(start = 22.dp, end = 22.dp, top = 8.dp, bottom = 28.dp),
-            verticalArrangement = Arrangement.spacedBy(18.dp)
-        ) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                PluginIcon(entry.icon, "subagent", Modifier.size(56.dp))
-                Text(entry.name, fontSize = 20.sp, fontWeight = FontWeight.Bold,
-                    modifier = Modifier.weight(1f))
+        DshMenuColumnHost {
+            Column(
+                Modifier.fillMaxWidth().navigationBarsPadding().verticalScroll(rememberScrollState())
+                    .padding(start = 22.dp, end = 22.dp, top = 8.dp, bottom = 28.dp),
+                verticalArrangement = Arrangement.spacedBy(18.dp)
+            ) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    PluginIcon(entry.icon, "subagent", Modifier.size(56.dp))
+                    Text(entry.name, fontSize = 20.sp, fontWeight = FontWeight.Bold,
+                        modifier = Modifier.weight(1f))
+                }
+                Text("● ${entry.statusText}", color = when (entry.phase.takeIf { entry.enabled }) {
+                    "active" -> Color(0xFF22C55E)
+                    "failed" -> MaterialTheme.colorScheme.error
+                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                })
+                if (entry.description.isNotBlank()) Text(entry.description)
+                ComponentField(appText("组件 ID"), entry.rowId)
+                if (entry.moduleName.isNotBlank()) ComponentField(appText("模块"), entry.moduleName)
+                entry.entryId?.let { ComponentField(appText("运行条目 ID"), it) }
+                entry.readOnlyReason?.let { ComponentField(appText("不可修改原因"), it) }
             }
-            Text("● ${entry.statusText}", color = when (entry.phase.takeIf { entry.enabled }) {
-                "active" -> Color(0xFF22C55E)
-                "failed" -> MaterialTheme.colorScheme.error
-                else -> MaterialTheme.colorScheme.onSurfaceVariant
-            })
-            if (entry.description.isNotBlank()) Text(entry.description)
-            ComponentField(appText("组件 ID"), entry.rowId)
-            if (entry.moduleName.isNotBlank()) ComponentField(appText("模块"), entry.moduleName)
-            entry.entryId?.let { ComponentField(appText("运行条目 ID"), it) }
-            entry.readOnlyReason?.let { ComponentField(appText("不可修改原因"), it) }
         }
     }
 }

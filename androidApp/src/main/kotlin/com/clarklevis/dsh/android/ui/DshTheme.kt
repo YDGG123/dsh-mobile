@@ -117,7 +117,7 @@ internal fun DshTheme(
         LocalConfiguration provides configuration
     ) {
         MaterialTheme(colorScheme = if (dark) DarkColors else LightColors) {
-            CompositionLocalProvider(LocalRippleConfiguration provides null, content = content)
+            CompositionLocalProvider(LocalRippleConfiguration provides null) { DshMenuHost(content) }
         }
     }
 }

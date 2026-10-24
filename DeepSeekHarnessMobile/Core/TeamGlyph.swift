@@ -17,7 +17,7 @@ import os
 ///
 /// 已知限制：电脑端 20 个角色的 d 只用到 `M/l/z`（已实测），解析器实现 M/L/H/V/Z
 /// 的绝对与相对形式；遇到其它命令返回 nil 并记诊断日志，**不静默画错**。
-struct TeamGlyph: Hashable {
+struct TeamAvatarGlyph: Hashable {
     struct Layer: Hashable {
         let d: String
         let fill: String
@@ -174,7 +174,7 @@ struct TeamGlyph: Hashable {
 
     var canRender: Bool { Self.rendered(for: self) != nil }
 
-    static func rendered(for glyph: TeamGlyph) -> Rendered? {
+    static func rendered(for glyph: TeamAvatarGlyph) -> Rendered? {
         let key = NSString(string: glyph.cacheKey)
         if let cached = renderCache.object(forKey: key) { return cached.value }
         guard let body = SVGPath.path(from: glyph.body) else {

@@ -7,7 +7,7 @@ import os
 /// - glyph：电脑端同一份矢量表，用 Path 直接画（100% 一致，无光栅化）
 /// - 符号：SF Symbol 近似（最老数据，缺 shape 时是中性圆点）
 ///
-/// 解析结果按 glyph 内容哈希缓存（`TeamGlyph.renderCache`），避免 SwiftUI 每次 body
+/// 解析结果按 glyph 内容哈希缓存（`TeamAvatarGlyph.renderCache`），避免 SwiftUI 每次 body
 /// 求值都重新把 `d` 解析成 Path。
 /// 三层兜底的**纯判定**（便于单测；视图只负责画）。
 enum TeamAvatarSource: Equatable {
@@ -47,7 +47,7 @@ struct TeamAvatarView: View {
     }
 
     /// 有 glyph：淡色圆底 + 矢量化角色（与电脑端同路径、同色、同挖空眼睛）。
-    private func glyphAvatar(_ glyph: TeamGlyph) -> some View {
+    private func glyphAvatar(_ glyph: TeamAvatarGlyph) -> some View {
         let ink = GatewayTeamFeed.avatarColor(row)
         let disc = ink.opacity(0.16)
         return Circle()

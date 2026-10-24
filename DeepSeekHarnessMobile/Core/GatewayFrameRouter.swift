@@ -58,7 +58,7 @@ enum GatewayConnectionRoute {
 enum GatewayContentRoute {
     case sent(sessionID: String, command: JSONValue?)
     case liveEvent(SessionEvent)
-    case workspaces([GatewayWorkspace], archivedSessionIDs: Set<String>)
+    case workspaces([GatewayWorkspace], archivedSessionIDs: Set<String>?)
     case sessionArchives(Set<String>)
     case sessionTitle(sessionID: String, title: String, sequence: Int, time: Double?)
     case sessions([GatewaySessionSummary])
@@ -175,9 +175,12 @@ enum GatewayFrameRouter {
                 sourceEventSeqs: frame.sourceEventSeqs
             )))
         case "workspaces":
+            guard let items = frame.items else { return .ignored }
+            let workspaces = items.compactMap { $0.decode(GatewayWorkspace.self) }
+            guard workspaces.count == items.count, workspaces.allSatisfy({ !$0.id.isEmpty }) else { return .ignored }
             return .content(.workspaces(
-                decodeItems(frame.items, as: GatewayWorkspace.self),
-                archivedSessionIDs: Set(frame.archivedSessionIds ?? [])
+                workspaces,
+                archivedSessionIDs: frame.archivedSessionIds.map(Set.init)
             ))
         case "session-archives", "session-archived":
             guard let ids = frame.archivedSessionIds else { return .ignored }
@@ -188,7 +191,10 @@ enum GatewayFrameRouter {
                   let seq = frame.seq else { return .ignored }
             return .content(.sessionTitle(sessionID: id, title: title, sequence: seq, time: frame.time))
         case "sessions":
-            return .content(.sessions(decodeItems(frame.items, as: GatewaySessionSummary.self)))
+            guard let items = frame.items else { return .ignored }
+            let sessions = items.compactMap { $0.decode(GatewaySessionSummary.self) }
+            guard sessions.count == items.count, sessions.allSatisfy({ !$0.sessionId.isEmpty }) else { return .ignored }
+            return .content(.sessions(sessions))
         case "history":
             return .content(.history(GatewayHistoryPayload(
                 sessionID: frame.sessionId ?? context.pendingHistorySessionID ?? context.selectedSessionID,

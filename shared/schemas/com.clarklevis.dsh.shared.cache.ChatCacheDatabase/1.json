@@ -1,0 +1,120 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 1,
+    "identityHash": "59f94364fcae742140561ea2fe58ee62",
+    "entities": [
+      {
+        "tableName": "chat_session_cache",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`gatewayId` TEXT NOT NULL, `sessionId` TEXT NOT NULL, `headerJson` TEXT NOT NULL, `logicalBytes` INTEGER NOT NULL, `lastAccessAt` INTEGER NOT NULL, PRIMARY KEY(`gatewayId`, `sessionId`))",
+        "fields": [
+          {
+            "fieldPath": "gatewayId",
+            "columnName": "gatewayId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sessionId",
+            "columnName": "sessionId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "headerJson",
+            "columnName": "headerJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "logicalBytes",
+            "columnName": "logicalBytes",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastAccessAt",
+            "columnName": "lastAccessAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "gatewayId",
+            "sessionId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_chat_session_cache_lastAccessAt",
+            "unique": false,
+            "columnNames": [
+              "lastAccessAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_chat_session_cache_lastAccessAt` ON `${TABLE_NAME}` (`lastAccessAt`)"
+          }
+        ]
+      },
+      {
+        "tableName": "chat_cached_event",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`gatewayId` TEXT NOT NULL, `sessionId` TEXT NOT NULL, `seq` INTEGER NOT NULL, `eventJson` TEXT NOT NULL, PRIMARY KEY(`gatewayId`, `sessionId`, `seq`), FOREIGN KEY(`gatewayId`, `sessionId`) REFERENCES `chat_session_cache`(`gatewayId`, `sessionId`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "gatewayId",
+            "columnName": "gatewayId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sessionId",
+            "columnName": "sessionId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "seq",
+            "columnName": "seq",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "eventJson",
+            "columnName": "eventJson",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "gatewayId",
+            "sessionId",
+            "seq"
+          ]
+        },
+        "foreignKeys": [
+          {
+            "table": "chat_session_cache",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "gatewayId",
+              "sessionId"
+            ],
+            "referencedColumns": [
+              "gatewayId",
+              "sessionId"
+            ]
+          }
+        ]
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '59f94364fcae742140561ea2fe58ee62')"
+    ]
+  }
+}

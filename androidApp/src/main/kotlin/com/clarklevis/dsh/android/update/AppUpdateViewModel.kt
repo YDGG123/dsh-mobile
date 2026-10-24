@@ -7,20 +7,20 @@ import androidx.core.content.pm.PackageInfoCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.clarklevis.dsh.android.localization.appText
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import kotlinx.coroutines.ensureActive
-import kotlinx.serialization.json.*
-import okhttp3.OkHttpClient
-import okhttp3.Request
 import java.io.File
 import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.coroutineContext
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.*
+import okhttp3.OkHttpClient
+import okhttp3.Request
 
 internal data class AndroidRelease(
     val version: String,
@@ -87,6 +87,17 @@ internal fun selectReleasePageApk(version: String, html: String): AndroidRelease
 
 internal class AppUpdateViewModel(application: Application) : AndroidViewModel(application) {
     private val context = application
+    private val cacheStorage = com.clarklevis.dsh.android.AndroidCacheStorage.shared(application)
+    private var updateLease: java.io.Closeable? = null
+
+    private fun releaseUpdateLease() {
+        updateLease?.close()
+        updateLease = null
+    }
+    override fun onCleared() {
+        releaseUpdateLease()
+        super.onCleared()
+    }
     private val client = OkHttpClient.Builder().connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS).callTimeout(10, TimeUnit.MINUTES).build()
     private val metadataClient = client.newBuilder().connectTimeout(8, TimeUnit.SECONDS)
@@ -97,8 +108,17 @@ internal class AppUpdateViewModel(application: Application) : AndroidViewModel(a
     private val installed = context.packageManager.getPackageInfo(context.packageName, 0)
     val currentVersion: String = installed.versionName ?: appText("未知")
 
-    fun dismiss() { if (!mutableState.value.busy) mutableState.value = UpdateState() }
-    fun installationHandled() { mutableState.value = UpdateState() }
+    fun dismiss() {
+        if (!mutableState.value.busy) {
+            releaseUpdateLease()
+            mutableState.value = UpdateState()
+        }
+    }
+    fun installationHandled() {
+        val retained = runCatching { mutableState.value.apk?.let { cacheStorage.retainExternal(it) } }.isSuccess
+        if (retained) releaseUpdateLease()
+        mutableState.value = UpdateState()
+    }
     fun reportError(message: String) { mutableState.value = UpdateState(status = message) }
 
     private val preferences = context.getSharedPreferences("app_updates", Application.MODE_PRIVATE)
@@ -202,7 +222,14 @@ internal class AppUpdateViewModel(application: Application) : AndroidViewModel(a
     }
 
     fun download(release: AndroidRelease) = runOperation {
-        val directory = File(context.cacheDir, "updates").apply { mkdirs() }
+        val directory = File(context.cacheDir, "updates")
+        releaseUpdateLease()
+        val lease = cacheStorage.access {
+            check(cacheStorage.safeManagedDirectory(directory) && cacheStorage.canRemove(directory)) { appText("安装器仍在使用缓存安装包，请稍后再试") }
+            cacheStorage.lease(directory)
+        }
+        var ready = false
+        directory.mkdirs()
         val target = File(directory, "update.apk")
         val partial = File(directory, "update.part")
         try {
@@ -222,6 +249,7 @@ internal class AppUpdateViewModel(application: Application) : AndroidViewModel(a
                                 if (count < 0) break
                                 total += count
                                 check(expectedSize <= 0 || total <= expectedSize) { appText("安装包大小异常") }
+                                check(cacheStorage.canWriteTemporary(count.toLong())) { appText("可用存储空间不足") }
                                 output.write(buffer, 0, count)
                                 mutableState.value = UpdateState(busy = true, status = if (expectedSize > 0) appText("正在下载 %1\$s%", total * 100 / expectedSize) else appText("正在下载 %1\$s MB", total / 1024 / 1024))
                             }
@@ -249,8 +277,13 @@ internal class AppUpdateViewModel(application: Application) : AndroidViewModel(a
             )
             target.delete()
             check(partial.renameTo(target)) { appText("无法保存安装包") }
+            updateLease = lease
+            ready = true
             UpdateState(apk = target)
-        } finally { partial.delete() }
+        } finally {
+            partial.delete()
+            if (!ready) lease.close()
+        }
     }
 
     @Suppress("DEPRECATION")

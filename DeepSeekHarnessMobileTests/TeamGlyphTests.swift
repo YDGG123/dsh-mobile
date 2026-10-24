@@ -21,7 +21,7 @@ final class TeamGlyphTests: XCTestCase {
     // MARK: - 解析
 
     func testParsesComputerGlyph() throws {
-        let glyph = try XCTUnwrap(TeamGlyph(json: Self.whaleJSON), "whale glyph 应能解析")
+        let glyph = try XCTUnwrap(TeamAvatarGlyph(json: Self.whaleJSON), "whale glyph 应能解析")
         XCTAssertEqual(glyph.size, 100)
         XCTAssertEqual(glyph.layers.count, 3, "whale 有 3 层：decal + shade + light")
         XCTAssertEqual(glyph.eyes.count, 2)
@@ -37,12 +37,12 @@ final class TeamGlyphTests: XCTestCase {
     func testRejectsUnparsableBody() {
         var broken = Self.whaleJSON
         broken["path"] = "C 1 2 3 4 5 6"   // 数据里没有的命令：宁可回落，也不猜曲线
-        XCTAssertNil(TeamGlyph(json: broken))
+        XCTAssertNil(TeamAvatarGlyph(json: broken))
     }
 
     func testRejectsNonObject() {
-        XCTAssertNil(TeamGlyph(json: "not-an-object"))
-        XCTAssertNotNil(TeamGlyph(json: ["path": "M0 0"]), "缺 size 用默认 100，path 合法即可用")
+        XCTAssertNil(TeamAvatarGlyph(json: "not-an-object"))
+        XCTAssertNotNil(TeamAvatarGlyph(json: ["path": "M0 0"]), "缺 size 用默认 100，path 合法即可用")
     }
 
     // MARK: - SVG path 子集
@@ -76,7 +76,7 @@ final class TeamGlyphTests: XCTestCase {
 
     func testLayersFromSVGFragment() {
         let fragment = "<path d=\"M0 0L10 0L10 10Z\" fill=\"#000\" fill-opacity=\".14\"/><path d=\"M1 1L2 2Z\" fill=\"#fff\"/>"
-        let layers = TeamGlyph.layers(fromSVGFragment: fragment)
+        let layers = TeamAvatarGlyph.layers(fromSVGFragment: fragment)
         XCTAssertEqual(layers.count, 2)
         XCTAssertEqual(layers[0].fill, "#000")
         XCTAssertEqual(layers[0].opacity, 0.14, accuracy: 0.001)
@@ -86,13 +86,13 @@ final class TeamGlyphTests: XCTestCase {
     // MARK: - 缓存键
 
     func testCacheKeyTracksContent() throws {
-        let glyph = try XCTUnwrap(TeamGlyph(json: Self.whaleJSON))
-        let same = try XCTUnwrap(TeamGlyph(json: Self.whaleJSON))
+        let glyph = try XCTUnwrap(TeamAvatarGlyph(json: Self.whaleJSON))
+        let same = try XCTUnwrap(TeamAvatarGlyph(json: Self.whaleJSON))
         XCTAssertEqual(glyph.cacheKey, same.cacheKey)
 
         var changedEyes = Self.whaleJSON
         changedEyes["eyes"] = [[1.0, 2.0, 3.0, 4.0, 0.0]]
-        let other = try XCTUnwrap(TeamGlyph(json: changedEyes))
+        let other = try XCTUnwrap(TeamAvatarGlyph(json: changedEyes))
         XCTAssertNotEqual(glyph.cacheKey, other.cacheKey, "换眼睛/换层必须换缓存键")
     }
 

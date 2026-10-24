@@ -3,7 +3,7 @@ import Foundation
 import Security
 import UIKit
 
-// MARK: - 镜像模型（解码 KMP SharedTeamStore 的 snapshot JSON）
+// MARK: - 镜像模型（解码 KMP SharedBridgeTeamStore 的 snapshot JSON）
 
 struct BridgeTeamMirror: Decodable {
     let phase: String
@@ -237,7 +237,7 @@ enum BridgePairingState: Equatable {
 
 /// P1 团队页控制器（§3.5）：
 /// - 配对：KMP 解析配对资料 → /info 校验 → /pairings 申请 → 1.5s 轮询 /pairings/complete；
-/// - 拉取 /info /state /conversations 喂回 SharedTeamStore（8s 前台轮询，scenePhase 门控）；
+/// - 拉取 /info /state /conversations 喂回 SharedBridgeTeamStore（8s 前台轮询，scenePhase 门控）；
 /// - 订阅 SharedMviEvent，只做镜像发布与 effect 执行（open-conversation → 现有 gateway 会话链路）；
 /// - HTTP 执行在 BridgeTransport（双模式 TLS），KMP 不碰 I/O。
 @MainActor
@@ -256,7 +256,7 @@ final class BridgeTeamAdapter: ObservableObject {
     /// U5：配对成功且服务端下发了网关凭证时回调（由 MultiGatewayStore 接管落盘/建 profile）。
     /// 参数：凭证、bridge 的 https 根 origin。缺失时不会调用。
     var onGatewayCredential: ((BridgeGatewayCredential, String) -> Void)?
-    private let store: SharedTeamStore
+    private let store: SharedBridgeTeamStore
     private var observer: BridgeMviObserver?
     private var subscription: SharedMviSubscription?
     private var transport: BridgeTransport?
@@ -269,7 +269,7 @@ final class BridgeTeamAdapter: ObservableObject {
 
     init() {
         let sessionStore = self.sessionStore
-        self.store = SharedTeamStore(sessionStore: sessionStore)
+        self.store = SharedBridgeTeamStore(sessionStore: sessionStore)
         let observer = BridgeMviObserver { [weak self] event in
             Task { @MainActor [weak self] in
                 self?.handle(event: event)

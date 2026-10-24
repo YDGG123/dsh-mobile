@@ -53,7 +53,8 @@ data class SharedMviDispatchResult(
  * 在 Swift 生命周期结束后继续回调。重入 emit 会排队到当前事件的所有 observer 完成后。
  */
 internal class SharedMviEventEmitter(
-    private val domain: String
+    private val domain: String,
+    private val onDeliveryFinished: ((SharedMviEvent) -> Unit)? = null
 ) {
     private var nextSequence = 0L
     private var nextObserverId = 0L
@@ -151,7 +152,11 @@ internal class SharedMviEventEmitter(
         try {
             while (pendingEvents.isNotEmpty()) {
                 val next = pendingEvents.removeFirst()
-                observers.values.toList().forEach { deliverSafely(it, next) }
+                try {
+                    observers.values.toList().forEach { deliverSafely(it, next) }
+                } finally {
+                    onDeliveryFinished?.invoke(next)
+                }
             }
         } finally {
             isDelivering = false

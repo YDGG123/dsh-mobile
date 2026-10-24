@@ -12,7 +12,7 @@ struct GatewaySwitcherBar: View {
                 Text(hosts.activeProfile?.displayName ?? String(localized: "选择主机"))
                     .lineLimit(1)
                 Circle()
-                    .fill(hosts.activeID.map { hosts.onlineIDs.contains($0) } == true ? Color.green : Color.gray)
+                    .fill(hosts.activeStore.gateway.state.isConnected ? Color.green : Color.red)
                     .frame(width: 6, height: 6)
                 Image(systemName: "chevron.down").appFont(.system(size: 9, weight: .semibold))
             }

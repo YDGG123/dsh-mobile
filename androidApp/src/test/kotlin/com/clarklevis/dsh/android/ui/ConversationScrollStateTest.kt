@@ -68,32 +68,26 @@ class ConversationScrollStateTest {
     }
 
     @Test
-    fun `older history requires a real backward user scroll near the top`() {
-        assertFalse(
-            shouldLoadOlderHistory(
-                HistoryPagingGestureState(0, false, true, false)
-            )
-        )
-        assertFalse(
-            shouldLoadOlderHistory(
-                HistoryPagingGestureState(0, true, true, true)
-            )
-        )
-        assertFalse(
-            shouldLoadOlderHistory(
-                HistoryPagingGestureState(0, true, false, false)
-            )
-        )
-        assertFalse(
-            shouldLoadOlderHistory(
-                HistoryPagingGestureState(3, true, true, false)
-            )
-        )
-        assertTrue(
-            shouldLoadOlderHistory(
-                HistoryPagingGestureState(2, true, true, false)
-            )
-        )
+    fun `history needs continued pulling after reaching the edge`() {
+        val pull = HistoryEdgePull(threshold = 8f)
+        assertFalse(pull.shouldRequest(100f, atStart = false, userInput = true, canLoad = true))
+        assertFalse(pull.shouldRequest(4f, atStart = true, userInput = true, canLoad = true))
+        assertTrue(pull.shouldRequest(4f, atStart = true, userInput = true, canLoad = true))
+        // 同一次手势即便收包完成，也不能连续拉取下一页。
+        assertFalse(pull.shouldRequest(100f, atStart = true, userInput = true, canLoad = true))
+        pull.reset()
+        assertTrue(pull.shouldRequest(8f, atStart = true, userInput = true, canLoad = true))
+    }
+
+    @Test
+    fun `inertia programmatic motion busy state and reversed pulls do not load`() {
+        val pull = HistoryEdgePull(threshold = 8f)
+        assertFalse(pull.shouldRequest(100f, atStart = true, userInput = false, canLoad = true))
+        assertFalse(pull.shouldRequest(100f, atStart = true, userInput = true, canLoad = false))
+        assertFalse(pull.shouldRequest(4f, atStart = true, userInput = true, canLoad = true))
+        assertFalse(pull.shouldRequest(-10f, atStart = true, userInput = true, canLoad = true))
+        assertFalse(pull.shouldRequest(4f, atStart = true, userInput = true, canLoad = true))
+        assertTrue(pull.shouldRequest(4f, atStart = true, userInput = true, canLoad = true))
     }
 
     @Test

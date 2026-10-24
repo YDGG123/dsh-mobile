@@ -47,47 +47,49 @@ internal fun DshAlertDialog(
     content: (@Composable ColumnScope.() -> Unit)? = null
 ) {
     BasicAlertDialog(onDismissRequest = onDismissRequest) {
-        Surface(
-            modifier = modifier.adaptiveContentWidth(340.dp),
-            shape = RoundedCornerShape(28.dp),
-            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.98f),
-            tonalElevation = 8.dp,
-            shadowElevation = 18.dp
-        ) {
-            Column(
-                modifier = Modifier.heightIn(max = (adaptiveWindowSize().height - 48.dp).coerceAtLeast(48.dp))
-                    .verticalScroll(rememberScrollState()).padding(22.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+        DshMenuHost {
+            Surface(
+                modifier = modifier.adaptiveContentWidth(340.dp),
+                shape = RoundedCornerShape(28.dp),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.98f),
+                tonalElevation = 8.dp,
+                shadowElevation = 18.dp
             ) {
-                Text(title, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                message?.let {
-                    Text(
-                        it,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.56f),
-                        fontSize = 14.sp,
-                        lineHeight = 20.sp
-                    )
-                }
-                content?.invoke(this)
-                if (dismissLabel != null || confirmLabel != null) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        dismissLabel?.let { label ->
-                            DshAlertDialogButton(
-                                label = label,
-                                modifier = if (confirmLabel == null) Modifier.fillMaxWidth() else Modifier.weight(1f),
-                                onClick = onDismissClick ?: onDismissRequest
-                            )
-                        }
-                        confirmLabel?.let { label ->
-                            DshAlertDialogButton(
-                                label = label,
-                                modifier = if (dismissLabel == null) Modifier.fillMaxWidth() else Modifier.weight(1f),
-                                enabled = confirmEnabled,
-                                onClick = onConfirm ?: onDismissRequest
-                            )
+                Column(
+                    modifier = Modifier.heightIn(max = (adaptiveWindowSize().height - 48.dp).coerceAtLeast(48.dp))
+                        .verticalScroll(rememberScrollState()).padding(22.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(title, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    message?.let {
+                        Text(
+                            it,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.56f),
+                            fontSize = 14.sp,
+                            lineHeight = 20.sp
+                        )
+                    }
+                    content?.invoke(this)
+                    if (dismissLabel != null || confirmLabel != null) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            dismissLabel?.let { label ->
+                                DshAlertDialogButton(
+                                    label = label,
+                                    modifier = if (confirmLabel == null) Modifier.fillMaxWidth() else Modifier.weight(1f),
+                                    onClick = onDismissClick ?: onDismissRequest
+                                )
+                            }
+                            confirmLabel?.let { label ->
+                                DshAlertDialogButton(
+                                    label = label,
+                                    modifier = if (dismissLabel == null) Modifier.fillMaxWidth() else Modifier.weight(1f),
+                                    enabled = confirmEnabled,
+                                    onClick = onConfirm ?: onDismissRequest
+                                )
+                            }
                         }
                     }
                 }

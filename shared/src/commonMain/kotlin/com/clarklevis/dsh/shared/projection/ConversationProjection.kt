@@ -185,7 +185,7 @@ class ConversationProjector(
             val item = ConversationItem(
                 id = "${record.sessionId}-user-$id", kind = ConversationItemKind.USER,
                 title = labels.userMessage, text = record.event.text.orEmpty(),
-                images = record.event.images.orEmpty(), epochSeconds = normalizeEpoch(record.time)
+                images = record.event.images.orEmpty(), files = record.event.files.orEmpty(), epochSeconds = normalizeEpoch(record.time)
             )
             val index = streamIndexes[key]
             if (index == null) {
@@ -212,13 +212,14 @@ class ConversationProjector(
         val date = normalizeEpoch(record.time)
         when {
             event.type == "user/message" && (event.source == null || event.source == "user") -> {
-                if (!event.text.isNullOrEmpty() || !event.images.isNullOrEmpty()) {
+                if (!event.text.isNullOrEmpty() || !event.images.isNullOrEmpty() || !event.files.isNullOrEmpty()) {
                     val messageId = event.raw?.get("id")?.stringValue
                     // 旧网关未转发消息 ID 时，只按到达顺序匹配一条临时消息；不能按正文全局去重。
                     val pendingId = if (messageId != null) messageId.takeIf { it in steeringMessages }
                     else steeringMessages.entries.firstOrNull { (_, pending) ->
                         pending.event.text.orEmpty() == event.text.orEmpty() &&
-                            pending.event.images.orEmpty() == event.images.orEmpty()
+                            pending.event.images.orEmpty() == event.images.orEmpty() &&
+                            pending.event.files.orEmpty() == event.files.orEmpty()
                     }?.key
                     val item = ConversationItem(
                         id = messageId?.let { "${record.sessionId}-user-$it" } ?: eventId(record),
@@ -226,6 +227,7 @@ class ConversationProjector(
                         title = labels.userMessage,
                         text = event.text.orEmpty(),
                         images = event.images.orEmpty(),
+                        files = event.files.orEmpty(),
                         epochSeconds = date
                     )
                     if (pendingId != null) {

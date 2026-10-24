@@ -132,6 +132,14 @@ struct KMPConversationChange {
     let replacesAll: Bool
 }
 
+// Kotlin 输入仅含不可变快照；prepared 的新 projector 在返回后单向交给 MainActor。
+struct KMPConversationHistoryPreparation: @unchecked Sendable {
+    fileprivate let value: SharedConversationHistoryPreparation
+}
+struct KMPPreparedConversationHistory: @unchecked Sendable {
+    fileprivate let value: SharedPreparedConversationHistory
+}
+
 /// 高频 Conversation 状态只存在于 KMP projector；Swift 按有序 patch 维护 UI 镜像，
 /// 不再自行执行领域 fold。MainActor 保证 dispatch、event 与 UI 发布严格串行。
 @MainActor
@@ -239,11 +247,49 @@ final class KMPConversationStoreAdapter {
         store.hasProjection(sessionId: sessionID)
     }
 
-    func replace(sessionID: String, events: [SessionEvent]) throws {
+    func replace(sessionID: String, events: [SessionEvent], historySnapshot: SharedHistoryProjectionSnapshot? = nil) throws {
         let lastSequence = events.map(\.seq).max() ?? -1
         try dispatch(.replace(sessionID: sessionID, lastSequence: lastSequence)) {
-            store.replaceSession(sessionId: sessionID, eventsJson: try encode(events))
+            if let historySnapshot, let shared = store as? SharedConversationStore {
+                return shared.replaceHistorySnapshot(sessionId: sessionID, snapshot: historySnapshot)
+            }
+            return store.replaceSession(sessionId: sessionID, eventsJson: try encode(events))
         }
+    }
+
+    func historyPreparation(sessionID: String, snapshot: SharedHistoryProjectionSnapshot) -> KMPConversationHistoryPreparation? {
+        guard let shared = store as? SharedConversationStore,
+              let input = shared.prepareHistorySnapshot(sessionId: sessionID, snapshot: snapshot) else { return nil }
+        return KMPConversationHistoryPreparation(value: input)
+    }
+
+    nonisolated static func prepareHistory(_ input: KMPConversationHistoryPreparation) throws -> KMPPreparedConversationHistory {
+        KMPPreparedConversationHistory(value: try input.value.prepare())
+    }
+
+    func commitPreparedHistory(_ prepared: KMPPreparedConversationHistory, sessionID: String, lastSequence: Int) throws -> Bool {
+        guard prepared.value.sessionId == sessionID, let shared = store as? SharedConversationStore else {
+            throw KMPConversationStoreError.invalidEvent("prepared history session mismatch")
+        }
+        var committed = false
+        try dispatch(.replace(sessionID: sessionID, lastSequence: lastSequence)) {
+            guard let result = shared.commitPreparedHistory(prepared: prepared.value) else {
+                return SharedMviDispatchResult(accepted: true, transactionId: nil, eventSequence: nil,
+                    errorCode: nil, errorMessage: nil)
+            }
+            committed = true
+            return result
+        }
+        return committed
+    }
+
+    func estimatedRetainedBytes(sessionID: String) -> Int64 {
+        (store as? SharedConversationStore)?.estimatedRetainedBytes(sessionId: sessionID) ?? 0
+    }
+
+    func releaseRetainedState(sessionID: String) {
+        itemsBySessionID[sessionID] = nil
+        lastSequenceBySessionID[sessionID] = nil
     }
 
     func clear(sessionID: String) throws {
@@ -695,6 +741,8 @@ final class KMPTrajectoryStoreAdapter {
         }
     }
 
+    func releaseRetainedState(sessionID: String) { nodesBySessionID[sessionID] = nil }
+
     func clear(sessionID: String) throws {
         try dispatch(.clear(sessionID: sessionID)) {
             store.clearSession(sessionId: sessionID)
@@ -956,6 +1004,22 @@ private struct KMPHistoryEventPatch: Decodable {
     /// field existed decode unchanged; only an explicit `true` selects the
     /// row-local lane.
     let streamDelta: Bool?
+    let replacementReferences: [KMPHistoryEventReference]?
+    let referenceBaseEventSequence: Int64?
+}
+
+private struct KMPHistoryEventReference: Decodable {
+    let source: String
+    let index: Int
+    let sequence: Int
+}
+
+private enum KMPHistoryReferenceError: Error { case retainedMirrorMismatch }
+
+/// 两套输入由同一纯 factory 构造，调用方不能拼接不一致的 native/Swift 页。
+struct KMPPreparedHistoryPage: @unchecked Sendable {
+    fileprivate let value: SharedPreparedHistoryPage
+    fileprivate let records: [SessionEvent]
 }
 
 private struct KMPHistoryPatch: Decodable {
@@ -1053,6 +1117,7 @@ private enum KMPHistoryIntent {
 
 struct KMPHistoryChange {
     let sessionID: String
+    let eventSequence: Int64
     let events: [SessionEvent]
     let eventPatchKind: String?
     let eventRecord: SessionEvent?
@@ -1060,6 +1125,7 @@ struct KMPHistoryChange {
     /// the journal already holds at its sequence. Kept separate from
     /// `eventPatchKind`, which continues to report the wire kind truthfully.
     let eventPatchIsStreamDelta: Bool
+    let projectionSnapshot: SharedHistoryProjectionSnapshot?
     let hasMore: [String: Bool]
     let loadingSessionIDs: Set<String>
     let loadingOlderSessionIDs: Set<String>
@@ -1081,6 +1147,8 @@ final class KMPHistoryStoreAdapter {
     private var cancelEventSubscription: (() -> Void)?
     private var pendingIntent: KMPHistoryIntent?
     private var pushedError: KMPHistoryStoreError?
+    private var pendingPageEvents: [SessionEvent]?
+    private var projectionSnapshots: [String: SharedHistoryProjectionSnapshot] = [:]
     private var sessions: [String: KMPHistorySessionSnapshot] = [:]
     private(set) var eventsBySessionID: [String: [SessionEvent]] = [:]
     private(set) var pendingSessionID: String?
@@ -1105,16 +1173,22 @@ final class KMPHistoryStoreAdapter {
     }
 
     func events(for sessionID: String) -> [SessionEvent] { eventsBySessionID[sessionID] ?? [] }
+    func projectionSnapshot(for sessionID: String) -> SharedHistoryProjectionSnapshot? { projectionSnapshots[sessionID] }
     func syncedActivityTimestamp(for sessionID: String) -> Double? { sessions[sessionID]?.syncedActivityTimestamp }
+    func isLoading(sessionID: String) -> Bool { sessions[sessionID]?.isLoading == true }
 
-    func start(sessionID: String, older: Bool, hasLocalEvents: Bool, earliestLocalSequence: Int?) throws {
+    func start(sessionID: String, older: Bool, hasLocalEvents: Bool, earliestLocalSequence: Int?,
+        onRequestAccepted: (() -> Void)? = nil) throws {
         try dispatch(.start(sessionID: sessionID)) {
-            store.start(
+            let result = store.start(
                 sessionId: sessionID,
                 older: older,
                 hasLocalEvents: hasLocalEvents,
                 earliestLocalSequence: try kotlinInt(earliestLocalSequence)
             )
+            if result.accepted, result.transactionId != nil, pushedError == nil, runtimeError == nil,
+               isLoading(sessionID: sessionID) { onRequestAccepted?() }
+            return result
         }
     }
 
@@ -1134,12 +1208,66 @@ final class KMPHistoryStoreAdapter {
         byteCount: Int,
         hasMore: Bool,
         nextBeforeSequence: Int?,
+        remoteActivityTimestamp: Double?,
+        encodedEventsJSON: String? = nil
+    ) throws {
+        try receivePage(sessionID: sessionID, events: events, byteCount: byteCount, hasMore: hasMore,
+            nextBeforeSequence: nextBeforeSequence, remoteActivityTimestamp: remoteActivityTimestamp,
+            encodedEventsJSON: encodedEventsJSON, preparedPage: nil)
+    }
+
+    nonisolated static func preparePage(sessionID: String, events: [SessionEvent]) throws -> KMPPreparedHistoryPage {
+        let json = String(decoding: try JSONEncoder().encode(events), as: UTF8.self)
+        return KMPPreparedHistoryPage(value: try SharedPreparedHistoryPage.companion.parse(sessionId: sessionID,
+            eventsJson: json), records: events)
+    }
+
+    func pageReceived(
+        sessionID: String,
+        preparedPage: KMPPreparedHistoryPage,
+        byteCount: Int,
+        hasMore: Bool,
+        nextBeforeSequence: Int?,
         remoteActivityTimestamp: Double?
     ) throws {
+        guard preparedPage.value.sessionId == sessionID else {
+            throw KMPHistoryStoreError.invalidEvent("prepared history input belongs to another session")
+        }
+        try receivePage(sessionID: sessionID, events: preparedPage.records, byteCount: byteCount, hasMore: hasMore,
+            nextBeforeSequence: nextBeforeSequence, remoteActivityTimestamp: remoteActivityTimestamp,
+            encodedEventsJSON: nil, preparedPage: preparedPage.value)
+    }
+
+    private func receivePage(
+        sessionID: String,
+        events: [SessionEvent],
+        byteCount: Int,
+        hasMore: Bool,
+        nextBeforeSequence: Int?,
+        remoteActivityTimestamp: Double?,
+        encodedEventsJSON: String?,
+        preparedPage: SharedPreparedHistoryPage?
+    ) throws {
+        pendingPageEvents = events
+        defer { pendingPageEvents = nil }
         try dispatch(.page(sessionID: sessionID)) {
-            store.pageReceived(
+            if let preparedPage, let shared = store as? SharedHistoryStore {
+                return shared.pageReceivedPreparedWithEventReferences(sessionId: sessionID, page: preparedPage,
+                    byteCount: try int32(byteCount), hasMore: hasMore,
+                    nextBeforeSequence: try kotlinInt(nextBeforeSequence),
+                    remoteActivityTimestamp: remoteActivityTimestamp.map { KotlinDouble(double: $0) })
+            }
+            let json = try encodedEventsJSON ?? encode(events)
+            if let shared = store as? SharedHistoryStore {
+                return shared.pageReceivedWithEventReferences(
+                    sessionId: sessionID, eventsJson: json, byteCount: try int32(byteCount), hasMore: hasMore,
+                    nextBeforeSequence: try kotlinInt(nextBeforeSequence),
+                    remoteActivityTimestamp: remoteActivityTimestamp.map { KotlinDouble(double: $0) }
+                )
+            }
+            return store.pageReceived(
                 sessionId: sessionID,
-                eventsJson: try encode(events),
+                eventsJson: json,
                 byteCount: try int32(byteCount),
                 hasMore: hasMore,
                 nextBeforeSequence: try kotlinInt(nextBeforeSequence),
@@ -1182,6 +1310,60 @@ final class KMPHistoryStoreAdapter {
                 nextBeforeSequence: nextBeforeSequence.map { KotlinInt(int: Int32($0)) })
         }
         return replacementRevision != previousRevision
+    }
+
+    func cachedWindowJSON(sessionID: String, historyFormatVersion: Int?, persistentCursor: Int?) -> String? {
+        guard let shared = store as? SharedHistoryStore else { return nil }
+        return shared.cachedWindowJson(sessionId: sessionID,
+            historyFormatVersion: historyFormatVersion.map { KotlinInt(int: Int32($0)) },
+            persistentCursor: persistentCursor.map { KotlinInt(int: Int32($0)) })
+    }
+
+    func hydrateCachedWindow(sessionID: String, window: CachedHistoryWindow) throws -> Bool {
+        guard let shared = store as? SharedHistoryStore, eventsBySessionID[sessionID] == nil else { return false }
+        let previous = replacementRevision
+        try dispatch(.page(sessionID: sessionID)) { shared.hydrateTypedCachedWindow(sessionId: sessionID, window: window) }
+        return replacementRevision != previous
+    }
+
+    func canPrependCachedPage(sessionID: String) -> Bool {
+        (store as? SharedHistoryStore)?.canPrependCachedPage(sessionId: sessionID) ?? false
+    }
+    func prependCachedPage(sessionID: String, window: CachedHistoryWindow) throws {
+        guard let shared = store as? SharedHistoryStore else { return }
+        try dispatch(.page(sessionID: sessionID)) { shared.prependTypedCachedPage(sessionId: sessionID, window: window) }
+    }
+
+    func estimatedRetainedBytes(sessionID: String) -> Int64 {
+        (store as? SharedHistoryStore)?.estimatedRetainedBytes(sessionId: sessionID) ?? 0
+    }
+
+    func retainSessions(_ sessionIDs: Set<String>) -> [String] {
+        let candidates = Set(sessions.keys).union(eventsBySessionID.keys).subtracting(sessionIDs).filter {
+            $0 != pendingSessionID && sessions[$0]?.isLoading != true && sessions[$0]?.batchKind == nil
+        }
+        var removed: [String] = []
+        // 每次 clear 都经过 adapter intent，保持 Swift MVI event 与 intent 的严格对应。
+        for id in candidates {
+            do {
+                try clear(sessionID: id)
+                eventsBySessionID[id] = nil
+                sessions[id] = nil
+                removed.append(id)
+            } catch { break }
+        }
+        return removed
+    }
+
+    func hydrateCachedWindow(sessionID: String, json: String) throws -> Bool {
+        guard let shared = store as? SharedHistoryStore else { return false }
+        guard eventsBySessionID[sessionID] == nil else {
+            ChatCacheDiagnostics.shared.restoreSkipped(reason: .alreadyLoaded)
+            return false
+        }
+        let previous = replacementRevision
+        try dispatch(.page(sessionID: sessionID)) { shared.hydrateCachedWindow(sessionId: sessionID, windowJson: json) }
+        return replacementRevision != previous
     }
 
     func clear(sessionID: String) throws {
@@ -1255,7 +1437,10 @@ final class KMPHistoryStoreAdapter {
                 let patch = try decoder.decode(KMPHistoryPatch.self, from: Data(payload.utf8))
                 let effects = try decoder.decode([KMPHistoryEffect].self, from: Data(event.effectsJson.utf8))
                 guard effects.count <= 1 else { throw KMPHistoryStoreError.invalidEvent("effect 数量无效") }
-                let change = try apply(patch, effect: effects.first, intent: pendingIntent)
+                let snapshot = patch.eventPatch == nil ? nil : (store as? SharedHistoryStore)?
+                    .projectionSnapshotForEvent(sessionId: patch.sessionId, eventSequence: event.sequence)
+                let change = try apply(patch, effect: effects.first, intent: pendingIntent,
+                    baseEventSequence: previous, projectionSnapshot: snapshot)
                 if change.eventPatchKind == "replace" { replacementRevision &+= 1 }
                 onChange?(change)
             } catch let error as KMPHistoryStoreError {
@@ -1271,7 +1456,9 @@ final class KMPHistoryStoreAdapter {
     private func apply(
         _ patch: KMPHistoryPatch,
         effect: KMPHistoryEffect?,
-        intent: KMPHistoryIntent?
+        intent: KMPHistoryIntent?,
+        baseEventSequence: Int64,
+        projectionSnapshot: SharedHistoryProjectionSnapshot?
     ) throws -> KMPHistoryChange {
         guard patch.schema == 1,
               !patch.sessionId.isEmpty,
@@ -1305,7 +1492,8 @@ final class KMPHistoryStoreAdapter {
         let nextPending = patch.pendingSessionChanged ? patch.pendingSessionId : pendingSessionID
         var nextEvents = eventsBySessionID[patch.sessionId] ?? []
         if let eventPatch = patch.eventPatch {
-            try apply(eventPatch, sessionID: patch.sessionId, intent: intent, to: &nextEvents)
+            try apply(eventPatch, sessionID: patch.sessionId, intent: intent, baseEventSequence: baseEventSequence,
+                projectionSnapshot: projectionSnapshot, to: &nextEvents)
         } else if case .live = intent {
             throw KMPHistoryStoreError.invalidEvent("live intent 缺少 event patch")
         }
@@ -1314,12 +1502,18 @@ final class KMPHistoryStoreAdapter {
         pendingSessionID = nextPending
         if nextEvents.isEmpty { eventsBySessionID.removeValue(forKey: patch.sessionId) }
         else { eventsBySessionID[patch.sessionId] = nextEvents }
+        if patch.eventPatch != nil {
+            if case .clear = intent { projectionSnapshots[patch.sessionId] = nil }
+            else { projectionSnapshots[patch.sessionId] = projectionSnapshot }
+        }
         return makeChange(
             sessionID: patch.sessionId,
+            eventSequence: baseEventSequence + 1,
             events: nextEvents,
             eventPatchKind: patch.eventPatch?.kind,
             eventRecord: patch.eventPatch?.record,
             eventPatchIsStreamDelta: patch.eventPatch?.streamDelta == true,
+            projectionSnapshot: projectionSnapshot,
             outcome: patch.outcome,
             failureCode: patch.failureCode,
             completedEventCount: patch.completedEventCount,
@@ -1333,6 +1527,8 @@ final class KMPHistoryStoreAdapter {
         _ patch: KMPHistoryEventPatch,
         sessionID: String,
         intent: KMPHistoryIntent,
+        baseEventSequence: Int64,
+        projectionSnapshot: SharedHistoryProjectionSnapshot?,
         to records: inout [SessionEvent]
     ) throws {
         // The live-delta marker only means anything on a same-sequence upsert.
@@ -1340,6 +1536,9 @@ final class KMPHistoryStoreAdapter {
         // mirror or conversation state is published.
         if patch.streamDelta == true, patch.kind != "upsert" {
             throw KMPHistoryStoreError.invalidEvent("stream marker on a \(patch.kind) event patch")
+        }
+        if patch.kind != "replace", patch.replacementReferences != nil || patch.referenceBaseEventSequence != nil {
+            throw KMPHistoryStoreError.invalidEvent("non-replace patch contains history references")
         }
         switch patch.kind {
         case "append":
@@ -1386,13 +1585,34 @@ final class KMPHistoryStoreAdapter {
                 }
             }
         case "replace":
+            if patch.replacementReferences != nil {
+                do {
+                    records = try referencedEvents(patch, sessionID: sessionID, intent: intent,
+                        baseEventSequence: baseEventSequence, retained: records)
+                    return
+                } catch KMPHistoryReferenceError.retainedMirrorMismatch {
+                    // 丢弃损坏引用；只允许同一事务的不可变完整快照恢复，不能读取活 Store。
+                    guard let projectionSnapshot, projectionSnapshot.sessionId == sessionID,
+                          projectionSnapshot.eventSequence == baseEventSequence + 1 else {
+                        throw KMPHistoryStoreError.invalidEvent("history reference mirror mismatch without exact snapshot")
+                    }
+                    let replacement = try decoder.decode([SessionEvent].self, from: Data(projectionSnapshot.eventsJson().utf8))
+                    guard validReplacement(replacement, sessionID: sessionID) else {
+                        throw KMPHistoryStoreError.invalidEvent("history reference fallback snapshot is invalid")
+                    }
+                    NSLog("history-reference-mirror-recovered sequence=%lld", baseEventSequence + 1)
+                    records = replacement
+                    return
+                }
+            }
             guard isPageOrClear(intent),
                   patch.record == nil,
                   patch.index == nil,
                   let replacement = patch.replacementEvents,
                   replacement.allSatisfy({ $0.sessionId == sessionID }),
                   replacement.map(\.seq) == replacement.map(\.seq).sorted(),
-                  Set(replacement.map(\.seq)).count == replacement.count else {
+                  Set(replacement.map(\.seq)).count == replacement.count,
+                  patch.referenceBaseEventSequence == nil else {
                 throw KMPHistoryStoreError.invalidEvent("replace event patch 无效")
             }
             records = replacement
@@ -1401,12 +1621,74 @@ final class KMPHistoryStoreAdapter {
         }
     }
 
+    private func validReplacement(_ records: [SessionEvent], sessionID: String) -> Bool {
+        records.allSatisfy { $0.sessionId == sessionID }
+            && zip(records, records.dropFirst()).allSatisfy { $0.seq < $1.seq }
+    }
+
+    private func referencedEvents(
+        _ patch: KMPHistoryEventPatch,
+        sessionID: String,
+        intent: KMPHistoryIntent,
+        baseEventSequence: Int64,
+        retained: [SessionEvent]
+    ) throws -> [SessionEvent] {
+        guard case .page = intent, patch.record == nil, patch.index == nil,
+              patch.replacementEvents == nil, patch.streamDelta != true,
+              patch.referenceBaseEventSequence == baseEventSequence,
+              let references = patch.replacementReferences, let incoming = pendingPageEvents else {
+            throw KMPHistoryStoreError.invalidEvent("history references do not match the input transaction")
+        }
+        var result: [SessionEvent] = []
+        result.reserveCapacity(references.count)
+        // 先验证完整命令，避免前面的镜像失配遮蔽后续损坏的 source/顺序/输入引用。
+        var previousSequence: Int?
+        for reference in references {
+            guard (reference.source == "retained" || reference.source == "incoming"), reference.index >= 0,
+                  previousSequence.map({ reference.sequence > $0 }) ?? true else {
+                throw KMPHistoryStoreError.invalidEvent("history reference command source or ordering is invalid")
+            }
+            if reference.source == "incoming" {
+                guard incoming.indices.contains(reference.index),
+                      incoming[reference.index].sessionId == sessionID,
+                      incoming[reference.index].seq == reference.sequence else {
+                    throw KMPHistoryStoreError.invalidEvent("history incoming reference is invalid")
+                }
+            }
+            previousSequence = reference.sequence
+        }
+        for reference in references {
+            let source: [SessionEvent]
+            switch reference.source {
+            case "retained": source = retained
+            case "incoming": source = incoming
+            default: throw KMPHistoryStoreError.invalidEvent("unknown history reference source")
+            }
+            guard source.indices.contains(reference.index) else {
+                if reference.source == "retained" { throw KMPHistoryReferenceError.retainedMirrorMismatch }
+                throw KMPHistoryStoreError.invalidEvent("history reference index out of range")
+            }
+            let record = source[reference.index]
+            guard record.sessionId == sessionID, record.seq == reference.sequence else {
+                if reference.source == "retained" { throw KMPHistoryReferenceError.retainedMirrorMismatch }
+                throw KMPHistoryStoreError.invalidEvent("history reference sequence or session mismatch")
+            }
+            guard record.seq > (result.last?.seq ?? Int.min) else {
+                throw KMPHistoryStoreError.invalidEvent("history reference sequence is not unique and increasing")
+            }
+            result.append(record)
+        }
+        return result
+    }
+
     private func makeChange(
         sessionID: String,
+        eventSequence: Int64,
         events: [SessionEvent],
         eventPatchKind: String?,
         eventRecord: SessionEvent?,
         eventPatchIsStreamDelta: Bool,
+        projectionSnapshot: SharedHistoryProjectionSnapshot?,
         outcome: String,
         failureCode: String?,
         completedEventCount: Int?,
@@ -1416,10 +1698,12 @@ final class KMPHistoryStoreAdapter {
     ) -> KMPHistoryChange {
         KMPHistoryChange(
             sessionID: sessionID,
+            eventSequence: eventSequence,
             events: events,
             eventPatchKind: eventPatchKind,
             eventRecord: eventRecord,
             eventPatchIsStreamDelta: eventPatchIsStreamDelta,
+            projectionSnapshot: projectionSnapshot,
             hasMore: sessions.mapValues(\.hasMore),
             loadingSessionIDs: Set(sessions.compactMap { $0.value.isLoading ? $0.key : nil }),
             loadingOlderSessionIDs: Set(sessions.compactMap { $0.value.isLoadingOlder ? $0.key : nil }),
@@ -1560,6 +1844,7 @@ protocol KMPSessionListStoreBridging: AnyObject {
     ) -> SharedSessionListResult
     func addKnownSession(sessionId: String, insertedAtEpochSeconds: Double) -> SharedSessionListResult
     func receiveEvent(eventJson: String, insertedAtEpochSeconds: Double) -> SharedSessionListResult
+    func receiveHistory(sessionId: String, eventsJson: String) -> SharedSessionListResult
     func markRead(sessionId: String) -> SharedSessionListResult
 }
 
@@ -1647,6 +1932,8 @@ final class KMPSessionListStoreAdapter {
         pushedError = nil
         let result: SharedSessionListResult
         switch action {
+        case .restore(let snapshot):
+            result = store.restore(snapshotJson: try encode(snapshot))
         case .select(let sessionID):
             result = store.selectSession(sessionId: sessionID)
         case .setArchivedSessionIDs(let sessionIDs):
@@ -1669,6 +1956,12 @@ final class KMPSessionListStoreAdapter {
                 eventJson: try encode(event),
                 insertedAtEpochSeconds: now.timeIntervalSince1970
             )
+        case .historyReceived(let sessionID, let events, let historySnapshot):
+            if let historySnapshot, let shared = store as? SharedSessionListStore {
+                result = shared.receiveHistorySnapshot(sessionId: sessionID, snapshot: historySnapshot)
+            } else {
+                result = store.receiveHistory(sessionId: sessionID, eventsJson: try encode(events))
+            }
         case .markRead(let sessionID):
             result = store.markRead(sessionId: sessionID)
         }

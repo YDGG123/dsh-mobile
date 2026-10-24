@@ -56,6 +56,36 @@ struct FileReferenceCard: View {
     }
 }
 
+struct UploadedFileCard: View {
+    let file: PresentedFile
+    let action: () -> Void
+
+    var body: some View {
+        let name = file.name ?? String(localized: "文件")
+        let kind = FileIconCatalog.shared.resolve(name: name, mediaType: nil)
+        FileCardWidthLayout {
+            Button(action: action) {
+                HStack(spacing: 12) {
+                    FileTypeIcon(kind: kind)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(name).appFont(.system(size: 15, weight: .medium)).lineLimit(2)
+                        if let bytes = file.bytes {
+                            Text(ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file))
+                                .appFont(.system(size: 12)).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .padding(12)
+                .background(kind.cardBackground, in: RoundedRectangle(cornerRadius: 12))
+                .contentShape(RoundedRectangle(cornerRadius: 12))
+            }
+            .buttonStyle(.plain)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("user-file-card")
+    }
+}
+
 /// 限制卡片宽度，同时保留内容的自然宽度；窄容器以可用宽度为上限。
 private struct FileCardWidthLayout: Layout {
     private let maximumWidth: CGFloat = 320

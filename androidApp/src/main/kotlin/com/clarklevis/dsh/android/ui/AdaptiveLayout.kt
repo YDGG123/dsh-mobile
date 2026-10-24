@@ -41,11 +41,12 @@ import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.window.layout.DisplayFeature
 import androidx.window.layout.FoldingFeature
 import androidx.window.layout.WindowInfoTracker
-import androidx.window.layout.WindowLayoutInfo
-import kotlinx.coroutines.flow.flowOf
 import kotlin.math.roundToInt
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 
 /** 与 iOS 使用相同的阅读宽度与分栏断点；只依赖当前窗口，不判断设备型号。 */
 internal object AdaptiveLayout {
@@ -88,10 +89,10 @@ internal fun continuousWindowPane(window: IntSize, hinge: IntRect?, vertical: Bo
 internal fun AdaptiveWindowHost(content: @Composable () -> Unit) {
     val activity = LocalActivity.current
     val infoFlow = remember(activity) {
-        activity?.let { WindowInfoTracker.getOrCreate(it).windowLayoutInfo(it) }
-            ?: flowOf(WindowLayoutInfo(emptyList()))
+        activity?.let { WindowInfoTracker.getOrCreate(it).windowLayoutInfo(it).map { info -> info.displayFeatures } }
+            ?: flowOf(emptyList<DisplayFeature>())
     }
-    val info by infoFlow.collectAsStateWithLifecycle(initialValue = WindowLayoutInfo(emptyList()))
+    val info by infoFlow.collectAsStateWithLifecycle(initialValue = emptyList<DisplayFeature>())
     val density = LocalDensity.current
     var origin by remember { mutableStateOf(Offset.Zero) }
     BoxWithConstraints(
@@ -99,7 +100,7 @@ internal fun AdaptiveWindowHost(content: @Composable () -> Unit) {
             .onGloballyPositioned { origin = it.positionInWindow() }
     ) {
         val window = IntSize(constraints.maxWidth, constraints.maxHeight)
-        val fold = info.displayFeatures.filterIsInstance<FoldingFeature>().firstOrNull {
+        val fold = info.filterIsInstance<FoldingFeature>().firstOrNull {
             it.isSeparating || it.occlusionType == FoldingFeature.OcclusionType.FULL
         }
         val hinge = fold?.bounds?.let {

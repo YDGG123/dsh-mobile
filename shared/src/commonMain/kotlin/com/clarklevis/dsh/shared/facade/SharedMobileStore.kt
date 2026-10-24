@@ -1,10 +1,10 @@
 package com.clarklevis.dsh.shared.facade
 
 import com.clarklevis.dsh.shared.SharedModuleInfo
-import com.clarklevis.dsh.shared.domain.QuestionAction
 import com.clarklevis.dsh.shared.domain.ApprovalAction
 import com.clarklevis.dsh.shared.domain.ApprovalReducer
 import com.clarklevis.dsh.shared.domain.ApprovalState
+import com.clarklevis.dsh.shared.domain.QuestionAction
 import com.clarklevis.dsh.shared.domain.QuestionReducer
 import com.clarklevis.dsh.shared.domain.QuestionState
 import com.clarklevis.dsh.shared.domain.SessionListAction
@@ -15,31 +15,31 @@ import com.clarklevis.dsh.shared.domain.normalizeEpochSeconds
 import com.clarklevis.dsh.shared.projection.ConversationItem
 import com.clarklevis.dsh.shared.projection.ConversationProjectionLabels
 import com.clarklevis.dsh.shared.projection.ConversationProjector
-import com.clarklevis.dsh.shared.protocol.GatewayEvent
-import com.clarklevis.dsh.shared.protocol.GatewayPendingQuestionRequest
-import com.clarklevis.dsh.shared.protocol.GatewayApprovalOutcome
-import com.clarklevis.dsh.shared.protocol.GatewayPendingApprovalRequest
 import com.clarklevis.dsh.shared.protocol.GatewayAgentPreset
+import com.clarklevis.dsh.shared.protocol.GatewayApprovalOutcome
 import com.clarklevis.dsh.shared.protocol.GatewayContextSnapshot
-import com.clarklevis.dsh.shared.protocol.GatewayHostSnapshot
+import com.clarklevis.dsh.shared.protocol.GatewayEvent
 import com.clarklevis.dsh.shared.protocol.GatewayGoalSnapshot
+import com.clarklevis.dsh.shared.protocol.GatewayHostSnapshot
 import com.clarklevis.dsh.shared.protocol.GatewayModelCatalog
 import com.clarklevis.dsh.shared.protocol.GatewayModelGroup
 import com.clarklevis.dsh.shared.protocol.GatewayModelSelection
+import com.clarklevis.dsh.shared.protocol.GatewayPendingApprovalRequest
+import com.clarklevis.dsh.shared.protocol.GatewayPendingQuestionRequest
 import com.clarklevis.dsh.shared.protocol.GatewayPermissionOption
 import com.clarklevis.dsh.shared.protocol.GatewayQuestionAction
+import com.clarklevis.dsh.shared.protocol.GatewaySearchItem
 import com.clarklevis.dsh.shared.protocol.GatewaySessionPermissions
 import com.clarklevis.dsh.shared.protocol.GatewaySessionStatsSnapshot
 import com.clarklevis.dsh.shared.protocol.GatewaySessionSummary
-import com.clarklevis.dsh.shared.protocol.GatewaySearchItem
-import com.clarklevis.dsh.shared.protocol.GatewayWorkspace
 import com.clarklevis.dsh.shared.protocol.GatewayTask
 import com.clarklevis.dsh.shared.protocol.GatewayWireDecoder
+import com.clarklevis.dsh.shared.protocol.GatewayWorkspace
 import com.clarklevis.dsh.shared.protocol.JsonValue
 import com.clarklevis.dsh.shared.protocol.SessionEvent
 import com.clarklevis.dsh.shared.protocol.wireJson
-import kotlinx.serialization.json.decodeFromJsonElement
 import kotlin.time.Clock
+import kotlinx.serialization.json.decodeFromJsonElement
 
 data class SharedMobileSnapshot(
     val sessions: List<SessionSummary> = emptyList(),
@@ -105,6 +105,10 @@ class SharedMobileStore(
     }
 ) {
     private var sessionListState = SessionListState()
+    private var sessionCatalogInitialized = false
+    private var workspaceCatalogInitialized = false
+    private var archiveCatalogInitialized = false
+    private var offlineSelectionChanged = false
     private var questionState = QuestionState()
     private var approvalState = ApprovalState()
     private val eventsBySession = mutableMapOf<String, List<SessionEvent>>()
@@ -127,11 +131,89 @@ class SharedMobileStore(
 
     fun snapshot(): SharedMobileSnapshot = makeSnapshot()
 
+    /** 仅导航元数据；不导出正文、网络水位、审批或临时请求状态。 */
+    fun exportOfflineCatalog(selectedWorkspaceId: String?): String = runCatching {
+        val sessions = sessionListState.sessions.map {
+            SharedSessionSummarySnapshot(
+                it.id,
+                it.title,
+                it.lastActivityEpochSeconds,
+                it.isRunning,
+                it.hasUnread,
+                it.agentPreset,
+                it.hasConversation
+            )
+        }
+        SharedOfflineCatalogCodec().encode(
+            SharedOfflineCatalog(
+                sessionList = SharedSessionListSnapshot(
+                    sessions,
+                    sessionListState.archivedSessionIds.sorted(),
+                    sessionListState.selectedSessionId
+                ),
+                workspaces = workspaces,
+                selectedWorkspaceId = selectedWorkspaceId
+            )
+        )
+    }.getOrDefault("")
+
+    /** 平台异步恢复完成时复核，复用共享层严格的权威目录判定。 */
+    fun canRestoreOfflineCatalog(): Boolean = canRestoreOfflineSessions() || canRestoreOfflineWorkspaces() || !archiveCatalogInitialized
+    fun canRestoreOfflineSessions(): Boolean = !sessionCatalogInitialized
+    fun canRestoreOfflineWorkspaces(): Boolean = !workspaceCatalogInitialized
+    fun canRestoreOfflineSelection(): Boolean = !offlineSelectionChanged && canRestoreOfflineSessions()
+
+    /** 分组件补齐目录；新权威会话/工作区和用户选择各自胜过迟到的磁盘恢复。 */
+    fun restoreOfflineCatalog(catalogJson: String): SharedMobileSnapshot {
+        if (!canRestoreOfflineCatalog()) return makeSnapshot()
+        val catalog = runCatching { SharedOfflineCatalogCodec().decode(catalogJson) }.getOrNull() ?: return makeSnapshot()
+        if (canRestoreOfflineSessions()) {
+            val list = catalog.sessionList
+            sessionListState = SessionListState(
+                sessions = list.sessions.map {
+                    SessionSummary(
+                        it.id,
+                        it.title,
+                        it.lastActivityEpochSeconds,
+                        it.isRunning,
+                        it.hasUnread,
+                        it.agentPreset,
+                        it.hasConversation
+                    )
+                },
+                archivedSessionIds = if (archiveCatalogInitialized) {
+                    sessionListState.archivedSessionIds
+                } else {
+                    list.archivedSessionIds.toSet()
+                },
+                selectedSessionId = if (offlineSelectionChanged) sessionListState.selectedSessionId else list.selectedSessionId
+            )
+            sessionCatalogInitialized = true
+        }
+        if (canRestoreOfflineWorkspaces()) {
+            workspaces = catalog.workspaces
+            workspaceCatalogInitialized = true
+        }
+        if (!archiveCatalogInitialized) {
+            sessionListState = sessionListState.copy(archivedSessionIds = catalog.sessionList.archivedSessionIds.toSet())
+            archiveCatalogInitialized = true
+        }
+        return makeSnapshot()
+    }
+
     fun selectSession(sessionId: String?): SharedMobileSnapshot {
+        offlineSelectionChanged = true
         sessionListState = SessionListReducer.reduce(sessionListState, SessionListAction.Select(sessionId))
         sessionId?.let {
             sessionListState = SessionListReducer.reduce(sessionListState, SessionListAction.MarkRead(it))
         }
+        return makeSnapshot()
+    }
+
+    fun reconcileHistory(sessionId: String, records: List<SessionEvent>): SharedMobileSnapshot {
+        sessionListState = SessionListReducer.reduce(
+            sessionListState, SessionListAction.HistoryReceived(sessionId, records)
+        )
         return makeSnapshot()
     }
 
@@ -198,9 +280,17 @@ class SharedMobileStore(
                     }
                 }
                 "session-snapshot" -> frame.sessionId?.let { id ->
+                    sessionCatalogInitialized = true
                     installTaskGoalProjection(id, frame.projections)
+                    if (frame.assistantStream?.get("activeAttempt")?.objectValue == null) {
+                        sessionListState = SessionListReducer.reduce(
+                            sessionListState,
+                            SessionListAction.HistoryReceived(id, frame.events.orEmpty().map { it.normalized(id) })
+                        )
+                    }
                 }
                 "session-archives", "session-archived" -> frame.archivedSessionIds?.let { ids ->
+                    archiveCatalogInitialized = true
                     sessionListState = SessionListReducer.reduce(
                         sessionListState, SessionListAction.SetArchivedSessionIds(ids.toSet())
                     )
@@ -210,6 +300,7 @@ class SharedMobileStore(
                     val title = frame.title
                     val seq = frame.seq
                     if (!id.isNullOrBlank() && !title.isNullOrBlank() && seq != null) {
+                        sessionCatalogInitialized = true
                         sessionListState = SessionListReducer.reduce(
                             sessionListState,
                             SessionListAction.EventReceived(
@@ -219,18 +310,20 @@ class SharedMobileStore(
                         )
                     }
                 }
-                "sessions" -> {
-                    val sessions = frame.items.orEmpty().mapNotNull { item ->
-                        runCatching {
-                            wireJson.decodeFromJsonElement(GatewaySessionSummary.serializer(), item.toJsonElement())
-                        }.getOrNull()
+                "sessions" -> frame.items?.let { items ->
+                    // 完整列表必须整体有效；缺失/null/坏条目不能冒充权威空列表。
+                    val sessions = items.map { item ->
+                        wireJson.decodeFromJsonElement(GatewaySessionSummary.serializer(), item.toJsonElement())
                     }
+                    require(sessions.all { it.sessionId.isNotBlank() })
                     sessionListState = SessionListReducer.reduce(
                         sessionListState,
                         SessionListAction.RemoteSessionsReceived(sessions)
                     )
+                    sessionCatalogInitialized = true
                 }
                 "sent" -> frame.sessionId?.takeIf(String::isNotBlank)?.let { sessionId ->
+                    sessionCatalogInitialized = true
                     sessionListState = SessionListReducer.reduce(
                         sessionListState,
                         SessionListAction.MessageSent(
@@ -242,17 +335,20 @@ class SharedMobileStore(
                         )
                     )
                 }
-                "workspaces" -> {
+                "workspaces" -> frame.items?.let { items ->
+                    val incoming = items.map { item ->
+                        wireJson.decodeFromJsonElement(GatewayWorkspace.serializer(), item.toJsonElement())
+                    }
+                    require(incoming.all { it.workspaceId.isNotBlank() })
                     frame.archivedSessionIds?.let { ids ->
+                        archiveCatalogInitialized = true
                         sessionListState = SessionListReducer.reduce(
-                            sessionListState, SessionListAction.SetArchivedSessionIds(ids.toSet())
+                            sessionListState,
+                            SessionListAction.SetArchivedSessionIds(ids.toSet())
                         )
                     }
-                    workspaces = frame.items.orEmpty().mapNotNull { item ->
-                        runCatching {
-                            wireJson.decodeFromJsonElement(GatewayWorkspace.serializer(), item.toJsonElement())
-                        }.getOrNull()
-                    }
+                    workspaces = incoming
+                    workspaceCatalogInitialized = true
                 }
                 "search" -> {
                     searchResultSessionIds = frame.items.orEmpty().mapNotNull { item ->
@@ -343,6 +439,7 @@ class SharedMobileStore(
                 "history" -> {
                     val sessionId = frame.sessionId ?: sessionListState.selectedSessionId
                     if (sessionId != null) {
+                        sessionCatalogInitialized = true
                         val normalized = frame.events.orEmpty().map { it.normalized(sessionId) }
                         eventsBySession[sessionId] = normalized
                         val insertedAtEpochSeconds = normalized
@@ -457,7 +554,19 @@ class SharedMobileStore(
         return makeSnapshot()
     }
 
+    /** 仅释放可重建的聊天投影；保留会话列表、问题、审批和待处理业务。 */
+    fun retainCachedSessions(sessionIds: List<String>): List<String> {
+        val keep = sessionIds.toSet() + listOfNotNull(sessionListState.selectedSessionId)
+        val removed = eventsBySession.keys.filter { it !in keep }
+        removed.forEach(eventsBySession::remove)
+        return removed
+    }
+
     fun reset(): SharedMobileSnapshot {
+        sessionCatalogInitialized = false
+        workspaceCatalogInitialized = false
+        archiveCatalogInitialized = false
+        offlineSelectionChanged = false
         sessionListState = SessionListState()
         questionState = QuestionState()
         approvalState = ApprovalState()
@@ -482,6 +591,7 @@ class SharedMobileStore(
     }
 
     private fun acceptEvent(record: SessionEvent) {
+        sessionCatalogInitialized = true
         sessionListState = SessionListReducer.reduce(
             sessionListState,
             SessionListAction.EventReceived(record, normalizeEpochSeconds(record.time))

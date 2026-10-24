@@ -184,9 +184,18 @@ class AndroidMultiGatewayStore(private val application: Application) {
 
     private suspend fun activate(profile: GatewayProfile, connect: Boolean, prepared: AndroidAppGraph? = null) {
         if (profiles.none { it.localId == profile.localId } && prepared == null) return
-        if (prepared == null && activeId == profile.localId &&
-            activeGraph.gatewayRuntime.state.value.connection == GatewayConnectionState.CONNECTED
-        ) {
+        if (prepared == null && activeId == profile.localId) {
+            // 重试当前主机保留列表、检索、阅读位置和缓存 owner，仅重连 transport。
+            if (connect && activeGraph.gatewayRuntime.state.value.connection !in setOf(
+                    GatewayConnectionState.CONNECTED,
+                    GatewayConnectionState.CONNECTING,
+                    GatewayConnectionState.AUTHENTICATING
+                )
+            ) {
+                withContext(activeGraph.gatewayDispatcher) {
+                    activeGraph.gatewayRuntime.connect(profile.connectionEndpoints.first())
+                }
+            }
             return
         }
         stopPresence()
@@ -341,7 +350,14 @@ class AndroidMultiGatewayStore(private val application: Application) {
                         check(preferences.edit().remove("active").commit())
                         GatewayConnectionService.stop(application)
                     }
-                    knownIds.forEach { credentials.deleteToken("host:$it") }
+                    knownIds.forEach { id ->
+                        credentials.deleteToken("host:$id")
+                        withContext(kotlinx.coroutines.Dispatchers.IO) {
+                            com.clarklevis.dsh.android.platform.AndroidChatHistoryCache.shared(application).clear(id)
+                            com.clarklevis.dsh.android.platform.AndroidChatHistoryCache.shared(application).forgetOfflineCatalog(id)
+                            AndroidCacheStorage.shared(application).removeGateway(id)
+                        }
+                    }
                     profiles = profiles.filterNot { it.localId in knownIds }
                     onlineIds = onlineIds - knownIds
                     persist()

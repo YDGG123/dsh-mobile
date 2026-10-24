@@ -9,6 +9,21 @@ import org.junit.Test
 
 class AndroidGatewayProjectionTest {
     @Test
+    fun lateAcceptanceForOtherMemberDoesNotResetCurrentStream() {
+        val projection = AndroidGatewayProjection()
+        projection.selectSession("s")
+        fun accept(raw: String) = projection.acceptFrame(raw, GatewayWireDecoder.decode(raw), null)
+        accept("""{"kind":"hello","historyFormatVersion":4,"capabilities":["assistant-stream-v1"]}""")
+        accept("""{"kind":"subscribed","sessionId":"s","subscriptionId":"sub"}""")
+        accept("""{"kind":"session-snapshot","sessionId":"s","subscriptionId":"sub","streamId":"stream","historyFormatVersion":4,"cursor":0,"events":[],"hasMore":false,"assistantStream":{"revision":0}}""")
+        accept("""{"kind":"sent","sessionId":"other-member"}""")
+        accept("""{"kind":"event","sessionId":"s","subscriptionId":"sub","streamId":"stream","seq":1,"time":100,"event":{"type":"assistant/message","text":"当前成员仍在输出"}}""")
+        assertEquals("s", projection.snapshot().selectedSessionId)
+        assertEquals("当前成员仍在输出", projection.snapshot().conversation.last().text)
+        projection.close()
+    }
+
+    @Test
     fun steeringQueueDisplaysUserBubbleAndPromotesWithoutDuplicate() {
         val projection = AndroidGatewayProjection()
         projection.selectSession("s")

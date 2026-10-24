@@ -17,6 +17,48 @@ import kotlin.test.assertTrue
 
 class SharedSessionListStoreTest {
     @Test
+    fun networkHistoryEndsMissedTurnWithoutChangingUnreadTitleOrActivity() {
+        val store = makeStore()
+        val initial = SharedSessionListSnapshot(
+            sessions = listOf(SharedSessionSummarySnapshot("s", "原标题", 500.0, true, true)),
+            selectedSessionId = "s"
+        )
+        store.restore(wireJson.encodeToString(initial))
+        val records = """[
+            {"sessionId":"s","seq":10,"time":100,"event":{"type":"turn/start"}},
+            {"sessionId":"s","seq":11,"time":101,"event":{"type":"turn/end"}}
+        ]"""
+        val completed = decode(store.receiveHistory("s", records).snapshotJson)
+        assertEquals(initial.sessions.single().copy(isRunning = false), completed.sessions.single())
+        assertNull(store.receiveHistory("s", records).snapshotJson)
+        assertEquals("s", completed.selectedSessionId)
+    }
+
+    @Test
+    fun oldTurnEndDoesNotStopNewerRunningTurnAndMissingBoundaryDoesNotGuessIdle() {
+        for (records in listOf(
+            """[{"sessionId":"s","seq":12,"time":102,"event":{"type":"turn/start"}},
+                {"sessionId":"s","seq":11,"time":101,"event":{"type":"turn/end"}}]""",
+            """[{"sessionId":"s","seq":12,"time":102,"event":{"type":"assistant/message","text":"工具执行前的回复"}}]""",
+            """[{"sessionId":"s","seq":11,"time":101,"event":{"type":"turn/end"}},
+                {"sessionId":"s","seq":12,"time":102,"event":{"type":"user/message","text":"继续"}}]""",
+            "[]",
+            """[{"sessionId":"other","seq":13,"time":103,"event":{"type":"turn/end"}}]"""
+        )) {
+            val store = makeStore()
+            store.restore(
+                wireJson.encodeToString(
+                    SharedSessionListSnapshot(
+                        sessions = listOf(SharedSessionSummarySnapshot("s", "运行中", 100.0, true, false))
+                    )
+                )
+            )
+            assertNull(store.receiveHistory("s", records).snapshotJson)
+            assertTrue(decode(store.snapshot().snapshotJson).sessions.single().isRunning)
+        }
+    }
+
+    @Test
     fun blankSessionsStayHiddenAcrossMetadataChangesAndPersistenceUntilFirstMessage() {
         val store = makeStore()
         store.addKnownSession("draft", 100.0)

@@ -40,6 +40,7 @@ import org.junit.Rule
 import org.junit.Test
 
 class ConversationKeyboardDeviceTest {
+    @get:Rule val locale = ChineseDeviceLocaleRule()
     @get:Rule
     val compose = createComposeRule()
 
@@ -240,25 +241,27 @@ class ConversationKeyboardDeviceTest {
     }
 
     @Test
-    fun unsupportedVoiceShowsStandardAlertWithoutChangingComposer() {
+    fun unsupportedVoiceShowsStandardAlertWithoutLosingDraft() {
         val fixture = showConversation()
-        compose.runOnIdle {
-            fixture.holder.messageDraft = "保留草稿"
-            fixture.holder.voiceInput.connectionChanged(true, false)
-        }
-        val editor = compose.onNodeWithTag("composer-input")
-        editor.performTouchInput {
-            down(center)
-            advanceEventTime(700)
-            up()
-        }
-        compose.onNodeWithText("语音输入暂不可用").assertIsDisplayed()
-        editor.assertTextContains("保留草稿")
-        compose.onNodeWithText("知道了").performClick()
-        editor.performTouchInput { click() }
-        editor.assertIsFocused().performTextInput("继续编辑")
-        editor.assertTextContains("继续编辑", substring = true)
-        fixture.holder.close()
+        try {
+            // 现行入口为独立语音模式；文字输入框长按保持系统选择行为。
+            compose.onNodeWithTag("composer-action").performClick()
+            compose.runOnIdle {
+                fixture.holder.messageDraft = "保留草稿"
+                fixture.holder.voiceInput.connectionChanged(true, false)
+                fixture.holder.voiceInput.setVoiceMode(true)
+                fixture.holder.voiceInput.press()
+            }
+            compose.onNodeWithText("语音输入暂不可用").assertIsDisplayed()
+            compose.runOnIdle { org.junit.Assert.assertEquals("保留草稿", fixture.holder.messageDraft) }
+            compose.onNodeWithText("知道了").performClick()
+            compose.runOnIdle { fixture.holder.voiceInput.setVoiceMode(false) }
+            val editor = compose.onNodeWithTag("composer-input")
+            editor.assertTextContains("保留草稿")
+            editor.performTouchInput { click() }
+            editor.assertIsFocused().performTextInput("继续编辑")
+            editor.assertTextContains("继续编辑", substring = true)
+        } finally { fixture.holder.close() }
     }
 
     @Test
@@ -339,7 +342,7 @@ class ConversationKeyboardDeviceTest {
         compose.waitForIdle()
         val mask = compose.onNodeWithTag("voice-recording-overlay")
         val maskBounds = mask.fetchSemanticsNode().boundsInRoot
-        val editorBounds = compose.onNodeWithTag("composer-input").fetchSemanticsNode().boundsInRoot
+        val editorBounds = compose.onNodeWithTag("composer-voice-hold").fetchSemanticsNode().boundsInRoot
         assertTrue(maskBounds.top <= editorBounds.top && maskBounds.bottom >= editorBounds.bottom)
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         fun assertCoversSystemNavigation(name: String, red: Boolean) {

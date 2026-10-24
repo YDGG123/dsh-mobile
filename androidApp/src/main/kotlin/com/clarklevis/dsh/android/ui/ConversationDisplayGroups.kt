@@ -60,7 +60,8 @@ internal sealed interface ConversationTimelineEntry {
         val messageId: String,
         val blockIndex: Int,
         val markdown: String,
-        val knownFiles: List<com.clarklevis.dsh.shared.protocol.PresentedFile> = emptyList()
+        val knownFiles: List<com.clarklevis.dsh.shared.protocol.PresentedFile> = emptyList(),
+        val copyMarkdown: String = markdown
     ) : ConversationTimelineEntry {
         override val id: String = "assistant:$messageId:markdown:$blockIndex"
         override val contentType = ConversationDisplayContentType.ASSISTANT_MARKDOWN
@@ -101,7 +102,8 @@ internal fun makeConversationTimelineEntries(
                     messageId = item.id,
                     blockIndex = index,
                     markdown = markdown,
-                    knownFiles = item.knownFiles
+                    knownFiles = item.knownFiles,
+                    copyMarkdown = item.text
                 )
             )
         }
@@ -135,6 +137,58 @@ internal fun activeStreamingAssistantMessageId(
 internal fun splitMarkdownForLazyLayout(
     markdown: String,
     targetCharacters: Int = 320
+): List<String> = markdownLayoutBlocksCache.getOrPut(markdown, targetCharacters)
+
+/** 流式尾部和历史分页只重分块有变化的正文，缓存同时受字符数和条目数约束。 */
+internal class MarkdownLayoutBlocksCache(
+    private val maxSourceCharacters: Int = 512_000,
+    private val maxEntries: Int = 256,
+    private val split: (String, Int) -> List<String> = ::splitMarkdownBlocks
+) {
+    private data class Key(val markdown: String, val targetCharacters: Int)
+
+    private val values = LinkedHashMap<Key, List<String>>(16, 0.75f, true)
+    private var sourceCharacters = 0
+    private var generation = 0L
+
+    @Synchronized
+    fun clear() {
+        values.clear()
+        sourceCharacters = 0
+        generation += 1
+    }
+
+    fun getOrPut(markdown: String, targetCharacters: Int): List<String> {
+        val key = Key(markdown, targetCharacters)
+        val ticket = synchronized(this) {
+            values[key]?.let { return it }
+            generation
+        }
+        // 分块在锁外进行，后台处理长回答时不能挡住主线程命中已有正文。
+        val blocks = split(markdown, targetCharacters)
+        // 单条超预算时直接返回，不能让长回答挤掉已预热的整个滚动窗口。
+        if (markdown.length > maxSourceCharacters) return blocks
+        return synchronized(this) {
+            values[key]?.let { return it }
+            // 内存回收前开始的计算可以完成展示，但不能回填已清空的缓存。
+            if (ticket != generation) return blocks
+            values[key] = blocks
+            sourceCharacters += markdown.length
+            val iterator = values.entries.iterator()
+            while ((sourceCharacters > maxSourceCharacters || values.size > maxEntries) && iterator.hasNext()) {
+                sourceCharacters -= iterator.next().key.markdown.length
+                iterator.remove()
+            }
+            blocks
+        }
+    }
+}
+
+internal val markdownLayoutBlocksCache = MarkdownLayoutBlocksCache()
+
+private fun splitMarkdownBlocks(
+    markdown: String,
+    targetCharacters: Int
 ): List<String> {
     if (markdown.length <= targetCharacters) return listOf(markdown)
 

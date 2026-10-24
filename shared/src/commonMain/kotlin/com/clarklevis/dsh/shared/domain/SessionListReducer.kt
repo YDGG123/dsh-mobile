@@ -51,6 +51,9 @@ sealed interface SessionListAction {
         val insertedAtEpochSeconds: Double
     ) : SessionListAction
     data class MarkRead(val sessionId: String) : SessionListAction
+
+    /** 仅接收网络快照或已合并实时尾部的历史；磁盘缓存不能决定当前运行状态。 */
+    data class HistoryReceived(val sessionId: String, val events: List<SessionEvent>) : SessionListAction
 }
 
 object SessionListReducer {
@@ -99,6 +102,21 @@ object SessionListReducer {
                 if (it.id == action.sessionId) it.copy(hasUnread = false) else it
             }
         )
+        is SessionListAction.HistoryReceived -> {
+            val boundary = action.events.asSequence().filter { it.sessionId == action.sessionId }
+                .filter { it.event.type == "user/message" || it.event.type == "turn/start" || it.event.type == "turn/end" }
+                .maxByOrNull { it.seq }
+            // 历史 start 不能证明主机仍在运行（例如主机异常退出）；明确的 end 可以补齐漏收的终态。
+            if (boundary?.event?.type != "turn/end") {
+                state
+            } else {
+                state.copy(
+                    sessions = state.sessions.map {
+                        if (it.id == action.sessionId) it.copy(isRunning = false) else it
+                    }
+                )
+            }
+        }
     }
 
     private fun mergeRemoteSessions(

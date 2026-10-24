@@ -79,7 +79,7 @@ final class GatewayTeamFeed: ObservableObject {
         var avatarShape: String?
         var avatarImage: String?
         /// 方案 C：矢量定义（与电脑端 SHAPES 同源）。有它就用 Path 画，回落顺序见 TeamAvatarView。
-        var glyph: TeamGlyph?
+        var glyph: TeamAvatarGlyph?
         /// ds-bot 调色板 key（契约明写「手机端需同名映射」），默认块颜色优先用它。
         var colorKey: String?
         var placeholderCards: Int = 0
@@ -297,8 +297,8 @@ final class GatewayTeamFeed: ObservableObject {
             }
             // 旁路帧的 glyph 也在**项顶层**（与 avatar 平级）：合并时不能丢，
             // 否则大快照延后头像的那批会退化成符号层。
-            if let glyph = (item["glyph"] as? [String: Any]).flatMap(TeamGlyph.init(json:))
-                ?? avatar["glyph"].flatMap({ $0 as? [String: Any] }).flatMap(TeamGlyph.init(json:)) {
+            if let glyph = (item["glyph"] as? [String: Any]).flatMap(TeamAvatarGlyph.init(json:))
+                ?? avatar["glyph"].flatMap({ $0 as? [String: Any] }).flatMap(TeamAvatarGlyph.init(json:)) {
                 rows[position].glyph = glyph
             }
         }
@@ -448,7 +448,7 @@ final class GatewayTeamFeed: ObservableObject {
 
     // MARK: - 解码
 
-    /// internal（非 private）仅为让 `TeamGlyphTests` 用真实发布形态构造行，逻辑不变。
+    /// internal（非 private）仅为让 `TeamAvatarGlyphTests` 用真实发布形态构造行，逻辑不变。
     func row(from raw: [String: Any], kind: Row.Kind) -> Row? {
         guard let id = raw["id"] as? String, !id.isEmpty else { return nil }
         let name = raw["name"] as? String ?? id
@@ -477,8 +477,8 @@ final class GatewayTeamFeed: ObservableObject {
         // ⚠️ glyph 在**bot 顶层**（与 avatar 平级），不是 avatar 里的字段——
         // ds-bot 发布端就是这么发的。之前写成 `avatar["glyph"]` 导致恒 nil、
         // 所有头像永远走符号层（方案 C 等于没做）。这里以顶层为准，同时兼容旧的嵌套形态。
-        row.glyph = (raw["glyph"] as? [String: Any]).flatMap(TeamGlyph.init(json:))
-            ?? (raw["avatar"] as? [String: Any])?["glyph"].flatMap { $0 as? [String: Any] }.flatMap(TeamGlyph.init(json:))
+        row.glyph = (raw["glyph"] as? [String: Any]).flatMap(TeamAvatarGlyph.init(json:))
+            ?? (raw["avatar"] as? [String: Any])?["glyph"].flatMap { $0 as? [String: Any] }.flatMap(TeamAvatarGlyph.init(json:))
         row.colorKey = raw["color"] as? String
         return row
     }

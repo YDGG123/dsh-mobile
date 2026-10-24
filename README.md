@@ -44,6 +44,16 @@ Whaleness 是独立开发的 DeepSeek Harness 第三方原生移动客户端。�
 - **桌面端**：需要运行 DeepSeek Harness，并安装、启用 **`dsh-plugin-mobile-gateway` 0.10.3 或更高版本**。最低版本以 [`AppRelease/release-info.json`](AppRelease/release-info.json) 为准。
 - **语音输入**：另需在桌面端的“插件”模块启用官方“语音输入”插件，完成模型下载和初始化，并授予移动端麦克风权限。
 
+## 公测用户群
+
+欢迎加入 Whaleness 公测用户群，交流使用体验、反馈问题并获取支持。使用微信扫码，或保存图片后在微信中识别。
+
+<p align="center">
+  <a href="website/assets/support-wechat-2026-10-23.png"><img src="website/assets/support-wechat-2026-10-23.png" alt="Whaleness 公测用户群微信二维码，2026 年 10 月 30 日前有效" width="320"></a>
+</p>
+
+> 当前二维码于 2026 年 10 月 23 日更新，原图注明 2026 年 10 月 30 日前有效。若已过期，请查看[产品页面](https://clarklevis1995.github.io/dsh-mobile/)中的最新群码。
+
 ## 当前平台状态
 
 | 平台/模块 | 当前状态 | 主要实现 |

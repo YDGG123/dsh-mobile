@@ -62,7 +62,8 @@ sealed interface GatewayRuntimeEvent {
     data class Frame(
         val rawJson: String,
         val frame: GatewayFrame,
-        val correlatedSessionId: String?
+        val correlatedSessionId: String?,
+        val isBackgroundHistory: Boolean = false
     ) : GatewayRuntimeEvent {
         override fun toString(): String =
             "Frame(kind=${frame.kind}, correlatedSessionId=$correlatedSessionId, rawJson=<redacted>)"
@@ -74,18 +75,21 @@ sealed interface GatewayRuntimeEvent {
         val requestType: String,
         val targetSessionId: String?,
         val reason: String,
-        val correlationId: String? = null
+        val correlationId: String? = null,
+        val isBackgroundHistory: Boolean = false
     ) : GatewayRuntimeEvent
     data class RequestTimedOut(
         val requestType: String,
         val targetSessionId: String?,
-        val correlationId: String? = null
+        val correlationId: String? = null,
+        val isBackgroundHistory: Boolean = false
     ) : GatewayRuntimeEvent
     data class RequestRejected(
         val requestType: String,
         val reason: String,
         val targetSessionId: String? = null,
-        val correlationId: String? = null
+        val correlationId: String? = null,
+        val isBackgroundHistory: Boolean = false
     ) : GatewayRuntimeEvent
 }
 
@@ -134,6 +138,13 @@ class GatewayRuntime(
     private var pairingCode: String? = null
     private var endpoint: String? = null
     private var subscribedSessionId: String? = null
+    private val conversationTargets = mutableMapOf<String, com.clarklevis.dsh.shared.facade.ConversationTarget>()
+
+    suspend fun registerConversationTarget(targetJson: String) = serialized {
+        val target = com.clarklevis.dsh.shared.protocol.wireJson.decodeFromString<com.clarklevis.dsh.shared.facade.ConversationTarget>(targetJson)
+        conversationTargets[target.sessionId] = target
+    }
+
     private var isInBackground = false
     private var connectionGeneration = 0L
     private var requestGeneration = 0L
@@ -277,7 +288,10 @@ class GatewayRuntime(
                 if (canReconnectLocked()) {
                     if (wasInBackground) startForegroundResumeLocked()
                     if (mutableState.value.connection == GatewayConnectionState.CONNECTED) {
-                        if (wasInBackground) probeForegroundConnectionLocked()
+                        if (wasInBackground) {
+                            probeForegroundConnectionLocked()
+                            sendRequestLocked(GatewayRequests.simple("sessions"))
+                        }
                     } else if (wasInBackground && foregroundResumeEndpoint != null) {
                         // An attempt started before backgrounding may be stuck on an unreachable fallback.
                         // A real foreground transition gets one fresh attempt at the last authenticated endpoint.
@@ -314,6 +328,22 @@ class GatewayRuntime(
             historyFormatVersion))
     }
 
+    /** 后台预加载只允许占用空闲 lane，绝不入队、合并或取消前台请求。 */
+    suspend fun tryRequestHistoryInBackground(
+        sessionId: String,
+        maxMessages: Int = 80,
+        maxBytes: Int = 256 * 1024,
+        view: String? = null,
+        historyFormatVersion: Int? = null
+    ): Boolean = serialized {
+        if (mutableState.value.connection != GatewayConnectionState.CONNECTED || pendingLanes["history"] != null) {
+            return@serialized false
+        }
+        // 后台请求也必须走地址装饰，子智能体不能退化为裸 sessionId。
+        sendRequestLocked(GatewayRequests.history(sessionId, maxMessages = maxMessages, maxBytes = maxBytes,
+            view = view, historyFormatVersion = historyFormatVersion).copy(timeoutMilliseconds = 10_000, isBackgroundHistory = true))
+    }
+
     suspend fun requestAttachment(sessionId: String, attachmentId: String): Boolean =
         sendRequest(GatewayRequests.attachment(sessionId, attachmentId))
 
@@ -331,16 +361,18 @@ class GatewayRuntime(
         sessionId: String?,
         workspaceId: String?,
         clientTimeZone: String,
-        mode: String = "queue"
+        mode: String = "queue",
+        receipts: List<String> = emptyList(),
+        requestId: String? = null
     ): Boolean = serialized {
-        if (text.isBlank() && images.isEmpty()) return@serialized false
+        if (text.isBlank() && images.isEmpty() && receipts.isEmpty()) return@serialized false
         if (!outgoingImagesAreWithinLimits(images)) {
             rejectLocked("message", ERROR_IMAGE_LIMITS)
             return@serialized false
         }
         markTurnLocked(sessionId)
         val sent = sendRequestLocked(
-            GatewayRequests.message(text.trim(), images, sessionId, workspaceId, clientTimeZone, mode)
+            GatewayRequests.message(text.trim(), images, sessionId, workspaceId, clientTimeZone, mode, receipts, requestId)
         )
         if (!sent) releaseTurnLocked(sessionId)
         sent
@@ -369,7 +401,14 @@ class GatewayRuntime(
     suspend fun cancelQuestion(rpcId: String, sessionId: String): Boolean =
         sendRequest(GatewayRequests.questionCancel(rpcId, sessionId))
 
-    private suspend fun sendRequestLocked(request: GatewayRequest): Boolean {
+    private suspend fun sendRequestLocked(input: GatewayRequest): Boolean {
+        val target = conversationTargets[input.targetSessionId]
+        val payload = target?.let { runCatching { it.decorate(input.payload) }.getOrNull() } ?: if (target == null) input.payload else {
+            rejectLocked(input.requestType, "subagent/not-resumable", input.targetSessionId, input.correlationId)
+            return false
+        }
+        val request = input.copy(payload = payload)
+
         if (mutableState.value.connection != GatewayConnectionState.CONNECTED) {
             rejectLocked(
                 request.requestType,
@@ -422,7 +461,8 @@ class GatewayRuntime(
                     request.requestType,
                     ERROR_SEND_FAILED,
                     request.targetSessionId,
-                    request.correlationId
+                    request.correlationId,
+                    request.isBackgroundHistory
                 )
                 false
             }
@@ -656,15 +696,18 @@ class GatewayRuntime(
         if (!correlation.accepted) return null
         if (frame.kind == "error") {
             if (frame.resetRequired == true || frame.requestType?.startsWith("speech-") == true ||
-                frame.requestType in setOf("session-agent-preset", "select-agent-preset")) {
-                return FrameDelivery(GatewayRuntimeEvent.Frame(transportFrame.text, frame, correlation.sessionId),
+                frame.requestType?.startsWith("file-") == true ||
+                frame.requestType in setOf("session-agent-preset", "select-agent-preset", "agent-team", "subagents") ||
+                conversationTargets[frame.sessionId]?.parentSessionId != null) {
+                return FrameDelivery(GatewayRuntimeEvent.Frame(transportFrame.text, frame, correlation.sessionId, correlation.isBackgroundHistory),
                     transportFrame.byteCount.toLong())
             }
             rejectLocked(
                 frame.requestType ?: "gateway",
                 ERROR_GATEWAY_REQUEST,
                 correlation.sessionId,
-                responseCorrelation(frame)
+                responseCorrelation(frame),
+                correlation.isBackgroundHistory
             )
             return null
         }
@@ -707,10 +750,22 @@ class GatewayRuntime(
         } else {
             transportFrame.byteCount.toLong() * FRAME_RETENTION_MULTIPLIER + FRAME_OBJECT_OVERHEAD_BYTES
         }
-        return FrameDelivery(GatewayRuntimeEvent.Frame(safeRaw, safeFrame, correlation.sessionId), estimatedBytes)
+        return FrameDelivery(GatewayRuntimeEvent.Frame(safeRaw, safeFrame, correlation.sessionId, correlation.isBackgroundHistory), estimatedBytes)
     }
 
     private suspend fun correlateLocked(frame: GatewayFrame): Correlation {
+        // 成员资料使用有 requestId 的独立只读通道，不占用或完成前台 history lane。
+        val profileId = frame.requestId?.takeIf { it.startsWith("team-profile-") }
+        if (profileId != null && frame.kind in setOf("history", "error")) {
+            val lane = pendingLanes[profileId] ?: return Correlation(false, null)
+            val request = lane.active.request
+            if (request.requestType != "history" || request.correlationId != profileId ||
+                lane.active.generation != connectionGeneration || !sessionMatches(request, frame.sessionId)) {
+                return Correlation(false, null)
+            }
+            completeLaneLocked(profileId)
+            return Correlation(true, frame.sessionId ?: request.targetSessionId)
+        }
         if (frame.kind in UNCORRELATED_KINDS) return Correlation(true, frame.sessionId)
         if (frame.kind == "error") {
             val requestType = frame.requestType
@@ -753,7 +808,7 @@ class GatewayRuntime(
             }
             if (requestType == "message") releaseTurnLocked(request.targetSessionId)
             completeLaneLocked(entry.key)
-            return Correlation(true, frame.sessionId ?: request.targetSessionId)
+            return Correlation(true, frame.sessionId ?: request.targetSessionId, request.isBackgroundHistory)
         }
         val lane = pendingLanes[frame.kind]
         if (lane == null) {
@@ -781,9 +836,12 @@ class GatewayRuntime(
             )
             return Correlation(false, null)
         }
+        // 有后续切换时，旧确认只释放单飞通道，禁止建立旧订阅基线（包括 A→B→A）。
+        val supersededSubscription = frame.kind == "subscribed" && lane.queued.isNotEmpty()
         val sessionId = frame.sessionId ?: lane.active.request.targetSessionId
+        val isBackgroundHistory = lane.active.request.isBackgroundHistory
         if (frame.kind != "attachment") completeLaneLocked(frame.kind)
-        return Correlation(true, sessionId)
+        return Correlation(!supersededSubscription, sessionId, isBackgroundHistory)
     }
 
     private fun sessionMatches(request: GatewayRequest, explicitSessionId: String?): Boolean =
@@ -791,11 +849,17 @@ class GatewayRuntime(
 
     private fun responseCorrelationMatches(request: GatewayRequest, frame: GatewayFrame): Boolean =
         when (request.responseKind) {
+            "sent" -> request.correlationId == null || request.correlationId == frame.requestId
             "queue-item-updated" -> request.correlationId == frame.itemId
             "attachment" -> request.correlationId == frame.attachment?.attachmentId
             "question-response", "approval-response" -> request.correlationId == frame.rpcId
             "speech-catalog", "speech-subscribed", "speech-unsubscribed", "speech-preparing",
             "speech-preparation-cancelled", "speech-transcript", "speech-cancelled",
+            "file-upload-completed" -> request.correlationId == frame.requestId || (frame.uploadId != null && runCatching {
+                val payload = wireJson.parseToJsonElement(request.payload) as kotlinx.serialization.json.JsonObject
+                (payload["uploadId"] as? kotlinx.serialization.json.JsonPrimitive)?.content == frame.uploadId
+            }.getOrDefault(false))
+            "file-upload-opened", "file-upload-chunk-accepted", "file-upload-cancelled",
             "session-created", "session-agent-preset", "select-agent-preset", "file-resolved", "file-list", "file-download-opened" -> request.correlationId == frame.requestId
             "file-download-chunk", "file-download-cancelled" -> request.correlationId == frame.transferId
             "command-options", "command-selected" -> request.correlationId == frame.command?.stringValue
@@ -813,6 +877,7 @@ class GatewayRuntime(
             "question-response", "approval-response" -> frame.rpcId
             "speech-catalog", "speech-subscribed", "speech-unsubscribed", "speech-preparing",
             "speech-preparation-cancelled", "speech-transcript", "speech-cancelled",
+            "sent", "file-upload-opened", "file-upload-chunk-accepted", "file-upload-completed", "file-upload-cancelled",
             "session-created", "session-agent-preset", "select-agent-preset", "file-resolved", "file-list", "file-download-opened" -> frame.requestId
             "file-download-chunk", "file-download-cancelled" -> frame.transferId
             "command-options", "command-selected" -> frame.command?.stringValue
@@ -964,6 +1029,20 @@ class GatewayRuntime(
     ) {
         val lane = pendingLanes[responseKind] ?: return
         if (lane.active.id != pendingId || lane.active.generation != transportGeneration) return
+        if (responseKind.startsWith("team-profile-")) {
+            pendingLanes.remove(responseKind)
+            lane.active.timeoutJob = null
+            emitEventLocked(GatewayRuntimeEvent.RequestTimedOut(lane.active.request.requestType,
+                lane.active.request.targetSessionId, lane.active.request.correlationId))
+            return
+        }
+        if (lane.active.request.requestType.startsWith("file-upload-")) {
+            lane.active.timeoutJob = null
+            emitEventLocked(GatewayRuntimeEvent.RequestTimedOut(lane.active.request.requestType,
+                lane.active.request.targetSessionId, lane.active.request.correlationId))
+            completeLaneLocked(responseKind)
+            return
+        }
         if (isInBackground && !mutableState.value.shouldKeepAliveInBackground) {
             lane.active.timeoutJob = null
             return
@@ -978,9 +1057,14 @@ class GatewayRuntime(
             GatewayRuntimeEvent.RequestTimedOut(
                 lane.active.request.requestType,
                 lane.active.request.targetSessionId,
-                lane.active.request.correlationId
+                lane.active.request.correlationId,
+                lane.active.request.isBackgroundHistory
             )
         )
+        if (lane.active.request.requestType == "message" && runCatching {
+            val payload = wireJson.parseToJsonElement(lane.active.request.payload) as kotlinx.serialization.json.JsonObject
+            (payload["files"] as? kotlinx.serialization.json.JsonArray)?.isNotEmpty() == true
+        }.getOrDefault(false)) return
         if (mutableState.value.connection != GatewayConnectionState.SUSPENDED) {
             recycleConnectionForDeferredLocked()
         }
@@ -1033,7 +1117,8 @@ class GatewayRuntime(
                 request.requestType,
                 request.targetSessionId,
                 reason,
-                request.correlationId
+                request.correlationId,
+                request.isBackgroundHistory
             )
         )
     }
@@ -1216,14 +1301,16 @@ class GatewayRuntime(
         requestType: String,
         code: String,
         targetSessionId: String? = null,
-        correlationId: String? = null
+        correlationId: String? = null,
+        isBackgroundHistory: Boolean = false
     ) {
         emitEventLocked(
             GatewayRuntimeEvent.RequestRejected(
                 requestType,
                 code,
                 targetSessionId,
-                correlationId
+                correlationId,
+                isBackgroundHistory
             )
         )
     }
@@ -1284,7 +1371,7 @@ class GatewayRuntime(
         val active: PendingRequest,
         val queued: ArrayDeque<GatewayRequest>
     )
-    private data class Correlation(val accepted: Boolean, val sessionId: String?)
+    private data class Correlation(val accepted: Boolean, val sessionId: String?, val isBackgroundHistory: Boolean = false)
 
     private fun GatewayTransportState.Failed.stableErrorCode(): String = when {
         httpStatus == 401 -> ERROR_AUTH_REQUIRED

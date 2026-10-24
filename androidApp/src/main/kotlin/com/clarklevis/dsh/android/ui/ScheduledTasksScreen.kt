@@ -44,8 +44,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -243,7 +241,7 @@ internal fun ScheduledTasksScreen(
         AlertDialog(
             onDismissRequest = { deletingTask = null },
             title = { Text(appText("删除定时任务？")) },
-            text = { Text(appText("删除后任务及投递记录无法恢复；已进入会话队列的消息不会撤回。")) },
+            text = { DshMenuHost { Text(appText("删除后任务及投递记录无法恢复；已进入会话队列的消息不会撤回。"))  } },
             confirmButton = {
                 TextButton(onClick = {
                     stateHolder.deleteScheduledTask(task)
@@ -260,7 +258,7 @@ internal fun ScheduledTasksScreen(
         AlertDialog(
             onDismissRequest = { showsMutationError = false },
             title = { Text(appText("定时任务操作失败")) },
-            text = { Text(stateHolder.scheduledTaskMutationError ?: appText("请稍后重试")) },
+            text = { DshMenuHost { Text(stateHolder.scheduledTaskMutationError ?: appText("请稍后重试"))  } },
             confirmButton = { TextButton(onClick = { showsMutationError = false }) { Text(appText("好")) } }
         )
     }
@@ -349,17 +347,12 @@ private fun ScheduledTaskSearchAndFilter(
                 ) {
                     Icon(painterResource(R.drawable.ic_filter_list), null, Modifier.size(21.dp))
                 }
-                DropdownMenu(
+                DshMenu(
                     expanded = filterExpanded,
                     onDismissRequest = { filterExpanded = false },
-                    modifier = Modifier.width(170.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    tonalElevation = 0.dp,
-                    shadowElevation = 8.dp
-                ) {
+                    modifier = Modifier.width(170.dp)) {
                     ScheduledTaskStatusFilter.entries.forEach { option ->
-                        DropdownMenuItem(
+                        DshMenuItem(
                             text = { Text(option.title) },
                             onClick = {
                                 onStatusChange(option)

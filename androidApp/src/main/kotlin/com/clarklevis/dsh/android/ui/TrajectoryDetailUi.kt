@@ -81,12 +81,14 @@ internal fun TrajectoryEventDetailSheet(
         containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.98f),
         dragHandle = null
     ) {
-        Column(Modifier.fillMaxSize().testTag("trajectory-detail-sheet")) {
-            DetailSheetHeader(node.title, onDismiss)
-            when (node.kind) {
-                TrajectoryNodeKind.REQUEST -> RequestDetail(node)
-                TrajectoryNodeKind.TOOL, TrajectoryNodeKind.SUBTOOL -> ToolDetail(node)
-                else -> GenericDetail(node)
+        DshMenuColumnHost {
+            Column(Modifier.fillMaxSize().testTag("trajectory-detail-sheet")) {
+                DetailSheetHeader(node.title, onDismiss)
+                when (node.kind) {
+                    TrajectoryNodeKind.REQUEST -> RequestDetail(node)
+                    TrajectoryNodeKind.TOOL, TrajectoryNodeKind.SUBTOOL -> ToolDetail(node)
+                    else -> GenericDetail(node)
+                }
             }
         }
     }

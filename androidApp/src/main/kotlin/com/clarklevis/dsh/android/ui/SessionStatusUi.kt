@@ -222,7 +222,7 @@ private fun SessionStatsPopover(
         snapshot.tokenUsage?.totals?.inputTokens?.let {
             AgentStatusRow(appText("输入"), "${SessionStatsFormatter.compact(it)} tok")
         }
-        HorizontalDivider(color = Color.Black.copy(alpha = 0.08f))
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         Text(
             appText("查看完整统计"),
             modifier = Modifier.fillMaxWidth().clickable(onClick = onViewFullStats)
@@ -236,7 +236,7 @@ private fun SessionStatsPopover(
 @Composable
 private fun AgentStatusRow(title: String, value: String) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(title, color = Color(0xFF7A7A80), fontSize = 14.sp)
+        Text(title, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp)
         Spacer(Modifier.weight(1f))
         Text(
             value,
@@ -253,6 +253,8 @@ internal fun SessionStatsSheet(
     snapshot: GatewaySessionStatsSnapshot?,
     onDismiss: () -> Unit
 ) {
+    val colors = MaterialTheme.colorScheme
+    val (sheetColor, cardColor) = sessionStatsSheetColors()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
     val coroutineScope = rememberCoroutineScope()
     val expandedTopInset = adaptiveWindowSize().height * 0.12f
@@ -272,8 +274,8 @@ internal fun SessionStatsSheet(
         modifier = Modifier.adaptiveSheetBounds().fillMaxHeight().padding(top = expandedTopInset),
         sheetState = sheetState,
         shape = RoundedCornerShape(topStart = 36.dp, topEnd = 36.dp),
-        containerColor = Color(0xFFF2F2F7),
-        contentColor = Color(0xFF111217),
+        containerColor = sheetColor,
+        contentColor = colors.onBackground,
         scrimColor = Color.Black.copy(alpha = 0.28f),
         dragHandle = {
             Box(
@@ -282,103 +284,127 @@ internal fun SessionStatsSheet(
             ) {
                 Box(
                     Modifier.width(36.dp).height(5.dp)
-                        .background(Color(0xFF8E8E93), CircleShape)
+                        .background(colors.outline, CircleShape)
                 )
             }
         }
     ) {
-        Column(
-            modifier = Modifier.fillMaxSize().testTag("session-stats-sheet")
-                .navigationBarsPadding()
-        ) {
-            Box(
-                modifier = Modifier.fillMaxWidth().height(54.dp).padding(horizontal = 20.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(appText("会话状态"), fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                Surface(
-                    modifier = Modifier.align(Alignment.CenterEnd).height(44.dp)
-                        .clickable(role = Role.Button, onClick = dismissWithAnimation),
-                    shape = CircleShape,
-                    color = Color.White.copy(alpha = 0.72f),
-                    border = BorderStroke(0.7.dp, Color.Black.copy(alpha = 0.06f))
-                ) {
-                    Box(Modifier.padding(horizontal = 18.dp), contentAlignment = Alignment.Center) {
-                        Text(appText("完成"), fontSize = 16.sp, fontWeight = FontWeight.Medium)
-                    }
-                }
-            }
+        DshMenuColumnHost {
             Column(
-                modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())
-                    .padding(horizontal = 20.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(22.dp)
+                modifier = Modifier.fillMaxSize().testTag("session-stats-sheet")
+                    .navigationBarsPadding()
             ) {
-                val stats = snapshot?.stats
-                if (stats == null) {
-                    Box(Modifier.fillMaxWidth().heightIn(min = 220.dp), contentAlignment = Alignment.Center) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(appText("正在读取会话统计"), fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
-                            Spacer(Modifier.height(8.dp))
-                            Text(appText("统计会在本轮结束后自动更新。"), color = Color(0xFF8E8E93), fontSize = 14.sp)
+                Box(
+                    modifier = Modifier.fillMaxWidth().height(54.dp).padding(horizontal = 20.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(appText("会话状态"), fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    Surface(
+                        modifier = Modifier.align(Alignment.CenterEnd).height(44.dp)
+                            .clickable(role = Role.Button, onClick = dismissWithAnimation),
+                        shape = CircleShape,
+                        color = cardColor,
+                        contentColor = colors.onSurface,
+                        border = BorderStroke(0.7.dp, colors.outlineVariant)
+                    ) {
+                        Box(Modifier.padding(horizontal = 18.dp), contentAlignment = Alignment.Center) {
+                            Text(appText("完成"), fontSize = 16.sp, fontWeight = FontWeight.Medium)
                         }
                     }
-                } else {
-                    StatsMetricsSection(
-                        title = appText("执行"),
-                        metrics = listOf(
-                            appText("轮次") to appText("%1\$s 轮", stats.turns ?: 0),
-                            appText("步骤") to appText("%1\$s 步", stats.steps ?: 0),
-                            "LLM" to (stats.llmMs?.let(SessionStatsFormatter::duration) ?: "—"),
-                            appText("工具调用") to (stats.toolMs?.let(SessionStatsFormatter::duration) ?: "—"),
-                            appText("首 token 平均") to (SessionStatsFormatter.averageTtft(stats)?.let(SessionStatsFormatter::duration) ?: "—"),
-                            appText("解码吞吐") to (SessionStatsFormatter.throughput(stats)?.let { "${SessionStatsFormatter.compactDecimal(it)} tok/s" } ?: "—")
-                        )
-                    )
-                    snapshot.tokenUsage?.totals?.let { totals ->
-                        StatsMetricsSection(
-                            title = appText("Token 用量"),
-                            metrics = listOf(
-                                appText("输入") to token(totals.inputTokens),
-                                appText("输出") to token(totals.outputTokens),
-                                appText("缓存读取") to token(totals.cacheReadTokens),
-                                appText("缓存写入") to token(totals.cacheWriteTokens),
-                                appText("推理") to token(totals.reasoningTokens),
-                                appText("缓存命中") to (SessionStatsFormatter.cacheHitRate(totals)?.let { "${(it * 100).roundToInt()}%" } ?: "—")
-                            )
-                        )
-                    }
-                    snapshot.contextPressure?.let { pressure ->
-                        StatsMetricsSection(
-                            title = appText("上下文"),
-                            metrics = listOf(
-                                appText("当前压力") to token(pressure.pressureTokens),
-                                appText("预计用量") to token(pressure.projectedTokens),
-                                appText("上下文窗口") to token(pressure.contextWindow)
-                            )
-                        )
-                    }
-                    snapshot.asOfSeq?.let {
-                        Text(
-                            appText("数据截至事件 #%1\$s", it),
-                            color = Color(0xFFAEAEB2),
-                            fontSize = 12.sp,
-                            fontFamily = FontFamily.Monospace
-                        )
-                    }
                 }
-                Spacer(Modifier.height(12.dp))
+                Column(
+                    modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+                        .padding(horizontal = 20.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(22.dp)
+                ) {
+                    val stats = snapshot?.stats
+                    if (stats == null) {
+                        Box(Modifier.fillMaxWidth().heightIn(min = 220.dp), contentAlignment = Alignment.Center) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(appText("正在读取会话统计"), fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                                Spacer(Modifier.height(8.dp))
+                                Text(appText("统计会在本轮结束后自动更新。"), color = colors.onSurfaceVariant, fontSize = 14.sp)
+                            }
+                        }
+                    } else {
+                        StatsMetricsSection(
+                            title = appText("执行"),
+                            containerColor = cardColor,
+                            metrics = listOf(
+                                appText("轮次") to appText("%1\$s 轮", stats.turns ?: 0),
+                                appText("步骤") to appText("%1\$s 步", stats.steps ?: 0),
+                                "LLM" to (stats.llmMs?.let(SessionStatsFormatter::duration) ?: "—"),
+                                appText("工具调用") to (stats.toolMs?.let(SessionStatsFormatter::duration) ?: "—"),
+                                appText("首 token 平均") to (SessionStatsFormatter.averageTtft(stats)?.let(SessionStatsFormatter::duration) ?: "—"),
+                                appText("解码吞吐") to (SessionStatsFormatter.throughput(stats)?.let { "${SessionStatsFormatter.compactDecimal(it)} tok/s" } ?: "—")
+                            )
+                        )
+                        snapshot.tokenUsage?.totals?.let { totals ->
+                            StatsMetricsSection(
+                                title = appText("Token 用量"),
+                                containerColor = cardColor,
+                                metrics = listOf(
+                                    appText("输入") to token(totals.inputTokens),
+                                    appText("输出") to token(totals.outputTokens),
+                                    appText("缓存读取") to token(totals.cacheReadTokens),
+                                    appText("缓存写入") to token(totals.cacheWriteTokens),
+                                    appText("推理") to token(totals.reasoningTokens),
+                                    appText("缓存命中") to (SessionStatsFormatter.cacheHitRate(totals)?.let { "${(it * 100).roundToInt()}%" } ?: "—")
+                                )
+                            )
+                        }
+                        snapshot.contextPressure?.let { pressure ->
+                            StatsMetricsSection(
+                                title = appText("上下文"),
+                                containerColor = cardColor,
+                                metrics = listOf(
+                                    appText("当前压力") to token(pressure.pressureTokens),
+                                    appText("预计用量") to token(pressure.projectedTokens),
+                                    appText("上下文窗口") to token(pressure.contextWindow)
+                                )
+                            )
+                        }
+                        snapshot.asOfSeq?.let {
+                            Text(
+                                appText("数据截至事件 #%1\$s", it),
+                                color = colors.onSurfaceVariant,
+                                fontSize = 12.sp,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(12.dp))
+                }
             }
         }
     }
 }
 
+private const val DARK_STATS_SHEET_BACKGROUND = 0xFF2A2A2B
+private const val DARK_STATS_SHEET_CARD = 0xFF2F2F2F
+
 @Composable
-private fun StatsMetricsSection(title: String, metrics: List<Pair<String, String>>) {
+private fun sessionStatsSheetColors(): Pair<Color, Color> {
+    val colors = MaterialTheme.colorScheme
+    // 对齐 iOS regularMaterial 弹层与 thinMaterial 卡片的中性灰层次。
+    return if (isSystemInDarkTheme()) {
+        Color(DARK_STATS_SHEET_BACKGROUND) to Color(DARK_STATS_SHEET_CARD)
+    } else {
+        colors.background to colors.surface
+    }
+}
+
+@Composable
+private fun StatsMetricsSection(
+    title: String,
+    containerColor: Color,
+    metrics: List<Pair<String, String>>,
+) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(title, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
         Column(
             modifier = Modifier.fillMaxWidth()
-                .background(Color.Black.copy(alpha = 0.025f), RoundedCornerShape(16.dp))
+                .background(containerColor, RoundedCornerShape(16.dp))
                 .padding(horizontal = 14.dp)
         ) {
             metrics.forEach { (label, value) ->
@@ -386,10 +412,11 @@ private fun StatsMetricsSection(title: String, metrics: List<Pair<String, String
                     modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(label, color = Color(0xFF8E8E93), fontSize = 16.sp)
+                    Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 16.sp)
                     Spacer(Modifier.weight(1f))
                     Text(
                         value,
+                        color = MaterialTheme.colorScheme.onSurface,
                         style = MaterialTheme.typography.bodyLarge.copy(fontFeatureSettings = "tnum"),
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Medium

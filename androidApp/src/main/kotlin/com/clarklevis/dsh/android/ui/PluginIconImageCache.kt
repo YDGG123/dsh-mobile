@@ -8,8 +8,8 @@ import android.graphics.Canvas
 import android.util.Base64
 import android.util.LruCache
 import com.caverock.androidsvg.SVG
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
@@ -107,6 +107,10 @@ internal class PluginIconImageCache(private val assets: AssetManager) {
         private const val ICON_PIXELS = 256
         private val IMAGE_HEADERS = setOf("png", "jpeg", "gif", "webp", "svg+xml").map { "data:image/$it;base64" }.toSet()
         @Volatile private var instance: PluginIconImageCache? = null
+
+        fun trimMemory() {
+            instance?.images?.evictAll()
+        }
 
         fun shared(context: Context): PluginIconImageCache = instance ?: synchronized(this) {
             instance ?: PluginIconImageCache(context.applicationContext.assets).also { instance = it }

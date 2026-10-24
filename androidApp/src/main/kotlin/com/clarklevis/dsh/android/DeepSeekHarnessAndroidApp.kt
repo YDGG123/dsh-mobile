@@ -73,9 +73,16 @@ fun DeepSeekHarnessAndroidApp() {
     }
     val stateHolder = hosts.activeGraph.stateHolder
     val imageOwner = remember { androidx.compose.runtime.mutableStateOf<AndroidSharedStateHolder?>(null) }
-    val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+    val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (imageOwner.value === stateHolder) uri?.let(stateHolder::prepareImage)
         imageOwner.value = null
+    }
+    val fileOwner = remember { androidx.compose.runtime.mutableStateOf<Pair<AndroidSharedStateHolder, String?>?>(null) }
+    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        fileOwner.value?.takeIf { it.first === stateHolder }?.let { (owner, sessionId) ->
+            if (uris.isNotEmpty()) owner.prepareFiles(uris, sessionId)
+        }
+        fileOwner.value = null
     }
     val notificationPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -95,7 +102,8 @@ fun DeepSeekHarnessAndroidApp() {
                 androidx.compose.runtime.key(stateHolder) {
                     DshProductApp(
                         stateHolder = stateHolder,
-                        onPickImage = { imageOwner.value = stateHolder; imagePicker.launch("image/*") },
+                        onPickImage = { imageOwner.value = stateHolder; imagePicker.launch(androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                        onPickFile = { fileOwner.value = stateHolder to stateHolder.snapshot.selectedSessionId; filePicker.launch(arrayOf("*/*")) },
                         notificationRoute = notificationRoute?.takeIf { it.gatewayId == hosts.activeId },
                         onNotificationRouteOpened = application::clearNotificationSession
                     )

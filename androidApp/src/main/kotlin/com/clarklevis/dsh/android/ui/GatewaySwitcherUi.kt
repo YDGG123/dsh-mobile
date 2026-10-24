@@ -1,23 +1,13 @@
 package com.clarklevis.dsh.android.ui
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.core.rememberTransition
-import androidx.compose.runtime.SideEffect
-import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.foundation.background
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.selection.selectable
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.res.painterResource
 import com.clarklevis.dsh.android.localization.appText
 import com.clarklevis.dsh.android.R
@@ -49,15 +39,13 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
-import androidx.compose.ui.window.PopupProperties
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
-import androidx.compose.material3.Surface
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.ui.graphics.SolidColor
@@ -89,6 +77,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import com.clarklevis.dsh.android.AndroidMultiGatewayStore
 import com.clarklevis.dsh.android.DshAndroidApplication
+import com.clarklevis.dsh.shared.gateway.GatewayConnectionState
 import com.clarklevis.dsh.shared.gateway.GatewayProfile
 import kotlinx.coroutines.awaitCancellation
 
@@ -113,9 +102,9 @@ internal fun GatewaySwitcherBar() {
     ) {
         HostIcon(hosts.activeProfile?.server == true, Color.White, Modifier.size(15.dp))
         Text(hosts.activeProfile?.displayName ?: appText("选择主机"), color = Color.White, fontSize = 12.sp, maxLines = 1)
-        val activeOnline = hosts.activeId in hosts.onlineIds
+        val activeOnline = hosts.activeGraph.stateHolder.gatewayState.connection == GatewayConnectionState.CONNECTED
         StatusIndicatorDot(
-            color = if (activeOnline) DshColors.Success else Color.Gray,
+            color = if (activeOnline) DshColors.Success else Color.Red,
             modifier = Modifier.size(6.dp),
             glowing = activeOnline
         )
@@ -153,73 +142,75 @@ internal fun GatewaySwitcherBar() {
                 contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
                 tonalElevation = 0.dp
             ) {
-                HostPanelSurface {
-                    Column(Modifier.fillMaxWidth().heightIn(min = 360.dp).padding(horizontal = 16.dp)) {
-                        HostPanelHeader(
-                            title = appText("切换主机"),
-                            action = gatewayDeleteActionLabel(selectedIds.size),
-                            onAction = { confirmingDelete = true },
-                            onCancel = {
-                                managing = !managing
-                                if (!managing) selectedIds = emptySet()
-                            },
-                            leadingText = if (managing) appText("完成编辑") else appText("编辑"),
-                            actionColor = Color(0xFFFF3B30)
-                        )
-                        Text(
-                            appText("我的主机"),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 15.sp,
-                            lineHeight = 20.sp,
-                            fontWeight = FontWeight.Medium,
-                            modifier = Modifier.padding(start = 16.dp, top = 22.dp, bottom = 10.dp)
-                        )
-                        val displayedProfiles = activeHostFirst(hosts.profiles, hosts.activeId)
-                        LazyColumn(
-                            Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp))
-                                .background(hostPanelCardColor())
-                        ) {
-                            itemsIndexed(
-                                items = displayedProfiles,
-                                key = { _, profile -> profile.localId }
-                            ) { index, profile ->
-                                GatewayHostRow(
-                                    hosts = hosts,
-                                    profile = profile,
-                                    managing = managing,
-                                    selected = profile.localId in selectedIds,
-                                    onSelect = {
-                                        if (managing) {
-                                            selectedIds = toggleSelection(selectedIds, profile.localId)
-                                        } else {
-                                            hosts.select(profile)
-                                            expanded = false
-                                        }
-                                    },
-                                    onEdit = { editing = profile }
-                                )
-                                if (index < displayedProfiles.lastIndex) {
-                                    HorizontalDivider(
-                                        modifier = Modifier.padding(
-                                            start = if (managing) 86.dp else 50.dp,
-                                            end = 16.dp
-                                        ),
-                                        thickness = 0.5.dp,
-                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
+                DshMenuColumnHost {
+                    HostPanelSurface {
+                        Column(Modifier.fillMaxWidth().heightIn(min = 360.dp).padding(horizontal = 16.dp)) {
+                            HostPanelHeader(
+                                title = appText("切换主机"),
+                                action = gatewayDeleteActionLabel(selectedIds.size),
+                                onAction = { confirmingDelete = true },
+                                onCancel = {
+                                    managing = !managing
+                                    if (!managing) selectedIds = emptySet()
+                                },
+                                leadingText = if (managing) appText("完成编辑") else appText("编辑"),
+                                actionColor = Color(0xFFFF3B30)
+                            )
+                            Text(
+                                appText("我的主机"),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 15.sp,
+                                lineHeight = 20.sp,
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier.padding(start = 16.dp, top = 22.dp, bottom = 10.dp)
+                            )
+                            val displayedProfiles = activeHostFirst(hosts.profiles, hosts.activeId)
+                            LazyColumn(
+                                Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp))
+                                    .background(hostPanelCardColor())
+                            ) {
+                                itemsIndexed(
+                                    items = displayedProfiles,
+                                    key = { _, profile -> profile.localId }
+                                ) { index, profile ->
+                                    GatewayHostRow(
+                                        hosts = hosts,
+                                        profile = profile,
+                                        managing = managing,
+                                        selected = profile.localId in selectedIds,
+                                        onSelect = {
+                                            if (managing) {
+                                                selectedIds = toggleSelection(selectedIds, profile.localId)
+                                            } else {
+                                                hosts.select(profile)
+                                                expanded = false
+                                            }
+                                        },
+                                        onEdit = { editing = profile }
                                     )
+                                    if (index < displayedProfiles.lastIndex) {
+                                        HorizontalDivider(
+                                            modifier = Modifier.padding(
+                                                start = if (managing) 86.dp else 50.dp,
+                                                end = 16.dp
+                                            ),
+                                            thickness = 0.5.dp,
+                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
+                                        )
+                                    }
+                                }
+                                if (hosts.profiles.isEmpty()) {
+                                    item {
+                                        Text(
+                                            appText("暂无已连接的主机"),
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.padding(20.dp)
+                                        )
+                                    }
                                 }
                             }
-                            if (hosts.profiles.isEmpty()) {
-                                item {
-                                    Text(
-                                        appText("暂无已连接的主机"),
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.padding(20.dp)
-                                    )
-                                }
-                            }
+                            Spacer(Modifier.height(32.dp))
                         }
-                        Spacer(Modifier.height(32.dp))
                     }
                 }
             }
@@ -232,7 +223,7 @@ internal fun GatewaySwitcherBar() {
                 onDismissRequest = { confirmingDelete = false },
                 containerColor = MaterialTheme.colorScheme.surface,
                 title = { Text(if (selectedIds.size == 1) appText("删除主机？") else appText("批量删除主机？")) },
-                text = { Text(appText("从 App 移除选中的 %1\$s 台主机及连接凭证；网关上的会话和工作区不会被删除。再次连接需重新配对。", selectedIds.size)) },
+                text = { DshMenuHost { Text(appText("从 App 移除选中的 %1\$s 台主机及连接凭证；网关上的会话和工作区不会被删除。再次连接需重新配对。", selectedIds.size))  } },
                 confirmButton = {
                     TextButton(onClick = {
                         hosts.remove(hosts.profiles.filter { it.localId in selectedIds })
@@ -318,7 +309,7 @@ private fun GatewayHostRow(
         }
         val online = profile.localId in hosts.onlineIds
         StatusIndicatorDot(
-            color = if (online) DshColors.Success else Color.Gray,
+            color = if (online) DshColors.Success else Color.Red,
             modifier = Modifier.size(8.dp),
             glowing = online
         )
@@ -351,22 +342,6 @@ private fun GatewayEditor(hosts: AndroidMultiGatewayStore, profile: GatewayProfi
     var alias by remember(profile) { mutableStateOf(profile?.alias.orEmpty()) }
     var server by remember(profile) { mutableStateOf(profile?.server == true) }
     var choosingKind by remember(profile) { mutableStateOf(false) }
-    val menuVisibility = remember(profile) { MutableTransitionState(false) }
-    SideEffect { menuVisibility.targetState = choosingKind }
-    val menuTransition = rememberTransition(menuVisibility, label = "Host kind menu")
-    val menuAlpha by menuTransition.animateFloat(
-        transitionSpec = { tween(if (targetState) 160 else 120) },
-        label = "Menu opacity"
-    ) { visible -> if (visible) 1f else 0f }
-    val menuScale by menuTransition.animateFloat(
-        transitionSpec = { tween(if (targetState) 220 else 120, easing = FastOutSlowInEasing) },
-        label = "Menu scale"
-    ) { visible -> if (visible) 1f else 0.92f }
-    val menuOrigin = if (LocalLayoutDirection.current == LayoutDirection.Ltr) {
-        TransformOrigin(1f, 1f)
-    } else {
-        TransformOrigin(0f, 1f)
-    }
     if (profile != null) {
         ModalBottomSheet(
             modifier = Modifier.adaptiveSheetBounds(),
@@ -380,135 +355,91 @@ private fun GatewayEditor(hosts: AndroidMultiGatewayStore, profile: GatewayProfi
             contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
             tonalElevation = 0.dp
         ) {
-            HostPanelSurface(showDragHandle = false) {
-                Column(
-                    Modifier.fillMaxWidth().heightIn(min = 420.dp)
-                        .padding(horizontal = 16.dp).padding(top = 16.dp, bottom = 32.dp)
-                ) {
-                    HostPanelHeader(appText("编辑主机"), appText("保存"), {
-                        hosts.edit(profile, alias, server)
-                        onDismiss()
-                    }, onDismiss)
-                    Text(
-                        appText("留空使用网关提供的名称：%1\$s", profile.gatewayName),
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 22.dp, bottom = 10.dp)
-                    )
+            DshMenuColumnHost {
+                HostPanelSurface(showDragHandle = false) {
                     Column(
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp))
-                            .background(hostPanelCardColor()).padding(horizontal = 16.dp)
+                        Modifier.fillMaxWidth().heightIn(min = 420.dp)
+                            .padding(horizontal = 16.dp).padding(top = 16.dp, bottom = 32.dp)
                     ) {
-                        BasicTextField(
-                            value = alias,
-                            onValueChange = { alias = it },
-                            singleLine = true,
-                            textStyle = TextStyle(fontSize = 17.sp, color = MaterialTheme.colorScheme.onSurface),
-                            cursorBrush = SolidColor(MaterialTheme.colorScheme.onSurface),
-                            modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
-                                .semantics { contentDescription = appText("本地名称") },
-                            decorationBox = { innerTextField ->
-                                Box(Modifier.fillMaxWidth().padding(vertical = 14.dp), contentAlignment = Alignment.CenterStart) {
-                                    if (alias.isEmpty()) {
+                        HostPanelHeader(appText("编辑主机"), appText("保存"), {
+                            hosts.edit(profile, alias, server)
+                            onDismiss()
+                        }, onDismiss)
+                        Text(
+                            appText("留空使用网关提供的名称：%1\$s", profile.gatewayName),
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 22.dp, bottom = 10.dp)
+                        )
+                        Column(
+                            Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp))
+                                .background(hostPanelCardColor()).padding(horizontal = 16.dp)
+                        ) {
+                            BasicTextField(
+                                value = alias,
+                                onValueChange = { alias = it },
+                                singleLine = true,
+                                textStyle = TextStyle(fontSize = 17.sp, color = MaterialTheme.colorScheme.onSurface),
+                                cursorBrush = SolidColor(MaterialTheme.colorScheme.onSurface),
+                                modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
+                                    .semantics { contentDescription = appText("本地名称") },
+                                decorationBox = { innerTextField ->
+                                    Box(Modifier.fillMaxWidth().padding(vertical = 14.dp), contentAlignment = Alignment.CenterStart) {
+                                        if (alias.isEmpty()) {
+                                            Text(
+                                                profile.gatewayName,
+                                                fontSize = 17.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                        innerTextField()
+                                    }
+                                }
+                            )
+                            HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f))
+                            Row(
+                                Modifier.fillMaxWidth().heightIn(min = 52.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(appText("主机类型"), fontSize = 17.sp, modifier = Modifier.weight(1f))
+                                Box {
+                                    Row(
+                                        Modifier.heightIn(min = 48.dp).clickable { choosingKind = true }
+                                            .semantics { contentDescription = appText("主机类型，%1\$s，展开选择", if (server) appText("服务器") else appText("电脑")) },
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        HostIcon(server, MaterialTheme.colorScheme.onSurface, Modifier.size(20.dp))
                                         Text(
-                                            profile.gatewayName,
+                                            if (server) appText("服务器") else appText("电脑"),
                                             fontSize = 17.sp,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
+                                            style = TextStyle(platformStyle = androidx.compose.ui.text.PlatformTextStyle(includeFontPadding = false))
+                                        )
+                                        Icon(
+                                            painterResource(R.drawable.ic_chevrons_up_down),
+                                            contentDescription = null,
+                                            modifier = Modifier.width(12.dp).height(16.dp)
                                         )
                                     }
-                                    innerTextField()
-                                }
-                            }
-                        )
-                        HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f))
-                        Row(
-                            Modifier.fillMaxWidth().heightIn(min = 52.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(appText("主机类型"), fontSize = 17.sp, modifier = Modifier.weight(1f))
-                            Box {
-                                Row(
-                                    Modifier.heightIn(min = 48.dp).clickable { choosingKind = true }
-                                        .semantics { contentDescription = appText("主机类型，%1\$s，展开选择", if (server) appText("服务器") else appText("电脑")) },
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    HostIcon(server, MaterialTheme.colorScheme.onSurface, Modifier.size(20.dp))
-                                    Text(
-                                        if (server) appText("服务器") else appText("电脑"),
-                                        fontSize = 17.sp,
-                                        style = TextStyle(platformStyle = androidx.compose.ui.text.PlatformTextStyle(includeFontPadding = false))
-                                    )
-                                    Icon(
-                                        painterResource(R.drawable.ic_chevrons_up_down),
-                                        contentDescription = null,
-                                        modifier = Modifier.width(12.dp).height(16.dp)
-                                    )
-                                }
-                                if (menuVisibility.currentState || menuVisibility.targetState) {
                                     val density = LocalDensity.current
                                     val positionProvider = remember(density) {
-                                        HostKindMenuPositionProvider(
-                                            shadowPadding = with(density) { 32.dp.roundToPx() },
-                                            gap = with(density) { 4.dp.roundToPx() }
-                                        )
+                                        HostKindMenuPositionProvider(with(density) { 24.dp.roundToPx() }, with(density) { 4.dp.roundToPx() })
                                     }
-                                    Popup(
-                                        popupPositionProvider = positionProvider,
-                                        onDismissRequest = { choosingKind = false },
-                                        properties = PopupProperties(focusable = true)
-                                    ) {
-                                        // 留白属于 Popup 本身，不经过菜单 Surface 或滚动容器裁剪。
-                                        Box(Modifier.padding(32.dp)) {
-                                            Surface(
-                                                modifier = Modifier.width(256.dp).graphicsLayer {
-                                                    alpha = menuAlpha
-                                                    scaleX = menuScale
-                                                    scaleY = menuScale
-                                                    transformOrigin = menuOrigin
-                                                },
-                                                shape = RoundedCornerShape(32.dp),
-                                                color = if (isSystemInDarkTheme()) Color(0xFF343840) else Color(0xFFE1E7F0),
-                                                tonalElevation = 0.dp,
-                                                shadowElevation = 8.dp,
-                                                border = BorderStroke(0.6.dp, Color.White.copy(alpha = 0.35f))
-                                            ) {
-                                                Column(Modifier.padding(vertical = 8.dp)) {
-                                                    listOf(false, true).forEach { isServer ->
-                                                        Row(
-                                                            Modifier.fillMaxWidth().heightIn(min = 44.dp)
-                                                                .selectable(
-                                                                    selected = server == isServer,
-                                                                    enabled = choosingKind,
-                                                                    role = Role.RadioButton,
-                                                                    onClick = {
-                                                                        server = isServer
-                                                                        choosingKind = false
-                                                                    }
-                                                                )
-                                                                .padding(horizontal = 20.dp, vertical = 8.dp),
-                                                            verticalAlignment = Alignment.CenterVertically,
-                                                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                                        ) {
-                                                            Box(Modifier.size(18.dp), contentAlignment = Alignment.Center) {
-                                                                if (server == isServer) {
-                                                                    Icon(
-                                                                        painterResource(R.drawable.ic_host_selected),
-                                                                        contentDescription = null,
-                                                                        modifier = Modifier.size(18.dp)
-                                                                    )
-                                                                }
-                                                            }
-                                                            HostIcon(isServer, MaterialTheme.colorScheme.onSurface, Modifier.size(20.dp))
-                                                            Text(if (isServer) appText("服务器") else appText("电脑"), fontSize = 17.sp)
-                                                        }
-                                                    }
-                                                }
+                                    DshMenuPopup(choosingKind, { choosingKind = false }, positionProvider,
+                                        Modifier.width(256.dp).testTag("host-kind-menu")) {
+                                        Column(Modifier.padding(vertical = 6.dp)) {
+                                            listOf(false, true).forEach { isServer ->
+                                                DshMenuItem(
+                                                    text = { Text(if (isServer) appText("服务器") else appText("电脑"), fontSize = 17.sp) },
+                                                    leadingIcon = { HostIcon(isServer, MaterialTheme.colorScheme.onSurface, Modifier.size(20.dp)) },
+                                                    trailingIcon = { if (server == isServer) Icon(painterResource(R.drawable.ic_menu_check), null, Modifier.size(18.dp)) },
+                                                    onClick = { server = isServer; choosingKind = false })
                                             }
                                         }
                                     }
+
                                 }
                             }
                         }

@@ -1,6 +1,7 @@
 import SwiftUI
 import MarkdownUI
 import PhotosUI
+import UniformTypeIdentifiers
 import UIKit
 import DeepSeekHarnessShared
 
@@ -354,9 +355,15 @@ struct ConversationView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var activeView = 0
     @State private var draft = ""
+    @State private var memberDrafts: [String: String] = [:]
+    @State private var memberImages: [String: [GatewayOutgoingImage]] = [:]
     @State private var voiceSnapshot: SharedVoiceInputSnapshot?
     @State private var voiceTouchActive = false
     @State private var voiceToast: String?
+    @State private var showsPhotoPicker = false
+    @State private var showsFilePicker = false
+    @State private var showsFileUploadUpgradeAlert = false
+    @State private var filePickerSessionID: String?
     @State private var selectedPhotoItems: [PhotosPickerItem] = []
     @State private var pendingImages: [GatewayOutgoingImage] = []
     @State private var isImportingImages = false
@@ -394,6 +401,10 @@ struct ConversationView: View {
         ZStack {
             conversationBackground.ignoresSafeArea()
             VStack(spacing: 0) {
+                if store.isViewingTeamMember {
+                    Text("团队 › \(store.selectedSession?.title ?? "成员")" + (store.selectedMemberCanSend ? "" : " · 只读"))
+                        .appFont(.caption).foregroundStyle(.secondary).lineLimit(1).padding(.bottom, 4)
+                }
                 Picker("视图", selection: $activeView) {
                     Text("对话").tag(0)
                     Text("轨迹").tag(1)
@@ -483,7 +494,9 @@ struct ConversationView: View {
             ConversationViewport(
                 proxy: viewportProxy,
                 sessionID: sessionID,
-                timeline: store.conversationTimeline(for: sessionID ?? "__empty__"),
+                cacheScope: store.gatewayLocalID,
+                searchTargetID: searchTargetViewportID,
+                timeline: store.displayedConversationTimeline(for: sessionID ?? "__empty__"),
                 supplementalEntries: supplementalViewportEntries,
                 makeEntries: { items in
                     makeConversationViewportEntries(from: items)
@@ -512,9 +525,18 @@ struct ConversationView: View {
                 },
                 onApproachingTop: {
                     guard let sessionID = store.selectedSessionId,
-                          store.historyHasMore[sessionID] == true,
-                          !store.historyLoadingSessionIds.contains(sessionID) else { return }
-                    store.loadHistory(for: sessionID, older: true)
+                          let consumerID = viewportProxy.historyPresentationConsumerID else { return }
+                    store.requestOlderHistoryPresentation(sessionID: sessionID, consumerID: consumerID,
+                        readingWindow: viewportProxy.historyReadingWindowSize)
+                },
+                onHistoryPresentationConsumerAttached: { sessionID, consumer in
+                    store.attachHistoryPresentationConsumer(sessionID: sessionID, consumer: consumer)
+                },
+                onHistoryPresentationConsumerDetached: { sessionID, consumerID in
+                    store.detachHistoryPresentationConsumer(sessionID: sessionID, consumerID: consumerID)
+                },
+                onHistoryPresented: { sessionID, consumerID, stamp in
+                    store.acknowledgeHistoryPresentation(sessionID: sessionID, consumerID: consumerID, stamp: stamp)
                 }
             )
             // Session 是 UIKit viewport 的身份边界。切换时直接销毁旧
@@ -563,13 +585,16 @@ struct ConversationView: View {
                 .allowsHitTesting(false)
 
             VStack(spacing: 0) {
-                if shouldShowScrollToBottom {
-                    scrollToBottomButton {
-                        viewportScrollToBottomToken &+= 1
+                Group {
+                    if shouldShowScrollToBottom {
+                        scrollToBottomButton {
+                            viewportScrollToBottomToken &+= 1
+                        }
+                        .padding(.bottom, 8)
+                        .transition(.scale(scale: 0.85).combined(with: .opacity))
                     }
-                    .padding(.bottom, 8)
-                    .transition(.scale(scale: 0.85).combined(with: .opacity))
                 }
+                .animation(.easeOut(duration: 0.16), value: shouldShowScrollToBottom)
 
                 VStack(alignment: .leading, spacing: 0) {
                     if let request = store.selectedPendingApprovalRequest {
@@ -737,7 +762,6 @@ struct ConversationView: View {
                     .accessibilityIdentifier("voice-input-toast")
             }
         }
-        .animation(.easeOut(duration: 0.16), value: shouldShowScrollToBottom)
         .onPreferenceChange(ComposerHeightPreferenceKey.self) { height in
             guard height > 0, abs(height - composerHeight) > 0.5 else { return }
             composerHeight = height
@@ -815,6 +839,13 @@ struct ConversationView: View {
             store.leaveSessionAgentPreset()
         }
         .onChangeCompat(of: store.selectedSessionId) { previous, current in
+            if let previous {
+                memberDrafts[previous] = draft
+                memberImages[previous] = pendingImages
+            }
+            draft = current.flatMap { memberDrafts[$0] } ?? ""
+            pendingImages = current.flatMap { memberImages[$0] } ?? []
+            selectedPhotoItems = []
             store.voiceInput.open(context: current ?? "new-session", draft: draft)
             if previous != nil && current == nil { dismissConversation() }
         }
@@ -861,7 +892,7 @@ struct ConversationView: View {
     private func historyFailureState(_ error: String) -> some View {
         VStack(spacing: 14) {
             Image(systemName: "exclamationmark.triangle").appFont(.largeTitle).foregroundStyle(.orange)
-            Text("历史记录加载失败").appFont(.title3.weight(.semibold))
+            Text(error.contains("尚未缓存") ? "离线内容不可用" : "历史记录加载失败").appFont(.title3.weight(.semibold))
             Text(error.contains("refuses this format")
                  ? "Host 无法读取旧格式会话，请修复或升级 Host 后重试。原始记录未修改。"
                  : error)
@@ -871,6 +902,7 @@ struct ConversationView: View {
                 if let id = store.selectedSessionId { store.loadHistory(for: id) }
             }
             .buttonStyle(.bordered)
+            .disabled(!store.gateway.state.isConnected)
         }
         .padding(.horizontal, 28)
         .accessibilityIdentifier("history-load-failure")
@@ -883,7 +915,7 @@ struct ConversationView: View {
 
     private var isLoadingOlderSelectedHistory: Bool {
         guard let id = store.selectedSessionId else { return false }
-        return store.historyLoadingOlderSessionIds.contains(id)
+        return store.isShowingSearchContext ? store.searchContextLoadingOlder : store.historyLoadingOlderSessionIds.contains(id)
     }
 
     private var shouldShowScrollToBottom: Bool {
@@ -1032,6 +1064,60 @@ struct ConversationView: View {
 
     private var voiceState: SharedVoiceInputSnapshot { voiceSnapshot ?? store.voiceInput.state }
 
+    private var attachmentMenu: some View {
+        Menu {
+            Button { showsPhotoPicker = true } label: {
+                Label("图片", systemImage: "photo")
+            }
+            .disabled(!store.supportsImages || pendingImages.count >= 20 || isImportingImages)
+            Button {
+                guard store.fileUploads.supported else {
+                    showsFileUploadUpgradeAlert = true
+                    return
+                }
+                filePickerSessionID = store.selectedSessionId
+                showsFilePicker = true
+            } label: {
+                Label("文件", systemImage: "doc")
+            }
+            .disabled(store.isViewingTeamMember || store.fileUploads.drafts.count >= 20 || store.fileUploads.preparing)
+        } label: {
+            Image(systemName: "plus.circle")
+                .appFont(.system(size: 21, weight: .regular))
+                // SF Symbol 自身含侧边留白，补偿后与语音圆按钮保持相同可见边距。
+                .offset(x: -2)
+                // 可见图标贴齐输入框的内容边缘，点击区域仍保留 32pt。
+                .frame(width: 32, height: 32, alignment: .leading)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .disabled(store.messageSubmissionPending)
+        .accessibilityLabel("添加附件")
+        .photosPicker(isPresented: $showsPhotoPicker, selection: $selectedPhotoItems,
+            maxSelectionCount: max(1, 20 - pendingImages.count), matching: .images)
+        .fileImporter(isPresented: $showsFilePicker, allowedContentTypes: [.item], allowsMultipleSelection: true,
+            onCompletion: importPickedFiles)
+        .alert("请升级网关", isPresented: $showsFileUploadUpgradeAlert) {
+            Button("好", role: .cancel) {}
+        } message: {
+            Text("当前网关不支持文件上传，请升级到支持文件上传的 Mobile Gateway，并重新连接。")
+        }
+    }
+
+    private func importPickedFiles(_ result: Result<[URL], Error>) {
+        store.voiceInput.setVoiceMode(false)
+        guard store.selectedSessionId == filePickerSessionID else { return }
+        switch result {
+        case .success(let urls):
+            Task {
+                guard await store.ensureFileUploadSession() else { return }
+                store.fileUploads.select(sessionID: store.selectedSessionId, allowed: !store.isViewingTeamMember)
+                await store.fileUploads.importFiles(urls)
+            }
+        case .failure(let error): store.lastError = error.localizedDescription
+        }
+    }
+
     private var composerCard: some View {
         let slashPresentation = slashCommandComposerPresentation(
             draft: draft,
@@ -1042,6 +1128,8 @@ struct ConversationView: View {
             if !pendingImages.isEmpty {
                 pendingImageStrip
             }
+            if store.fileUploads.preparing { ProgressView("正在准备文件…").appFont(.caption) }
+            if !store.fileUploads.drafts.isEmpty { pendingFileStrip }
             VoiceComposerTextInput(
                 text: $draft,
                 isFocused: $composerIsFocused,
@@ -1063,31 +1151,16 @@ struct ConversationView: View {
                 }
             }
             HStack(spacing: 7) {
-                PhotosPicker(
-                    selection: $selectedPhotoItems,
-                    maxSelectionCount: max(1, 20 - pendingImages.count),
-                    matching: .images
-                ) {
-                    Group {
-                        if isImportingImages {
-                            ProgressView().controlSize(.small)
-                        } else {
-                            Image(systemName: "photo.on.rectangle.angled")
-                                .appFont(.system(size: 16, weight: .semibold))
-                        }
-                    }
-                    .frame(width: 32, height: 32)
-                    .contentShape(Circle())
-                }
-                .buttonStyle(.plain)
-                .disabled(!store.supportsImages || pendingImages.count >= 20 || isImportingImages)
-                .accessibilityLabel(store.supportsImages ? String(localized: "添加图片") : String(localized: "当前网关不支持图片"))
+                attachmentMenu
 
-                permissionControl
+                if !store.isViewingTeamMember { permissionControl }
 
                 Spacer(minLength: 2)
 
-                modelControl
+                if !store.isViewingTeamMember { modelControl }
+                else {
+                    Text(store.selectedSession?.title ?? "成员会话").appFont(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
 
                 Button { showsContextUsage = true } label: {
                     if contextIsLoading && store.selectedContextSnapshot == nil {
@@ -1156,9 +1229,9 @@ struct ConversationView: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(
-                    showsSessionStopButton
+                    !store.selectedMemberCanSend || (showsSessionStopButton
                         ? store.isCancellingSelectedSession
-                        : (composerHasContent && (store.sessionAgentPreset.blocksSending || store.waitingForNewSession || isImportingImages || store.commandSubmissionPending || store.messageSubmissionPending))
+                        : (composerHasContent && (store.sessionAgentPreset.blocksSending || store.waitingForNewSession || isImportingImages || store.fileUploads.preparing || (!store.fileUploads.drafts.isEmpty && !store.fileUploads.canSend) || store.commandSubmissionPending || store.messageSubmissionPending)))
                 )
                 .opacity(
                     showsSessionStopButton
@@ -1202,6 +1275,13 @@ struct ConversationView: View {
         .onChange(of: store.messageAcceptedRevision) { _ in
             guard let submitted = submittedQueueDraft else { return }
             defer { submittedQueueDraft = nil; submittedQueueImages = [] }
+            if let target = submittedQueueSessionID, target != store.selectedSessionId {
+                if memberDrafts[target] == submitted, memberImages[target] == submittedQueueImages {
+                    memberDrafts[target] = ""
+                    memberImages[target] = []
+                }
+                return
+            }
             guard (submittedQueueSessionID == nil || submittedQueueSessionID == store.selectedSessionId),
                   draft == submitted, pendingImages == submittedQueueImages else { return }
             draft = ""
@@ -1213,14 +1293,20 @@ struct ConversationView: View {
         }
         .onChange(of: store.queueRevision) { _ in restoreQueuedDraft() }
         .onChange(of: store.selectedSessionId) { _ in
+            // 上游新增：切换会话时同步上传队列的作用域（iOS16 用单参 onChange）。
+            store.fileUploads.select(sessionID: store.selectedSessionId, allowed: !store.isViewingTeamMember)
             queueExpanded = false
             restoreQueuedDraft()
         }
-        .onAppear { restoreQueuedDraft() }
+        .onAppear {
+            store.fileUploads.select(sessionID: store.selectedSessionId, allowed: !store.isViewingTeamMember)
+            restoreQueuedDraft()
+        }
         .onChange(of: selectedPhotoItems) { items in
             guard !items.isEmpty else { return }
             store.voiceInput.setVoiceMode(false)
-            Task { await importPhotos(items) }
+            let target = store.selectedSessionId
+            Task { await importPhotos(items, targetSessionID: target) }
         }
         .onChange(of: draft) { value in
             store.voiceInput.draftChanged(value)
@@ -1439,11 +1525,38 @@ struct ConversationView: View {
     }
 
     private var composerHasContent: Bool {
-        !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !pendingImages.isEmpty
+        !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !pendingImages.isEmpty || !store.fileUploads.drafts.isEmpty || store.fileUploads.preparing
     }
 
     private var showsSessionStopButton: Bool {
-        store.supportsSessionCancel && store.selectedSession?.isRunning == true && !composerHasContent
+        store.selectedMemberCanSend && store.supportsSessionCancel && store.selectedSession?.isRunning == true && !composerHasContent
+    }
+
+    private var pendingFileStrip: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(store.fileUploads.drafts, id: \.id) { file in
+                    PendingFileCard(
+                        file: file,
+                        status: uploadStatus(file),
+                        enabled: !store.messageSubmissionPending,
+                        onRetry: { store.fileUploads.retry(file.id) },
+                        onRemove: { store.fileUploads.remove(file.id) }
+                    )
+                }
+            }
+        }
+    }
+
+    private func uploadStatus(_ file: SharedUploadDraft) -> String {
+        switch file.status {
+        case "waiting": String(localized: "等待上传")
+        case "opening": String(localized: "开始上传…")
+        case "uploading": "\(String(localized: "上传中")) \(file.size > 0 ? file.confirmedBytes * 100 / file.size : 0)%"
+        case "committing": String(localized: "处理中…")
+        case "ready": "\(String(localized: "可发送")) · \(ByteCountFormatter.string(fromByteCount: file.size, countStyle: .file))"
+        default: String(localized: String.LocalizationValue(file.error ?? "上传失败"))
+        }
     }
 
     private var pendingImageStrip: some View {
@@ -1492,20 +1605,20 @@ struct ConversationView: View {
     }
 
     @MainActor
-    private func importPhotos(_ items: [PhotosPickerItem]) async {
+    private func importPhotos(_ items: [PhotosPickerItem], targetSessionID: String?) async {
         isImportingImages = true
         defer {
             isImportingImages = false
-            selectedPhotoItems = []
+            if store.selectedSessionId == targetSessionID { selectedPhotoItems = [] }
         }
         var imported: [GatewayOutgoingImage] = []
         for item in items.prefix(max(0, 20 - pendingImages.count)) {
             do {
-                guard let data = try await item.loadTransferable(type: Data.self),
-                      let mediaType = Self.imageMediaType(for: data) else {
+                guard let data = try await item.loadTransferable(type: Data.self) else {
                     store.lastError = String(localized: "所选图片不是受支持的 PNG、JPEG、WebP 或 GIF。")
                     continue
                 }
+                let mediaType = Self.imageMediaType(for: data) ?? "image/heic"
                 let prepared = try await Task.detached(priority: .userInitiated) {
                     try GatewayImagePreprocessor.prepare(data: data, mediaType: mediaType)
                 }.value
@@ -1514,16 +1627,20 @@ struct ConversationView: View {
                 store.lastError = String(localized: "image.process.failed", defaultValue: "处理所选图片失败：\(error.localizedDescription)")
             }
         }
-        let existingBytes = pendingImages.reduce(0) { $0 + $1.data.count }
+        var destination = store.selectedSessionId == targetSessionID ? pendingImages : targetSessionID.flatMap { memberImages[$0] } ?? []
+        let existingBytes = destination.reduce(0) { $0 + $1.data.count }
         var acceptedBytes = existingBytes
-        for image in imported where !pendingImages.contains(where: { $0.mediaType == image.mediaType && $0.data == image.data }) {
+        for image in imported where !destination.contains(where: { $0.mediaType == image.mediaType && $0.data == image.data }) {
+            guard destination.count < 20 else { break }
             guard acceptedBytes + image.data.count <= 100 * 1024 * 1024 else {
                 store.lastError = String(localized: "一条消息中的图片总大小不能超过 100 MiB。")
                 break
             }
-            pendingImages.append(image)
+            destination.append(image)
             acceptedBytes += image.data.count
         }
+        if store.selectedSessionId == targetSessionID { pendingImages = destination }
+        else if let targetSessionID { memberImages[targetSessionID] = destination }
     }
 
     private static func imageMediaType(for data: Data) -> String? {
@@ -1896,18 +2013,31 @@ struct ConversationView: View {
         var hasher = Hasher()
         hasher.combine(isLoadingSelectedHistory)
         if let sessionID = store.selectedSessionId {
-            hasher.combine(store.historyHasMore[sessionID])
+            hasher.combine(store.selectedHistoryHasMore)
             hasher.combine(store.historyLoadProgress[sessionID]?.loaded)
             hasher.combine(store.historyLoadProgress[sessionID]?.total)
         }
         let revision = hasher.finalize()
         var entries: [ConversationViewportEntry] = []
+        if store.conversationSearchTarget != nil {
+            entries.append(.init(id: "search-context", revision: revision,
+                content: AnyView(HStack {
+                    Text("本地缓存片段").appFont(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    Button("返回最新消息") {
+                        Task {
+                            await store.returnToLatestConversation()
+                            viewportScrollToBottomToken &+= 1
+                        }
+                    }.appFont(.caption)
+                }.padding(.vertical, 8)), allowsScrollAnchoring: false))
+        }
         if !conversationItems.isEmpty, isLoadingSelectedHistory {
             entries.append(.init(id: "history-loading", revision: revision, content: AnyView(historyLoadingBanner), allowsScrollAnchoring: false))
         }
         if !isLoadingSelectedHistory,
            let sessionID = store.selectedSessionId,
-           store.historyHasMore[sessionID] == true {
+           store.selectedHistoryHasMore {
             entries.append(.init(
                 id: "history-more",
                 revision: revision,
@@ -1920,6 +2050,17 @@ struct ConversationView: View {
             ))
         }
         return entries
+    }
+
+    private var searchTargetViewportID: String? {
+        guard let target = store.conversationSearchTarget else { return nil }
+        let eventID = String(target.dropFirst("message-".count))
+        return ConversationDisplayEntry.make(from: conversationItems).first { entry in
+            switch entry.content {
+            case .message(let item): item.id == eventID || item.id.hasPrefix(eventID + "-")
+            case .process(let group): group.items.contains { $0.id == eventID || $0.id.hasPrefix(eventID + "-") }
+            }
+        }?.id ?? target
     }
 
     private func makeConversationViewportEntries(from items: [ConversationItem]) -> [ConversationViewportEntry] {
@@ -1942,19 +2083,8 @@ struct ConversationView: View {
                 return [ConversationViewportEntry(
                     id: entry.id,
                     revision: revision,
-                    userMessage: .init(
-                        text: item.text,
-                        images: item.images.map { image in
-                            .init(
-                                id: image.id,
-                                data: store.imageData(for: image.id),
-                                width: image.width,
-                                height: image.height,
-                                name: image.name
-                            )
-                        },
-                        showsCopyButton: entry.showsCopyButton
-                    )
+                    userMessage: .init(item: item, imageData: { store.imageData(for: $0) },
+                        showsCopyButton: entry.showsCopyButton, onOpenFile: uploadedFileOpener())
                 )]
             }
             switch entry.content {
@@ -1966,7 +2096,8 @@ struct ConversationView: View {
                         item: item,
                         showsCopyButton: entry.showsCopyButton,
                         imageData: { store.imageData(for: $0) },
-                        onOpenFile: conversationFileOpener()
+                        onOpenFile: conversationFileOpener(),
+                        onOpenUploadedFile: uploadedFileOpener()
                     )),
                     // Completed responses are immutable for this revision.
                     // The viewport measures their SwiftUI root directly before
@@ -2079,6 +2210,15 @@ struct ConversationView: View {
             )
         case .toolDetail(let tool):
             ConversationProcessToolDetailRow(tool: tool)
+        }
+    }
+
+    private func uploadedFileOpener() -> (PresentedFile) -> Void {
+        let gatewayID = store.gatewayLocalID
+        let sessionID = store.selectedSessionId
+        return { file in
+            guard let sessionID else { return }
+            store.openUploadedFile(gatewayID: gatewayID, sessionID: sessionID, file: file)
         }
     }
 
@@ -2453,8 +2593,7 @@ private struct ConversationDefaultModelSummary: View {
             } else {
                 Text(title)
                     .lineLimit(1)
-                    .minimumScaleFactor(0.72)
-                    .allowsTightening(true)
+                    .truncationMode(.tail)
                 if let effortTitle {
                     Text(effortTitle)
                         .appFont(.caption2.weight(.semibold))
@@ -2562,8 +2701,7 @@ private struct ConversationModelMenuLabel: View {
             } else {
                 Text(title)
                     .lineLimit(1)
-                    .minimumScaleFactor(0.72)
-                    .allowsTightening(true)
+                    .truncationMode(.tail)
                     .layoutPriority(1)
                 if let effortTitle {
                     Text(effortTitle)
@@ -4164,6 +4302,7 @@ struct ConversationRow: View {
     let showsCopyButton: Bool
     let imageData: (String) -> Data?
     var onOpenFile: ((String) -> Void)? = nil
+    var onOpenUploadedFile: ((PresentedFile) -> Void)? = nil
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
@@ -4173,6 +4312,9 @@ struct ConversationRow: View {
                 VStack(alignment: .trailing, spacing: 8) {
                     if !item.images.isEmpty {
                         AttachmentImageGrid(attachments: item.images, imageData: imageData)
+                    }
+                    ForEach(item.files.filter { $0.attachmentId != nil }, id: \.attachmentId) { file in
+                        UploadedFileCard(file: file) { onOpenUploadedFile?(file) }
                     }
                     if !item.text.isEmpty {
                         Text(item.text).appFont(.body)
@@ -4215,7 +4357,7 @@ struct ConversationRow: View {
                     .frame(maxWidth: .infinity, alignment: .trailing)
                 }
                 if showsCopyButton && !item.text.isEmpty {
-                    CopyMessageButton(text: item.text)
+                    CopyMessageButton(text: ParsedMarkdownCache.document(for: item.text).renderPlainText())
                         .padding(.bottom, 8)
                 }
             }
@@ -4289,6 +4431,7 @@ struct ConversationRow: View {
 
 struct CopyMessageButton: View {
     let text: String
+    var isCode = false
     @State private var copied = false
 
     var body: some View {
@@ -4313,11 +4456,11 @@ struct CopyMessageButton: View {
                 }
             }
                 .foregroundStyle(copied ? DSHColor.ocean : Color.secondary)
-                .frame(width: 16, height: 26)
+                .frame(width: isCode ? 44 : 16, height: isCode ? 44 : 26)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(copied ? String(localized: "已复制") : String(localized: "复制正文"))
+        .accessibilityLabel(copied ? String(localized: "已复制") : String(localized: isCode ? "复制代码" : "复制正文"))
     }
 }
 
@@ -4436,6 +4579,7 @@ struct MarkdownContent: View {
     var compact = false
     var knownFiles: [PresentedFile] = []
     var onOpenFile: ((String) -> Void)?
+    @State private var selectionDocument: MarkdownSelectionDocument?
 
     init(_ text: String, compact: Bool = false, knownFiles: [PresentedFile] = [], onOpenFile: ((String) -> Void)? = nil) {
         self.text = text
@@ -4445,7 +4589,32 @@ struct MarkdownContent: View {
     }
 
     var body: some View {
-        Markdown(ParsedMarkdownCache.document(for: markdownSource).linkingInlineCode(codeDestinations))
+        renderedMarkdown
+            .background {
+                MarkdownLongPressMenu(onCopy: {
+                    UIPasteboard.general.string = ParsedMarkdownCache.document(for: text).renderPlainText()
+                }, onSelectText: openTextSelection)
+                .accessibilityHidden(true)
+            }
+            .accessibilityAction(named: Text("复制")) {
+                UIPasteboard.general.string = ParsedMarkdownCache.document(for: text).renderPlainText()
+            }
+            .accessibilityAction(named: Text("选择文字"), openTextSelection)
+            .fullScreenCover(item: $selectionDocument) { document in
+                MarkdownSelectionPage(document: document)
+            }
+    }
+
+    private func openTextSelection() {
+        selectionDocument = MarkdownSelectionDocument(
+            text: text,
+            fontSize: UIFontMetrics.default.scaledValue(for: 17)
+                * CGFloat(AppFontScale.effective(fontScale, followsSystem: fontFollowsSystem))
+        )
+    }
+
+    private var renderedMarkdown: some View {
+        Markdown(PreparedMarkdownCache.document(for: text, filePaths: knownFiles.map(\.path)))
             .environment(\.openURL, OpenURLAction { url in
                 guard let onOpenFile else { return .systemAction }
                 if url.scheme == "dsh-file-reference", let index = Int(url.lastPathComponent), knownFiles.indices.contains(index) {
@@ -4464,25 +4633,387 @@ struct MarkdownContent: View {
             .dynamicTypeSize(.large)
     }
 
-    private var codeDestinations: [String: String] {
-        let paths = knownFiles.map(\.path)
-        var destinations: [String: String] = [:]
-        for (index, file) in knownFiles.enumerated() {
-            let destination = "dsh-file-reference:///\(index)"
-            destinations[file.path] = destination
-            let name = file.path.replacingOccurrences(of: "\\", with: "/").split(separator: "/").last.map(String.init) ?? file.path
-            if ConversationFileReferences.shared.knownPath(code: name, paths: paths) != nil {
-                destinations[name] = destination
-            }
-        }
-        return destinations
+}
+
+private struct MarkdownLongPressMenu: UIViewRepresentable {
+    let onCopy: () -> Void
+    let onSelectText: () -> Void
+
+    func makeUIView(context: Context) -> MarkdownLongPressMenuView {
+        MarkdownLongPressMenuView()
     }
 
-    private var markdownSource: String {
-        // The thin spaces participate in text layout, keeping adjacent
-        // punctuation outside the chip. MarkdownUI's renderer merges their
-        // separate font runs into one rounded background on modern iOS.
-        knownFiles.isEmpty ? InlineCodePadding.apply(to: text) : text
+    func updateUIView(_ view: MarkdownLongPressMenuView, context: Context) {
+        view.onCopy = onCopy
+        view.onSelectText = onSelectText
+    }
+
+    static func dismantleUIView(_ view: MarkdownLongPressMenuView, coordinator: ()) {
+        view.detachMenu()
+        view.onCopy = nil
+        view.onSelectText = nil
+    }
+}
+
+/// 背景只提供菜单锚点，手势在窗口监听且限于正文范围，不遮挡链接与代码复制按钮。
+/// 使用编辑浮层，避免 contextMenu 对整段 Markdown 生成预览、抬升和缩放。
+final class MarkdownLongPressMenuView: UIView, UIGestureRecognizerDelegate, UIEditMenuInteractionDelegate {
+    var onCopy: (() -> Void)?
+    var onSelectText: (() -> Void)?
+    private lazy var menu = UIEditMenuInteraction(delegate: self)
+    private lazy var longPress = UILongPressGestureRecognizer(target: self, action: #selector(pressed(_:)))
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        longPress.delegate = self
+        addInteraction(menu)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool { false }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        detachMenu()
+        // SwiftUI 的背景容器不是正文触摸视图的祖先。挂到窗口才能收到正文触摸，
+        // 再由 shouldReceive 将事件限制在当前 Markdown 的范围内。
+        window?.addGestureRecognizer(longPress)
+    }
+
+    func detachMenu() {
+        longPress.view?.removeGestureRecognizer(longPress)
+        menu.dismissMenu()
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        bounds.contains(touch.location(in: self))
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                           shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+        // 不阻断 SwiftUI 内部手势和会话滚动；手指移动超过阈值时长按自行失败。
+        true
+    }
+
+    @objc private func pressed(_ gesture: UILongPressGestureRecognizer) {
+        guard gesture.state == .began else { return }
+        presentMenu(at: gesture.location(in: self))
+    }
+
+    func presentMenu(at point: CGPoint) {
+        guard window != nil, bounds.contains(point) else { return }
+        menu.presentEditMenu(with: UIEditMenuConfiguration(identifier: nil, sourcePoint: point))
+    }
+
+    func editMenuInteraction(_ interaction: UIEditMenuInteraction, menuFor configuration: UIEditMenuConfiguration,
+                             suggestedActions: [UIMenuElement]) -> UIMenu? {
+        UIMenu(children: [
+            UIAction(title: String(localized: "复制"), image: UIImage(systemName: "doc.on.doc")) { [weak self] _ in
+                self?.onCopy?()
+            },
+            UIAction(title: String(localized: "选择文字"), image: UIImage(systemName: "selection.pin.in.out")) { [weak self] _ in
+                self?.onSelectText?()
+            }
+        ])
+    }
+}
+
+/// 选择页持有打开时的正文快照，流式更新不重置用户正在拖动的选区。
+struct MarkdownSelectionDocument: Identifiable {
+    let id = UUID()
+    let text: String
+    let fontSize: CGFloat
+}
+
+struct MarkdownSelectionPage: View {
+    @Environment(\.dismiss) private var dismiss
+    let document: MarkdownSelectionDocument
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ZStack {
+                Text("选择文字")
+                    .font(.system(size: 17, weight: .semibold))
+                HStack {
+                    Button("关闭") { dismiss() }
+                        .font(.system(size: 17))
+                        .foregroundStyle(Color.primary)
+                        .frame(minWidth: 64, minHeight: 44)
+                        .background(Color(uiColor: MarkdownSelectionAppearance.buttonBackground), in: Capsule())
+                        .accessibilityIdentifier("markdown-selection-close")
+                    Spacer()
+                }
+            }
+            .padding(.horizontal, 20)
+            .frame(height: 60)
+            MarkdownTextSelection(
+                document: ParsedMarkdownCache.document(for: document.text),
+                font: UIFont.systemFont(ofSize: document.fontSize)
+            )
+        }
+        .background(Color(uiColor: .systemBackground))
+    }
+}
+
+private enum MarkdownSelectionAppearance {
+    static let buttonBackground = UIColor { $0.userInterfaceStyle == .dark
+        ? UIColor(white: 0.145, alpha: 1) : UIColor(red: 245/255, green: 245/255, blue: 247/255, alpha: 1) }
+}
+
+/// 原生 TextView 独立滚动，聊天页的 MarkdownUI 始终保留在原来的布局中。
+struct MarkdownTextSelection: UIViewRepresentable {
+    let document: MarkdownUI.MarkdownContent
+    let font: UIFont
+
+    func makeUIView(context: Context) -> MarkdownSelectionTextView {
+        let view = MarkdownSelectionTextView()
+        view.isEditable = false
+        view.isSelectable = true
+        view.isScrollEnabled = true
+        view.alwaysBounceVertical = true
+        view.backgroundColor = .clear
+        view.tintColor = .systemBlue
+        view.textContainerInset = UIEdgeInsets(top: 16, left: 20, bottom: 24, right: 20)
+        view.textContainer.lineFragmentPadding = 0
+        view.adjustsFontForContentSizeCategory = false
+        view.accessibilityIdentifier = "markdown-text-selection"
+        return view
+    }
+
+    func updateUIView(_ view: MarkdownSelectionTextView, context: Context) {
+        let value = document.renderSelectableText(font: font)
+        if !view.attributedText.isEqual(to: value) { view.attributedText = value }
+    }
+}
+
+final class MarkdownSelectionTextView: UITextView, UITextViewDelegate, UIEditMenuInteractionDelegate {
+    private var hasSelected = false
+    private lazy var selectionMenu = UIEditMenuInteraction(delegate: self)
+
+    override init(frame: CGRect, textContainer: NSTextContainer?) {
+        let container = textContainer ?? NSTextContainer(size: .zero)
+        let storage = container.layoutManager?.textStorage ?? NSTextStorage()
+        if container.layoutManager == nil {
+            let manager = MarkdownCodeBlockLayoutManager()
+            manager.addTextContainer(container)
+            storage.addLayoutManager(manager)
+        }
+        super.init(frame: frame, textContainer: container)
+        withExtendedLifetime(storage) {}
+        delegate = self
+        addInteraction(selectionMenu)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        guard window != nil, bounds.width > 0, !hasSelected, !text.isEmpty else { return }
+        hasSelected = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.window != nil else { return }
+            self.becomeFirstResponder()
+            var start = 0
+            if self.attributedText.attribute(SelectableCodeBlockStyle.decoration, at: 0, effectiveRange: nil) != nil {
+                start = 1
+            }
+            let source = self.text as NSString
+            var range = source.paragraphRange(for: NSRange(location: min(start, source.length - 1), length: 0))
+            // 初始选中正文，不把结构换行包含在内，避免终点手柄落到下一段。
+            if range.length > 1, source.substring(with: NSRange(location: NSMaxRange(range) - 1, length: 1)) == "\n" {
+                range.length -= 1
+            }
+            self.selectedRange = range
+            if let range = self.selectedTextRange {
+                self.selectionMenu.presentEditMenu(with: UIEditMenuConfiguration(
+                    identifier: nil, sourcePoint: self.firstRect(for: range).origin
+                ))
+            }
+        }
+    }
+
+    override func copy(_ sender: Any?) {
+        let range = selectedRange
+        guard range.location != NSNotFound, range.length > 0, NSMaxRange(range) <= attributedText.length else { return }
+        var selected = ""
+        attributedText.enumerateAttribute(SelectableCodeBlockStyle.decoration, in: range) { decoration, part, _ in
+            if decoration == nil { selected += (attributedText.string as NSString).substring(with: part) }
+        }
+        UIPasteboard.general.string = selected.replacingOccurrences(of: "\u{2028}", with: "\n")
+        selectionMenu.dismissMenu()
+    }
+
+    func textView(_ textView: UITextView, editMenuForTextIn range: NSRange,
+                  suggestedActions: [UIMenuElement]) -> UIMenu? {
+        selectionActions()
+    }
+
+    func editMenuInteraction(_ interaction: UIEditMenuInteraction, menuFor configuration: UIEditMenuConfiguration,
+                             suggestedActions: [UIMenuElement]) -> UIMenu? {
+        selectionActions()
+    }
+
+    private func selectionActions() -> UIMenu {
+        UIMenu(children: [
+            UIAction(title: String(localized: "复制"), image: UIImage(systemName: "doc.on.doc")) { [weak self] _ in
+                self?.copy(nil)
+            },
+            UIAction(title: String(localized: "全选")) { [weak self] _ in self?.selectAll(nil) }
+        ])
+    }
+}
+
+/// 在同一个可选择的 TextView 中绘制代码卡片，空行与折行共用连续背景。
+/// 代码仍由 TextKit 绘制为文字，保持系统手柄、跨段选择与原始缩进复制。
+final class MarkdownCodeBlockLayoutManager: NSLayoutManager {
+    func codeBlockRect(for characters: NSRange, in container: NSTextContainer) -> CGRect {
+        let glyphs = glyphRange(forCharacterRange: characters, actualCharacterRange: nil)
+        guard glyphs.length > 0 else { return .zero }
+        let first = lineFragmentRect(forGlyphAt: glyphs.location, effectiveRange: nil)
+        let last = lineFragmentUsedRect(forGlyphAt: NSMaxRange(glyphs) - 1, effectiveRange: nil)
+        let top = first.minY
+        return CGRect(
+            x: container.lineFragmentPadding, y: top,
+            width: max(0, container.size.width - container.lineFragmentPadding * 2),
+            height: last.maxY + SelectableCodeBlockStyle.bottomPadding - top
+        )
+    }
+
+    override func drawBackground(forGlyphRange glyphsToShow: NSRange, at origin: CGPoint) {
+        guard let storage = textStorage else { return }
+        let visibleCharacters = characterRange(forGlyphRange: glyphsToShow, actualGlyphRange: nil)
+        storage.enumerateAttribute(SelectableCodeBlockStyle.blockID,
+                                   in: NSRange(location: 0, length: storage.length)) { value, range, _ in
+            guard value != nil, NSIntersectionRange(range, visibleCharacters).length > 0 else { return }
+            let glyph = self.glyphIndexForCharacter(at: range.location)
+            guard let container = self.textContainer(forGlyphAt: glyph, effectiveRange: nil) else { return }
+            let rect = self.codeBlockRect(for: range, in: container).offsetBy(dx: origin.x, dy: origin.y)
+            SelectableCodeBlockStyle.backgroundColor.setFill()
+            UIBezierPath(roundedRect: rect, cornerRadius: 9).fill()
+            let language = storage.attribute(SelectableCodeBlockStyle.language, at: range.location,
+                                             effectiveRange: nil) as? String ?? ""
+            let label = language.isEmpty ? String(localized: "代码") : language.uppercased()
+            (label as NSString).draw(in: CGRect(x: rect.minX + SelectableCodeBlockStyle.horizontalPadding,
+                                              y: rect.minY + 10, width: rect.width - 24, height: 16),
+                                    withAttributes: [.font: UIFont.monospacedSystemFont(ofSize: 11, weight: .regular),
+                                                     .foregroundColor: UIColor.systemGray])
+        }
+        super.drawBackground(forGlyphRange: glyphsToShow, at: origin)
+    }
+}
+
+/// Reuses only render products; callbacks, font sizes and themes stay on the
+/// current view. File order owns the synthetic URL indices and belongs in the key.
+enum PreparedMarkdownCache {
+    private struct Key: Hashable {
+        let source: String
+        let filePaths: [String]
+    }
+
+    private static let cache = MarkdownRenderProductCache<Key, MarkdownUI.MarkdownContent>(
+        countLimit: 128, costLimit: 8 * 1_024 * 1_024
+    )
+
+    static func document(for source: String, filePaths: [String]) -> MarkdownUI.MarkdownContent {
+        let key = Key(source: source, filePaths: filePaths)
+        return cache.value(for: key) {
+            // File references keep the original inline-code text for AST linking.
+            let padded = filePaths.isEmpty ? InlineCodePadding.apply(to: source) : source
+            var destinations: [String: String] = [:]
+            for (index, path) in filePaths.enumerated() {
+                let destination = "dsh-file-reference:///\(index)"
+                destinations[path] = destination
+                let name = path.replacingOccurrences(of: "\\", with: "/")
+                    .split(separator: "/").last.map(String.init) ?? path
+                if ConversationFileReferences.shared.knownPath(code: name, paths: filePaths) != nil {
+                    destinations[name] = destination
+                }
+            }
+            let document = ParsedMarkdownCache.document(for: padded).linkingInlineCode(destinations)
+            let bytes = source.utf16.count * 2 + filePaths.reduce(0) { $0 + $1.utf16.count * 2 }
+            // Account for the retained key/source and parsed/re-written tree.
+            return (document, bytes * 4)
+        }
+    }
+}
+
+/// A small, bounded LRU for immutable rendering products. Oversized entries are
+/// rendered normally without displacing the whole conversation's cached work.
+final class MarkdownRenderProductCache<Key: Hashable, Value>: @unchecked Sendable {
+    private struct Entry {
+        let value: Value
+        let cost: Int
+    }
+
+    private let lock = NSLock()
+    private let countLimit: Int
+    private let costLimit: Int
+    private var entries: [Key: Entry] = [:]
+    private var recency: [Key] = []
+    private var totalCost = 0
+    private var generation: UInt64 = 0
+    private var memoryWarningObserver: NSObjectProtocol?
+
+    init(countLimit: Int, costLimit: Int) {
+        self.countLimit = max(0, countLimit)
+        self.costLimit = max(0, costLimit)
+        memoryWarningObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.didReceiveMemoryWarningNotification, object: nil, queue: nil
+        ) { [weak self] _ in
+            self?.removeAll()
+        }
+    }
+
+    deinit {
+        if let memoryWarningObserver {
+            NotificationCenter.default.removeObserver(memoryWarningObserver)
+        }
+    }
+
+    func value(for key: Key, makeValue: () -> (Value, Int)) -> Value {
+        lock.lock()
+        if let entry = entries[key] {
+            touch(key)
+            lock.unlock()
+            return entry.value
+        }
+        let startedGeneration = generation
+        lock.unlock()
+        let (value, cost) = makeValue()
+        guard countLimit > 0, cost >= 0, cost <= costLimit else { return value }
+        lock.lock()
+        defer { lock.unlock() }
+        guard generation == startedGeneration else { return value }
+        if let entry = entries[key] {
+            touch(key)
+            return entry.value
+        }
+        while entries.count >= countLimit || cost > costLimit - totalCost {
+            guard let oldest = recency.first else { break }
+            recency.removeFirst()
+            if let removed = entries.removeValue(forKey: oldest) {
+                totalCost -= removed.cost
+            }
+        }
+        entries[key] = Entry(value: value, cost: cost)
+        totalCost += cost
+        recency.append(key)
+        return value
+    }
+
+    func removeAll() {
+        lock.lock()
+        defer { lock.unlock() }
+        entries.removeAll(keepingCapacity: false)
+        recency.removeAll(keepingCapacity: false)
+        totalCost = 0
+        generation &+= 1
+    }
+
+    private func touch(_ key: Key) {
+        recency.removeAll { $0 == key }
+        recency.append(key)
     }
 }
 
@@ -4548,10 +5079,12 @@ private extension Theme {
             }
             .codeBlock { configuration in
                 VStack(alignment: .leading, spacing: 6) {
-                    if let language = configuration.language, !language.isEmpty {
-                        Text(language.uppercased())
+                    HStack {
+                        Text(configuration.language?.isEmpty == false ? configuration.language!.uppercased() : String(localized: "代码"))
                             .appFont(.caption2.monospaced())
                             .foregroundStyle(.secondary)
+                        Spacer(minLength: 12)
+                        CopyMessageButton(text: configuration.content, isCode: true)
                     }
                     ScrollView(.horizontal, showsIndicators: false) {
                         configuration.label
@@ -4566,7 +5099,8 @@ private extension Theme {
                     // vertical size when the hosting cell is self-sized.
                     .fixedSize(horizontal: false, vertical: true)
                 }
-                .padding(compact ? 10 : 12)
+                .padding(.horizontal, compact ? 10 : 12)
+                .padding(.bottom, compact ? 10 : 12)
                 .background(Color(uiColor: .secondarySystemFill))
                 .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
                 .markdownMargin(top: 2, bottom: compact ? 6 : 10)
@@ -4641,9 +5175,7 @@ private struct DSHCodeSyntaxHighlighter: CodeSyntaxHighlighter {
 
     private func isJSON(_ code: String, language: String?) -> Bool {
         if let language, ["json", "jsonc"].contains(language.lowercased()) { return true }
-        guard let data = code.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data) else { return false }
-        return JSONSerialization.isValidJSONObject(object)
+        return JSONSyntaxHighlighter.isJSON(code)
     }
 }
 
@@ -4651,8 +5183,29 @@ enum JSONSyntaxHighlighter {
     private static let expression = try! NSRegularExpression(
         pattern: #"\"(?:\\.|[^\"\\])*\"|-?\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b|\b(?:true|false|null)\b"#
     )
+    private static let keySuffixExpression = try! NSRegularExpression(pattern: #"\s*:"#)
+    private static let highlighted = MarkdownRenderProductCache<String, AttributedString>(
+        countLimit: 128, costLimit: 4 * 1_024 * 1_024
+    )
+    private static let classifications = MarkdownRenderProductCache<String, Bool>(
+        countLimit: 128, costLimit: 1_024 * 1_024
+    )
+
+    static func isJSON(_ source: String) -> Bool {
+        classifications.value(for: source) {
+            let object = source.data(using: .utf8).flatMap { try? JSONSerialization.jsonObject(with: $0) }
+            return (object.map(JSONSerialization.isValidJSONObject) ?? false, source.utf16.count * 2)
+        }
+    }
 
     static func highlight(_ source: String) -> AttributedString {
+        highlighted.value(for: source) {
+            // Store semantic colors without theme-resolved UIColor/font metrics.
+            (makeHighlight(source), source.utf16.count * 12)
+        }
+    }
+
+    private static func makeHighlight(_ source: String) -> AttributedString {
         let string = source as NSString
         let fullRange = NSRange(location: 0, length: string.length)
         let matches = expression.matches(in: source, range: fullRange)
@@ -4664,7 +5217,7 @@ enum JSONSyntaxHighlighter {
                 result += styled(string.substring(with: NSRange(location: cursor, length: match.range.location - cursor)), color: .primary)
             }
             let token = string.substring(with: match.range)
-            result += styled(token, color: color(for: token, in: string, after: NSMaxRange(match.range)))
+            result += styled(token, color: color(for: token, in: source, utf16Length: string.length, after: NSMaxRange(match.range)))
             cursor = NSMaxRange(match.range)
         }
         if cursor < string.length {
@@ -4673,10 +5226,14 @@ enum JSONSyntaxHighlighter {
         return result
     }
 
-    private static func color(for token: String, in source: NSString, after location: Int) -> Color {
+    private static func color(for token: String, in source: String, utf16Length: Int, after location: Int) -> Color {
         if token.hasPrefix("\"") {
-            let remainder = source.substring(from: location)
-            let isKey = remainder.range(of: #"^\s*:"#, options: .regularExpression) != nil
+            // Match the original text range: copying every remaining suffix
+            // makes key detection quadratic on long JSON blocks.
+            let isKey = keySuffixExpression.firstMatch(
+                in: source, options: .anchored,
+                range: NSRange(location: location, length: utf16Length - location)
+            ) != nil
             return isKey ? DSHColor.ocean : Color(red: 0.10, green: 0.55, blue: 0.38)
         }
         if token == "true" || token == "false" { return DSHColor.purple }
@@ -4688,5 +5245,527 @@ enum JSONSyntaxHighlighter {
         var result = AttributedString(value)
         result.foregroundColor = color
         return result
+    }
+}
+
+/// 与更多菜单等大的圆形团队入口，保持独立的弹层锚点。
+struct TeamNavigationEntry: View {
+    @ObservedObject var store: AppStore
+    @State private var showsSheet = false
+    @State private var menuIdentity = UUID()
+
+    var body: some View {
+        HStack(spacing: 0) {
+            if store.teamSnapshot.visible {
+                TeamCachedMenuButton(
+                    members: store.teamSnapshot.members,
+                    title: store.teamSessionTitle,
+                    selectedID: store.selectedSessionId,
+                    select: { member in Task { await store.selectTeamMember(member) } },
+                    showDetails: {
+                        // 非动画退出 zoom 后重建源按钮，清除系统保留的源快照隐藏状态。
+                        menuIdentity = UUID()
+                        showsSheet = true
+                    }
+                )
+                .id(menuIdentity)
+                .frame(width: 44, height: 44)
+            }
+        }
+        // 面板由稳定容器呈现，不随入口按钮重建而销毁。
+        .sheet(isPresented: $showsSheet) {
+            TeamContentSheet { member in
+                Task { await store.selectTeamMember(member) }
+            }.environmentObject(store)
+        }
+    }
+}
+
+/// 提前布局完整成员行，避免系统 Menu 的 subtitle 独立延迟入场。
+private struct TeamCachedMenuButton: UIViewRepresentable {
+    let members: [MobileTeamMember]
+    let title: String
+    let selectedID: String?
+    let select: (MobileTeamMember) -> Void
+    let showDetails: () -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeUIView(context: Context) -> UIButton {
+        var configuration: UIButton.Configuration
+        if #available(iOS 26.0, *) { configuration = .glass() }
+        else { configuration = .plain() }
+        configuration.cornerStyle = .capsule
+        configuration.contentInsets = .zero
+        configuration.image = Self.glyph
+        configuration.baseForegroundColor = .label
+        let button = UIButton(configuration: configuration)
+        button.layer.cornerRadius = 22
+        button.clipsToBounds = true
+        button.accessibilityLabel = "查看智能体团队"
+        button.accessibilityIdentifier = "team-entry"
+        button.addTarget(context.coordinator, action: #selector(Coordinator.open(_:)), for: .touchUpInside)
+        updateUIView(button, context: context)
+        return button
+    }
+
+    func updateUIView(_ button: UIButton, context: Context) {
+        let coordinator = context.coordinator
+        coordinator.select = select
+        coordinator.showDetails = showDetails
+        guard coordinator.members != members || coordinator.title != title || coordinator.selectedID != selectedID else { return }
+        coordinator.members = members
+        coordinator.title = title
+        coordinator.selectedID = selectedID
+        coordinator.prepareContent()
+    }
+
+    static func dismantleUIView(_ button: UIButton, coordinator: Coordinator) {
+        coordinator.content?.dismiss(animated: false)
+        coordinator.clearSource()
+    }
+
+    static let glyph: UIImage = {
+        let renderer = ImageRenderer(content: TeamGlyph().frame(width: 18, height: 18))
+        renderer.scale = 3
+        return (renderer.uiImage ?? UIImage(systemName: "person.2") ?? UIImage()).withRenderingMode(.alwaysTemplate)
+    }()
+
+    final class Coordinator: NSObject, UIPopoverPresentationControllerDelegate {
+        var members: [MobileTeamMember] = []
+        var title: String?
+        var selectedID: String?
+        var select: ((MobileTeamMember) -> Void)?
+        var showDetails: (() -> Void)?
+        var content: UIHostingController<TeamMemberPopover>?
+
+        func prepareContent() {
+            let root = TeamMemberPopover(members: members, title: title ?? "Lead 会话", selectedID: selectedID,
+                select: { [weak self] member in
+                    self?.content?.dismiss(animated: true) { [weak self] in
+                        self?.clearSource()
+                        self?.select?(member)
+                    }
+                }, showDetails: { [weak self] in
+                    // 完整面板直接接替菜单，避免先等待 zoom 收回再播放 sheet 入场。
+                    self?.content?.dismiss(animated: false) { [weak self] in
+                        self?.clearSource()
+                        // 脱离 UIKit 的无动画退出事务，保留 sheet 自身的入场动画。
+                        DispatchQueue.main.async { [weak self] in self?.showDetails?() }
+                    }
+                })
+            let host: UIHostingController<TeamMemberPopover>
+            if let content { host = content; host.rootView = root }
+            else {
+                host = UIHostingController(rootView: root)
+                host.modalPresentationStyle = .popover
+                host.view.backgroundColor = .clear
+                content = host
+            }
+            // 在数据变化时完成布局，点击只负责呈现已经准备好的内容。
+            let size = host.sizeThatFits(in: CGSize(width: 300, height: 480))
+            host.preferredContentSize = size
+            host.view.frame = CGRect(origin: .zero, size: size)
+            host.view.setNeedsLayout()
+            host.view.layoutIfNeeded()
+        }
+
+        @objc func open(_ button: UIButton) {
+            guard let content, content.presentingViewController == nil, button.window != nil else { return }
+            var responder: UIResponder? = button
+            while let current = responder {
+                if let presenter = current as? UIViewController {
+                    guard presenter.presentedViewController == nil else { return }
+                    let barItem = sourceBarButton(containing: button, presenter: presenter)
+                    if #available(iOS 26.0, *), let barItem {
+                        content.preferredTransition = .zoom(sourceBarButtonItemProvider: { [weak barItem] _ in barItem })
+                    } else if #available(iOS 18.0, *) {
+                        content.preferredTransition = .zoom(sourceViewProvider: { [weak button] _ in button })
+                    }
+                    let popover = content.popoverPresentationController
+                    // 使用真实玻璃按钮，避免 SwiftUI 宿主矩形进入源快照。
+                    if let barItem { popover?.sourceItem = barItem }
+                    else { popover?.sourceItem = button }
+                    popover?.sourceView = button
+                    popover?.sourceRect = button.bounds
+                    popover?.permittedArrowDirections = .up
+                    popover?.canOverlapSourceViewRect = true
+                    popover?.delegate = self
+                    presenter.present(content, animated: true)
+                    return
+                }
+                responder = current.next
+            }
+        }
+
+        private func sourceBarButton(containing button: UIButton, presenter: UIViewController) -> UIBarButtonItem? {
+            var controller: UIViewController? = presenter
+            while let current = controller {
+                let items = current.navigationItem.rightBarButtonItems ?? []
+                if let item = items.first(where: { item in
+                    item.customView.map { button.isDescendant(of: $0) } == true
+                }) { return item }
+                controller = current.parent
+            }
+            return nil
+        }
+
+        func clearSource() {
+            content?.popoverPresentationController?.sourceItem = nil
+            content?.popoverPresentationController?.sourceView = nil
+            if #available(iOS 18.0, *) { content?.preferredTransition = nil }
+        }
+
+        func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
+            clearSource()
+        }
+
+        func adaptivePresentationStyle(for controller: UIPresentationController,
+            traitCollection: UITraitCollection) -> UIModalPresentationStyle { .none }
+    }
+}
+
+private struct TeamMemberPopover: View {
+    let members: [MobileTeamMember]
+    let title: String
+    let selectedID: String?
+    let select: (MobileTeamMember) -> Void
+    let showDetails: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title).appFont(.caption).foregroundStyle(.secondary).lineLimit(2).padding(.horizontal, 12)
+            Text("成员 \(members.count)").appFont(.headline).padding(.horizontal, 12)
+            VStack(spacing: 0) {
+                ScrollView {
+                    VStack(spacing: 2) {
+                        ForEach(members) { member in
+                            TeamMemberRow(member: member, selected: member.id == selectedID) { select(member) }
+                        }
+                    }
+                }
+                .frame(maxHeight: 300)
+                .clipped()
+                Divider()
+            }
+            Button(action: showDetails) {
+                HStack {
+                    Text("查看完整团队内容").appFont(.subheadline.weight(.medium))
+                    Spacer()
+                    Image(systemName: "chevron.right").appFont(.caption)
+                }.padding(12)
+            }.buttonStyle(.plain)
+        }
+        .padding(12)
+        .frame(width: 300)
+        .transaction { $0.animation = nil }
+    }
+}
+
+/// 与 Web 团队入口一致的双人线框图标，使用矢量避免位图缩放模糊。
+private struct TeamGlyph: View {
+    var body: some View {
+        Canvas { context, size in
+            var path = Path()
+            path.addEllipse(in: CGRect(x: 5, y: 3, width: 8, height: 8))
+            path.move(to: CGPoint(x: 2, y: 22))
+            path.addCurve(to: CGPoint(x: 16, y: 22), control1: CGPoint(x: 2, y: 12), control2: CGPoint(x: 16, y: 12))
+            path.move(to: CGPoint(x: 17, y: 3))
+            path.addCurve(to: CGPoint(x: 17, y: 11), control1: CGPoint(x: 22, y: 3), control2: CGPoint(x: 22, y: 11))
+            path.move(to: CGPoint(x: 20, y: 15))
+            path.addQuadCurve(to: CGPoint(x: 23, y: 22), control: CGPoint(x: 23, y: 16))
+            let transform = CGAffineTransform(scaleX: size.width / 24, y: size.height / 24)
+            context.stroke(path.applying(transform), with: .foreground, style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+private struct TeamMemberAvatar: View {
+    let index: Int?
+    var size: CGFloat = 32
+
+    var body: some View {
+        Image(String(format: "AgentAvatar%03d", min(143, max(0, index ?? 0))))
+            .renderingMode(.original)
+            .resizable()
+            .scaledToFit()
+            .frame(width: size, height: size)
+            .accessibilityHidden(true)
+    }
+}
+
+private struct TeamMemberRow: View {
+    let member: MobileTeamMember
+    let selected: Bool
+    let action: () -> Void
+    @AppStorage(AppFontScale.key) private var fontScale: Double = 1
+    @AppStorage(AppFontScale.followsSystemKey) private var followsSystemFont = false
+
+    private var rowScale: CGFloat {
+        CGFloat(AppFontScale.effective(fontScale, followsSystem: followsSystemFont))
+            * max(1, UIFont.preferredFont(forTextStyle: .body).pointSize / 17)
+    }
+
+    var body: some View {
+        Button(action: action) {
+            HStack(alignment: .center, spacing: 10) {
+                TeamMemberAvatar(index: member.avatarIndex)
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack {
+                        Text(member.name).appFont(.body.weight(.medium)).lineLimit(1).truncationMode(.tail)
+                        if selected {
+                            Text("当前会话").appFont(.caption2).foregroundStyle(.blue).fixedSize()
+                        }
+                    }
+                    Text([member.model, member.statusLabel].compactMap { $0 }.joined(separator: " · "))
+                        .appFont(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.tail)
+                    Text(member.error ?? member.detail ?? " ")
+                        .appFont(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.tail)
+                        .accessibilityHidden(member.error == nil && member.detail == nil)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Image(systemName: "checkmark").foregroundStyle(.blue)
+                    .frame(width: 18).opacity(selected ? 1 : 0).accessibilityHidden(!selected)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(height: 56 * rowScale)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8 * rowScale)
+            .contentShape(Rectangle())
+            .background(selected ? Color.blue.opacity(0.08) : Color.clear, in: RoundedRectangle(cornerRadius: 14))
+        }
+        .buttonStyle(.plain)
+        .disabled(!member.canOpen)
+        .opacity(member.canOpen ? 1 : 0.55)
+        .accessibilityIdentifier("team-member-\(member.id)")
+    }
+}
+
+struct TeamContentSheet: View {
+    @EnvironmentObject private var store: AppStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var filter = "all"
+    @State private var expanded: Set<String> = []
+    let select: (MobileTeamMember) -> Void
+
+    private var tasks: [MobileTeamTask] {
+        let current = store.teamSnapshot.members.first { $0.id == store.selectedSessionId }
+        return store.teamSnapshot.tasks.filter {
+            filter == "all" || (filter == "unassigned" ? $0.ownerName == nil : current != nil && $0.ownerName == current?.name)
+        }
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(store.teamSessionTitle).appFont(.subheadline.weight(.medium)).lineLimit(2)
+                            .accessibilityIdentifier("team-root-session-title")
+                        if !store.teamSnapshot.isTeam && store.teamSnapshot.state == "ready" {
+                            Text("当前会话使用普通子智能体").appFont(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                    if let error = store.teamSnapshot.error { Text(error).foregroundStyle(.orange).appFont(.callout) }
+                    if store.teamSnapshot.state != "ready" {
+                        HStack {
+                            Text(store.teamSnapshot.state == "migration-required" ? "团队数据待刷新，请在桌面端确认会话格式" : "团队数据暂不可用")
+                            Spacer()
+                            Button("重试") { store.refreshTeam() }
+                        }.appFont(.callout).foregroundStyle(.secondary)
+                    }
+                    Text("成员 \(store.teamSnapshot.members.count)").appFont(.headline)
+                    LazyVStack(spacing: 2) {
+                        ForEach(store.teamSnapshot.members) { member in
+                            TeamMemberRow(member: member, selected: member.id == store.selectedSessionId) {
+                                dismiss(); select(member)
+                            }
+                        }
+                    }
+                    Text(store.teamSnapshot.state == "ready" || !store.teamSnapshot.tasks.isEmpty
+                         ? "共享任务 \(store.teamSnapshot.tasks.count)" : "共享任务 · 待同步").appFont(.headline)
+                    Picker("任务筛选", selection: $filter) {
+                        Text("全部").tag("all")
+                        Text("当前成员").tag("current")
+                        Text("未分配").tag("unassigned")
+                    }.pickerStyle(.segmented)
+                    if tasks.isEmpty {
+                        Text(store.teamSnapshot.state != "ready" ? "共享任务尚未同步，请重试"
+                             : !store.teamSnapshot.tasks.isEmpty ? "当前筛选下暂无共享任务"
+                             : store.teamSnapshot.isTeam ? "当前团队尚未创建共享任务"
+                             : "此会话尚无团队共享任务；普通子智能体的内部待办显示在各自会话中。")
+                            .foregroundStyle(.secondary).padding(.vertical)
+                    }
+                    ForEach(tasks) { task in taskCard(task) }
+                }
+                .padding(20)
+                .readableContentWidth()
+            }
+            .navigationTitle(store.teamSnapshot.isTeam ? "智能体团队" : "子智能体")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+    }
+
+    private func taskCard(_ task: MobileTeamTask) -> some View {
+        let isExpanded = expanded.contains(task.id)
+        let owner = store.teamSnapshot.members.first { $0.name == task.ownerName }
+        let openOwner: () -> Void = {
+            if let owner, owner.canOpen { dismiss(); select(owner) }
+        }
+        let toggleDetails: () -> Void = {
+            withAnimation(.easeInOut(duration: 0.18)) {
+                if isExpanded { expanded.remove(task.id) } else { expanded.insert(task.id) }
+            }
+        }
+        return VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .top, spacing: 12) {
+                    Text(task.subject).appFont(.body.weight(.semibold)).frame(maxWidth: .infinity, alignment: .leading)
+                    HStack(spacing: 6) {
+                        Circle().fill(taskColor(task)).frame(width: 7, height: 7)
+                        Text(task.statusLabel).appFont(.caption)
+                    }.foregroundStyle(.secondary).fixedSize()
+                }
+                if !task.description.isEmpty {
+                    Text(task.description).appFont(.subheadline).foregroundStyle(.secondary)
+                        .lineLimit(isExpanded ? nil : 2).frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }.allowsHitTesting(false)
+            HStack {
+                Text(task.id).appFont(.caption.monospaced()).foregroundStyle(.secondary).allowsHitTesting(false)
+                Spacer()
+                Button(action: toggleDetails) {
+                    HStack(spacing: 4) {
+                        Text(isExpanded ? "收起" : "展开").appFont(.caption)
+                        Image(systemName: isExpanded ? "chevron.up" : "chevron.down").appFont(.caption2)
+                    }
+                    .foregroundStyle(.secondary)
+                    .padding(.vertical, 6)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(isExpanded ? "收起任务详情" : "展开任务详情")
+                .accessibilityIdentifier("team-task-toggle-\(task.id)")
+            }
+            Button(action: openOwner) {
+                HStack(spacing: 8) {
+                    if let owner {
+                        TeamMemberAvatar(index: owner.avatarIndex, size: 20)
+                    } else {
+                        Image(systemName: "person.crop.circle").frame(width: 20, height: 20).accessibilityHidden(true)
+                    }
+                    Text("负责人：\(task.ownerName ?? "未分配")")
+                }
+                .appFont(.caption).foregroundStyle(owner?.canOpen == true ? Color.blue : Color.secondary)
+            }
+            .buttonStyle(.plain)
+            .disabled(owner?.canOpen != true)
+            .accessibilityIdentifier("team-task-owner-\(task.id)")
+            if !task.writeScopes.isEmpty {
+                Text("写入范围：\(task.writeScopes.joined(separator: "、"))").appFont(.caption).foregroundStyle(.secondary)
+                    .allowsHitTesting(false)
+            }
+            if isExpanded {
+                Group {
+                    Text("版本：\(task.revision)").appFont(.caption).foregroundStyle(.secondary)
+                    if !task.blockedBy.isEmpty {
+                        Text("依赖：" + task.blockedBy.map { id in store.teamSnapshot.tasks.first { $0.id == id }?.subject ?? id }.joined(separator: "、"))
+                            .appFont(.caption).foregroundStyle(.secondary)
+                    }
+                    if task.status == "pending" {
+                        Text(task.ready ? "可领取" : "等待前置任务完成").appFont(.caption).foregroundStyle(.secondary)
+                    }
+                    ForEach(task.writeScopeWarnings, id: \.self) { Text($0).appFont(.caption).foregroundStyle(.orange) }
+                }.allowsHitTesting(false)
+            }
+        }
+        .padding(16)
+        // 卡片与展开按钮共享展开动作，负责人按钮单独处理会话导航。
+        .background {
+            Button(action: toggleDetails) {
+                RoundedRectangle(cornerRadius: 18).fill(Color(uiColor: .secondarySystemGroupedBackground))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("任务：\(task.subject)，\(isExpanded ? "收起任务详情" : "展开任务详情")")
+            .accessibilityIdentifier("team-task-body-\(task.id)")
+        }
+        .overlay(RoundedRectangle(cornerRadius: 18).stroke(Color.primary.opacity(0.08), lineWidth: 0.7).allowsHitTesting(false))
+        .accessibilityIdentifier("team-task-\(task.id)")
+    }
+
+    private func taskColor(_ task: MobileTeamTask) -> Color {
+        switch task.status {
+        case "completed": return .green
+        case "in_progress": return .blue
+        case "pending": return task.ready ? .gray : .orange
+        default: return .gray
+        }
+    }
+}
+
+
+/// 与 Android 待发送文件卡片保持相同尺寸、排版和中性背景。
+private struct PendingFileCard: View {
+    let file: SharedUploadDraft
+    let status: String
+    let enabled: Bool
+    let onRetry: () -> Void
+    let onRemove: () -> Void
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "doc")
+                .appFont(.system(size: 16))
+                .foregroundStyle(Color.primary.opacity(0.6))
+                .frame(width: 16, height: 16)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(file.file?.name ?? file.name)
+                    .appFont(.system(size: 13))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Text(status)
+                    .appFont(.system(size: 12))
+                    .foregroundStyle(file.status == "error" ? Color.red : Color.primary.opacity(0.6))
+                    .lineLimit(2)
+                if file.status == "uploading" {
+                    ProgressView(value: Double(file.confirmedBytes), total: Double(max(1, file.size)))
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            if file.status == "error" {
+                action("arrow.clockwise", label: "重试上传", tint: .primary.opacity(0.6), onRetry)
+            }
+            action("xmark.circle.fill", label: "移除文件", tint: .primary, onRemove)
+        }
+        .padding(10)
+        .frame(width: 240)
+        .frame(minHeight: 56)
+        .background(background, in: RoundedRectangle(cornerRadius: 12))
+        .disabled(!enabled)
+    }
+
+    private var background: Color {
+        colorScheme == .dark
+            ? Color(red: 43 / 255, green: 48 / 255, blue: 56 / 255)
+            : Color(red: 233 / 255, green: 233 / 255, blue: 237 / 255)
+    }
+
+    private func action(_ symbol: String, label: LocalizedStringKey, tint: Color, _ callback: @escaping () -> Void) -> some View {
+        Button(action: callback) {
+            Image(systemName: symbol)
+                .appFont(.system(size: 16))
+                .foregroundStyle(tint)
+                .frame(width: 32, height: 32)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text(label))
     }
 }

@@ -1,5 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- 原生 TextView 的手柄与浮动菜单不能继承应用的黑色品牌强调色。 -->
+    <style name="ThemeOverlay.MarkdownSelection" parent="Theme.DeepSeekHarness">
+        <item name="android:colorAccent">#007AFF</item>
+        <item name="android:textColorHighlight">#33007AFF</item>
+    </style>
     <style name="Theme.DeepSeekHarness" parent="android:style/Theme.Material.Light.NoActionBar">
         <item name="android:colorAccent">@color/whale_foreground</item>
         <item name="android:statusBarColor">@color/splash_background</item>

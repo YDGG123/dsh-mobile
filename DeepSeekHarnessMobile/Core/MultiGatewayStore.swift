@@ -14,19 +14,36 @@ final class MultiGatewayStore: ObservableObject {
     @Published private(set) var onlineIDs: Set<String> = []
     @Published var error: String?
     private let defaults: UserDefaults
+    private let credentials: (any GatewayCredentialStoring)?
     private var pendingProfile: GatewayProfile?
     private var observation: AnyCancellable?
     private var pairingObservation: AnyCancellable?
     private var probes: [GatewayClient] = []
+    @Published private(set) var isReady = false
+    private var initializationTask: Task<Void, Never>?
     private static let profilesKey = "gateway.profiles.v1"
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = .standard, credentials: (any GatewayCredentialStoring)? = nil) {
         self.defaults = defaults
-        activeStore = AppStore(preferences: UserDefaultsAppPreferences(userDefaults: defaults, gatewayID: "unpaired"), gatewayLocalID: "unpaired")
+        self.credentials = credentials
+        activeStore = AppStore(preferences: UserDefaultsAppPreferences(userDefaults: defaults, gatewayID: "unpaired"),
+                               gatewayClient: GatewayClient(credentials: credentials), gatewayLocalID: "unpaired")
         // U5：bridge 配对批准后服务端会顺带下发网关凭证，这里接管落盘 + 建 profile。
         bridgeTeam.onGatewayCredential = { [weak self] (credential: BridgeGatewayCredential, origin: String) in
             Task { @MainActor [weak self] in self?.adoptGatewayCredential(credential, origin: origin) }
         }
+        initializationTask = Task { [weak self] in await self?.restoreProfiles() }
+        AgentLiveActivityIntentBridge.install { [weak self] request in
+            self?.handleLiveActivityApproval(request) ?? false
+        }
+    }
+
+    func waitUntilReady() async {
+        await initializationTask?.value
+    }
+
+    private func restoreProfiles() async {
+        defer { isReady = true }
         do {
             if let data = defaults.data(forKey: Self.profilesKey) {
                 profiles = try JSONDecoder().decode([GatewayProfile].self, from: data)
@@ -42,9 +59,9 @@ final class MultiGatewayStore: ObservableObject {
                     scoped.endpoint = legacy.endpoint
                     scoped.saveSessions(legacy.loadSessions())
                     scoped.selectedWorkspaceID = legacy.selectedWorkspaceID
-                    let client = GatewayClient()
+                    let client = GatewayClient(credentials: credentials)
                     client.credentialID = profile.id
-                    if let url = URL(string: legacy.endpoint) { try client.migrateCredential(from: url) }
+                    if let url = URL(string: legacy.endpoint) { try await client.migrateCredential(from: url) }
                     try migrateLegacyFiles(to: profile.id)
                     profiles = [profile]
                     persist()
@@ -56,9 +73,6 @@ final class MultiGatewayStore: ObservableObject {
                 installPairingHandler(on: activeStore)
             }
         } catch { self.error = "读取或迁移主机资料失败：\(error.localizedDescription)" }
-        AgentLiveActivityIntentBridge.install { [weak self] request in
-            self?.handleLiveActivityApproval(request) ?? false
-        }
     }
 
     var activeProfile: GatewayProfile? { profiles.first { $0.id == activeID } }
@@ -104,14 +118,17 @@ final class MultiGatewayStore: ObservableObject {
     func select(_ profile: GatewayProfile, connect: Bool = true) {
         guard profiles.contains(where: { $0.id == profile.id }) else { return }
         cancelPairing()
-        if activeID == profile.id, activeStore.gateway.state.isConnected { return }
+        if activeID == profile.id {
+            if connect && !activeStore.gateway.state.isConnected { activeStore.connect() }
+            return
+        }
         activate(profile, connect: connect)
     }
 
     private func makeStore(_ profile: GatewayProfile) -> AppStore {
         let preferences = UserDefaultsAppPreferences(userDefaults: defaults, gatewayID: profile.id)
         preferences.endpoint = profile.connectionEndpoints.first ?? profile.endpoints[0]
-        let store = AppStore(preferences: preferences, gatewayLocalID: profile.id)
+        let store = AppStore(preferences: preferences, gatewayClient: GatewayClient(credentials: credentials), gatewayLocalID: profile.id)
         store.gatewayDisplayName = profile.displayName
         store.gateway.credentialID = profile.id
         store.gateway.expectedGatewayID = profile.gatewayId
@@ -290,11 +307,21 @@ final class MultiGatewayStore: ObservableObject {
             activeStore.deactivateGateway()
             activeID = nil
             defaults.removeObject(forKey: "gateway.activeID")
-            activeStore = AppStore(preferences: UserDefaultsAppPreferences(userDefaults: defaults, gatewayID: "unpaired"), gatewayLocalID: "unpaired")
+            activeStore = AppStore(preferences: UserDefaultsAppPreferences(userDefaults: defaults, gatewayID: "unpaired"),
+                                   gatewayClient: GatewayClient(credentials: credentials), gatewayLocalID: "unpaired")
             activeStore.interfaceStyle = style
             installPairingHandler(on: activeStore)
         }
-        knownIDs.forEach { GatewayClient.forgetCredential(for: $0) }
+        knownIDs.forEach {
+            GatewayClient.forgetCredential(for: $0)
+            ImageAttachmentCache.forgetGateway($0)
+        }
+        Task {
+            for id in knownIDs { await ChatHistoryCache.shared.forget(gatewayID: id) }
+            await Task.detached(priority: .utility) {
+                WorkspacePreviewCache(gatewayID: "maintenance").maintain(clear: true)
+            }.value
+        }
         profiles.removeAll { knownIDs.contains($0.id) }
         onlineIDs.subtract(knownIDs)
         persist()
@@ -317,7 +344,7 @@ final class MultiGatewayStore: ObservableObject {
     }
 
     private func probe(_ profile: GatewayProfile) async {
-        let client = GatewayClient()
+        let client = GatewayClient(credentials: credentials)
         client.credentialID = profile.id
         client.expectedGatewayID = profile.gatewayId
         client.trustedEndpoints = profile.endpoints
@@ -331,7 +358,9 @@ final class MultiGatewayStore: ObservableObject {
         defer { client.disconnect(); probes.removeAll { $0 === client } }
         for endpoint in profile.connectionEndpoints {
             guard !Task.isCancelled, profiles.contains(where: { $0.id == profile.id }) else { return }
-            guard client.hasStoredCredential(for: endpoint) else { return }
+            guard await client.hasStoredCredential(for: endpoint), !Task.isCancelled,
+                  probes.contains(where: { $0 === client }),
+                  profiles.contains(where: { $0.id == profile.id }) else { return }
             client.connect(to: endpoint)
             for _ in 0..<12 {
                 do { try await Task.sleep(for: .milliseconds(250)) } catch { return }

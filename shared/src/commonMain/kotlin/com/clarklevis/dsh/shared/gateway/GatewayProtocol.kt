@@ -65,7 +65,9 @@ data class GatewayRequest(
     val correlationId: String? = null,
     val lanePolicy: GatewayRequestLanePolicy = GatewayRequestLanePolicy.COALESCE_LATEST,
     val payload: String,
-    val timeoutMilliseconds: Long? = null
+    val timeoutMilliseconds: Long? = null,
+    // 仅 Runtime 本地关联元数据，永不写入网关 payload。
+    val isBackgroundHistory: Boolean = false
 ) {
     override fun toString(): String =
         "GatewayRequest(requestType=$requestType, responseKind=$responseKind, " +
@@ -475,14 +477,23 @@ object GatewayRequests {
         sessionId: String?,
         workspaceId: String?,
         clientTimeZone: String,
-        mode: String = "queue"
+        mode: String = "queue",
+        receipts: List<String> = emptyList(),
+        requestId: String? = null
     ): GatewayRequest = request(
         "message",
         "sent",
         sessionId,
+        correlationId = requestId,
         lanePolicy = GatewayRequestLanePolicy.REJECT_IF_BUSY
     ) {
         sessionId?.takeIf(String::isNotBlank)?.let { put("sessionId", it) }
+        require(receipts.size <= 20 && receipts.distinct().size == receipts.size)
+        require(receipts.isEmpty() || (!sessionId.isNullOrBlank() && !requestId.isNullOrBlank()))
+        requestId?.let { put("requestId", it) }
+        if (receipts.isNotEmpty()) put("files", buildJsonArray {
+            receipts.forEach { add(buildJsonObject { put("receiptId", it) }) }
+        })
         put("text", text)
         put("images", buildJsonArray {
             images.forEach { image ->

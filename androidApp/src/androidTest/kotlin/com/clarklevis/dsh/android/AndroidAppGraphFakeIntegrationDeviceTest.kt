@@ -7,8 +7,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import com.clarklevis.dsh.android.ui.WorkspaceFilePreviewHost
+import com.clarklevis.dsh.android.ui.ConversationScreen
+import com.clarklevis.dsh.android.ui.DshTheme
 import com.clarklevis.dsh.android.ui.decodeWorkspaceLoadingLogo
 import androidx.compose.ui.graphics.toPixelMap
+import androidx.compose.ui.graphics.asAndroidBitmap
 import com.clarklevis.dsh.shared.protocol.GatewayDirectoryItem
 import java.util.UUID
 import java.util.Locale
@@ -211,6 +214,64 @@ class AndroidAppGraphFakeIntegrationDeviceTest {
     }
 
     @Test
+    fun runningComposerKeepsCircularBackgroundBeforeAndAfterStopRequest() = runBlocking {
+        val transport = FakeTransport()
+        val graph = AndroidAppGraph(
+            application = ApplicationProvider.getApplicationContext<Application>(),
+            transportOverride = transport,
+            preferencesOverride = FakePreferences(),
+            credentialStoreOverride = FakeCredentials,
+            attachmentCacheOverride = FakeCache(),
+            networkMonitorOverride = FakeNetwork,
+            clockOverride = FakeClock
+        )
+        val holder = graph.stateHolder
+        try {
+            waitUntil { transport.specs.isNotEmpty() }
+            transport.open()
+            transport.receive("""{"kind":"hello","authenticated":true,"protocol":3,"capabilities":["session-cancel"]}""")
+            waitUntil { holder.gatewayState.connection.name == "CONNECTED" }
+            transport.receive(
+                """{"kind":"sessions","items":[{
+                    "sessionId":"stop-button","updatedAt":1,"running":true,"blank":false
+                }]}"""
+            )
+            waitUntil("运行中的会话已载入") { holder.snapshot.sessions.any { it.id == "stop-button" } }
+            onMain { holder.selectSession("stop-button") }
+            waitUntil("运行中的会话显示停止按钮") { holder.showsSessionStopButton }
+            compose.setContent {
+                DshTheme { ConversationScreen(holder, onPickImage = {}, onBack = {}) }
+            }
+            val action = compose.onNodeWithTag("composer-action")
+            for (pending in listOf(false, true)) {
+                if (pending) {
+                    action.performClick()
+                    waitUntil { !holder.canCancelSelectedSession }
+                    action.assertIsNotEnabled()
+                } else {
+                    action.assertIsEnabled()
+                }
+                val image = action.captureToImage()
+                val pixels = image.toPixelMap()
+                for (x in listOf(1, image.width - 2)) {
+                    for (y in listOf(1, image.height - 2)) {
+                        val corner = pixels[x, y]
+                        assertTrue("停止按钮四角不能出现蓝色方形背景，pending=$pending", corner.blue - corner.red < 0.1f)
+                    }
+                }
+                val edge = pixels[image.width / 2, image.height / 8]
+                assertTrue("圆形内部应保留蓝色背景", edge.blue - edge.red > 0.2f)
+                val output = graph.application.cacheDir.resolve("composer-stop-$pending.png")
+                output.outputStream().use {
+                    image.asAndroidBitmap().compress(Bitmap.CompressFormat.PNG, 100, it)
+                }
+            }
+        } finally {
+            onMain { holder.close() }
+        }
+    }
+
+    @Test
     fun queueRoundTripKeepsDraftUntilAckAndEditResubmitsThenSteers() = runBlocking {
         val transport = FakeTransport()
         val graph = AndroidAppGraph(
@@ -267,6 +328,7 @@ class AndroidAppGraphFakeIntegrationDeviceTest {
             preferencesOverride = FakePreferences(),
             credentialStoreOverride = FakeCredentials,
             attachmentCacheOverride = cache,
+            gatewayLocalId = "history-window-${UUID.randomUUID()}",
             networkMonitorOverride = FakeNetwork,
             clockOverride = FakeClock,
             frameDecoderOverride = { raw ->
@@ -275,78 +337,85 @@ class AndroidAppGraphFakeIntegrationDeviceTest {
             }
         )
         val holder = graph.stateHolder
-        waitUntil { transport.specs.isNotEmpty() }
-        transport.open()
-        transport.receive("""{"kind":"hello","authenticated":true,"protocol":3}""")
-        waitUntil { holder.gatewayState.connection.name == "CONNECTED" }
-        transport.receive("""{"kind":"pong","message":"${"x".repeat(1_000_000)}"}""")
-        waitUntil { synchronized(decoderThreads) { decoderThreads.size >= 2 } }
-        assertTrue(synchronized(decoderThreads) { decoderThreads.all { it !== Looper.getMainLooper().thread } })
+        try {
+            waitUntil("传输初始化") { transport.specs.isNotEmpty() }
+            transport.open()
+            transport.receive("""{"kind":"hello","authenticated":true,"protocol":3,"historyFormatVersion":1}""")
+            waitUntil("连接完成") { holder.gatewayState.connection.name == "CONNECTED" }
+            transport.receive("""{"kind":"pong","message":"${"x".repeat(1_000_000)}"}""")
+            waitUntil("大帧在后台解码") { synchronized(decoderThreads) { decoderThreads.size >= 2 } }
+            assertTrue(synchronized(decoderThreads) { decoderThreads.all { it !== Looper.getMainLooper().thread } })
 
-        onMain { holder.loadFixture() }
-        val historyBefore = transport.sentTypes.count { it == "history" }
-        onMain { holder.selectSession("android-demo") }
-        waitUntil { transport.sentTypes.count { it == "history" } > historyBefore }
-        val initialHistoryRequest = transport.payloadsOfType("history").last()
-        assertEquals(60, initialHistoryRequest.getValue("maxMessages").jsonPrimitive.int)
-        assertEquals(4 * 1_024 * 1_024, initialHistoryRequest.getValue("maxBytes").jsonPrimitive.int)
-        assertEquals("conversation", initialHistoryRequest.getValue("view").jsonPrimitive.content)
-        transport.receive(
-            """{"kind":"history","sessionId":"android-demo","events":[{"type":"user/message","seq":1,"time":1,"data":{"content":[{"type":"text","text":"product-history"}],"source":{"kind":"user"}}}],"hasMore":true,"nextBeforeSeq":0,"bytes":64}"""
-        )
-        waitUntil { holder.snapshot.conversation.any { it.text == "product-history" } }
-        delay(100)
-        assertEquals(historyBefore + 1, transport.sentTypes.count { it == "history" })
-
-        onMain { holder.loadOlderHistory() }
-        waitUntil { transport.sentTypes.count { it == "history" } == historyBefore + 2 }
-        val olderHistoryRequest = transport.payloadsOfType("history").last()
-        assertEquals(1, olderHistoryRequest.getValue("beforeSeq").jsonPrimitive.int)
-        assertEquals("conversation", olderHistoryRequest.getValue("view").jsonPrimitive.content)
-        transport.receive(
-            """{"kind":"history","sessionId":"android-demo","events":[],"hasMore":false,"bytes":0}"""
-        )
-        waitUntil { !holder.snapshot.selectedHistoryIsLoading }
-
-        assertTrue(graph.gatewayRuntime.requestHistory("android-demo"))
-        waitUntil { transport.sentTypes.count { it == "history" } >= historyBefore + 2 }
-        transport.receive(
-            """{"kind":"error","requestType":"history","sessionId":"android-demo","code":"synthetic"}"""
-        )
-        waitUntil { holder.platformError?.startsWith("history:") == true }
-        val beforeRetry = transport.sentTypes.count { it == "history" }
-        assertTrue(graph.gatewayRuntime.requestHistory("android-demo"))
-        waitUntil { transport.sentTypes.count { it == "history" } > beforeRetry }
-
-        val chunks = List(1_200) { "长" }
-        chunks.forEachIndexed { index, text ->
+            onMain { holder.loadFixture() }
+            val historyBefore = transport.sentTypes.count { it == "history" }
+            onMain { holder.selectSession("android-demo") }
+            waitUntil("首屏历史请求") { transport.sentTypes.count { it == "history" } > historyBefore }
+            val initialHistoryRequest = transport.payloadsOfType("history").last()
+            assertEquals(60, initialHistoryRequest.getValue("maxMessages").jsonPrimitive.int)
+            assertEquals(4 * 1_024 * 1_024, initialHistoryRequest.getValue("maxBytes").jsonPrimitive.int)
+            assertEquals("conversation", initialHistoryRequest.getValue("view").jsonPrimitive.content)
             transport.receive(
-                """{"sessionId":"android-demo","seq":${index + 2},"time":${index + 2},"event":{"type":"assistant/chunk","turn":2,"step":1,"chunkType":"text-delta","text":"$text"}}"""
+                """{"kind":"history","sessionId":"android-demo","historyFormatVersion":1,"events":[{"type":"user/message","seq":1,"time":1,"data":{"content":[{"type":"text","text":"product-history"}],"source":{"kind":"user"}}}],"hasMore":true,"nextBeforeSeq":0,"bytes":64}"""
             )
-        }
-        val finalText = chunks.joinToString("")
-        transport.receive(
-            """{"sessionId":"android-demo","seq":1202,"time":1202,"event":{"type":"assistant/message","turn":2,"step":1,"text":"$finalText"}}"""
-        )
-        waitUntil {
-            holder.snapshot.conversation.any { it.text == finalText } &&
-                holder.snapshot.conversation.none { it.id.startsWith("stream-") }
-        }
-        assertTrue(holder.snapshot.conversation.none { it.id.startsWith("stream-") })
+            waitUntil("首屏正文完成投影") { holder.snapshot.conversation.any { it.text == "product-history" } }
+            delay(100)
+            assertEquals(historyBefore + 1, transport.sentTypes.count { it == "history" })
 
-        val png = tinyPng()
-        transport.receive(
-            """{"sessionId":"android-demo","seq":1300,"time":1300,"event":{"type":"assistant/message","turn":2,"step":1,"text":"image","images":[{"attachmentId":"same-id","mediaType":"image/png","bytes":${png.size},"width":2,"height":2}]}}"""
-        )
-        waitUntil { holder.snapshot.conversation.any { item -> item.images.any { it.attachmentId == "same-id" } } }
-        onMain { holder.updateVisibleAttachments(setOf("same-id")) }
-        waitUntil { transport.sentTypes.lastOrNull() == "attachment" }
-        transport.receive(
-            """{"kind":"attachment","sessionId":"android-demo","attachment":{"attachmentId":"same-id","mediaType":"image/png","bytes":${png.size},"width":2,"height":2},"data":"${Base64.encodeToString(png, Base64.NO_WRAP)}"}"""
-        )
-        waitUntil { holder.attachmentStates["same-id"] == AttachmentLoadState.LOADED }
-        assertTrue("same-id" in holder.attachmentThumbnails)
-        assertTrue(gatewayAttachmentCacheKey("android-demo", "same-id") in cache.values)
+            onMain { holder.loadOlderHistory() }
+            waitUntil("较早历史请求") { transport.sentTypes.count { it == "history" } == historyBefore + 2 }
+            val olderHistoryRequest = transport.payloadsOfType("history").last()
+            assertEquals(1, olderHistoryRequest.getValue("beforeSeq").jsonPrimitive.int)
+            assertEquals(120, olderHistoryRequest.getValue("maxMessages").jsonPrimitive.int)
+            assertEquals("conversation", olderHistoryRequest.getValue("view").jsonPrimitive.content)
+            transport.receive(
+                """{"kind":"history","sessionId":"android-demo","historyFormatVersion":1,"events":[],"hasMore":false,"bytes":0}"""
+            )
+            waitUntil("较早历史请求结束") { !holder.snapshot.selectedHistoryIsLoading }
+
+            assertTrue(graph.gatewayRuntime.requestHistory("android-demo"))
+            waitUntil("主动历史刷新请求") { transport.sentTypes.count { it == "history" } >= historyBefore + 3 }
+            transport.receive(
+                """{"kind":"error","requestType":"history","sessionId":"android-demo","code":"synthetic"}"""
+            )
+            waitUntil("历史错误反馈") { holder.platformError?.startsWith("history:") == true }
+            val beforeRetry = transport.sentTypes.count { it == "history" }
+            assertTrue(graph.gatewayRuntime.requestHistory("android-demo"))
+            waitUntil("历史错误后重试") { transport.sentTypes.count { it == "history" } > beforeRetry }
+
+            val chunks = List(1_200) { "长" }
+            chunks.forEachIndexed { index, text ->
+                transport.receive(
+                    """{"kind":"event","sessionId":"android-demo","seq":${index + 2},"time":${index + 2},"event":{"type":"assistant/chunk","turn":2,"step":1,"chunkType":"text-delta","text":"$text"}}"""
+                )
+            }
+            val finalText = chunks.joinToString("")
+            transport.receive(
+                """{"kind":"event","sessionId":"android-demo","seq":1202,"time":1202,"event":{"type":"assistant/message","turn":2,"step":1,"text":"$finalText"}}"""
+            )
+            waitUntil("1200个增量归并为最终回复") {
+                holder.snapshot.conversation.any { it.text == finalText && it.epochSeconds == 1202.0 }
+            }
+            // 最终回复沿用流式行ID以保持布局稳定，按最终事件水位及唯一正文验收。
+            val finalReply = holder.snapshot.conversation.single { it.text == finalText }
+            assertEquals(1202.0, finalReply.epochSeconds, 0.0)
+            assertTrue(finalReply.id.startsWith("stream-"))
+
+            val png = tinyPng()
+            transport.receive(
+                """{"kind":"event","sessionId":"android-demo","seq":1300,"time":1300,"event":{"type":"assistant/message","turn":2,"step":1,"text":"image","images":[{"attachmentId":"same-id","mediaType":"image/png","bytes":${png.size},"width":2,"height":2}]}}"""
+            )
+            waitUntil("带图片的消息投影") { holder.snapshot.conversation.any { item -> item.images.any { it.attachmentId == "same-id" } } }
+            onMain { holder.updateVisibleAttachments(setOf("same-id")) }
+            waitUntil("可见图片请求") { transport.sentTypes.lastOrNull() == "attachment" }
+            transport.receive(
+                """{"kind":"attachment","sessionId":"android-demo","attachment":{"attachmentId":"same-id","mediaType":"image/png","bytes":${png.size},"width":2,"height":2},"data":"${Base64.encodeToString(png, Base64.NO_WRAP)}"}"""
+            )
+            waitUntil("可见图片解码完成") { holder.attachmentStates["same-id"] == AttachmentLoadState.LOADED }
+            assertTrue("same-id" in holder.attachmentThumbnails)
+            assertTrue(gatewayAttachmentCacheKey("android-demo", "same-id") in cache.values)
+        } finally {
+            onMain { holder.close() }
+        }
     }
 
     private suspend fun waitUntil(description: String = "状态更新", predicate: () -> Boolean) {

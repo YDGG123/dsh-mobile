@@ -212,6 +212,14 @@ struct GatewayFrame: Codable, Sendable {
     var clients: Int?
     var at: Double?
     var sessionId: String?
+    var parentSessionId: String?
+    var subagentMode: String?
+    var agentTeam: JSONValue?
+    var subagentCatalog: JSONValue?
+    var subagent: JSONValue?
+    var subagentTiming: JSONValue?
+    var projectionState: String?
+    var running: Bool?
     var title: String?
     var seq: Int?
     var time: Double?
@@ -256,6 +264,11 @@ struct GatewayFrame: Codable, Sendable {
     var bundles: [JSONValue]?
     var plugins: [JSONValue]?
     var officialItems: [JSONValue]?
+    var uploadId: String?
+    var nextOffset: Int64?
+    var maxBytes: Int64?
+    var receiptId: String?
+    var file: PresentedFile?
     var transferId: String?
     var name: String?
     var mediaType: String?
@@ -986,7 +999,12 @@ struct RawSessionEvent: Codable, Hashable, Sendable {
                 text: textBlocks(data["content"]),
                 source: data["source"]?["kind"]?.stringValue,
                 images: imageBlocks(data["content"]),
-                raw: data
+                raw: data,
+                files: (data["content"]?.arrayValue ?? []).compactMap { block in
+                    guard block["type"]?.stringValue == "file", let file = block["attachment"],
+                          let id = file["attachmentId"]?.stringValue else { return nil }
+                    return PresentedFile(attachmentId: id, name: file["name"]?.stringValue, bytes: file["bytes"]?.doubleValue.map(Int64.init))
+                }
             )
         case "assistant/chunk":
             let chunk = data["chunk"]
@@ -1117,8 +1135,24 @@ struct RawSessionEvent: Codable, Hashable, Sendable {
 }
 
 struct PresentedFile: Codable, Hashable, Sendable {
-    let path: String
-    let description: String?
+    var path: String = ""
+    var description: String? = nil
+    var attachmentId: String? = nil
+    var name: String? = nil
+    var bytes: Int64? = nil
+
+    private enum CodingKeys: String, CodingKey { case path, description, attachmentId, name, bytes }
+    init(path: String = "", description: String? = nil, attachmentId: String? = nil, name: String? = nil, bytes: Int64? = nil) {
+        self.path = path; self.description = description; self.attachmentId = attachmentId; self.name = name; self.bytes = bytes
+    }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        path = try c.decodeIfPresent(String.self, forKey: .path) ?? ""
+        description = try c.decodeIfPresent(String.self, forKey: .description)
+        attachmentId = try c.decodeIfPresent(String.self, forKey: .attachmentId)
+        name = try c.decodeIfPresent(String.self, forKey: .name)
+        bytes = try c.decodeIfPresent(Int64.self, forKey: .bytes)
+    }
 }
 
 struct GatewayEvent: Codable, Hashable, Sendable, Identifiable {
@@ -1371,4 +1405,68 @@ extension GatewayFrame {
         envelope.projections = nil
         return envelope
     }
+}
+
+// KMP 团队投影的只读展示镜像；任务状态与地址规则由 SharedTeamStore 持有。
+struct MobileTeamSnapshot: Codable, Equatable {
+    var leadSessionId = ""
+    var members: [MobileTeamMember] = []
+    var tasks: [MobileTeamTask] = []
+    var state = "loading"
+    var error: String?
+    var visible = false
+    var isTeam = false
+}
+
+struct MobileTeamMember: Codable, Equatable, Identifiable {
+    var id: String
+    var name: String
+    var role: String
+    var phase: String
+    var mode: String
+    var parentSessionId: String?
+    var model: String?
+    var detail: String?
+    var running: Bool?
+    var error: String?
+    var canOpen: Bool
+    var avatarIndex: Int?
+
+    var statusLabel: String {
+        if phase == "provisioning" { return "正在创建" }
+        if phase == "failed" { return "创建失败" }
+        if phase != "active" { return phase }
+        if mode == "external" { return "外部智能体" }
+        if mode == "one-shot" { return "只读 · 单次执行" }
+        if mode == "unknown" { return "只读 · 身份待确认" }
+        return running.map { $0 ? "运行中" : "未运行" } ?? "状态同步中"
+    }
+}
+
+struct MobileTeamTask: Codable, Equatable, Identifiable {
+    var id: String
+    var revision: Int
+    var subject: String
+    var description: String
+    var status: String
+    var ownerName: String?
+    var blockedBy: [String]
+    var writeScopes: [String]
+    var ready: Bool
+    var writeScopeWarnings: [String]
+
+    var statusLabel: String {
+        switch status {
+        case "completed": return "已完成"
+        case "in_progress": return "进行中"
+        case "pending": return ready ? "待处理" : "受阻"
+        default: return status
+        }
+    }
+}
+
+struct MobileConversationTarget: Codable {
+    var sessionId: String
+    var parentSessionId: String?
+    var subagentMode: String?
 }

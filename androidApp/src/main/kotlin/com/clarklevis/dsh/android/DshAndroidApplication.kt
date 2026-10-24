@@ -11,8 +11,6 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
 import com.clarklevis.dsh.android.platform.GatewayLifecycleEvent
 import com.clarklevis.dsh.android.ui.AppearanceSettings
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 class DshAndroidApplication : Application(), DefaultLifecycleObserver {
@@ -44,7 +42,38 @@ class DshAndroidApplication : Application(), DefaultLifecycleObserver {
     override fun onCreate() {
         super<Application>.onCreate()
         hosts = AndroidMultiGatewayStore(this)
+        maintainCacheStorage()
         ProcessLifecycleOwner.get().lifecycle.addObserver(this)
+    }
+
+    private fun maintainCacheStorage() {
+        graph.gatewayScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val cache = com.clarklevis.dsh.android.platform.AndroidChatHistoryCache.shared(this@DshAndroidApplication)
+            try {
+                cache.trimToBytes(72L * AndroidCacheDiskManager.MIB)
+                AndroidCacheStorage.shared(this@DshAndroidApplication).maintain()
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                android.util.Log.w("CacheStorage", "maintenance-failed reason=storage-error")
+            }
+        }
+    }
+
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (!::hosts.isInitialized) return
+        graph.stateHolder.trimMemory()
+        com.clarklevis.dsh.android.platform.AndroidAttachmentCache.trimMemory()
+        com.clarklevis.dsh.android.ui.PluginIconImageCache.trimMemory()
+        graph.applicationScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            com.clarklevis.dsh.android.ui.trimMarkdownMemory()
+        }
+    }
+
+    override fun onLowMemory() {
+        super.onLowMemory()
+        onTrimMemory(android.content.ComponentCallbacks2.TRIM_MEMORY_COMPLETE)
     }
 
     override fun onStart(owner: LifecycleOwner) {
@@ -55,6 +84,7 @@ class DshAndroidApplication : Application(), DefaultLifecycleObserver {
 
     override fun onStop(owner: LifecycleOwner) {
         isInForeground = false
+        maintainCacheStorage()
         hosts.stopPresence()
         hosts.cancelPairing()
         graph.diagnostics.lifecycle(GatewayLifecycleEvent.BACKGROUND)

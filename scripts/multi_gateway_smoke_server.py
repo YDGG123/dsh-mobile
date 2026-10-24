@@ -58,7 +58,7 @@ class Gateway(socketserver.StreamRequestHandler):
                 request = json.loads(data)
                 kind = request.get("type")
                 if kind == "sessions":
-                    self.send({"kind": kind, "items": [{"sessionId": "same-session", "projections": {"values": {"title": host + " only session"}}, "updatedAt": time.time() * 1000, "running": False, "blank": False}]})
+                    self.send({"kind": kind, "items": [{"sessionId": "same-session", "projections": {"values": {"title": host + " only session"}}, "updatedAt": self.server.activity_timestamp, "running": False, "blank": False}]})
                 elif kind == "workspaces":
                     self.send({"kind": kind, "items": [{"workspaceId": "same-workspace", "path": "/smoke/" + host, "title": host + " workspace", "sessionIds": ["same-session"], "createdAt": "2026-09-10T00:00:00Z", "updatedAt": "2026-09-10T00:00:00Z"}], "archivedSessionIds": []})
                 elif kind == "history":
@@ -92,6 +92,8 @@ if __name__ == "__main__":
     for host, port, identity in [("A", 18781, "d56a1098-8519-43a1-9dce-fb99863bf5bb"), ("B", 18782, "a56a1098-8519-43a1-9dce-fb99863bf5bb")]:
         server = Server(("127.0.0.1", port), Gateway)
         server.host_name, server.gateway_id = host, identity
+        # 只读夹具没有会话修改；重复 list 请求不能凭空推进 activity 时间。
+        server.activity_timestamp = 1_789_344_000_000
         threading.Thread(target=server.serve_forever, daemon=True).start()
         for platform, address in [("iOS", "127.0.0.1"), ("Android", "10.0.2.2")]:
             payload = {"version": 2, "publicUrl": f"ws://{address}:{port}/ws/mobile", "pairingCode": "smoke-" + host, "expiresAt": int((time.time() + 3600) * 1000), "gatewayId": identity, "gatewayName": "Smoke " + host}

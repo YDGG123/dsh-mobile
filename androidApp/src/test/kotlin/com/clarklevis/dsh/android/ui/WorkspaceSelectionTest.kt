@@ -18,6 +18,14 @@ class WorkspaceSelectionTest {
         assertEquals(listOf("s1"), workspaceScopedSessions(started, workspaces, "w1").map { it.id })
     }
 
+    @Test
+    fun offlineBodyMatchesParticipateInRegularListWithoutCrossingWorkspaceScope() {
+        val scoped = workspaceScopedSessions(sessions, workspaces, "w1")
+        assertEquals(listOf("s1"), filterSessionsByQuery(scoped, "needle", setOf("s1", "s2")).map { it.id })
+        assertEquals(emptyList<SessionSummary>(), filterSessionsByQuery(scoped, "needle", setOf("s2")))
+        assertEquals(listOf("s1"), filterSessionsByQuery(scoped, " S1 ", emptySet()).map { it.id })
+    }
+
     private val sessions = listOf("s1", "s2", "loose").map { id ->
         SessionSummary(id, id, 1.0, isRunning = false, hasUnread = false)
     }

@@ -5,11 +5,25 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import com.clarklevis.dsh.android.AndroidSharedStateHolder
+import java.util.Locale
 import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.ExternalResource
 
 class ConversationHistoryRecoveryDeviceTest {
     @get:Rule val compose = createComposeRule()
+    @get:Rule val locale = object : ExternalResource() {
+        private lateinit var previous: Locale
+
+        override fun before() {
+            previous = Locale.getDefault()
+            Locale.setDefault(Locale.SIMPLIFIED_CHINESE)
+        }
+
+        override fun after() {
+            Locale.setDefault(previous)
+        }
+    }
 
     @Test
     fun coldSnapshotShowsMaskThenHistoryWithoutEmptyWelcome() {

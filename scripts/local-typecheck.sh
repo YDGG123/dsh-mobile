@@ -51,14 +51,32 @@ fi
 # ---- 准备 MarkdownUI 桩模块 ----
 # MarkdownUI 依赖 cmark-gfm 与 NetworkImage 两个 C/SPM 包,完整编译成本高。
 # 类型检查只需要它的 API 表面,这里用最小桩模块代替。
-if [ ! -f "$DEPS/MarkdownUI.swiftmodule" ]; then
-  echo "→ 生成 MarkdownUI 桩模块..."
-  cat > "$DEPS/MarkdownUI.swift" <<'STUB'
+# 桩源码每次都重写（幂等），模块只在源码比 .swiftmodule 新时重建。
+# 教训：以前只写 `if [ ! -f .swiftmodule ]`，改了下面的桩源码也不会生效，
+# 表现为"明明补了 API 还一直报 no member"（本次合并上游新增 API 时踩到）。
+cat > "$DEPS/MarkdownUI.swift" <<'STUB'
 import SwiftUI
+import UIKit
 
 public struct MarkdownContent {
     public init(_ text: String) {}
     public func linkingInlineCode(_ destinations: [String: String]) -> MarkdownContent { self }
+    /// 上游 Vendor 新增：复制消息用纯文本 / 可选中富文本（全屏选择页）。
+    public func renderPlainText() -> String { "" }
+    public func renderSelectableText(font: UIFont, textColor: UIColor = .label) -> NSAttributedString {
+        NSAttributedString(string: "")
+    }
+}
+
+/// 上游 Vendor（MarkdownContent+SelectableText）：代码块在富文本里的标记与尺寸。
+public enum SelectableCodeBlockStyle {
+    public static let blockID = NSAttributedString.Key("MarkdownSelectableCodeBlockID")
+    public static let language = NSAttributedString.Key("MarkdownSelectableCodeLanguage")
+    public static let decoration = NSAttributedString.Key("MarkdownSelectableCodeDecoration")
+    public static let horizontalPadding: CGFloat = 12
+    public static let headerHeight: CGFloat = 34
+    public static let bottomPadding: CGFloat = 12
+    public static let backgroundColor = UIColor.secondarySystemBackground
 }
 
 public struct Markdown: View {
@@ -90,6 +108,8 @@ public struct ListItemConfiguration { public var label: AnyView { AnyView(EmptyV
 public struct CodeBlockConfiguration {
     public var label: AnyView { AnyView(EmptyView()) }
     public var language: String? { nil }
+    /// 上游新增：代码块原文（复制按钮用）。
+    public var content: String { "" }
 }
 
 public protocol MarkdownTextStyle {}
@@ -133,6 +153,10 @@ public extension View {
     func relativeLineSpacing(_ spacing: Em) -> some View { self }
 }
 STUB
+
+# 桩源码变了就重建模块（时间戳比对），否则改动不生效。
+if [ ! -f "$DEPS/MarkdownUI.swiftmodule" ] || [ "$DEPS/MarkdownUI.swift" -nt "$DEPS/MarkdownUI.swiftmodule" ]; then
+  echo "→ 生成 MarkdownUI 桩模块..."
   "$TC/swiftc" -emit-module -sdk "$SDK" -target x86_64-apple-ios16.0-simulator -swift-version 5 \
     -module-name MarkdownUI -emit-module-path "$DEPS/MarkdownUI.swiftmodule" \
     "$DEPS/MarkdownUI.swift" >/dev/null 2>&1 || fail "生成 MarkdownUI 桩失败"
@@ -171,6 +195,52 @@ WLOG=$(mktemp)
   DeepSeekHarnessMobile/LiveActivity/AgentApprovalIntents.swift > "$WLOG" 2>&1
 WIDGET_ERRORS=$(grep -c "error:" "$WLOG" 2>/dev/null | head -1)
 WIDGET_ERRORS=${WIDGET_ERRORS:-0}
+
+# ---- 工程收录守卫（2026-10-25 教训）----
+# 本工程是**显式 fileRef**（不是 Xcode 16 的同步组）：新加的 .swift 如果没登记进 pbxproj，
+# `swiftc -typecheck` 仍然全绿（它用 find 收文件、不经过工程），但 xcodebuild 会直接
+# `cannot find 'X' in scope`，CI 才炸。所以这里把「必须被工程收录」变成硬闸门。
+if ! python3 - <<'PYCHK'
+import pathlib, re, sys
+root = pathlib.Path('.')
+pbx_path = root / 'DeepSeekHarnessMobile.xcodeproj/project.pbxproj'
+pbx = pbx_path.read_text(encoding='utf-8')
+
+# 1) 所有 PBXBuildFile（"X.swift in Sources" → id）
+build_ids = {}
+# 工程里同时存在 tab 与空格缩进（历史导致），两者都要认
+for m in re.finditer(r'^[ \t]+([0-9A-F]{24}) /\* ([^*]+?) in Sources \*/ = \{isa = PBXBuildFile;', pbx, re.M):
+    build_ids.setdefault(m.group(2).strip(), set()).add(m.group(1))
+
+# 2) 所有 Sources phase 里实际挂着的 id
+phase_ids = set()
+for block in re.finditer(r'isa = PBXSourcesBuildPhase;.*?files = \((.*?)\);', pbx, re.S):
+    phase_ids.update(re.findall(r'([0-9A-F]{24}) /\*', block.group(1)))
+
+# 3) 每个 .swift 必须有 "in Sources" 的 BuildFile，且该 id 真的挂在某个 Sources phase 里
+targets = ['DeepSeekHarnessMobile', 'AgentLiveActivityWidget', 'DeepSeekHarnessMobileTests', 'DeepSeekHarnessMobileUITests']
+missing = []
+for base in targets:
+    d = root / base
+    if not d.is_dir():
+        continue
+    for path in sorted(d.rglob('*.swift')):
+        ids = build_ids.get(path.name) or set()
+        if not ids:
+            missing.append(f'{path}（没有 PBXBuildFile）')
+        elif not (ids & phase_ids):
+            missing.append(f'{path}（BuildFile 没挂进 Sources phase）')
+if missing:
+    print('❌ 以下 Swift 文件没有被 Xcode 工程真正编译（xcodebuild 会报 cannot find in scope）：')
+    for m in missing:
+        print('   ', m)
+    print('   修法：fileRef + BuildFile + 分组 + 对应 target 的 Sources phase，四处缺一不可。')
+    sys.exit(1)
+print('  ✓ 工程收录：所有 .swift 都挂在某个 Sources phase 上')
+PYCHK
+then
+  exit 1
+fi
 
 # ---- 退役路径守卫（B3）----
 # bridge「粘贴配对资料 JSON」这条配对路径已退役：bridge 凭证改由网关配对成功后的

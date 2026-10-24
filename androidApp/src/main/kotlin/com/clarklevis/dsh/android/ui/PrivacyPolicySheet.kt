@@ -62,6 +62,7 @@ private const val PRIVACY_POLICY_URL = "https://clarklevis1995.github.io/dsh-mob
 internal fun PrivacyPolicyBottomSheet(onDismiss: () -> Unit) {
     var isLoading by remember { mutableStateOf(true) }
     var loadFailed by remember { mutableStateOf(false) }
+    var nativeMenu by remember { mutableStateOf<DshNativeTextMenu?>(null) }
     var reloadKey by remember { mutableStateOf(0) }
     val dark = isSystemInDarkTheme()
     val textZoom = (LocalDensity.current.fontScale * 100).toInt()
@@ -93,123 +94,134 @@ internal fun PrivacyPolicyBottomSheet(onDismiss: () -> Unit) {
             }
         }
     ) {
-        Column(Modifier.fillMaxWidth().fillMaxHeight(0.94f)) {
-            Box(
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp)
-                    .heightIn(min = 48.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    appText("隐私政策"),
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = titleSidePadding),
-                    fontSize = 17.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    textAlign = TextAlign.Center
-                )
-                Surface(
-                    onClick = onDismiss,
-                    modifier = Modifier.align(Alignment.CenterEnd).heightIn(min = 36.dp),
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.surface,
-                    shadowElevation = 2.dp
+        DshMenuColumnHost {
+            Column(Modifier.fillMaxWidth().fillMaxHeight(0.94f)) {
+                Box(
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp)
+                        .heightIn(min = 48.dp),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Box(Modifier.padding(horizontal = 16.dp, vertical = 6.dp), contentAlignment = Alignment.Center) {
-                        Text(appText("完成"), fontSize = 16.sp)
+                    Text(
+                        appText("隐私政策"),
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = titleSidePadding),
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        textAlign = TextAlign.Center
+                    )
+                    Surface(
+                        onClick = onDismiss,
+                        modifier = Modifier.align(Alignment.CenterEnd).heightIn(min = 36.dp),
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.surface,
+                        shadowElevation = 2.dp
+                    ) {
+                        Box(Modifier.padding(horizontal = 16.dp, vertical = 6.dp), contentAlignment = Alignment.Center) {
+                            Text(appText("完成"), fontSize = 16.sp)
+                        }
                     }
                 }
-            }
 
-            Box(Modifier.fillMaxWidth().weight(1f).background(pageBackground)) {
-                key(reloadKey, dark) {
-                    AndroidView(
-                        factory = {
-                            // Compose 的主题不会改 Activity 主题；显式传给 WebView，
-                            // 让网页的 prefers-color-scheme 跟随应用外观设置。
-                            val configuration = Configuration().apply {
-                                uiMode = if (dark) Configuration.UI_MODE_NIGHT_YES else Configuration.UI_MODE_NIGHT_NO
-                            }
-                            val themedContext = ContextThemeWrapper(
-                                hostContext,
-                                if (dark) R.style.Theme_PrivacyPolicy_Dark else R.style.Theme_PrivacyPolicy_Light
-                            ).apply {
-                                // 使用宿主窗口服务，深浅色仅覆盖资源配置。
-                                applyOverrideConfiguration(configuration)
-                            }
-                            WebView(themedContext).apply {
-                                setBackgroundColor(pageBackground.toArgb())
-                                settings.javaScriptEnabled = false
-                                settings.textZoom = textZoom
-                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                                    isForceDarkAllowed = false
+                Box(Modifier.fillMaxWidth().weight(1f).background(pageBackground)) {
+                    key(reloadKey, dark) {
+                        AndroidView(
+                            factory = {
+                                // Compose 的主题不会改 Activity 主题；显式传给 WebView，
+                                // 让网页的 prefers-color-scheme 跟随应用外观设置。
+                                val configuration = Configuration().apply {
+                                    uiMode = if (dark) Configuration.UI_MODE_NIGHT_YES else Configuration.UI_MODE_NIGHT_NO
                                 }
-                                webViewClient = object : WebViewClient() {
-                                    override fun onPageStarted(view: WebView, url: String?, favicon: android.graphics.Bitmap?) {
-                                        isLoading = true
-                                        loadFailed = false
-                                    }
-
-                                    override fun onPageFinished(view: WebView, url: String?) {
-                                        isLoading = false
-                                    }
-
-                                    override fun onReceivedError(
-                                        view: WebView,
-                                        request: WebResourceRequest,
-                                        error: WebResourceError
-                                    ) {
-                                        if (request.isForMainFrame) {
-                                            isLoading = false
-                                            loadFailed = true
-                                        }
-                                    }
-
-                                    override fun onReceivedHttpError(
-                                        view: WebView,
-                                        request: WebResourceRequest,
-                                        errorResponse: WebResourceResponse
-                                    ) {
-                                        if (request.isForMainFrame && errorResponse.statusCode >= 400) {
-                                            isLoading = false
-                                            loadFailed = true
-                                        }
-                                    }
-
-                                    override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
-                                        if (request.url.scheme != "mailto") return false
-                                        runCatching {
-                                            view.context.startActivity(Intent(Intent.ACTION_VIEW, request.url))
-                                        }
-                                        return true
-                                    }
+                                val themedContext = ContextThemeWrapper(
+                                    hostContext,
+                                    if (dark) R.style.Theme_PrivacyPolicy_Dark else R.style.Theme_PrivacyPolicy_Light
+                                ).apply {
+                                    // 使用宿主窗口服务，深浅色仅覆盖资源配置。
+                                    applyOverrideConfiguration(configuration)
                                 }
-                                loadUrl(PRIVACY_POLICY_URL)
-                            }
-                        },
-                        update = { webView -> webView.settings.textZoom = textZoom },
-                        onRelease = { webView ->
-                            webView.stopLoading()
-                            webView.webViewClient = WebViewClient()
-                            webView.destroy()
-                        },
-                        modifier = Modifier.fillMaxSize()
-                    )
-                }
+                                DshMenuWebView(themedContext).apply {
+                                    onMenuChanged = { nativeMenu = it }
+                                    setBackgroundColor(pageBackground.toArgb())
+                                    settings.javaScriptEnabled = false
+                                    settings.textZoom = textZoom
+                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                                        isForceDarkAllowed = false
+                                    }
+                                    webViewClient = object : WebViewClient() {
+                                        override fun onPageStarted(view: WebView, url: String?, favicon: android.graphics.Bitmap?) {
+                                            isLoading = true
+                                            loadFailed = false
+                                        }
 
-                if (isLoading) {
-                    CircularProgressIndicator(Modifier.align(Alignment.Center))
-                }
-                if (loadFailed) {
-                    Column(
-                        Modifier.fillMaxSize().background(pageBackground),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        Text(appText("无法打开隐私政策"))
-                        TextButton(onClick = {
-                            loadFailed = false
-                            isLoading = true
-                            reloadKey++
-                        }) { Text(appText("重试")) }
+                                        override fun onPageFinished(view: WebView, url: String?) {
+                                            isLoading = false
+                                        }
+
+                                        override fun onReceivedError(
+                                            view: WebView,
+                                            request: WebResourceRequest,
+                                            error: WebResourceError
+                                        ) {
+                                            if (request.isForMainFrame) {
+                                                isLoading = false
+                                                loadFailed = true
+                                            }
+                                        }
+
+                                        override fun onReceivedHttpError(
+                                            view: WebView,
+                                            request: WebResourceRequest,
+                                            errorResponse: WebResourceResponse
+                                        ) {
+                                            if (request.isForMainFrame && errorResponse.statusCode >= 400) {
+                                                isLoading = false
+                                                loadFailed = true
+                                            }
+                                        }
+
+                                        override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+                                            if (request.url.scheme != "mailto") return false
+                                            runCatching {
+                                                view.context.startActivity(Intent(Intent.ACTION_VIEW, request.url))
+                                            }
+                                            return true
+                                        }
+                                    }
+                                    loadUrl(PRIVACY_POLICY_URL)
+                                }
+                            },
+                            update = { webView -> webView.settings.textZoom = textZoom },
+                            onRelease = { webView ->
+                                webView.dismissTextMenu()
+                                webView.onMenuChanged = null
+                                nativeMenu = null
+                                webView.stopLoading()
+                                webView.webViewClient = WebViewClient()
+                                webView.destroy()
+                            },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+
+                    nativeMenu?.let { menu ->
+                        DshTextActions(androidx.compose.ui.geometry.Rect(menu.bounds.left.toFloat(), menu.bounds.top.toFloat(),
+                            menu.bounds.right.toFloat(), menu.bounds.bottom.toFloat()), menu.dismiss, menu.actions)
+                    }
+
+                    if (isLoading) {
+                        CircularProgressIndicator(Modifier.align(Alignment.Center))
+                    }
+                    if (loadFailed) {
+                        Column(
+                            Modifier.fillMaxSize().background(pageBackground),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Text(appText("无法打开隐私政策"))
+                            TextButton(onClick = {
+                                loadFailed = false
+                                isLoading = true
+                                reloadKey++
+                            }) { Text(appText("重试")) }
+                        }
                     }
                 }
             }

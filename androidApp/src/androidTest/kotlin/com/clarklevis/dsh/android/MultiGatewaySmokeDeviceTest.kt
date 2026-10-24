@@ -7,6 +7,8 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.clarklevis.dsh.shared.gateway.GatewayConnectionState
 import org.json.JSONObject
 import org.junit.Assume.assumeTrue
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertSame
 import org.junit.Test
 
 /** 需显式启用，并先启动 scripts/multi_gateway_smoke_server.py；普通设备回归跳过。 */
@@ -29,8 +31,28 @@ class MultiGatewaySmokeDeviceTest {
             instrumentation.runOnMainSync {
                 hosts.select(hosts.profiles.first { it.gatewayName == "Smoke A" })
             }
+            eventually {
+                showsOnly("A") && hosts.activeGraph.stateHolder.snapshot.sessions.single().lastActivityEpochSeconds == 1_789_344_000.0
+            }
+            val activeBeforeRetry = hosts.activeGraph
+            val sessionsBeforeRetry = activeBeforeRetry.stateHolder.snapshot.sessions
+            val workspacesBeforeRetry = activeBeforeRetry.stateHolder.snapshot.workspaces
+            instrumentation.runOnMainSync {
+                activeBeforeRetry.stateHolder.selectWorkspace("same-workspace")
+                activeBeforeRetry.stateHolder.disconnect()
+            }
+            eventually { activeBeforeRetry.stateHolder.gatewayState.connection == GatewayConnectionState.DISCONNECTED }
+            instrumentation.runOnMainSync {
+                assertEquals(sessionsBeforeRetry, activeBeforeRetry.stateHolder.snapshot.sessions)
+                assertEquals(workspacesBeforeRetry, activeBeforeRetry.stateHolder.snapshot.workspaces)
+                hosts.select(requireNotNull(hosts.activeProfile))
+            }
             eventually { showsOnly("A") }
-            instrumentation.runOnMainSync { hosts.startPresence() }
+            instrumentation.runOnMainSync {
+                assertSame("同主机离线重试必须复用 graph 及主页状态", activeBeforeRetry, hosts.activeGraph)
+                assertEquals("same-workspace", hosts.activeGraph.stateHolder.selectedWorkspaceId)
+                hosts.startPresence()
+            }
             try {
                 eventually {
                     hosts.profiles.filter { it.gatewayName in setOf("Smoke A", "Smoke B") }

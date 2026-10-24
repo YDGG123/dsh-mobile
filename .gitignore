@@ -1,6 +1,9 @@
 # macOS
 .DS_Store
 
+# Node.js 依赖
+node_modules/
+
 # Xcode per-user state
 xcuserdata/
 *.xcuserstate

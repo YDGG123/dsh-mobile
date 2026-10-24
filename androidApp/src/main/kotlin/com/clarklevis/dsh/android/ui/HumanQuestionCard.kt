@@ -331,116 +331,118 @@ private fun QuestionCancelConfirmation(
             decorFitsSystemWindows = false
         )
     ) {
-        BoxWithConstraints(
-            modifier = Modifier
-                .fillMaxSize()
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onClick = onDismiss
-                )
-        ) {
-            val density = LocalDensity.current
-            var popoverHeightPx by remember { mutableIntStateOf(0) }
-            val verticalGapPx = with(density) { 2.dp.roundToPx() }
-            val minimumTopPx = with(density) { 48.dp.roundToPx() }
-            val maximumTopPx = with(density) {
-                (maxHeight - 48.dp).roundToPx() - popoverHeightPx
-            }
-            val requestedTopPx = anchorTopInWindowPx.toInt() - popoverHeightPx - verticalGapPx
-            val popoverTopPx = requestedTopPx.coerceIn(
-                minimumValue = minimumTopPx,
-                maximumValue = maximumTopPx.coerceAtLeast(minimumTopPx)
-            )
-            var visible by remember { mutableStateOf(false) }
-            LaunchedEffect(Unit) { visible = true }
-
-            AnimatedVisibility(
-                visible = visible,
+        DshMenuHost {
+            BoxWithConstraints(
                 modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .offset { IntOffset(0, popoverTopPx) }
-                    .padding(horizontal = 28.dp),
-                enter = fadeIn(tween(140)) + scaleIn(
-                    animationSpec = tween(220, easing = FastOutSlowInEasing),
-                    initialScale = 0.94f,
-                    transformOrigin = QuestionPanelTransformOrigin
-                )
+                    .fillMaxSize()
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = onDismiss
+                    )
             ) {
-                Column(
+                val density = LocalDensity.current
+                var popoverHeightPx by remember { mutableIntStateOf(0) }
+                val verticalGapPx = with(density) { 2.dp.roundToPx() }
+                val minimumTopPx = with(density) { 48.dp.roundToPx() }
+                val maximumTopPx = with(density) {
+                    (maxHeight - 48.dp).roundToPx() - popoverHeightPx
+                }
+                val requestedTopPx = anchorTopInWindowPx.toInt() - popoverHeightPx - verticalGapPx
+                val popoverTopPx = requestedTopPx.coerceIn(
+                    minimumValue = minimumTopPx,
+                    maximumValue = maximumTopPx.coerceAtLeast(minimumTopPx)
+                )
+                var visible by remember { mutableStateOf(false) }
+                LaunchedEffect(Unit) { visible = true }
+
+                AnimatedVisibility(
+                    visible = visible,
                     modifier = Modifier
-                        .widthIn(max = 300.dp)
-                        .fillMaxWidth()
-                        .testTag("question-cancel-popover")
-                        .onSizeChanged { size -> popoverHeightPx = size.height }
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null,
-                            onClick = {}
-                        ),
-                    horizontalAlignment = Alignment.CenterHorizontally
+                        .align(Alignment.TopCenter)
+                        .offset { IntOffset(0, popoverTopPx) }
+                        .padding(horizontal = 28.dp),
+                    enter = fadeIn(tween(140)) + scaleIn(
+                        animationSpec = tween(220, easing = FastOutSlowInEasing),
+                        initialScale = 0.94f,
+                        transformOrigin = QuestionPanelTransformOrigin
+                    )
                 ) {
-                    val surfaceColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.98f)
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = QuestionConfirmationShape,
-                        color = surfaceColor,
-                        shadowElevation = 18.dp
+                    Column(
+                        modifier = Modifier
+                            .widthIn(max = 300.dp)
+                            .fillMaxWidth()
+                            .testTag("question-cancel-popover")
+                            .onSizeChanged { size -> popoverHeightPx = size.height }
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                                onClick = {}
+                            ),
+                        horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Column(
-                            modifier = Modifier.padding(22.dp),
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        val surfaceColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.98f)
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = QuestionConfirmationShape,
+                            color = surfaceColor,
+                            shadowElevation = 18.dp
                         ) {
-                            Text(
-                                appText("放弃这组问题？"),
-                                fontSize = 18.sp,
-                                lineHeight = 23.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                appText("当前填写的答案不会提交。"),
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.56f),
-                                fontSize = 14.sp,
-                                lineHeight = 20.sp
-                            )
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(top = 8.dp)
-                                    .heightIn(min = 48.dp)
-                                    .clip(RoundedCornerShape(24.dp))
-                                    .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.09f))
-                                    .clickable(onClick = onConfirm)
-                                    .testTag("question-cancel-confirm"),
-                                contentAlignment = Alignment.Center
+                            Column(
+                                modifier = Modifier.padding(22.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
                                 Text(
-                                    appText("跳过并让 Agent 继续"),
-                                    color = Color(0xFFFF3B30),
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.SemiBold
+                                    appText("放弃这组问题？"),
+                                    fontSize = 18.sp,
+                                    lineHeight = 23.sp,
+                                    fontWeight = FontWeight.Bold
                                 )
+                                Text(
+                                    appText("当前填写的答案不会提交。"),
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.56f),
+                                    fontSize = 14.sp,
+                                    lineHeight = 20.sp
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = 8.dp)
+                                        .heightIn(min = 48.dp)
+                                        .clip(RoundedCornerShape(24.dp))
+                                        .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.09f))
+                                        .clickable(onClick = onConfirm)
+                                        .testTag("question-cancel-confirm"),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        appText("跳过并让 Agent 继续"),
+                                        color = Color(0xFFFF3B30),
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
                             }
                         }
-                    }
-                    Box(modifier = Modifier.size(width = 28.dp, height = 14.dp)) {
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.TopCenter)
-                                // Let the tail cover the card edge by 2dp so anti-aliasing
-                                // cannot reveal a seam between the separately drawn layers.
-                                .offset(y = (-2).dp)
-                                .size(width = 28.dp, height = 16.dp)
-                                .dropShadow(
-                                    shape = QuestionConfirmationArrowShape,
-                                    shadow = Shadow(
-                                        radius = 4.dp,
-                                        color = Color.Black.copy(alpha = 0.10f),
-                                        offset = DpOffset(0.dp, 2.dp)
+                        Box(modifier = Modifier.size(width = 28.dp, height = 14.dp)) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.TopCenter)
+                                    // Let the tail cover the card edge by 2dp so anti-aliasing
+                                    // cannot reveal a seam between the separately drawn layers.
+                                    .offset(y = (-2).dp)
+                                    .size(width = 28.dp, height = 16.dp)
+                                    .dropShadow(
+                                        shape = QuestionConfirmationArrowShape,
+                                        shadow = Shadow(
+                                            radius = 4.dp,
+                                            color = Color.Black.copy(alpha = 0.10f),
+                                            offset = DpOffset(0.dp, 2.dp)
+                                        )
                                     )
-                                )
-                                .background(surfaceColor, QuestionConfirmationArrowShape)
-                        )
+                                    .background(surfaceColor, QuestionConfirmationArrowShape)
+                            )
+                        }
                     }
                 }
             }

@@ -34,10 +34,11 @@ struct DeepSeekHarnessMobileApp: App {
 
     var body: some Scene {
         WindowGroup {
-            RootView()
-                // B4 候选 1：整棵树身份挂在 AppStore 实例指针上——任何路径在呈现中途替换
-                // activeStore，SwiftUI 会拆掉正在呈现的 UIKit 层级（「退不出来只能杀 App」的形态）。
-                // 诊断开关可关掉这个绑定（关掉后切网关不再重置整棵树，属可控副作用）。
+            Group {
+                if hosts.isReady { RootView() }
+                else { ProgressView() }
+            }
+                // 我方身份绑定（诊断可关）；上游新增的 isReady 门保留在外层。
                 .modifier(RootIdentityBinding(store: hosts.activeStore))
                 .environmentObject(hosts.activeStore)
                 .environmentObject(hosts)

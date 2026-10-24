@@ -73,6 +73,43 @@ final class WorkspaceDrawerUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 3))
     }
 
+    func testMarkdownLongPressOpensFullScreenSelectionAndRestoresReadingPosition() {
+        openFontSizePage()
+        let preview = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "调整后的字体大小")).firstMatch
+        XCTAssertTrue(preview.waitForExistence(timeout: 3))
+        let frame = preview.frame
+        preview.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.3)).press(forDuration: 0.8)
+        let selectText = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "选择文字")).firstMatch
+        XCTAssertTrue(selectText.waitForExistence(timeout: 3), "实际长按必须弹出菜单")
+        XCTAssertEqual(preview.frame.minX, frame.minX, accuracy: 1)
+        XCTAssertEqual(preview.frame.minY, frame.minY, accuracy: 1)
+        XCTAssertEqual(preview.frame.width, frame.width, accuracy: 1)
+        XCTAssertEqual(preview.frame.height, frame.height, accuracy: 1)
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "实际长按 Markdown 弹出菜单且正文不缩放"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        selectText.tap()
+        let selection = app.textViews["markdown-text-selection"]
+        XCTAssertTrue(selection.waitForExistence(timeout: 3))
+        XCTAssertTrue(app.staticTexts["选择文字"].exists)
+        XCTAssertGreaterThan(selection.frame.height, app.frame.height * 0.5, "选择页应使用独立的全屏滚动区域")
+        XCTAssertFalse(app.keyboards.firstMatch.exists, "只读选择页不能弹出键盘")
+        let pageAttachment = XCTAttachment(screenshot: app.screenshot())
+        pageAttachment.name = "独立全屏文字选择页"
+        pageAttachment.lifetime = .keepAlways
+        add(pageAttachment)
+        let selectAll = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "全选")).firstMatch
+        XCTAssertTrue(selectAll.waitForExistence(timeout: 3))
+        selectAll.tap()
+        app.buttons["markdown-selection-close"].tap()
+        XCTAssertTrue(preview.waitForExistence(timeout: 3))
+        XCTAssertEqual(preview.frame.minX, frame.minX, accuracy: 1)
+        XCTAssertEqual(preview.frame.minY, frame.minY, accuracy: 1, "关闭后应恢复原来的阅读位置")
+        XCTAssertEqual(preview.frame.width, frame.width, accuracy: 1)
+        XCTAssertEqual(preview.frame.height, frame.height, accuracy: 1)
+    }
+
     func testFontSizePreviewUpdatesAndPersistsAfterRelaunch() {
         openFontSizePage()
         let slider = app.sliders["font-size-slider"]

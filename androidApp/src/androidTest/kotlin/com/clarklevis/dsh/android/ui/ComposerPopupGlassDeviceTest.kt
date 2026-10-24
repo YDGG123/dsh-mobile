@@ -49,7 +49,7 @@ class ComposerPopupGlassDeviceTest {
         var contentOriginX = Float.NaN
         compose.setContent {
             DshTheme {
-                ComposerPopupGlassHost { backdropModifier ->
+                DshMenuBackdropHost { backdropModifier ->
                     Box(backdropModifier.fillMaxSize().background(Color.White)) {
                         Box(Modifier.align(if (pointsUp) Alignment.TopEnd else Alignment.BottomEnd).padding(40.dp)) {
                             Box(Modifier.size(60.dp).onGloballyPositioned {
@@ -88,7 +88,7 @@ class ComposerPopupGlassDeviceTest {
         var expanded by mutableStateOf(false)
         compose.setContent {
             DshTheme {
-                ComposerPopupGlassHost { backdropModifier ->
+                DshMenuBackdropHost { backdropModifier ->
                     Box(backdropModifier.fillMaxSize()) {
                         Canvas(Modifier.fillMaxSize()) {
                             val stripe = 4.dp.toPx()

@@ -14,6 +14,20 @@ import kotlin.test.*
 
 class AssistantStreamStateTest {
     @Test
+    fun returningToSameMemberRejectsRetiredAckTokensAndEvents() {
+        val state = subscribed()
+        assertTrue(state.acceptJson(snapshot()).accepted)
+        state.selectSession("other")
+        state.selectSession("s")
+        assertFalse(state.acceptJson(ack).accepted)
+        assertFalse(state.acceptJson(chunk()).accepted)
+        assertTrue(state.acceptJson(ack.replace("\"sub\"", "\"new-sub\"")).accepted)
+        assertTrue(state.acceptJson(snapshot().replace("\"sub\"", "\"new-sub\"")).accepted)
+        assertFalse(state.acceptJson(event()).accepted)
+        assertFalse(state.acceptJson(chunk()).accepted)
+    }
+
+    @Test
     fun openingFailureIsDeliveredWithoutBaselineAndOldSubscriptionRemainsIgnored() {
         val state = subscribed()
         val failure = """{"kind":"session-stream-reset","sessionId":"s","subscriptionId":"sub","streamId":"opening","retrying":false,"message":"Host refuses this format v0 Session"}"""

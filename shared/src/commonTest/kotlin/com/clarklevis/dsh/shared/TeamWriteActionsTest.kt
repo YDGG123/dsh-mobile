@@ -3,7 +3,7 @@ package com.clarklevis.dsh.shared
 import com.clarklevis.dsh.shared.facade.SharedMviEvent
 import com.clarklevis.dsh.shared.facade.SharedMviEventObserver
 import com.clarklevis.dsh.shared.facade.SharedTeamEffect
-import com.clarklevis.dsh.shared.facade.SharedTeamStore
+import com.clarklevis.dsh.shared.facade.SharedBridgeTeamStore
 import com.clarklevis.dsh.shared.protocol.BridgeWireKnownCode
 import com.clarklevis.dsh.shared.protocol.wireJson
 import kotlin.test.Test
@@ -48,8 +48,8 @@ class TeamWriteActionsTest {
     private fun readyStore(
         actions: String = "\"models\",\"efforts\",\"update-bot\",\"set-flags\",\"set-main\"",
         readOnly: String? = null
-    ): SharedTeamStore {
-        val store = SharedTeamStore()
+    ): SharedBridgeTeamStore {
+        val store = SharedBridgeTeamStore()
         val events = mutableListOf<SharedMviEvent>()
         store.subscribe(SharedMviEventObserver(events::add))
         store.sessionPaired(fixtureSession())
@@ -64,7 +64,7 @@ class TeamWriteActionsTest {
     private fun effects(result: com.clarklevis.dsh.shared.facade.SharedTeamResult): List<SharedTeamEffect> =
         result.effectJson?.let { wireJson.decodeFromString<List<SharedTeamEffect>>(it) } ?: emptyList()
 
-    private fun snapshot(store: SharedTeamStore) =
+    private fun snapshot(store: SharedBridgeTeamStore) =
         wireJson.parseToJsonElement(store.snapshot().snapshotJson!!).jsonObject
 
     // ---- set-flags ----
@@ -323,7 +323,7 @@ class TeamWriteActionsTest {
 
     @Test
     fun tokenRefreshSingleFlightAtStoreLevel() {
-        val store = SharedTeamStore()
+        val store = SharedBridgeTeamStore()
         store.sessionPaired(fixtureSession())
         assertTrue(store.beginTokenRefresh())
         assertTrue(!store.beginTokenRefresh(), "single-flight：刷新进行中不得重复发起")

@@ -48,6 +48,59 @@ class AndroidWorkspacePreviewCacheTest {
         assertNull(cache.store(source, completion.copy(purpose = "download")))
     }
 
+    @Test
+    fun clearDuringDownloadRejectsOldCacheCommitAndLeavesSourceForPreview() = withDirectory { directory ->
+        val storage = AndroidCacheDiskManager(directory, availableBytes = { Long.MAX_VALUE })
+        val source = directory.resolve("source").apply { writeText("hello") }
+        val cache = AndroidWorkspacePreviewCache(directory.resolve("workspace-previews"), "g1", storage)
+        val epoch = storage.epoch
+        storage.maintain(clear = true)
+        assertNull(cache.store(source, completion, epoch))
+        assertTrue(source.exists())
+        assertNull(cache.find(lookup))
+    }
+
+    @Test
+    fun oversizedAndLowSpaceDownloadsStayTemporary() = withDirectory { directory ->
+        val source = directory.resolve("source").apply { writeText("hello") }
+        val storage = AndroidCacheDiskManager(directory, availableBytes = { 0 })
+        val cache = AndroidWorkspacePreviewCache(directory.resolve("workspace-previews"), "g1", storage)
+        assertNull(cache.store(source, completion))
+        assertNull(cache.store(source, completion.copy(size = 145L * 1024 * 1024)))
+        assertEquals("hello", source.readText())
+    }
+
+    @Test
+    fun fallbackTemporaryIsProtectedUntilPreviewAndExportBothRelease() = withDirectory { directory ->
+        val storage = AndroidCacheDiskManager(directory, availableBytes = { Long.MAX_VALUE })
+        val source = directory.resolve("workspace-files/request/movie").apply {
+            parentFile!!.mkdirs()
+            writeText("hello")
+        }
+        val preview = storage.lease(source)
+        val export = storage.lease(source)
+        storage.maintain(clear = true)
+        assertTrue(source.exists())
+        preview.close()
+        storage.deleteTemporary(source)
+        assertTrue(source.exists())
+        export.close()
+        storage.deleteTemporary(source)
+        assertFalse(source.exists())
+        assertFalse(source.parentFile!!.exists())
+    }
+
+    @Test
+    fun reservedRemoteNamesCannotOverwriteHandoffMetadata() = withDirectory { directory ->
+        val storage = AndroidCacheDiskManager(directory, availableBytes = { Long.MAX_VALUE })
+        val source = directory.resolve("source").apply { writeText("hello") }
+        val cache = AndroidWorkspacePreviewCache(directory.resolve("workspace-previews"), "g1", storage)
+        val saved = requireNotNull(cache.store(source, completion.copy(name = ".lease-until")))
+        storage.retainExternal(saved)
+        assertEquals("hello", saved.readText())
+        assertEquals("file", saved.name)
+    }
+
     private fun withDirectory(block: (java.io.File) -> Unit) {
         val directory = Files.createTempDirectory("workspace-preview-test").toFile()
         try { block(directory) } finally { directory.deleteRecursively() }

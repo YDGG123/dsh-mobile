@@ -86,76 +86,78 @@ internal fun ScheduledTaskEditSheet(
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         containerColor = MaterialTheme.colorScheme.surface
     ) {
-        Column(
-            Modifier.fillMaxWidth().navigationBarsPadding().verticalScroll(rememberScrollState())
-                .padding(start = 20.dp, end = 20.dp, top = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(18.dp)
-        ) {
-            Row(
-                Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween
+        DshMenuColumnHost {
+            Column(
+                Modifier.fillMaxWidth().navigationBarsPadding().verticalScroll(rememberScrollState())
+                    .padding(start = 20.dp, end = 20.dp, top = 20.dp),
+                verticalArrangement = Arrangement.spacedBy(18.dp)
             ) {
-                TextButton(onClick = onDismiss, enabled = pendingRequestId == null) { Text(appText("取消")) }
-                Text(appText("编辑定时任务"), fontSize = 18.sp, fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(top = 12.dp))
-                TextButton(
-                    enabled = canSave,
-                    onClick = {
-                        localError = null
-                        pendingRequestId = stateHolder.updateScheduledTask(task, title, prompt, timeChange)
-                        if (pendingRequestId == null) {
-                            localError = stateHolder.scheduledTaskMutationError ?: appText("操作正在进行，请稍后重试")
+                Row(
+                    Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    TextButton(onClick = onDismiss, enabled = pendingRequestId == null) { Text(appText("取消")) }
+                    Text(appText("编辑定时任务"), fontSize = 18.sp, fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(top = 12.dp))
+                    TextButton(
+                        enabled = canSave,
+                        onClick = {
+                            localError = null
+                            pendingRequestId = stateHolder.updateScheduledTask(task, title, prompt, timeChange)
+                            if (pendingRequestId == null) {
+                                localError = stateHolder.scheduledTaskMutationError ?: appText("操作正在进行，请稍后重试")
+                            }
                         }
+                    ) { Text(appText("保存")) }
+                }
+                OutlinedTextField(
+                    value = title, onValueChange = { title = it }, label = { Text(appText("标题")) },
+                    supportingText = { Text(appText("最多 120 个字")) }, singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = prompt, onValueChange = { prompt = it }, label = { Text(appText("任务内容")) },
+                    minLines = 4, modifier = Modifier.fillMaxWidth()
+                )
+                Text(appText("执行时间"), fontWeight = FontWeight.Medium)
+                if (repeating) {
+                    OutlinedButton(onClick = { useSpecificDate = !useSpecificDate }) {
+                        Text(if (useSpecificDate) appText("保持原重复规则") else appText("改为指定日期执行一次"))
                     }
-                ) { Text(appText("保存")) }
-            }
-            OutlinedTextField(
-                value = title, onValueChange = { title = it }, label = { Text(appText("标题")) },
-                supportingText = { Text(appText("最多 120 个字")) }, singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
-            OutlinedTextField(
-                value = prompt, onValueChange = { prompt = it }, label = { Text(appText("任务内容")) },
-                minLines = 4, modifier = Modifier.fillMaxWidth()
-            )
-            Text(appText("执行时间"), fontWeight = FontWeight.Medium)
-            if (repeating) {
-                OutlinedButton(onClick = { useSpecificDate = !useSpecificDate }) {
-                    Text(if (useSpecificDate) appText("保持原重复规则") else appText("改为指定日期执行一次"))
                 }
-            }
-            if (useSpecificDate) {
-                OutlinedButton(
-                    onClick = { showScheduleDatePicker(context, selectedDate) { selectedDate = it } },
-                    modifier = Modifier.fillMaxWidth()
-                ) { Text(appText("执行日期  %1\$s", formatSelectedDate(selectedDate))) }
-                OutlinedButton(
-                    onClick = { showScheduleTimePicker(context, selectedDate, TimeZone.getDefault()) { selectedDate = it } },
-                    modifier = Modifier.fillMaxWidth()
-                ) { Text(appText("执行时刻  %1\$s", formatSelectedTime(selectedDate, TimeZone.getDefault()))) }
-                Text(appText("按当前设备时区 %1\$s 选择，保存后按该时间执行一次。", TimeZone.getDefault().id),
-                    fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                if (timeChange != null && !selectedDate.after(Date())) {
-                    Text(appText("请选择未来的日期和时间。"), fontSize = 13.sp, color = MaterialTheme.colorScheme.error)
+                if (useSpecificDate) {
+                    OutlinedButton(
+                        onClick = { showScheduleDatePicker(context, selectedDate) { selectedDate = it } },
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text(appText("执行日期  %1\$s", formatSelectedDate(selectedDate))) }
+                    OutlinedButton(
+                        onClick = { showScheduleTimePicker(context, selectedDate, TimeZone.getDefault()) { selectedDate = it } },
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text(appText("执行时刻  %1\$s", formatSelectedTime(selectedDate, TimeZone.getDefault()))) }
+                    Text(appText("按当前设备时区 %1\$s 选择，保存后按该时间执行一次。", TimeZone.getDefault().id),
+                        fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (timeChange != null && !selectedDate.after(Date())) {
+                        Text(appText("请选择未来的日期和时间。"), fontSize = 13.sp, color = MaterialTheme.colorScheme.error)
+                    }
+                } else if (task.kind == "daily" || task.kind == "weekly") {
+                    OutlinedButton(
+                        onClick = { showScheduleTimePicker(context, selectedTime, zone) { selectedTime = it } },
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text(appText("执行时刻  %1\$s", formatSelectedTime(selectedTime, zone))) }
+                    Text(appText("保留原有%1\$s规则和时区 %2\$s。", if (task.kind == "daily") appText("每日") else appText("每周"), zone.id),
+                        fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else {
+                    Text(appText("当前规则：%1\$s。可选择指定日期和时间，明确改为单次执行。", scheduleRuleLabel(task)),
+                        fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-            } else if (task.kind == "daily" || task.kind == "weekly") {
-                OutlinedButton(
-                    onClick = { showScheduleTimePicker(context, selectedTime, zone) { selectedTime = it } },
-                    modifier = Modifier.fillMaxWidth()
-                ) { Text(appText("执行时刻  %1\$s", formatSelectedTime(selectedTime, zone))) }
-                Text(appText("保留原有%1\$s规则和时区 %2\$s。", if (task.kind == "daily") appText("每日") else appText("每周"), zone.id),
-                    fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            } else {
-                Text(appText("当前规则：%1\$s。可选择指定日期和时间，明确改为单次执行。", scheduleRuleLabel(task)),
-                    fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                (localError ?: if (pendingRequestId != null) stateHolder.scheduledTaskMutationError else null)?.let {
+                    Text(it, color = MaterialTheme.colorScheme.error, fontSize = 14.sp)
+                }
+                if (pendingRequestId != null) {
+                    CircularProgressIndicator(modifier = Modifier.height(24.dp))
+                }
+                Spacer(Modifier.height(18.dp))
             }
-            (localError ?: if (pendingRequestId != null) stateHolder.scheduledTaskMutationError else null)?.let {
-                Text(it, color = MaterialTheme.colorScheme.error, fontSize = 14.sp)
-            }
-            if (pendingRequestId != null) {
-                CircularProgressIndicator(modifier = Modifier.height(24.dp))
-            }
-            Spacer(Modifier.height(18.dp))
         }
     }
 }

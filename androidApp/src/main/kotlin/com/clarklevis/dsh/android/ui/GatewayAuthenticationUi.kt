@@ -42,8 +42,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -107,17 +105,11 @@ internal fun GatewayAuthenticationMenu(
             description = appText("设备认证，%1\$s", gatewayConnectionTitle(state.connection)),
             onClick = { expanded = true }
         )
-        DropdownMenu(
+        DshMenu(
             expanded = expanded,
             onDismissRequest = { expanded = false },
             modifier = Modifier.width(248.dp).testTag("gateway-auth-menu"),
-            offset = DpOffset(x = (-244).dp, y = 8.dp),
-            shape = RoundedCornerShape(28.dp),
-            containerColor = Color(0xFFE2EEFF).copy(alpha = 0.96f),
-            tonalElevation = 0.dp,
-            shadowElevation = 12.dp,
-            border = BorderStroke(0.8.dp, Color.White.copy(alpha = 0.62f))
-        ) {
+            offset = DpOffset(x = (-244).dp, y = 8.dp)) {
             AuthenticationMenuItem(
                 title = appText("扫描二维码"),
                 iconRes = R.drawable.ic_qr_viewfinder,
@@ -145,11 +137,11 @@ private fun AuthenticationMenuItem(
     testTag: String,
     onClick: () -> Unit
 ) {
-    DropdownMenuItem(
+    DshMenuItem(
         text = {
             Text(
                 text = title,
-                color = DshColors.Ink,
+                color = MaterialTheme.colorScheme.onSurface,
                 fontSize = 17.sp,
                 fontWeight = FontWeight.Medium
             )
@@ -159,7 +151,7 @@ private fun AuthenticationMenuItem(
                 painter = painterResource(iconRes),
                 contentDescription = null,
                 modifier = Modifier.size(22.dp),
-                colorFilter = ColorFilter.tint(DshColors.Ink)
+                colorFilter = ColorFilter.tint(MaterialTheme.colorScheme.onSurface)
             )
         },
         modifier = Modifier.height(58.dp).testTag(testTag),
@@ -213,126 +205,128 @@ internal fun ManualGatewayPairingSheet(
         scrimColor = Color.Black.copy(alpha = 0.22f),
         dragHandle = null
     ) {
-        Column(
-            modifier = Modifier.fillMaxWidth().fillMaxHeight(0.92f)
-                .navigationBarsPadding().imePadding()
-                .testTag("gateway-manual-sheet")
-        ) {
-            Box(
-                modifier = Modifier.fillMaxWidth().height(72.dp).padding(horizontal = 22.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(appText("设备认证"), fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                Surface(
-                    modifier = Modifier.align(Alignment.CenterEnd).height(48.dp)
-                        .clickable(role = Role.Button, onClick = dismissWithAnimation),
-                    shape = RoundedCornerShape(24.dp),
-                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
-                    shadowElevation = 0.dp
-                ) {
-                    Box(Modifier.padding(horizontal = 19.dp), contentAlignment = Alignment.Center) {
-                        Text(appText("完成"), fontSize = 17.sp, fontWeight = FontWeight.Medium)
-                    }
-                }
-            }
-
+        DshMenuColumnHost {
             Column(
-                modifier = Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState())
-                    .padding(horizontal = 22.dp, vertical = 22.dp),
-                verticalArrangement = Arrangement.spacedBy(22.dp)
+                modifier = Modifier.fillMaxWidth().fillMaxHeight(0.92f)
+                    .navigationBarsPadding().imePadding()
+                    .testTag("gateway-manual-sheet")
             ) {
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(appText("手动输入配对信息"), fontSize = 22.sp, fontWeight = FontWeight.Bold)
-                    Text(
-                        appText("粘贴 Harness WebUI 提供的 Base64URL 配对字符串。长期设备 token 仍只会安全保存到 Android Keystore。"),
-                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.52f),
-                        fontSize = 15.sp,
-                        lineHeight = 21.sp
-                    )
+                Box(
+                    modifier = Modifier.fillMaxWidth().height(72.dp).padding(horizontal = 22.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(appText("设备认证"), fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                    Surface(
+                        modifier = Modifier.align(Alignment.CenterEnd).height(48.dp)
+                            .clickable(role = Role.Button, onClick = dismissWithAnimation),
+                        shape = RoundedCornerShape(24.dp),
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
+                        shadowElevation = 0.dp
+                    ) {
+                        Box(Modifier.padding(horizontal = 19.dp), contentAlignment = Alignment.Center) {
+                            Text(appText("完成"), fontSize = 17.sp, fontWeight = FontWeight.Medium)
+                        }
+                    }
                 }
 
-                PairingTextEditor(
-                    value = pairingText,
-                    onValueChange = {
-                        pairingText = it
-                        validationError = null
-                    }
-                )
-
-                PairingResultCard(
-                    presentation = pairingResultPresentation(
-                        state = pairingState,
-                        didAttemptConnection = didAttemptConnection,
-                        validationError = validationError
-                    )
-                )
-
-                Surface(
-                    modifier = Modifier.fillMaxWidth().height(50.dp)
-                        .clickable(enabled = canUsePrimaryAction, role = Role.Button) {
-                            if (isConnecting) {
-                                if (hosts?.pairing == true) {
-                                    hosts.cancelPairing()
-                                } else {
-                                    stateHolder.disconnect()
-                                }
-                            } else {
-                                validationError = null
-                                didAttemptConnection = true
-                                val trimmed = pairingText.trim()
-                                val validation = runCatching {
-                                    GatewayPairingPayloadParser.parse(trimmed, System.currentTimeMillis())
-                                }
-                                if (validation.isFailure) {
-                                    validationError = validation.exceptionOrNull()?.message ?: appText("配对信息无效")
-                                } else {
-                                    stateHolder.pair(
-                                        payload = trimmed,
-                                        reportFailureGlobally = false,
-                                        onFailure = { validationError = it }
-                                    )
-                                }
-                            }
-                        }
-                        .testTag("gateway-manual-connect"),
-                    shape = RoundedCornerShape(16.dp),
-                    color = DshColors.Ocean.copy(alpha = if (canUsePrimaryAction) 1f else 0.45f)
+                Column(
+                    modifier = Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState())
+                        .padding(horizontal = 22.dp, vertical = 22.dp),
+                    verticalArrangement = Arrangement.spacedBy(22.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxSize(),
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        if (isConnecting) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(19.dp),
-                                color = Color.White,
-                                strokeWidth = 2.dp
-                            )
-                        } else {
-                            Image(
-                                painter = painterResource(R.drawable.ic_link),
-                                contentDescription = null,
-                                modifier = Modifier.size(20.dp),
-                                colorFilter = ColorFilter.tint(Color.White)
-                            )
-                        }
-                        Spacer(Modifier.width(9.dp))
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(appText("手动输入配对信息"), fontSize = 22.sp, fontWeight = FontWeight.Bold)
                         Text(
-                            if (isConnecting) {
-                                appText("取消连接")
-                            } else if (stateHolder.gatewayState.connection == GatewayConnectionState.CONNECTED) {
-                                appText("重新配对并连接")
-                            } else {
-                                appText("连接")
-                            },
-                            color = Color.White,
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.SemiBold
+                            appText("粘贴 Harness WebUI 提供的 Base64URL 配对字符串。长期设备 token 仍只会安全保存到 Android Keystore。"),
+                            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.52f),
+                            fontSize = 15.sp,
+                            lineHeight = 21.sp
                         )
                     }
+
+                    PairingTextEditor(
+                        value = pairingText,
+                        onValueChange = {
+                            pairingText = it
+                            validationError = null
+                        }
+                    )
+
+                    PairingResultCard(
+                        presentation = pairingResultPresentation(
+                            state = pairingState,
+                            didAttemptConnection = didAttemptConnection,
+                            validationError = validationError
+                        )
+                    )
+
+                    Surface(
+                        modifier = Modifier.fillMaxWidth().height(50.dp)
+                            .clickable(enabled = canUsePrimaryAction, role = Role.Button) {
+                                if (isConnecting) {
+                                    if (hosts?.pairing == true) {
+                                        hosts.cancelPairing()
+                                    } else {
+                                        stateHolder.disconnect()
+                                    }
+                                } else {
+                                    validationError = null
+                                    didAttemptConnection = true
+                                    val trimmed = pairingText.trim()
+                                    val validation = runCatching {
+                                        GatewayPairingPayloadParser.parse(trimmed, System.currentTimeMillis())
+                                    }
+                                    if (validation.isFailure) {
+                                        validationError = validation.exceptionOrNull()?.message ?: appText("配对信息无效")
+                                    } else {
+                                        stateHolder.pair(
+                                            payload = trimmed,
+                                            reportFailureGlobally = false,
+                                            onFailure = { validationError = it }
+                                        )
+                                    }
+                                }
+                            }
+                            .testTag("gateway-manual-connect"),
+                        shape = RoundedCornerShape(16.dp),
+                        color = DshColors.Ocean.copy(alpha = if (canUsePrimaryAction) 1f else 0.45f)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxSize(),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (isConnecting) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(19.dp),
+                                    color = Color.White,
+                                    strokeWidth = 2.dp
+                                )
+                            } else {
+                                Image(
+                                    painter = painterResource(R.drawable.ic_link),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(20.dp),
+                                    colorFilter = ColorFilter.tint(Color.White)
+                                )
+                            }
+                            Spacer(Modifier.width(9.dp))
+                            Text(
+                                if (isConnecting) {
+                                    appText("取消连接")
+                                } else if (stateHolder.gatewayState.connection == GatewayConnectionState.CONNECTED) {
+                                    appText("重新配对并连接")
+                                } else {
+                                    appText("连接")
+                                },
+                                color = Color.White,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(12.dp))
                 }
-                Spacer(Modifier.height(12.dp))
             }
         }
     }

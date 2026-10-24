@@ -1,80 +1,74 @@
 package com.clarklevis.dsh.android.ui
 
 import android.Manifest
-import android.view.HapticFeedbackConstants
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.compose.runtime.key
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.graphics.BitmapFactory
 import android.provider.Settings
 import android.util.Base64
+import android.view.HapticFeedbackConstants
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
-import androidx.compose.foundation.Image
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.animateScrollBy
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.calculateEndPadding
-import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.WindowInsetsSides
-import androidx.compose.foundation.layout.only
-import androidx.compose.foundation.layout.safeDrawing
-import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -87,11 +81,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -105,36 +98,44 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.dropShadow
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.draw.dropShadow
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
-import androidx.compose.ui.graphics.compositeOver
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.shadow.Shadow
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
@@ -143,17 +144,16 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalWindowInfo
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.OffsetMapping
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.TransformedText
@@ -162,41 +162,38 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Popup
-import androidx.compose.ui.window.PopupPositionProvider
-import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.PopupPositionProvider
+import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.zIndex
-import com.clarklevis.dsh.android.localization.appText
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.clarklevis.dsh.android.AndroidSharedStateHolder
 import com.clarklevis.dsh.android.AttachmentLoadState
 import com.clarklevis.dsh.android.R
+import com.clarklevis.dsh.android.localization.appText
 import com.clarklevis.dsh.android.platform.AndroidAttachmentThumbnailer
 import com.clarklevis.dsh.android.platform.AndroidPreparedImage
 import com.clarklevis.dsh.shared.facade.VoiceInputInteraction
 import com.clarklevis.dsh.shared.gateway.GatewayConnectionState
-import com.clarklevis.dsh.shared.protocol.GatewayModelItem
-import com.clarklevis.dsh.shared.protocol.GatewayReasoningEffort
 import com.clarklevis.dsh.shared.projection.ConversationItem
 import com.clarklevis.dsh.shared.projection.ConversationItemKind
 import com.clarklevis.dsh.shared.protocol.GatewayImageAttachment
-import com.clarklevis.dsh.shared.protocol.GatewayPendingQuestionRequest
-import com.clarklevis.dsh.shared.protocol.GatewayQuestion
-import com.clarklevis.dsh.shared.protocol.GatewayQuestionAnswer
-import com.clarklevis.dsh.shared.projection.TrajectoryNode
-import com.clarklevis.dsh.shared.projection.TrajectoryNodeKind
+import com.clarklevis.dsh.shared.protocol.GatewayModelItem
+import com.clarklevis.dsh.shared.protocol.GatewayReasoningEffort
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -205,10 +202,11 @@ import kotlinx.coroutines.withContext
 internal fun ConversationScreen(
     stateHolder: AndroidSharedStateHolder,
     onPickImage: () -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onPickFile: () -> Unit = {}
 ) {
     val session = stateHolder.snapshot.sessions.firstOrNull { it.id == stateHolder.snapshot.selectedSessionId }
-    val title = session?.title ?: appText("新建 DeepSeek Harness")
+    val title = stateHolder.teamSnapshot.members.firstOrNull { it.id == stateHolder.snapshot.selectedSessionId && it.role != "lead" }?.name ?: session?.title ?: if (stateHolder.snapshot.selectedSessionId != null) "已缓存会话" else appText("新建 DeepSeek Harness")
     val agentPresetId = stateHolder.sessionAgentPreset.agentPreset
         .takeIf { stateHolder.sessionAgentPreset.sessionId == stateHolder.snapshot.selectedSessionId }
         ?: session?.agentPreset ?: stateHolder.snapshot.agentPresetDefault
@@ -227,6 +225,17 @@ internal fun ConversationScreen(
     }
     var showStats by remember { mutableStateOf(false) }
     var showWorkspaceFiles by remember { mutableStateOf(false) }
+    var workspaceInitialPath by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(stateHolder.conversationDirectoryPath) {
+        val path = stateHolder.conversationDirectoryPath ?: return@LaunchedEffect
+        if (stateHolder.conversationDirectorySessionId != stateHolder.snapshot.selectedSessionId) {
+            stateHolder.consumeConversationDirectoryPath()
+            return@LaunchedEffect
+        }
+        workspaceInitialPath = path
+        stateHolder.consumeConversationDirectoryPath()
+        showWorkspaceFiles = true
+    }
     val pendingApproval = stateHolder.snapshot.pendingApprovals.firstOrNull {
         it.sessionId == stateHolder.snapshot.selectedSessionId
     }
@@ -249,7 +258,7 @@ internal fun ConversationScreen(
         }
     }
 
-    ComposerPopupGlassHost { backdropModifier ->
+    DshMenuBackdropHost { backdropModifier ->
         Scaffold(
             modifier = backdropModifier,
             // 背景与录音蒙层延伸到导航栏下面；底部安全区由 Composer 自己处理。
@@ -279,25 +288,36 @@ internal fun ConversationScreen(
                     },
                     actions = {
                         Row(
-                            modifier = Modifier.padding(start = 12.dp, end = 8.dp),
+                            modifier = Modifier.padding(start = 4.dp, end = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             SmallConnectionDot(stateHolder.gatewayState.connection)
                             Text(
                                 agentPresetDisplayName(agentPresetId, agentPresetName),
                                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                                fontSize = 12.sp
-                            )
-                            ConversationMoreMenu(
-                                canBrowseFiles = stateHolder.snapshot.selectedSessionId != null &&
-                                    stateHolder.gatewayState.connection == GatewayConnectionState.CONNECTED &&
-                                    "file-downloads" in stateHolder.gatewayState.capabilities,
-                                onBrowseFiles = { showWorkspaceFiles = true }
+                                fontSize = 12.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.widthIn(max = 96.dp)
                             )
                         }
+                        if (stateHolder.teamSnapshot.visible) {
+                            TeamEntryButton(stateHolder)
+                            Spacer(Modifier.width(16.dp))
+                        }
+                        ConversationMoreMenu(
+                            canBrowseFiles = stateHolder.snapshot.selectedSessionId != null &&
+                                stateHolder.gatewayState.connection == GatewayConnectionState.CONNECTED &&
+                                "file-downloads" in stateHolder.gatewayState.capabilities,
+                            onBrowseFiles = {
+                                workspaceInitialPath = null
+                                showWorkspaceFiles = true
+                            }
+                        )
+                        Spacer(Modifier.width(8.dp))
                     },
-                    expandedHeight = 80.dp,
+                    expandedHeight = 64.dp,
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
                 )
             }
@@ -321,6 +341,7 @@ internal fun ConversationScreen(
                         ConversationPage(
                             stateHolder = stateHolder,
                             onPickImage = onPickImage,
+                            onPickFile = onPickFile,
                             onShowFullStats = { showStats = true },
                             onDismissInput = dismissInput
                         )
@@ -350,7 +371,7 @@ internal fun ConversationScreen(
     WorkspaceFilePreviewHost(stateHolder)
 
     if (showWorkspaceFiles) {
-        WorkspaceFilesBottomSheet(stateHolder) { showWorkspaceFiles = false }
+        WorkspaceFilesBottomSheet(stateHolder, initialPath = workspaceInitialPath) { showWorkspaceFiles = false }
     }
 }
 
@@ -360,6 +381,23 @@ internal fun TopBarCircleButton(
     description: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
+) {
+    TopBarCircleButton(description = description, onClick = onClick, modifier = modifier) {
+        Icon(
+            painter = painterResource(iconRes),
+            contentDescription = null,
+            modifier = Modifier.size(22.dp),
+            tint = MaterialTheme.colorScheme.onSurface
+        )
+    }
+}
+
+@Composable
+internal fun TopBarCircleButton(
+    description: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
 ) {
     val isDark = isSystemInDarkTheme()
     val shadowColor = Color.Black.copy(alpha = if (isDark) 0.24f else 0.075f)
@@ -385,12 +423,7 @@ internal fun TopBarCircleButton(
             .semantics { contentDescription = description },
         contentAlignment = Alignment.Center
     ) {
-        Icon(
-            painter = painterResource(iconRes),
-            contentDescription = null,
-            modifier = Modifier.size(22.dp),
-            tint = MaterialTheme.colorScheme.onSurface
-        )
+        content()
     }
 }
 
@@ -406,19 +439,11 @@ internal fun ConversationMoreMenu(
             description = appText("更多"),
             onClick = { expanded = true }
         )
-        DropdownMenu(
+        DshMenu(
             expanded = expanded,
             onDismissRequest = { expanded = false },
             modifier = Modifier.width(228.dp).testTag("conversation-more-menu"),
-            offset = DpOffset(x = (-220).dp, y = 8.dp),
-            shape = RoundedCornerShape(26.dp),
-            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.98f),
-            tonalElevation = 0.dp,
-            shadowElevation = 10.dp,
-            border = androidx.compose.foundation.BorderStroke(
-                0.7.dp,
-                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.055f)
-            )
+            offset = DpOffset(x = (-220).dp, y = 8.dp)
         ) {
             ConversationMoreMenuItem(
                 title = appText("工作区文件"),
@@ -439,7 +464,7 @@ private fun ConversationMoreMenuItem(
     enabled: Boolean,
     onClick: () -> Unit
 ) {
-    DropdownMenuItem(
+    DshMenuItem(
         text = {
             Text(
                 title,
@@ -467,7 +492,8 @@ private fun SegmentedControl(selected: Int, onSelect: (Int) -> Unit) {
     val segmentShape = RoundedCornerShape(14.dp)
     val horizontalInset = if (adaptiveWindowSize().width >= 600.dp) 40.dp else 66.dp
     Row(
-        Modifier.adaptiveContentWidth(440.dp).testTag("conversation-tabs").padding(horizontal = horizontalInset, vertical = 6.dp)
+        Modifier.adaptiveContentWidth(440.dp).testTag("conversation-tabs")
+            .padding(start = horizontalInset, end = horizontalInset, top = 2.dp, bottom = 6.dp)
             .height(32.dp)
             .clip(trackShape)
             .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.075f))
@@ -508,16 +534,21 @@ private fun SegmentedControl(selected: Int, onSelect: (Int) -> Unit) {
 private fun ConversationPage(
     stateHolder: AndroidSharedStateHolder,
     onPickImage: () -> Unit,
+    onPickFile: () -> Unit,
     onShowFullStats: () -> Unit,
     onDismissInput: () -> Unit
 ) {
     val density = LocalDensity.current
     val sessionId = stateHolder.snapshot.selectedSessionId
+    LaunchedEffect(sessionId) { stateHolder.fileUploads.select(sessionId, !stateHolder.isViewingTeamMember) }
     var bottomContentHeight by remember { mutableStateOf(160.dp) }
     var imagePreview by remember(sessionId) { mutableStateOf<ConversationImagePreviewRequest?>(null) }
     var isPinnedToBottom by remember(sessionId) { mutableStateOf(true) }
     var scrollToBottomToken by remember(sessionId) { mutableIntStateOf(0) }
     val imeIsVisible = WindowInsets.isImeVisible
+    LaunchedEffect(stateHolder.cacheViewGeneration) {
+        if (stateHolder.cacheViewGeneration > 0) scrollToBottomToken += 1
+    }
     LaunchedEffect(imeIsVisible, sessionId) {
         if (imeIsVisible) scrollToBottomToken += 1
     }
@@ -539,6 +570,27 @@ private fun ConversationPage(
                     imagePreview = ConversationImagePreviewRequest(attachments, initialIndex)
                 }
             )
+        }
+        if (stateHolder.localSearchContextSessionId == sessionId && sessionId != null) {
+            Row(
+                Modifier.align(
+                    Alignment.TopCenter
+                ).fillMaxWidth().background(MaterialTheme.colorScheme.surface).padding(horizontal = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    if (stateHolder.localSearchIsOpening) {
+                        "正在定位搜索结果"
+                    } else if (stateHolder.localSearchIsFragment) {
+                        "只读本地搜索片段"
+                    } else {
+                        "已定位搜索结果"
+                    },
+                    fontSize = 12.sp,
+                    modifier = Modifier.weight(1f)
+                )
+                TextButton(onClick = stateHolder::returnToLatestCached) { Text("返回最新消息") }
+            }
         }
         val showInitialHistoryOverlay = shouldShowInitialHistoryOverlay(
             isLoading = stateHolder.snapshot.selectedHistoryIsLoading,
@@ -620,7 +672,7 @@ private fun ConversationPage(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            SessionAgentPresetControl(
+                            if (!stateHolder.isViewingTeamMember) SessionAgentPresetControl(
                                 state = stateHolder.sessionAgentPreset,
                                 onSelect = stateHolder::selectSessionAgentPreset,
                                 onRetry = stateHolder::refreshSessionAgentPreset
@@ -642,7 +694,7 @@ private fun ConversationPage(
                             stateHolder = stateHolder,
                             modifier = Modifier.padding(horizontal = 14.dp)
                         )
-                        Composer(stateHolder, onPickImage, onDismissInput)
+                        Composer(stateHolder, onPickImage, onPickFile, onDismissInput)
                     }
                 }
             }
@@ -758,20 +810,17 @@ private fun ConversationTimeline(
     val latestItems = stateHolder.snapshot.conversation
     val selectedSessionId = stateHolder.snapshot.selectedSessionId
     val latestHistoryLoading = selectedSessionId in stateHolder.historyPagingSessionIds
-    var items by remember(selectedSessionId) { mutableStateOf(latestItems) }
-    var hasHistoryLoadingRow by remember(selectedSessionId) {
-        mutableStateOf(latestHistoryLoading)
+    val selectedSessionIsRunning = stateHolder.selectedSessionIsRunning
+    val latestOnUserInteraction by rememberUpdatedState(onUserInteraction)
+    val latestSnapshot by rememberUpdatedState(stateHolder.snapshot)
+    val latestRunning by rememberUpdatedState(selectedSessionIsRunning)
+    var presentation by remember(selectedSessionId) {
+        mutableStateOf(prepareConversationPresentation(latestItems, selectedSessionIsRunning,
+            stateHolder.snapshot.selectedHistoryEarliestSequence))
     }
-    val selectedSessionIsRunning = stateHolder.snapshot.sessions
-        .firstOrNull { it.id == selectedSessionId }
-        ?.isRunning == true
-    val displayEntries = remember(items) { makeConversationDisplayEntries(items) }
-    val activeStreamingMessageId = remember(items, selectedSessionIsRunning) {
-        activeStreamingAssistantMessageId(items, selectedSessionIsRunning)
-    }
-    val timelineEntries = remember(displayEntries, activeStreamingMessageId) {
-        makeConversationTimelineEntries(displayEntries, activeStreamingMessageId)
-    }
+    val items = presentation.items
+    val timelineEntries = presentation.entries
+    val activeStreamingMessageId = presentation.streamingId
     val attachmentIdsByTimelineId = remember(timelineEntries) {
         timelineEntries.associate { entry ->
             entry.id to entry.images.mapTo(mutableSetOf()) { it.attachmentId }
@@ -780,7 +829,6 @@ private fun ConversationTimeline(
     val hasInitialContent = timelineEntries.isNotEmpty() || selectedSessionIsRunning
     val lastTimelineIndex = (
         timelineEntries.lastIndex +
-            (if (hasHistoryLoadingRow) 1 else 0) +
             (if (selectedSessionIsRunning) 1 else 0)
     ).coerceAtLeast(0)
     val listState = rememberLazyListState(
@@ -790,32 +838,189 @@ private fun ConversationTimeline(
     var isPinnedToBottom by remember { mutableStateOf(true) }
     var programmaticScrollCount by remember { mutableIntStateOf(0) }
     var timelineUpdatesPaused by remember(selectedSessionId) { mutableStateOf(false) }
+    var touchingTimeline by remember { mutableStateOf(false) }
+    var interactionGeneration by remember { mutableIntStateOf(0) }
+    var presentingHistory by remember { mutableStateOf(false) }
+    var revealIds by remember { mutableStateOf(emptySet<String>()) }
+    val revealAlpha = remember { Animatable(1f) }
     val isUserTimelineScrolling by remember(listState) {
-        derivedStateOf {
-            listState.isScrollInProgress && programmaticScrollCount == 0
+        derivedStateOf { listState.isScrollInProgress && programmaticScrollCount == 0 }
+    }
+    val hasQueuedHistory = presentation.earliestSequence?.let { old ->
+        stateHolder.snapshot.selectedHistoryEarliestSequence?.let { it < old }
+    } == true
+    var historyReadBatch by remember(selectedSessionId) { mutableStateOf<HistoryReadBatch?>(null) }
+    val historyBusy = latestHistoryLoading || stateHolder.snapshot.selectedHistoryIsLoadingOlder ||
+        hasQueuedHistory || presentingHistory || historyReadBatch != null
+    val latestHistoryBusy by rememberUpdatedState(historyBusy)
+    val readWindowDensity = LocalDensity.current
+    var historyEdgeRevealed by remember(selectedSessionId) { mutableStateOf(false) }
+    val edgePullThreshold = with(LocalDensity.current) { 8.dp.toPx() }
+    val historyEdgePull = remember(selectedSessionId, edgePullThreshold) { HistoryEdgePull(edgePullThreshold) }
+    val requestOlderHistory by rememberUpdatedState {
+        if (initialPositionApplied && hasInitialContent && latestSnapshot.selectedHistoryHasMore && !latestHistoryBusy) {
+            val before = latestSnapshot.selectedHistoryEarliestSequence
+            if (before != null) {
+                val viewport = listState.layoutInfo.viewportSize
+                val batch = HistoryReadBatch(
+                    originalIds = presentation.items.mapTo(mutableSetOf()) { it.id },
+                    beforeSequence = before,
+                    viewportHeightDp = (viewport.height / readWindowDensity.density - bottomContentHeight.value - 32f).coerceAtLeast(160f),
+                    contentWidthDp = (viewport.width / readWindowDensity.density - 40f).coerceAtLeast(120f),
+                    fontScale = readWindowDensity.fontScale,
+                    startedAtMillis = android.os.SystemClock.elapsedRealtime()
+                )
+                historyEdgeRevealed = true
+                isPinnedToBottom = false
+                onPinnedToBottomChanged(false)
+                if (stateHolder.loadOlderHistory()) {
+                    historyReadBatch = batch
+                    android.util.Log.d("HistoryPresentation", "stage=read-batch-start")
+                }
+            }
         }
     }
-    LaunchedEffect(isUserTimelineScrolling) {
-        if (isUserTimelineScrolling) {
-            timelineUpdatesPaused = true
-        } else if (timelineUpdatesPaused) {
-            // fling 结束后留一帧稳定窗口，再把滚动期间积累的 token 一次性提交给列表。
-            delay(TIMELINE_STREAM_RESUME_DELAY_MILLISECONDS)
-            timelineUpdatesPaused = false
+    val historyEdgeScroll = remember(selectedSessionId, listState, historyEdgePull) {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                // 只在真正到顶后继续拖动时请求；惯性、程序定位、靠近顶部均不触发。
+                if (historyEdgePull.shouldRequest(
+                        deltaY = available.y,
+                        atStart = !listState.canScrollBackward,
+                        userInput = source == NestedScrollSource.UserInput && touchingTimeline &&
+                            kotlin.math.abs(available.y) > kotlin.math.abs(available.x),
+                        canLoad = programmaticScrollCount == 0 && !latestHistoryBusy
+                    )) requestOlderHistory()
+                return Offset.Zero
+            }
         }
     }
-    LaunchedEffect(
-        latestItems,
-        latestHistoryLoading,
-        timelineUpdatesPaused,
-        isUserTimelineScrolling
-    ) {
-        if (!timelineUpdatesPaused && !isUserTimelineScrolling) {
-            items = latestItems
-            hasHistoryLoadingRow = latestHistoryLoading
+    LaunchedEffect(selectedSessionId, listState) {
+        snapshotFlow { listState.canScrollBackward }.collect { canScrollBackward ->
+            if (canScrollBackward) historyEdgeRevealed = false
         }
     }
     val markdownPreloader = rememberDshMarkdownPreloader()
+    LaunchedEffect(selectedSessionId, listState, markdownPreloader) {
+        var preparedWhileMoving: ConversationTimelinePresentation? = null
+        suspend fun warmReadingWindow(target: ConversationTimelinePresentation) {
+            val visible = listState.layoutInfo.visibleItemsInfo.map { HistoryVisibleRow(it.key.toString(), it.offset) }
+            val anchor = historyReadingAnchor(presentation.entries, target.entries, visible)
+            val center = anchor?.index ?: 0
+            markdownPreloader.preload(target.entries.subList((center - 3).coerceAtLeast(0),
+                (center + 4).coerceAtMost(target.entries.size))
+                .filterIsInstance<ConversationTimelineEntry.AssistantMarkdown>().map { it.markdown })
+        }
+        snapshotFlow { HistoryPresentationTarget(latestSnapshot.conversation,
+            latestSnapshot.selectedHistoryEarliestSequence, latestRunning, isUserTimelineScrolling || touchingTimeline,
+            interactionGeneration, selectedSessionId in stateHolder.historyPagingSessionIds || latestSnapshot.selectedHistoryIsLoadingOlder,
+            latestSnapshot.selectedHistoryHasMore, latestSnapshot.selectedHistoryError != null,
+            historyReadBatch != null) }
+            .distinctUntilChanged()
+            .collect { targetState ->
+                val batch = historyReadBatch
+                if (batch != null) {
+                    // 传输页不是阅读页。补页期间只累计数据，保留当前显示快照。
+                    if (!targetState.readingBatch || targetState.loadingOlder) return@collect
+                    val window = withContext(Dispatchers.Default) { historyReadWindow(batch, targetState.items) }
+                    val stopReason = historyReadBatchStopReason(batch, window, targetState.earliestSequence,
+                        targetState.hasMore, targetState.failed, android.os.SystemClock.elapsedRealtime())
+                    if (stopReason == null) {
+                        historyReadBatch = batch.copy(beforeSequence = requireNotNull(targetState.earliestSequence), pages = batch.pages + 1)
+                        if (stateHolder.loadOlderHistory()) {
+                            android.util.Log.d("HistoryPresentation", "stage=read-batch-continue pages=${batch.pages + 1} " +
+                                "messages=${window.messages} heightDp=${window.estimatedHeightDp.toInt()}")
+                            return@collect
+                        }
+                    }
+                    historyReadBatch = null
+                    android.util.Log.d("HistoryPresentation", "stage=read-batch-ready pages=${batch.pages + 1} " +
+                        "messages=${window.messages} heightDp=${window.estimatedHeightDp.toInt()} reason=${stopReason ?: "unavailable"}")
+                }
+                if (targetState.moving) {
+                    timelineUpdatesPaused = true
+                    val older = presentation.earliestSequence?.let { old -> targetState.earliestSequence?.let { it < old } } == true
+                    if (older && preparedWhileMoving?.items !== targetState.items) {
+                        val target = withContext(Dispatchers.Default) {
+                            prepareConversationPresentation(targetState.items, targetState.running, targetState.earliestSequence)
+                        }
+                        warmReadingWindow(target)
+                        preparedWhileMoving = target
+                        android.util.Log.d("HistoryPresentation", "stage=background-ready entries=${target.entries.size} moving=true")
+                    }
+                    return@collect
+                }
+                if (timelineUpdatesPaused) {
+                    delay(TIMELINE_STREAM_RESUME_DELAY_MILLISECONDS)
+                    if (isUserTimelineScrolling || touchingTimeline) return@collect
+                    timelineUpdatesPaused = false
+                }
+                val source = latestSnapshot
+                val running = latestRunning
+                if (source.conversation === presentation.items && running == presentation.running &&
+                    source.selectedHistoryEarliestSequence == presentation.earliestSequence) return@collect
+                val generation = interactionGeneration
+                val older = presentation.earliestSequence?.let { old ->
+                    source.selectedHistoryEarliestSequence?.let { it < old }
+                } == true
+                val began = android.os.SystemClock.elapsedRealtime()
+                presentingHistory = older
+                if (older) android.util.Log.d("HistoryPresentation", "stage=prepare-start rows=${source.conversation.size}")
+                try {
+                    val target = preparedWhileMoving?.takeIf { it.items === source.conversation &&
+                        it.running == running && it.earliestSequence == source.selectedHistoryEarliestSequence }
+                        ?: withContext(Dispatchers.Default) {
+                            prepareConversationPresentation(source.conversation, running, source.selectedHistoryEarliestSequence)
+                        }
+                    preparedWhileMoving = null
+                    if (older) {
+                        // 只预热即将进入阅读窗口的几行，不等待整页Markdown都渲染完。
+                        warmReadingWindow(target)
+                        android.util.Log.d("HistoryPresentation", "stage=prepare-ready entries=${target.entries.size} " +
+                            "elapsedMs=${android.os.SystemClock.elapsedRealtime() - began}")
+                        withFrameNanos { }
+                    }
+                    if (isUserTimelineScrolling || touchingTimeline || generation != interactionGeneration) return@collect
+                    val oldIds = presentation.entries.mapTo(mutableSetOf()) { it.id }
+                    val structureChanged = presentation.entries.map { it.id } != target.entries.map { it.id }
+                    val anchor = if (structureChanged && initialPositionApplied && !isPinnedToBottom) {
+                        historyReadingAnchor(presentation.entries, target.entries,
+                            listState.layoutInfo.visibleItemsInfo.filter { it.offset + it.size > listState.layoutInfo.viewportStartOffset }
+                                .map { HistoryVisibleRow(it.key.toString(), it.offset) })
+                    } else null
+                    revealIds = if (older) target.entries.mapTo(mutableSetOf()) { it.id }.subtract(oldIds) else emptySet()
+                    revealAlpha.snapTo(if (revealIds.isEmpty()) 1f else 0f)
+                    Snapshot.withMutableSnapshot {
+                        presentation = target
+                        if (anchor != null) listState.requestScrollToItem(anchor.index, -anchor.offset)
+                    }
+                    if (older) {
+                        var stable = 0
+                        var previous: List<Pair<Any, Int>>? = null
+                        while (stable < 2 && generation == interactionGeneration && !isUserTimelineScrolling && !touchingTimeline) {
+                            withFrameNanos { }
+                            val geometry = listState.layoutInfo.visibleItemsInfo.map { it.key to it.offset }
+                            stable = if (geometry == previous && listState.layoutInfo.totalItemsCount ==
+                                target.entries.size + if (latestRunning) 1 else 0) stable + 1 else 0
+                            previous = geometry
+                        }
+                        val actual = anchor?.let { saved -> listState.layoutInfo.visibleItemsInfo.firstOrNull { it.key == saved.id } }
+                        android.util.Log.d("HistoryPresentation", "stage=presented inserted=${revealIds.size} " +
+                            "elapsedMs=${android.os.SystemClock.elapsedRealtime() - began} " +
+                            "anchorValid=${actual != null} anchorErrorPx=${actual?.let { it.offset - requireNotNull(anchor).offset }} " +
+                            "interrupted=${generation != interactionGeneration}")
+                    }
+                    presentingHistory = false
+                    if (revealIds.isNotEmpty() && generation == interactionGeneration && !touchingTimeline && !isUserTimelineScrolling) {
+                        revealAlpha.animateTo(1f, tween(180))
+                    } else revealAlpha.snapTo(1f)
+                    revealIds = emptySet()
+                } finally {
+                    presentingHistory = false
+                    revealIds = emptySet()
+                }
+            }
+    }
     LaunchedEffect(listState, timelineEntries, markdownPreloader) {
         snapshotFlow {
             val visible = listState.layoutInfo.visibleItemsInfo
@@ -851,8 +1056,28 @@ private fun ConversationTimeline(
             }
         }.distinctUntilChanged().collect(stateHolder::updateVisibleAttachments)
     }
-    LaunchedEffect(hasInitialContent) {
-        if (!initialPositionApplied && hasInitialContent) {
+    val searchTarget = stateHolder.localSearchScrollTarget?.takeIf { it.sessionId == selectedSessionId }
+    LaunchedEffect(searchTarget, timelineEntries) {
+        val target = searchTarget ?: return@LaunchedEffect
+        val messageId = "${target.sessionId}-${target.seq}"
+        val index = timelineEntries.indexOfFirst {
+            it.id == messageId || it.id.startsWith("$messageId:") || it.id.startsWith("assistant:$messageId:")
+        }
+        if (index >= 0) {
+            programmaticScrollCount += 1
+            try {
+                isPinnedToBottom = false
+                onPinnedToBottomChanged(false)
+                listState.scrollToItem(index)
+                initialPositionApplied = true
+                stateHolder.consumeLocalSearchScrollTarget()
+            } finally {
+                programmaticScrollCount -= 1
+            }
+        }
+    }
+    LaunchedEffect(hasInitialContent, searchTarget) {
+        if (!initialPositionApplied && hasInitialContent && searchTarget == null) {
             programmaticScrollCount += 1
             try {
                 listState.scrollToTimelineBottom(lastTimelineIndex, animated = false)
@@ -869,7 +1094,7 @@ private fun ConversationTimeline(
         initialPositionApplied,
         hasStreamingItem
     ) {
-        if (initialPositionApplied && isPinnedToBottom && hasInitialContent) {
+        if (initialPositionApplied && isPinnedToBottom && hasInitialContent && searchTarget == null) {
             programmaticScrollCount += 1
             try {
                 listState.scrollToTimelineBottom(
@@ -911,26 +1136,6 @@ private fun ConversationTimeline(
                 }
             }
     }
-    LaunchedEffect(listState, stateHolder.snapshot.selectedHistoryHasMore, initialPositionApplied) {
-        if (!initialPositionApplied) return@LaunchedEffect
-        snapshotFlow {
-            HistoryPagingGestureState(
-                firstVisibleItemIndex = listState.firstVisibleItemIndex,
-                isScrollInProgress = listState.isScrollInProgress,
-                lastScrolledBackward = listState.lastScrolledBackward,
-                isProgrammaticScroll = programmaticScrollCount > 0
-            )
-        }
-            .distinctUntilChanged()
-            .collect { gesture ->
-                if (
-                    shouldLoadOlderHistory(gesture) &&
-                    stateHolder.snapshot.selectedHistoryHasMore
-                ) {
-                    stateHolder.loadOlderHistory()
-                }
-            }
-    }
     Box(
         Modifier
             .fillMaxSize()
@@ -942,19 +1147,33 @@ private fun ConversationTimeline(
                     drawRect(Color.Gray.copy(alpha = 0.35f), size = androidx.compose.ui.geometry.Size(size.width, 1f))
                 }
             }
-            .pointerInput(onUserInteraction) {
+            .pointerInput(selectedSessionId) {
                 awaitEachGesture {
                     awaitFirstDown(
                         requireUnconsumed = false,
                         pass = PointerEventPass.Initial
                     )
-                    onUserInteraction()
+                    touchingTimeline = true
+                    historyEdgePull.reset()
+                    interactionGeneration += 1
+                    revealIds = emptySet()
+                    latestOnUserInteraction()
+                    try { waitForUpOrCancellation(pass = PointerEventPass.Initial) }
+                    finally { touchingTimeline = false }
                 }
             }
     ) {
-        if (items.isEmpty() && !selectedSessionIsRunning && !stateHolder.snapshot.selectedHistoryIsLoading) {
+        if (items.isEmpty() && latestItems.isEmpty() && (!selectedSessionIsRunning || stateHolder.offlineBrowsing) && !stateHolder.snapshot.selectedHistoryIsLoading) {
             val error = stateHolder.snapshot.selectedHistoryError
-            if (error == null) {
+            if (stateHolder.offlineBrowsing) {
+                Text(
+                    appText("当前离线，此会话尚未缓存。连接网关后可加载聊天内容。"),
+                    modifier = Modifier.align(Alignment.Center).padding(horizontal = 28.dp).padding(bottom = 150.dp)
+                        .testTag("offline-history-unavailable"),
+                    textAlign = TextAlign.Center,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else if (error == null) {
                 EmptyConversation(Modifier.align(Alignment.Center).padding(bottom = 150.dp))
             } else {
                 Column(
@@ -976,77 +1195,97 @@ private fun ConversationTimeline(
                 }
             }
         }
+        if (historyEdgeRevealed && !listState.canScrollBackward &&
+            (historyBusy || stateHolder.snapshot.selectedHistoryHasMore)) {
+            Box(Modifier.align(Alignment.TopCenter).heightIn(min = 32.dp).zIndex(2f),
+                contentAlignment = Alignment.Center) {
+                if (historyBusy) {
+                    Row(Modifier.testTag("history-paging-progress").padding(horizontal = 8.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        CircularProgressIndicator(Modifier.size(12.dp), strokeWidth = 1.5.dp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(appText(if (latestHistoryLoading || stateHolder.snapshot.selectedHistoryIsLoadingOlder)
+                            "正在加载更早记录…" else "正在准备会话"), fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                } else {
+                    Text(appText("加载更早记录"), fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.testTag("history-load-more")
+                            .clickable(onClick = requestOlderHistory)
+                            .padding(horizontal = 12.dp, vertical = 8.dp))
+                }
+            }
+        }
         LazyColumn(
             state = listState,
             modifier = Modifier
                 .fillMaxSize()
+                .nestedScroll(historyEdgeScroll)
                 .adaptiveContentWidth().testTag("conversation-message-list")
                 .imePadding()
                 .padding(horizontal = 20.dp)
                 .alpha(if (hasInitialContent && !initialPositionApplied) 0f else 1f),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                top = 8.dp,
+                // 首行给固定提示留出空间；加载状态变化不插入/删除列表行。
+                top = 32.dp,
                 bottom = bottomContentHeight + 22.dp
             )
         ) {
-            if (hasHistoryLoadingRow) {
-                item("history-loading") {
-                    Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                        CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                        Spacer(Modifier.width(9.dp))
-                        Text(appText("正在加载更早记录…"), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f))
-                    }
-                }
-            }
             items(
                 items = timelineEntries,
                 key = ConversationTimelineEntry::id,
                 contentType = ConversationTimelineEntry::contentType
             ) { entry ->
-                when (entry) {
-                    is ConversationTimelineEntry.Display -> when (val display = entry.entry) {
-                        is ConversationDisplayEntry.Message -> ConversationRow(
-                            item = display.item,
-                            thumbnails = stateHolder.attachmentThumbnails,
-                            attachmentStates = stateHolder.attachmentStates,
-                            onRetryAttachment = stateHolder::retryAttachment,
-                            onPreviewImages = onPreviewImages
-                        )
-                        is ConversationDisplayEntry.Process -> ConversationProcessRow(display.group)
-                    }
-                    is ConversationTimelineEntry.AssistantHeader -> AssistantMessageHeader(
-                        item = entry.item,
-                        thumbnails = stateHolder.attachmentThumbnails,
-                        states = stateHolder.attachmentStates,
-                        onRetry = stateHolder::retryAttachment
-                    )
-                    is ConversationTimelineEntry.AssistantMarkdown -> DshLazyMarkdownText(
-                        markdown = entry.markdown,
-                        knownFiles = entry.knownFiles,
-                        onOpenFile = { path ->
-                            selectedSessionId?.let { session ->
-                                stateHolder.openConversationFile(stateHolder.gatewayLocalId, session, path)
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
-                    )
-                    is ConversationTimelineEntry.AssistantFooter -> Column(
-                        Modifier.fillMaxWidth().padding(top = 7.dp, bottom = 12.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        entry.files.forEach { file ->
-                            FileReferenceCard(
-                                path = file.path,
-                                description = file.description,
-                                modifier = Modifier.align(Alignment.End),
-                                onClick = {
-                                    selectedSessionId?.let { session ->
-                                        stateHolder.openConversationFile(stateHolder.gatewayLocalId, session, file.path)
-                                    }
-                                }
+                Box(Modifier.testTag("conversation-entry:${entry.id}").graphicsLayer {
+                    alpha = if (entry.id in revealIds) revealAlpha.value else 1f
+                }) {
+                    when (entry) {
+                        is ConversationTimelineEntry.Display -> when (val display = entry.entry) {
+                            is ConversationDisplayEntry.Message -> ConversationRow(
+                                item = display.item,
+                                thumbnails = stateHolder.attachmentThumbnails,
+                                attachmentStates = stateHolder.attachmentStates,
+                                onRetryAttachment = stateHolder::retryAttachment,
+                                onPreviewImages = onPreviewImages
                             )
+                            is ConversationDisplayEntry.Process -> ConversationProcessRow(display.group)
                         }
-                        if (entry.text.isNotEmpty()) CopyButton(entry.text)
+                        is ConversationTimelineEntry.AssistantHeader -> AssistantMessageHeader(
+                            item = entry.item,
+                            thumbnails = stateHolder.attachmentThumbnails,
+                            states = stateHolder.attachmentStates,
+                            onRetry = stateHolder::retryAttachment
+                        )
+                        is ConversationTimelineEntry.AssistantMarkdown -> DshLazyMarkdownText(
+                            markdown = entry.markdown,
+                            copyMarkdown = entry.copyMarkdown,
+                            knownFiles = entry.knownFiles,
+                            onOpenFile = { path ->
+                                selectedSessionId?.let { session ->
+                                    stateHolder.openConversationFile(stateHolder.gatewayLocalId, session, path)
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+                        )
+                        is ConversationTimelineEntry.AssistantFooter -> Column(
+                            Modifier.fillMaxWidth().padding(top = 7.dp, bottom = 12.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            entry.files.forEach { file ->
+                                FileReferenceCard(
+                                    path = file.path,
+                                    description = file.description,
+                                    modifier = Modifier.align(Alignment.End),
+                                    onClick = {
+                                        selectedSessionId?.let { session ->
+                                            stateHolder.openConversationFile(stateHolder.gatewayLocalId, session, file.path)
+                                        }
+                                    }
+                                )
+                            }
+                            if (entry.text.isNotEmpty()) CopyButton(entry.text, markdown = true)
+                        }
                     }
                 }
             }
@@ -1212,21 +1451,8 @@ private val DEEP_SEARCH_PHRASES = mapOf(
     DeepSearchActivity.WORKING to listOf("继续推进中", "稳步探索中", "梳理当前进展中", "逐步展开中")
 )
 
-private const val TIMELINE_STREAM_RESUME_DELAY_MILLISECONDS = 80L
+private const val TIMELINE_STREAM_RESUME_DELAY_MILLISECONDS = 120L
 private const val MARKDOWN_PREFETCH_ROWS = 24
-
-internal data class HistoryPagingGestureState(
-    val firstVisibleItemIndex: Int,
-    val isScrollInProgress: Boolean,
-    val lastScrolledBackward: Boolean,
-    val isProgrammaticScroll: Boolean
-)
-
-internal fun shouldLoadOlderHistory(gesture: HistoryPagingGestureState): Boolean =
-    gesture.firstVisibleItemIndex <= 2 &&
-        gesture.isScrollInProgress &&
-        gesture.lastScrolledBackward &&
-        !gesture.isProgrammaticScroll
 
 private fun androidx.compose.foundation.lazy.LazyListState.isPinnedToBottom(): Boolean {
     return isTimelinePinnedToBottom(
@@ -1346,6 +1572,7 @@ private fun EmptyConversation(modifier: Modifier = Modifier) {
 private fun Composer(
     stateHolder: AndroidSharedStateHolder,
     onPickImage: () -> Unit,
+    onPickFile: () -> Unit,
     onDismissInput: () -> Unit
 ) {
     val voice = stateHolder.voiceInput
@@ -1354,6 +1581,16 @@ private fun Composer(
     val keyboardController = LocalSoftwareKeyboardController.current
     val queueEditFocusRequester = remember { FocusRequester() }
     var requestTextFocus by remember { mutableStateOf(false) }
+    var showsFileUploadUpgradeAlert by remember { mutableStateOf(false) }
+    if (showsFileUploadUpgradeAlert) {
+        DshAlertDialog(
+            title = appText("请升级网关"),
+            message = appText("当前网关不支持文件上传，请升级到支持文件上传的 Mobile Gateway，并重新连接。"),
+            confirmLabel = appText("好"),
+            onConfirm = { showsFileUploadUpgradeAlert = false },
+            onDismissRequest = { showsFileUploadUpgradeAlert = false }
+        )
+    }
     LaunchedEffect(requestTextFocus, voice.state.voiceMode) {
         if (requestTextFocus && !voice.state.voiceMode) {
             queueEditFocusRequester.requestFocus()
@@ -1403,7 +1640,7 @@ private fun Composer(
     val isDark = isSystemInDarkTheme()
     val shadowColor = dshFloatingSurfaceShadow(isDark)
     val glassEdge = dshGlassEdge(isDark)
-    val composerHasContent = stateHolder.messageDraft.trim().isNotEmpty() || stateHolder.preparedImages.isNotEmpty()
+    val composerHasContent = stateHolder.messageDraft.trim().isNotEmpty() || stateHolder.preparedImages.isNotEmpty() || stateHolder.fileUploads.drafts.isNotEmpty() || stateHolder.fileUploads.preparing
     val voiceDividerColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)
     LaunchedEffect(stateHolder.preparedImages.isNotEmpty()) {
         if (stateHolder.preparedImages.isNotEmpty()) voice.setVoiceMode(false)
@@ -1486,6 +1723,20 @@ private fun Composer(
                         }
                     }
                 }
+                if (stateHolder.fileUploads.preparing) Text(appText("正在准备文件…"), style = MaterialTheme.typography.labelSmall)
+                if (stateHolder.fileUploads.drafts.isNotEmpty()) {
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(stateHolder.fileUploads.drafts.size) { index ->
+                            val file = stateHolder.fileUploads.drafts[index]
+                            PendingFileCard(
+                                file = file,
+                                enabled = !stateHolder.messageSubmissionPending,
+                                onRetry = { stateHolder.fileUploads.retry(file.id) },
+                                onRemove = { stateHolder.fileUploads.remove(file.id) }
+                            )
+                        }
+                    }
+                }
                 val commandToken = stateHolder.slashCommands.commandToken
                 val commandHint = stateHolder.slashCommands.argumentHint
                 if (voice.state.voiceMode) {
@@ -1563,13 +1814,40 @@ private fun Composer(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(7.dp)
                 ) {
-                    ComposerIconButton(R.drawable.ic_composer_image, appText("添加图片"), onPickImage)
-                    PermissionControl(stateHolder, Modifier.width(82.dp))
+                    Box {
+                        var attachmentMenu by remember { mutableStateOf(false) }
+                        ComposerIconButton(R.drawable.ic_composer_add, appText("添加附件"), { attachmentMenu = true })
+                        DshMenu(expanded = attachmentMenu, onDismissRequest = { attachmentMenu = false }) {
+                            DshMenuItem(text = { Text(appText("图片")) },
+                                enabled = "images" in stateHolder.gatewayState.capabilities && stateHolder.preparedImages.size < 20,
+                                onClick = { attachmentMenu = false; onPickImage() })
+                            DshMenuItem(text = { Text(appText("文件")) },
+                                enabled = !stateHolder.isViewingTeamMember &&
+                                    !stateHolder.fileUploads.preparing && stateHolder.fileUploads.drafts.size < 20 && !stateHolder.messageSubmissionPending,
+                                onClick = {
+                                    attachmentMenu = false
+                                    if (stateHolder.fileUploads.supported) onPickFile()
+                                    else showsFileUploadUpgradeAlert = true
+                                })
+                        }
+                    }
+                    if (!stateHolder.isViewingTeamMember) PermissionControl(stateHolder, Modifier.width(82.dp))
                     Spacer(Modifier.width(2.dp))
-                    ModelControl(
-                        stateHolder = stateHolder,
-                        modifier = Modifier.weight(1f)
-                    )
+                    if (!stateHolder.isViewingTeamMember) {
+                        ModelControl(
+                            stateHolder = stateHolder,
+                            modifier = Modifier.weight(1f)
+                        )
+                    } else if (stateHolder.selectedMemberCanSend) {
+                        Spacer(Modifier.weight(1f))
+                    } else {
+                        Text(
+                            "只读成员会话",
+                            Modifier.weight(1f),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                     ContextUsageRing(stateHolder)
                     Box(
                         Modifier.size(42.dp)
@@ -1579,7 +1857,8 @@ private fun Composer(
                                 } else 1f
                             )
                             .clip(CircleShape)
-                            .background(DshColors.Ocean)
+                            // 背景直接绘制圆形，避免半透明状态依赖图层裁剪后露出方形底色。
+                            .background(DshColors.Ocean, CircleShape)
                             .clickable(
                                 enabled = if (stateHolder.showsSessionStopButton) {
                                     stateHolder.canCancelSelectedSession
@@ -1621,8 +1900,7 @@ private fun Composer(
                         if (stateHolder.showsSessionStopButton) {
                             Box(
                                 Modifier.size(14.dp)
-                                    .clip(RoundedCornerShape(3.dp))
-                                    .background(Color.White)
+                                    .background(Color.White, RoundedCornerShape(3.dp))
                             )
                         } else {
                             Icon(
@@ -1932,12 +2210,13 @@ internal fun dshGlassEdge(isDark: Boolean): Brush = Brush.verticalGradient(
 private fun ComposerIconButton(iconRes: Int, description: String, onClick: () -> Unit) {
     Box(
         Modifier.size(32.dp).clip(CircleShape).clickable(onClick = onClick).semantics { contentDescription = description },
-        contentAlignment = Alignment.Center
+        contentAlignment = Alignment.CenterStart
     ) {
         Icon(
             painter = painterResource(iconRes),
             contentDescription = null,
-            modifier = Modifier.size(22.dp),
+            // 加号矢量的描边左侧还留有约 1.5dp 空白，按可见边缘与右侧语音圆按钮对齐。
+            modifier = Modifier.size(22.dp).offset(x = (-1.5).dp),
             tint = MaterialTheme.colorScheme.onSurface
         )
     }
@@ -2017,7 +2296,7 @@ internal fun SessionAgentPresetControl(
             testTag = "session-agent-preset-popover"
         ) {
             state.presets.forEach { preset ->
-                DropdownMenuItem(
+                DshMenuItem(
                     modifier = Modifier.testTag("session-agent-preset-${preset.id}"),
                     enabled = preset.broken != true,
                     text = {
@@ -2090,7 +2369,7 @@ private fun PermissionControl(
             horizontalCompensation = (-28).dp
         ) {
             options.forEach { option ->
-                DropdownMenuItem(
+                DshMenuItem(
                     text = {
                         Text(
                             option.name,
@@ -2133,7 +2412,7 @@ private fun ComposerMenuSectionTitle(title: String) {
 
 @Composable
 private fun ComposerMenuItem(title: String, selected: Boolean, onClick: () -> Unit) {
-    DropdownMenuItem(
+    DshMenuItem(
         text = {
             Text(
                 title,
@@ -2271,10 +2550,6 @@ private fun ComposerPopupMenu(
     horizontalCompensation: Dp,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    val visibility = remember { MutableTransitionState(false) }
-    visibility.targetState = expanded
-    // 退出动画结束后才移除 Popup，避免关闭时直接消失。
-    if (!visibility.currentState && !visibility.targetState) return
     val density = LocalDensity.current
     val windowHeight = with(density) { LocalWindowInfo.current.containerSize.height.toDp() }
     val maxSurfaceHeight = (windowHeight - 100.dp).coerceIn(48.dp, 560.dp)
@@ -2294,52 +2569,13 @@ private fun ComposerPopupMenu(
             anchorGapPx = anchorGapPx
         )
     }
-    Popup(
-        popupPositionProvider = positionProvider,
-        onDismissRequest = onDismissRequest,
-        properties = PopupProperties(focusable = true, clippingEnabled = true)
-    ) {
-        AnimatedVisibility(
-            visibleState = visibility,
-            enter = fadeIn(tween(180)) + scaleIn(
-                animationSpec = tween(220),
-                initialScale = 0.94f,
-                transformOrigin = androidx.compose.ui.graphics.TransformOrigin(
-                    if (alignment == Alignment.BottomEnd) 1f else 0f, 1f
-                )
-            ),
-            exit = fadeOut(tween(140)) + scaleOut(
-                animationSpec = tween(140),
-                targetScale = 0.96f,
-                transformOrigin = androidx.compose.ui.graphics.TransformOrigin(
-                    if (alignment == Alignment.BottomEnd) 1f else 0f, 1f
-                )
-            )
-        ) {
-            Box(Modifier.padding(20.dp)) {
-                Surface(
-                    modifier = Modifier.width(width).heightIn(max = maxSurfaceHeight).dropShadow(
-                        shape = RoundedCornerShape(24.dp),
-                        shadow = Shadow(
-                            radius = 18.dp,
-                            spread = 0.dp,
-                            color = Color.Black.copy(alpha = 0.18f),
-                            offset = DpOffset(x = 0.dp, y = 8.dp)
-                        )
-                    ),
-                    shape = RoundedCornerShape(24.dp),
-                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.98f),
-                    tonalElevation = 0.dp,
-                    shadowElevation = 0.dp
-                ) {
-                    Column(
-                        modifier = Modifier.verticalScroll(rememberScrollState()).padding(vertical = 8.dp),
-                        content = content
-                    )
-                }
-            }
-        }
+    DshMenuPopup(expanded, onDismissRequest, positionProvider,
+        modifier = Modifier.width(width).heightIn(max = maxSurfaceHeight),
+        transformOrigin = androidx.compose.ui.graphics.TransformOrigin(
+            if (alignment == Alignment.BottomEnd) 1f else 0f, 1f), shadowPadding = 20.dp) {
+        Column(Modifier.verticalScroll(rememberScrollState()).padding(vertical = 8.dp), content = content)
     }
+
 }
 
 private class ComposerPopupPositionProvider(
@@ -2810,6 +3046,23 @@ private fun UserMessage(
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         UserAttachmentPreview(item.images, thumbnails, states, onRetry, onPreviewImages)
+        item.files.filter { it.attachmentId != null }.forEach { file ->
+            val name = file.name ?: appText("文件")
+            val kind = remember(name) { com.clarklevis.dsh.shared.facade.FileIconCatalog.resolve(name, null) }
+            Row(
+                Modifier.widthIn(max = 320.dp).background(fileCardColor(kind), RoundedCornerShape(12.dp))
+                    .padding(12.dp).testTag("user-file-card"),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                FileTypeIcon(kind, Modifier.size(48.dp))
+                Column(Modifier.weight(1f, fill = false), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(name, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    file.bytes?.let { Text(android.text.format.Formatter.formatShortFileSize(LocalContext.current, it),
+                        style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                }
+            }
+        }
         if (item.text.isNotEmpty()) {
             Column(
                 horizontalAlignment = Alignment.End,
@@ -2996,55 +3249,57 @@ internal fun ConversationImagePreviewDialog(
             decorFitsSystemWindows = false
         )
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black)
-                .testTag("conversation-image-preview")
-        ) {
-            HorizontalPager(
-                state = pagerState,
-                modifier = Modifier.fillMaxSize()
-            ) { page ->
-                val attachment = request.attachments[page]
-                ZoomablePreviewImage(
-                    image = thumbnails[attachment.attachmentId],
-                    contentDescription = attachment.name ?: appText("图片")
-                )
-            }
-            Row(
+        DshMenuHost {
+            Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .statusBarsPadding()
-                    .padding(horizontal = 16.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically
+                    .fillMaxSize()
+                    .background(Color.Black)
+                    .testTag("conversation-image-preview")
             ) {
-                Surface(
-                    onClick = onDismiss,
-                    modifier = Modifier
-                        .size(38.dp)
-                        .semantics { contentDescription = appText("关闭图片预览") },
-                    shape = RoundedCornerShape(19.dp),
-                    color = Color.White.copy(alpha = 0.16f)
-                ) {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Icon(
-                            painter = painterResource(R.drawable.ic_close),
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp),
-                            tint = Color.White
-                        )
-                    }
+                HorizontalPager(
+                    state = pagerState,
+                    modifier = Modifier.fillMaxSize()
+                ) { page ->
+                    val attachment = request.attachments[page]
+                    ZoomablePreviewImage(
+                        image = thumbnails[attachment.attachmentId],
+                        contentDescription = attachment.name ?: appText("图片")
+                    )
                 }
-                Text(
-                    text = "${pagerState.currentPage + 1} / ${request.attachments.size}",
-                    modifier = Modifier.weight(1f),
-                    color = Color.White,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    textAlign = TextAlign.Center
-                )
-                Spacer(Modifier.size(38.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .statusBarsPadding()
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Surface(
+                        onClick = onDismiss,
+                        modifier = Modifier
+                            .size(38.dp)
+                            .semantics { contentDescription = appText("关闭图片预览") },
+                        shape = RoundedCornerShape(19.dp),
+                        color = Color.White.copy(alpha = 0.16f)
+                    ) {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_close),
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                                tint = Color.White
+                            )
+                        }
+                    }
+                    Text(
+                        text = "${pagerState.currentPage + 1} / ${request.attachments.size}",
+                        modifier = Modifier.weight(1f),
+                        color = Color.White,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(Modifier.size(38.dp))
+                }
             }
         }
     }
@@ -3128,7 +3383,7 @@ private fun AssistantMessage(
                 modifier = Modifier.fillMaxWidth()
             )
         }
-        CopyButton(item.text)
+        CopyButton(item.text, markdown = true)
     }
 }
 
@@ -3225,7 +3480,7 @@ private fun AttachmentGrid(
 }
 
 @Composable
-private fun CopyButton(text: String) {
+private fun CopyButton(text: String, markdown: Boolean = false) {
     if (text.isEmpty()) return
     val context = LocalContext.current
     var copied by remember { mutableStateOf(false) }
@@ -3238,7 +3493,7 @@ private fun CopyButton(text: String) {
     Box(
         modifier = Modifier.width(16.dp).height(26.dp).clickable {
             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-            clipboard.setPrimaryClip(ClipData.newPlainText("DeepSeek", text))
+            clipboard.setPrimaryClip(ClipData.newPlainText("DeepSeek", if (markdown) markdownPlainText(text) else text))
             copied = true
         }.semantics { contentDescription = if (copied) appText("已复制") else appText("复制正文") },
         contentAlignment = Alignment.Center
@@ -3261,9 +3516,7 @@ private fun MarkdownLikeText(text: String) {
 private fun SmallConnectionDot(state: GatewayConnectionState) {
     val color = when (state) {
         GatewayConnectionState.CONNECTED -> DshColors.Success
-        GatewayConnectionState.FAILED -> Color.Red
-        GatewayConnectionState.CONNECTING, GatewayConnectionState.AUTHENTICATING, GatewayConnectionState.WAITING_FOR_NETWORK -> DshColors.Amber
-        else -> Color.Gray
+        else -> Color.Red
     }
     StatusIndicatorDot(
         color = color,

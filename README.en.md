@@ -44,6 +44,16 @@ Both apps connect to Harness over WebSocket through [`dsh-plugin-mobile-gateway`
 - **Desktop host**: Run DeepSeek Harness with **`dsh-plugin-mobile-gateway` 0.10.3 or later** installed and enabled. [`AppRelease/release-info.json`](AppRelease/release-info.json) defines the required minimum version.
 - **Voice input**: Enable the official Voice Input plugin in the desktop host's Plugins section, finish model download and initialization, and grant microphone access on the mobile device.
 
+## Beta Community
+
+Join the Whaleness beta WeChat group to share feedback, discuss your experience, and get support. Scan with WeChat, or save the image and recognize it in WeChat.
+
+<p align="center">
+  <a href="website/assets/support-wechat-2026-10-23.png"><img src="website/assets/support-wechat-2026-10-23.png" alt="Whaleness beta WeChat group QR code, valid before October 30, 2026" width="320"></a>
+</p>
+
+> Updated on October 23, 2026. The original image states that the code is valid before October 30, 2026. If it has expired, check the [product page](https://clarklevis1995.github.io/dsh-mobile/) for the latest group QR code.
+
 ## Platform Status
 
 | Platform / module | Status | Main components |

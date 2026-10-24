@@ -52,6 +52,194 @@ import kotlin.test.assertTrue
 @OptIn(ExperimentalCoroutinesApi::class)
 class GatewayRuntimeIntegrationTest {
     @Test
+    fun fileUploadUsesControlAndReceiptMessageUsesConversation() = runTest {
+        val control = FakeTransport()
+        val conversation = FakeTransport()
+        val runtime = GatewayRuntime(SplitGatewayTransport(control, conversation), FakePreferences(), FakeCredentials(),
+            FakeAttachmentCache(), FakeNetworkMonitor(), FakeClock(0), backgroundScope)
+        val events = mutableListOf<GatewayRuntimeEvent>()
+        backgroundScope.launch { runtime.events.collect(events::add) }
+        backgroundScope.launch { runtime.conversationEvents.collect(events::add) }
+        runCurrent()
+        runtime.connect("ws://localhost/mobile")
+        control.opened()
+        control.receive("""{"kind":"hello","protocol":3,"capabilities":["split-channels","file-upload-v1"]}""")
+        runCurrent()
+        conversation.opened()
+        conversation.receive("""{"kind":"hello","capabilities":["split-channels"]}""")
+        runCurrent()
+        val store = com.clarklevis.dsh.shared.facade.SharedFileUploadStore()
+        store.bind("s1", "c1", true)
+        val opening = store.add("a", "zero.zip", 0, "0".repeat(64)).requests.single()
+        assertTrue(runtime.sendRequest(opening))
+        assertTrue(control.sentPayloads.last().contains("file-upload-open"))
+        assertTrue(conversation.sentPayloads.isEmpty())
+        control.receive("""{"kind":"error","requestType":"file-upload-open","requestId":"${opening.correlationId}","sessionId":"s1","code":"file-upload-unavailable","message":"unavailable"}""")
+        runCurrent()
+        val error = events.filterIsInstance<GatewayRuntimeEvent.Frame>().single { it.frame.code == "file-upload-unavailable" }
+        assertEquals("error", store.acceptFrame(error.rawJson).drafts.single().status)
+        assertTrue(runtime.sendMessage("", emptyList(), "s1", null, "Asia/Shanghai", receipts = listOf("r1"), requestId = "send-1"))
+        assertTrue(conversation.sentPayloads.last().contains("\"files\":[{\"receiptId\":\"r1\"}]"))
+        conversation.receive("""{"kind":"sent","requestId":"send-1","sessionId":"s1"}""")
+        runCurrent()
+        assertTrue(events.filterIsInstance<GatewayRuntimeEvent.Frame>().any { it.frame.requestId == "send-1" })
+    }
+
+    @Test
+    fun finishTimeoutRetainsSocketAndAcceptsPriorCompletionDuringRetry() = runTest {
+        val transport = FakeTransport()
+        val runtime = newRuntime(transport)
+        val events = mutableListOf<GatewayRuntimeEvent>()
+        backgroundScope.launch { runtime.events.collect(events::add) }
+        runCurrent()
+        runtime.connect("wss://gateway.example/ws/mobile")
+        transport.opened()
+        transport.receive("""{"kind":"hello","protocol":3,"capabilities":["file-upload-v1"]}""")
+        runCurrent()
+        val finish = com.clarklevis.dsh.shared.gateway.GatewayRequest("file-upload-finish", "file-upload-completed",
+            targetSessionId = "s1", correlationId = "finish-1", timeoutMilliseconds = 50,
+            payload = """{"type":"file-upload-finish","requestId":"finish-1","uploadId":"u1"}""")
+        assertTrue(runtime.sendRequest(finish))
+        advanceTimeBy(51)
+        runCurrent()
+        assertEquals(1, transport.connectionSpecs.size)
+        assertEquals(GatewayConnectionState.CONNECTED, runtime.state.value.connection)
+        assertTrue(events.any { it is GatewayRuntimeEvent.RequestTimedOut && it.correlationId == "finish-1" })
+        assertTrue(runtime.sendRequest(finish.copy(correlationId = "finish-2",
+            payload = """{"type":"file-upload-finish","requestId":"finish-2","uploadId":"u1"}""")))
+        transport.receive("""{"kind":"file-upload-completed","requestId":"finish-1","sessionId":"s1","uploadId":"u1","receiptId":"r1"}""")
+        runCurrent()
+        assertTrue(events.filterIsInstance<GatewayRuntimeEvent.Frame>().any { it.frame.receiptId == "r1" })
+        advanceTimeBy(51)
+        runCurrent()
+        assertTrue(events.none { it is GatewayRuntimeEvent.RequestTimedOut && it.correlationId == "finish-2" })
+    }
+
+    @Test
+    fun receiptMessageTimeoutAllowsIdenticalSubmissionWithoutReopeningSocket() = runTest {
+        val transport = FakeTransport()
+        val runtime = newRuntime(transport)
+        backgroundScope.launch { runtime.events.collect { } }
+        runCurrent()
+        runtime.connect("wss://gateway.example/ws/mobile")
+        transport.opened()
+        transport.receive("""{"kind":"hello","protocol":3,"capabilities":["file-upload-v1"]}""")
+        runCurrent()
+        val request = GatewayRequests.message("", emptyList(), "s1", null, "Asia/Shanghai",
+            receipts = listOf("r1"), requestId = "same-submission").copy(timeoutMilliseconds = 50)
+        assertTrue(runtime.sendRequest(request))
+        advanceTimeBy(51)
+        runCurrent()
+        assertEquals(GatewayConnectionState.CONNECTED, runtime.state.value.connection)
+        assertEquals(1, transport.connectionSpecs.size)
+        assertTrue(runtime.sendRequest(request))
+        assertEquals(transport.sentPayloads.takeLast(2).first(), transport.sentPayloads.last())
+    }
+
+    @Test
+    fun fileDirectoryErrorsReachFileStoreWithTheirCodeAndRequestIdentity() = runTest {
+        val transport = FakeTransport()
+        val runtime = newRuntime(transport)
+        val events = mutableListOf<GatewayRuntimeEvent>()
+        backgroundScope.launch { runtime.events.collect(events::add) }
+        runCurrent()
+        runtime.connect("wss://gateway.example/ws/mobile")
+        transport.opened()
+        transport.receive("""{"kind":"hello","protocol":3,"capabilities":["file-downloads","file-references-v1"]}""")
+        runCurrent()
+        val store = com.clarklevis.dsh.shared.facade.SharedWorkspaceFileStore()
+        store.setWorkspaceSession("child", "lead")
+        val transition = store.resolveReference("child", "promo/analysis/stills", "dir-1", true, null)
+        assertTrue(runtime.sendRequest(requireNotNull(transition.request)))
+        transport.receive("""
+            {"kind":"error","requestType":"file-resolve","requestId":"dir-1","sessionId":"lead",
+            "code":"file-not-regular","message":"only regular files can be previewed"}
+        """)
+        runCurrent()
+        val response = events.filterIsInstance<GatewayRuntimeEvent.Frame>().single { it.frame.requestId == "dir-1" }
+        val result = store.acceptFrame(response.rawJson)
+        assertEquals("promo/analysis/stills", result.directory?.path)
+        assertEquals("child", result.directory?.sessionId)
+        assertNull(result.snapshot.lastError)
+        assertTrue(events.filterIsInstance<GatewayRuntimeEvent.RequestRejected>().none { it.correlationId == "dir-1" })
+        assertTrue(runtime.sendRequest(GatewayRequests.fileList("lead", "promo/analysis/stills", "list-1")))
+    }
+
+    @Test
+    fun memberProfileResponsesAndTimeoutsDoNotCompleteOrRecycleForegroundHistory() = runTest {
+        val transport = FakeTransport()
+        val runtime = newRuntime(transport)
+        val events = mutableListOf<GatewayRuntimeEvent>()
+        backgroundScope.launch { runtime.events.collect(events::add) }
+        runCurrent()
+        runtime.connect("wss://gateway.example/ws/mobile")
+        transport.opened()
+        transport.receive("""{"kind":"hello","authenticated":true,"capabilities":["subagent-conversations-v1"]}""")
+        runCurrent()
+        runtime.requestHistory("lead")
+        runtime.requestHistory("next")
+        fun profile(id: String) = com.clarklevis.dsh.shared.gateway.GatewayRequest(
+            requestType = "history", responseKind = id, targetSessionId = "child", correlationId = id,
+            payload = """{"type":"history","sessionId":"child","parentSessionId":"lead","subagentMode":"continuable","requestId":"$id","maxMessages":1}""",
+            timeoutMilliseconds = 1_000
+        )
+        assertTrue(runtime.sendRequest(profile("team-profile-test-1")))
+        transport.receive("""{"kind":"history","sessionId":"child","parentSessionId":"lead","requestId":"team-profile-test-1","events":[]}""")
+        runCurrent()
+        assertTrue(events.filterIsInstance<GatewayRuntimeEvent.Frame>().any { it.frame.requestId == "team-profile-test-1" })
+        assertTrue(transport.sentPayloads.none { it.contains("\"sessionId\":\"next\"") })
+        assertTrue(runtime.sendRequest(profile("team-profile-test-2")))
+        advanceTimeBy(1_001)
+        runCurrent()
+        assertEquals(GatewayConnectionState.CONNECTED, runtime.state.value.connection)
+        assertTrue(events.filterIsInstance<GatewayRuntimeEvent.RequestTimedOut>().any { it.correlationId == "team-profile-test-2" })
+        transport.receive("""{"kind":"history","sessionId":"child","requestId":"team-profile-test-2","events":[]}""")
+        transport.receive("""{"kind":"history","sessionId":"lead","events":[]}""")
+        runCurrent()
+        assertTrue(transport.sentPayloads.any { it.contains("\"sessionId\":\"next\"") })
+        assertTrue(events.filterIsInstance<GatewayRuntimeEvent.Frame>().none { it.frame.requestId == "team-profile-test-2" })
+        runtime.disconnect()
+    }
+
+    @Test
+    fun teamChildRoutingAndSingleFlightNeverInstallSupersededSubscription() = runTest {
+        val transport = FakeTransport()
+        val runtime = newRuntime(transport)
+        val events = mutableListOf<GatewayRuntimeEvent>()
+        backgroundScope.launch { runtime.events.collect(events::add) }
+        runCurrent()
+        runtime.connect("wss://gateway.example/ws/mobile")
+        transport.opened()
+        transport.receive("""{"kind":"hello","authenticated":true,"capabilities":["agent-team-v1","subagent-conversations-v1"]}""")
+        runCurrent()
+        runtime.registerConversationTarget("""{"sessionId":"a","parentSessionId":"lead","subagentMode":"continuable"}""")
+        runtime.subscribe("a")
+        runtime.subscribe("b")
+        runtime.subscribe("a")
+        assertEquals(1, transport.sentTypes.count { it == "subscribe" })
+        transport.receive("""{"kind":"subscribed","sessionId":"a","subscriptionId":"old-a"}""")
+        runCurrent()
+        assertEquals(2, transport.sentTypes.count { it == "subscribe" })
+        assertTrue(events.filterIsInstance<GatewayRuntimeEvent.Frame>().none { it.frame.subscriptionId == "old-a" })
+        transport.receive("""{"kind":"subscribed","sessionId":"a","subscriptionId":"new-a"}""")
+        runCurrent()
+        assertTrue(events.filterIsInstance<GatewayRuntimeEvent.Frame>().any { it.frame.subscriptionId == "new-a" })
+        runtime.requestHistory("a", beforeSequence = 3, historyFormatVersion = 4)
+        runtime.sendMessage("继续分析", listOf(GatewayOutgoingImage("image/png", "AAAA", "frame.png")), "a", "wrong", "Asia/Shanghai", "steer")
+        runtime.sendRequest(GatewayRequests.sessionCancel("a"))
+        for (type in listOf("subscribe", "history", "message", "session-cancel")) {
+            val obj = wireJson.parseToJsonElement(transport.sentPayloads.last { wireJson.parseToJsonElement(it).jsonObject["type"]?.jsonPrimitive?.content == type }).jsonObject
+            assertEquals("lead", obj["parentSessionId"]?.jsonPrimitive?.content)
+            assertEquals("continuable", obj["subagentMode"]?.jsonPrimitive?.content)
+            assertNull(obj["workspaceId"])
+        }
+        runtime.registerConversationTarget("""{"sessionId":"c","parentSessionId":"a","subagentMode":"one-shot"}""")
+        val before = transport.sentPayloads.size
+        assertFalse(runtime.sendMessage("不能发送", emptyList(), "c", null, "Asia/Shanghai"))
+        assertEquals(before, transport.sentPayloads.size)
+    }
+
+    @Test
     fun speechRequestsUseExactIdsAndLongTimeoutAndKeepSubscriptionErrors() = runTest {
         val transport = FakeTransport()
         val runtime = newRuntime(transport)
@@ -700,6 +888,150 @@ class GatewayRuntimeIntegrationTest {
     }
 
     @Test
+    fun backgroundHistoryOriginStaysLocalAndSurvivesFramesErrorsFailuresAndCancellation() = runTest {
+        val transport = FakeTransport()
+        val runtime = newRuntime(transport)
+        val events = mutableListOf<GatewayRuntimeEvent>()
+        backgroundScope.launch { runtime.events.collect(events::add) }
+        runCurrent()
+        runtime.connect("wss://gateway.example/ws/mobile")
+        transport.opened()
+        transport.receive("""{"kind":"hello","authenticated":true}""")
+        runCurrent()
+        assertTrue(runtime.tryRequestHistoryInBackground("same-session"))
+        // 旧协议无显式 sessionId，Runtime 使用 active request 的精确本地归属。
+        transport.receive("""{"kind":"history","events":[],"hasMore":false,"bytes":0}""")
+        runCurrent()
+        val background = events.filterIsInstance<GatewayRuntimeEvent.Frame>().last { it.frame.kind == "history" }
+        assertTrue(background.isBackgroundHistory)
+        assertEquals("same-session", background.correlatedSessionId)
+        assertFalse(transport.sentPayloads.last().contains("isBackgroundHistory"))
+        runtime.requestHistory("same-session", beforeSequence = 10, historyFormatVersion = 1)
+        transport.receive("""{"kind":"history","events":[],"hasMore":false,"bytes":0}""")
+        runCurrent()
+        assertFalse(events.filterIsInstance<GatewayRuntimeEvent.Frame>().last { it.frame.kind == "history" }.isBackgroundHistory)
+        assertTrue(runtime.tryRequestHistoryInBackground("background-error"))
+        transport.receive("""{"kind":"error","requestType":"history","code":"history/unavailable"}""")
+        runCurrent()
+        assertTrue(events.filterIsInstance<GatewayRuntimeEvent.RequestRejected>().any {
+            it.isBackgroundHistory && it.targetSessionId == "background-error"
+        })
+        runtime.requestHistory("same-session", beforeSequence = 5, historyFormatVersion = 1)
+        transport.receive("""{"kind":"error","requestType":"history","code":"history/unavailable"}""")
+        runCurrent()
+        assertTrue(events.filterIsInstance<GatewayRuntimeEvent.RequestRejected>().any {
+            !it.isBackgroundHistory && it.targetSessionId == "same-session"
+        })
+        transport.failNextSend = true
+        assertFalse(runtime.tryRequestHistoryInBackground("background-send-failed"))
+        runCurrent()
+        assertTrue(events.filterIsInstance<GatewayRuntimeEvent.RequestRejected>().any {
+            it.isBackgroundHistory && it.targetSessionId == "background-send-failed"
+        })
+        assertTrue(runtime.tryRequestHistoryInBackground("background-cancelled"))
+        runtime.disconnect()
+        runCurrent()
+        assertTrue(events.filterIsInstance<GatewayRuntimeEvent.RequestCancelled>().any {
+            it.isBackgroundHistory && it.targetSessionId == "background-cancelled"
+        })
+    }
+
+    @Test
+    fun backgroundChildHistoryKeepsDurableParentAndItsOwnErrorOwnership() = runTest {
+        val transport = FakeTransport()
+        val runtime = newRuntime(transport)
+        val events = mutableListOf<GatewayRuntimeEvent>()
+        backgroundScope.launch { runtime.events.collect(events::add) }
+        runCurrent()
+        runtime.connect("wss://gateway.example/ws/mobile")
+        transport.opened()
+        transport.receive("""{"kind":"hello","authenticated":true,"capabilities":["subagent-conversations-v1"]}""")
+        runCurrent()
+        // 二级子智能体必须携带直接父级，不能改为团队根会话。
+        runtime.registerConversationTarget("""{"sessionId":"child","parentSessionId":"parent","subagentMode":"continuable"}""")
+        assertTrue(runtime.tryRequestHistoryInBackground("child", historyFormatVersion = 4))
+        val request = wireJson.parseToJsonElement(transport.sentPayloads.last()).jsonObject
+        assertEquals("child", request["sessionId"]?.jsonPrimitive?.content)
+        assertEquals("parent", request["parentSessionId"]?.jsonPrimitive?.content)
+        assertEquals("continuable", request["subagentMode"]?.jsonPrimitive?.content)
+        assertFalse(runtime.tryRequestHistoryInBackground("another-child"))
+        transport.receive("""{"kind":"error","sessionId":"child","requestType":"history","code":"session/agent-busy"}""")
+        runCurrent()
+        val failure = events.filterIsInstance<GatewayRuntimeEvent.Frame>().last { it.frame.kind == "error" }
+        assertTrue(failure.isBackgroundHistory)
+        assertEquals("child", failure.correlatedSessionId)
+        // 后台失败已释放 lane，Lead 的前台请求不继承父级地址。
+        assertTrue(runtime.requestHistory("lead"))
+        val leadRequest = wireJson.parseToJsonElement(transport.sentPayloads.last()).jsonObject
+        assertEquals("lead", leadRequest["sessionId"]?.jsonPrimitive?.content)
+        assertNull(leadRequest["parentSessionId"])
+        runtime.disconnect()
+    }
+
+    @Test
+    fun backgroundHistoryNeverQueuesOrCoalescesForegroundLane() = runTest {
+        val transport = FakeTransport()
+        val runtime = newRuntime(transport)
+        val events = mutableListOf<GatewayRuntimeEvent>()
+        backgroundScope.launch { runtime.events.collect(events::add) }
+        runCurrent()
+        // 离线尝试安静跳过，不产生前台业务错误。
+        assertFalse(runtime.tryRequestHistoryInBackground("background"))
+        runtime.connect("wss://gateway.example/ws/mobile")
+        transport.opened()
+        transport.receive("""{"kind":"hello","authenticated":true}""")
+        runCurrent()
+        runtime.requestHistory("foreground-active")
+        runtime.requestHistory("foreground-queued")
+        assertFalse(runtime.tryRequestHistoryInBackground("background"))
+        runCurrent()
+        assertTrue(events.filterIsInstance<GatewayRuntimeEvent.RequestCancelled>().none { it.targetSessionId == "foreground-queued" })
+        transport.receive("""{"kind":"history","sessionId":"foreground-active","events":[],"hasMore":false,"bytes":0}""")
+        runCurrent()
+        assertFalse(runtime.tryRequestHistoryInBackground("background"))
+        transport.receive("""{"kind":"history","sessionId":"foreground-queued","events":[],"hasMore":false,"bytes":0}""")
+        runCurrent()
+        assertEquals(2, transport.sentTypes.count { it == "history" })
+        assertTrue(runtime.tryRequestHistoryInBackground("background"))
+        runtime.requestHistory("foreground-next")
+        assertFalse(runtime.tryRequestHistoryInBackground("background-other"))
+        transport.receive("""{"kind":"history","sessionId":"background","events":[],"hasMore":false,"bytes":0}""")
+        runCurrent()
+        assertEquals(4, transport.sentTypes.count { it == "history" })
+        assertFalse(runtime.tryRequestHistoryInBackground("background-other"))
+        transport.receive("""{"kind":"history","sessionId":"foreground-next","events":[],"hasMore":false,"bytes":0}""")
+        runCurrent()
+        assertEquals(listOf("foreground-active", "foreground-queued", "background", "foreground-next"),
+            events.filterIsInstance<GatewayRuntimeEvent.Frame>().filter { it.frame.kind == "history" }.map { it.correlatedSessionId })
+    }
+
+    @Test
+    fun backgroundHistoryUsesBoundedTimeoutAndRecyclesLegacySocketBeforeNextForeground() = runTest {
+        val transport = FakeTransport()
+        val runtime = newRuntime(transport)
+        val events = mutableListOf<GatewayRuntimeEvent>()
+        backgroundScope.launch { runtime.events.collect(events::add) }
+        runCurrent()
+        runtime.connect("wss://gateway.example/ws/mobile")
+        transport.opened()
+        transport.receive("""{"kind":"hello","authenticated":true}""")
+        transport.receive("""{"kind":"workspaces","items":[]}""")
+        transport.receive("""{"kind":"sessions","items":[]}""")
+        runCurrent()
+        assertTrue(runtime.tryRequestHistoryInBackground("background"))
+        runtime.requestHistory("foreground")
+        advanceTimeBy(9_999)
+        runCurrent()
+        assertTrue(events.filterIsInstance<GatewayRuntimeEvent.RequestTimedOut>().none { it.requestType == "history" })
+        advanceTimeBy(1)
+        runCurrent()
+        assertTrue(events.filterIsInstance<GatewayRuntimeEvent.RequestTimedOut>().any { it.targetSessionId == "background" && it.isBackgroundHistory })
+        assertTrue(transport.closeCount > 0)
+        assertEquals(1, transport.sentTypes.count { it == "history" })
+        assertFalse(runtime.tryRequestHistoryInBackground("background-other"))
+    }
+
+    @Test
     fun sameKindUsesActiveThenLatestQueuedWithoutCrossSessionOverwrite() = runTest {
         val transport = FakeTransport()
         val runtime = newRuntime(transport)
@@ -1174,10 +1506,14 @@ class GatewayRuntimeIntegrationTest {
         transport.opened()
         transport.receive("""{"kind":"hello","authenticated":true}""")
         runCurrent()
+        transport.receive("""{"kind":"sessions","items":[]}""")
+        runCurrent()
+        val sessionsBeforeResume = transport.sentTypes.count { it == "sessions" }
         runtime.applicationDidEnterBackground()
         runtime.applicationDidBecomeActive()
         runCurrent()
         assertEquals(1, transport.sentTypes.count { it == "ping" })
+        assertEquals(sessionsBeforeResume + 1, transport.sentTypes.count { it == "sessions" })
         transport.receive("""{"kind":"pong"}""")
         runCurrent()
         advanceTimeBy(2_001)

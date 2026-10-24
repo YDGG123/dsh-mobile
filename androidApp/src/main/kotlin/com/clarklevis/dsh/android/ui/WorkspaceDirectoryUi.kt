@@ -31,8 +31,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButton
@@ -90,22 +88,13 @@ internal fun WorkspaceSelectionMenu(
     val dark = isSystemInDarkTheme()
     val foreground = if (dark) Color(0xFFF2F5FA) else Color(0xFF10141A)
     val effectiveSelection = resolveWorkspaceSelection(selectedWorkspaceId, workspaces)
-    DropdownMenu(
+    DshMenu(
         expanded = expanded,
         onDismissRequest = onDismiss,
         modifier = Modifier
             .widthIn(min = 250.dp, max = 330.dp)
             .testTag("workspace-menu"),
-        offset = DpOffset(14.dp, (-8).dp),
-        shape = RoundedCornerShape(24.dp),
-        containerColor = if (dark) Color(0xF0222A35) else Color(0xF0E6ECF4),
-        tonalElevation = 0.dp,
-        shadowElevation = 18.dp,
-        border = BorderStroke(
-            0.8.dp,
-            if (dark) Color.White.copy(alpha = 0.16f) else Color.White.copy(alpha = 0.82f)
-        )
-    ) {
+        offset = DpOffset(14.dp, (-8).dp)) {
         WorkspaceMenuItem(
             title = appText("未分组"),
             icon = if (effectiveSelection == AndroidSharedStateHolder.UNGROUPED_WORKSPACE_ID) {
@@ -162,7 +151,7 @@ private fun WorkspaceMenuItem(
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
-    DropdownMenuItem(
+    DshMenuItem(
         text = {
             Text(
                 title,
@@ -280,114 +269,116 @@ internal fun WorkspaceDirectoryBrowserSheet(
         contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
         modifier = Modifier.adaptiveSheetBounds().testTag("directory-browser-sheet")
     ) {
-        Column(
-            contentModifier
-                .fillMaxWidth()
-                .height(sheetHeight)
-                .navigationBarsPadding()
-                .imePadding()
-        ) {
-            BottomSheetDefaults.DragHandle(
-                modifier = Modifier.align(Alignment.CenterHorizontally),
-                width = 38.dp,
-                height = 5.dp,
-                color = foreground.copy(alpha = 0.30f)
-            )
-            DirectoryBrowserHeader(
-                enabled = stateHolder.directoryPath != null &&
-                    !stateHolder.directoryIsLoading &&
-                    !stateHolder.directoryCreationIsLoading,
-                onCreateDirectory = {
-                    newDirectoryName = ""
-                    showCreateDirectoryPrompt = true
-                },
-                onDismiss = onDismiss
-            )
-
-            Column(Modifier.padding(horizontal = 22.dp)) {
-                Text(
-                    appText("当前目录"),
-                    color = foreground.copy(alpha = 0.52f),
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Text(
-                    stateHolder.directoryPath ?: appText("正在读取…"),
-                    color = foreground.copy(alpha = 0.40f),
-                    fontSize = 13.sp,
-                    fontFamily = FontFamily.Monospace,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-
-            Spacer(Modifier.height(14.dp))
-            Surface(
-                modifier = Modifier
+        DshMenuColumnHost {
+            Column(
+                contentModifier
                     .fillMaxWidth()
-                    .weight(1f)
-                    .padding(horizontal = 18.dp),
-                shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
-                color = cardBackground
+                    .height(sheetHeight)
+                    .navigationBarsPadding()
+                    .imePadding()
             ) {
-                if (stateHolder.directoryIsLoading && stateHolder.directoryEntries.isEmpty()) {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                            Text(appText("正在读取远程目录…"), color = foreground.copy(alpha = 0.58f))
-                        }
-                    }
-                } else {
-                    LazyColumn(
-                        modifier = Modifier.nestedScroll(listBoundary).testTag("directory-browser-list"),
-                        state = listState,
-                        userScrollEnabled = !stateHolder.directoryIsLoading &&
-                            !stateHolder.directoryCreationIsLoading,
-                        contentPadding = PaddingValues(horizontal = 18.dp, vertical = 10.dp)
-                    ) {
-                        item(key = "parent") {
-                            DirectoryRow(
-                                title = "..",
-                                subtitle = appText("返回上一级"),
-                                icon = DirectoryIcon.Parent,
-                                enabled = parentPath != null,
-                                highlighted = false,
-                                onClick = { parentPath?.let(stateHolder::browseDirectories) }
-                            )
-                            DirectoryDivider()
-                        }
-                        itemsIndexed(
-                            items = stateHolder.directoryEntries,
-                            key = { _, entry -> entry.path }
-                        ) { index, entry ->
-                            DirectoryRow(
-                                title = entry.name,
-                                subtitle = if (entry.hidden) appText("隐藏目录") else null,
-                                icon = if (entry.hidden) DirectoryIcon.HiddenFolder else DirectoryIcon.Folder,
-                                enabled = true,
-                                highlighted = highlightedPath == entry.path,
-                                modifier = Modifier.testTag("directory-row-${entry.path}"),
-                                onClick = { stateHolder.browseDirectories(entry.path) }
-                            )
-                            if (index != stateHolder.directoryEntries.lastIndex) DirectoryDivider()
-                        }
-                    }
-                }
-            }
+                BottomSheetDefaults.DragHandle(
+                    modifier = Modifier.align(Alignment.CenterHorizontally),
+                    width = 38.dp,
+                    height = 5.dp,
+                    color = foreground.copy(alpha = 0.30f)
+                )
+                DirectoryBrowserHeader(
+                    enabled = stateHolder.directoryPath != null &&
+                        !stateHolder.directoryIsLoading &&
+                        !stateHolder.directoryCreationIsLoading,
+                    onCreateDirectory = {
+                        newDirectoryName = ""
+                        showCreateDirectoryPrompt = true
+                    },
+                    onDismiss = onDismiss
+                )
 
-            DirectoryCreateWorkspaceBar(
-                path = stateHolder.directoryPath,
-                workspaceCreationIsLoading = stateHolder.workspaceCreationIsLoading,
-                directoryCreationIsLoading = stateHolder.directoryCreationIsLoading,
-                directoryIsLoading = stateHolder.directoryIsLoading,
-                onCreateWorkspace = { path ->
-                    creatingWorkspacePath = path
-                    stateHolder.createWorkspace(path)
+                Column(Modifier.padding(horizontal = 22.dp)) {
+                    Text(
+                        appText("当前目录"),
+                        color = foreground.copy(alpha = 0.52f),
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        stateHolder.directoryPath ?: appText("正在读取…"),
+                        color = foreground.copy(alpha = 0.40f),
+                        fontSize = 13.sp,
+                        fontFamily = FontFamily.Monospace,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
-            )
+
+                Spacer(Modifier.height(14.dp))
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .padding(horizontal = 18.dp),
+                    shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+                    color = cardBackground
+                ) {
+                    if (stateHolder.directoryIsLoading && stateHolder.directoryEntries.isEmpty()) {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                                Text(appText("正在读取远程目录…"), color = foreground.copy(alpha = 0.58f))
+                            }
+                        }
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier.nestedScroll(listBoundary).testTag("directory-browser-list"),
+                            state = listState,
+                            userScrollEnabled = !stateHolder.directoryIsLoading &&
+                                !stateHolder.directoryCreationIsLoading,
+                            contentPadding = PaddingValues(horizontal = 18.dp, vertical = 10.dp)
+                        ) {
+                            item(key = "parent") {
+                                DirectoryRow(
+                                    title = "..",
+                                    subtitle = appText("返回上一级"),
+                                    icon = DirectoryIcon.Parent,
+                                    enabled = parentPath != null,
+                                    highlighted = false,
+                                    onClick = { parentPath?.let(stateHolder::browseDirectories) }
+                                )
+                                DirectoryDivider()
+                            }
+                            itemsIndexed(
+                                items = stateHolder.directoryEntries,
+                                key = { _, entry -> entry.path }
+                            ) { index, entry ->
+                                DirectoryRow(
+                                    title = entry.name,
+                                    subtitle = if (entry.hidden) appText("隐藏目录") else null,
+                                    icon = if (entry.hidden) DirectoryIcon.HiddenFolder else DirectoryIcon.Folder,
+                                    enabled = true,
+                                    highlighted = highlightedPath == entry.path,
+                                    modifier = Modifier.testTag("directory-row-${entry.path}"),
+                                    onClick = { stateHolder.browseDirectories(entry.path) }
+                                )
+                                if (index != stateHolder.directoryEntries.lastIndex) DirectoryDivider()
+                            }
+                        }
+                    }
+                }
+
+                DirectoryCreateWorkspaceBar(
+                    path = stateHolder.directoryPath,
+                    workspaceCreationIsLoading = stateHolder.workspaceCreationIsLoading,
+                    directoryCreationIsLoading = stateHolder.directoryCreationIsLoading,
+                    directoryIsLoading = stateHolder.directoryIsLoading,
+                    onCreateWorkspace = { path ->
+                        creatingWorkspacePath = path
+                        stateHolder.createWorkspace(path)
+                    }
+                )
+            }
         }
     }
 

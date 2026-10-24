@@ -49,21 +49,21 @@ class AndroidImagePreprocessor(
             }
         }.getOrNull() ?: ImageTransform()
         val orientedWidth = if (transform.rotationDegrees == 90 || transform.rotationDegrees == 270) {
-            bounds.second
+            bounds.height
         } else {
-            bounds.first
+            bounds.width
         }
         val orientedHeight = if (transform.rotationDegrees == 90 || transform.rotationDegrees == 270) {
-            bounds.first
+            bounds.width
         } else {
-            bounds.second
+            bounds.height
         }
-        val mediaType = contentResolver.getType(uri)?.takeIf { it.startsWith("image/") }
-            ?: "image/jpeg"
+        // 使用解码器识别的格式，避免相册 MIME 别名、缺失或误报导致类型与内容不符。
+        val mediaType = bounds.mediaType?.takeIf(PASSTHROUGH_MEDIA_TYPES::contains)
         if (
+            mediaType != null &&
             accepts(original.size, orientedWidth, orientedHeight) &&
-            transform.rotationDegrees == 0 &&
-            !transform.isFlipped
+            transform.isIdentity
         ) {
             return@withContext AndroidPreparedImage(
                 outgoing = GatewayOutgoingImage(
@@ -78,7 +78,7 @@ class AndroidImagePreprocessor(
         }
 
         val fitted = fittedSize(orientedWidth, orientedHeight)
-        val sampleSize = sampleSize(bounds.first, bounds.second, fitted.first, fitted.second)
+        val sampleSize = sampleSize(bounds.width, bounds.height, fitted.first, fitted.second)
         val decoded = BitmapFactory.decodeByteArray(
             original,
             0,
@@ -138,13 +138,13 @@ class AndroidImagePreprocessor(
         throw IllegalArgumentException(appText("无法将图片压缩到 DSH 允许的大小"))
     }
 
-    private fun decodeBounds(bytes: ByteArray): Pair<Int, Int> {
+    private fun decodeBounds(bytes: ByteArray): ImageBounds {
         val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
         if (options.outWidth <= 0 || options.outHeight <= 0) {
             throw IllegalArgumentException(appText("无法解码所选图片"))
         }
-        return options.outWidth to options.outHeight
+        return ImageBounds(options.outWidth, options.outHeight, options.outMimeType)
     }
 
     private fun fittedSize(width: Int, height: Int): Pair<Int, Int> {
@@ -163,7 +163,7 @@ class AndroidImagePreprocessor(
     }
 
     private fun applyTransform(source: Bitmap, transform: ImageTransform): Bitmap {
-        if (transform.rotationDegrees == 0 && !transform.isFlipped) return source
+        if (transform.isIdentity) return source
         val matrix = Matrix().apply {
             if (transform.isFlipped) postScale(-1f, 1f)
             if (transform.rotationDegrees != 0) postRotate(transform.rotationDegrees.toFloat())
@@ -213,9 +213,14 @@ class AndroidImagePreprocessor(
     private data class ImageTransform(
         val rotationDegrees: Int = 0,
         val isFlipped: Boolean = false
-    )
+    ) {
+        val isIdentity: Boolean get() = rotationDegrees == 0 && !isFlipped
+    }
+
+    private data class ImageBounds(val width: Int, val height: Int, val mediaType: String?)
 
     companion object {
+        private val PASSTHROUGH_MEDIA_TYPES = setOf("image/jpeg", "image/png", "image/webp", "image/gif")
         const val MAXIMUM_BYTES = 3_670_016
         const val MAXIMUM_INPUT_BYTES = 32 * 1_024 * 1_024
         const val MAXIMUM_IMAGE_COUNT = 4

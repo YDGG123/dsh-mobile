@@ -48,23 +48,30 @@ final class ConversationTimeline {
     struct Snapshot {
         let items: [ConversationItem]
         let revision: Int
+        var historyPresentationStamp: HistoryPresentationStamp? = nil
     }
 
     private var items: [ConversationItem] = []
     private var revision = 0
+    private var historyPresentationStamp: HistoryPresentationStamp?
     private var observers: [UUID: (Snapshot) -> Void] = [:]
 
     var currentSnapshot: Snapshot {
-        Snapshot(items: items, revision: revision)
+        Snapshot(items: items, revision: revision, historyPresentationStamp: historyPresentationStamp)
     }
 
-    func publish(_ items: [ConversationItem]) {
+    func publish(_ items: [ConversationItem], historyPresentationStamp: HistoryPresentationStamp? = nil) {
         self.items = items
+        if let historyPresentationStamp { self.historyPresentationStamp = historyPresentationStamp }
         revision &+= 1
         let snapshot = currentSnapshot
         for observer in observers.values {
             observer(snapshot)
         }
+    }
+
+    func clearHistoryPresentationStamp(operationID: UUID) {
+        if historyPresentationStamp?.operationID == operationID { historyPresentationStamp = nil }
     }
 
     @discardableResult

@@ -1,5 +1,8 @@
 package com.clarklevis.dsh.android
 
+import com.clarklevis.dsh.shared.cache.ChatCacheDiagnostics
+import com.clarklevis.dsh.shared.cache.ChatCacheRestoreSkipReason
+import com.clarklevis.dsh.shared.facade.CachedHistoryWindow
 import com.clarklevis.dsh.shared.facade.SharedConversationBootstrap
 import com.clarklevis.dsh.shared.facade.SharedConversationPatch
 import com.clarklevis.dsh.shared.facade.SharedConversationStore
@@ -13,6 +16,7 @@ import com.clarklevis.dsh.shared.facade.SharedMobileStore
 import com.clarklevis.dsh.shared.facade.SharedMviEvent
 import com.clarklevis.dsh.shared.projection.ConversationItem
 import com.clarklevis.dsh.shared.projection.ConversationProjectionLabels
+import com.clarklevis.dsh.shared.projection.ConversationProjector
 import com.clarklevis.dsh.shared.projection.TrajectoryNode
 import com.clarklevis.dsh.shared.projection.TrajectoryProjection
 import com.clarklevis.dsh.shared.protocol.GatewayFrame
@@ -43,8 +47,21 @@ internal class AndroidGatewayProjection(
     private val onResubscribe: (String) -> Unit = {},
     private val onHistoryPageRequested: (sessionId: String, beforeSequence: Int?, historyFormatVersion: Int?) -> Unit = { _, _, _ -> }
 ) {
+    private data class SearchFragment(
+        val sessionId: String,
+        val targetSequence: Int,
+        val window: CachedHistoryWindow,
+        val items: List<ConversationItem>
+    )
+    enum class SearchFragmentDisposition { REPLACED, EXPIRED }
+    private var searchFragment: SearchFragment? = null
     private var assistantStream = AssistantStreamState()
+    private val recentSessions = LinkedHashMap<String, Unit>(8, 0.75f, true)
     private var usesAssistantStream = false
+    private var helloReceived = false
+    private var helloHistoryFormat: Int? = null
+    var onCacheChanged: (String, Boolean) -> Unit = { _, _ -> }
+    var onCacheInvalidated: (String) -> Unit = {}
     private var waitGeneration = 0L
     var snapshotWait: Pair<String, Long>? = null
         private set
@@ -79,7 +96,7 @@ internal class AndroidGatewayProjection(
                 ?: controlSnapshot.approvalCommandPreviews[request.rpcId]
             preview?.let { request.rpcId to it }
         }.toMap()
-        return controlSnapshot.copy(
+        val normal = controlSnapshot.copy(
             selectedHistoryError = controlSnapshot.selectedSessionId?.let(historyErrors::get),
             conversation = controlSnapshot.selectedSessionId?.let(conversationItems::get).orEmpty(),
             approvalCommandPreviews = commandPreviews,
@@ -99,6 +116,17 @@ internal class AndroidGatewayProjection(
             lastFrameKind = lastFrameKind ?: controlSnapshot.lastFrameKind,
             lastError = lastError ?: controlSnapshot.lastError
         )
+        val fragment = searchFragment?.takeIf { it.sessionId == normal.selectedSessionId } ?: return normal
+        return normal.copy(
+            conversation = fragment.items,
+            selectedHistoryError = null,
+            selectedHistoryHasMore = false,
+            selectedHistoryEarliestSequence = fragment.window.events.firstOrNull()?.seq,
+            selectedHistoryIsLoading = false,
+            selectedHistoryIsLoadingOlder = false,
+            selectedHistoryLoadedEventCount = fragment.window.events.size,
+            selectedHistoryTotalEventCount = null
+        )
     }
 
     private fun approvalArguments(request: GatewayPendingApprovalRequest): JsonValue? {
@@ -113,15 +141,183 @@ internal class AndroidGatewayProjection(
         return historyArguments ?: controlSnapshot.approvalDetails[request.rpcId]
     }
 
-    fun selectSession(sessionId: String?): SharedMobileSnapshot {
+    fun selectSession(sessionId: String?, offline: Boolean = false): SharedMobileSnapshot {
+        searchFragment = null
+        sessionId?.let { recentSessions[it] = Unit }
         cancelSnapshotWait()
-        controlSnapshot.selectedSessionId?.let { conversationStore.clearAssistantChunks(it) }
+        if (!offline) controlSnapshot.selectedSessionId?.let { conversationStore.clearAssistantChunks(it) }
         assistantStream.selectSession(sessionId)
         controlSnapshot = mobileStore.selectSession(sessionId)
-        if (sessionId == null) return snapshot()
+        if (sessionId == null || offline) return snapshot()
         if (usesAssistantStream) awaitSnapshot(sessionId) else startHistory(sessionId, older = false)
         return snapshot()
     }
+
+    fun canRestoreOfflineCatalog(): Boolean = mobileStore.canRestoreOfflineCatalog()
+
+    fun canRestoreOfflineWorkspaces(): Boolean = mobileStore.canRestoreOfflineWorkspaces()
+
+    fun hasOfflineCatalogAuthority(): Boolean =
+        !mobileStore.canRestoreOfflineSessions() || !mobileStore.canRestoreOfflineWorkspaces()
+
+    fun exportOfflineCatalog(selectedWorkspaceId: String?): String = mobileStore.exportOfflineCatalog(selectedWorkspaceId)
+
+    fun restoreOfflineCatalog(json: String): SharedMobileSnapshot {
+        controlSnapshot = mobileStore.restoreOfflineCatalog(json)
+        return snapshot()
+    }
+
+    fun offlineHistoryUnavailable(sessionId: String, older: Boolean): SharedMobileSnapshot {
+        historyCancelled(sessionId)
+        if (older) historyHasMore[sessionId] = false
+        return snapshot()
+    }
+
+    fun hydrateCachedWindow(sessionId: String, json: String): SharedMobileSnapshot {
+        if (historyEvents.containsKey(sessionId)) {
+            ChatCacheDiagnostics.restoreSkipped(ChatCacheRestoreSkipReason.ALREADY_LOADED)
+            return snapshot()
+        }
+        val window = runCatching { adapterJson.decodeFromString<CachedHistoryWindow>(json).also { it.validate(sessionId) } }
+            .getOrNull()
+        if (window == null) {
+            ChatCacheDiagnostics.restoreSkipped(ChatCacheRestoreSkipReason.INVALID_WINDOW)
+            return snapshot()
+        }
+        if (helloReceived && window.historyFormatVersion != helloHistoryFormat) {
+            ChatCacheDiagnostics.restoreSkipped(ChatCacheRestoreSkipReason.FORMAT_CHANGED)
+            onCacheInvalidated(sessionId)
+            return snapshot()
+        }
+        if (historyStore.hydrateCachedWindow(sessionId, json).accepted) {
+            assistantStream.rememberCachedFormat(sessionId, window.historyFormatVersion)
+            conversationStore.replaceTypedSession(sessionId, historyEvents[sessionId].orEmpty())
+        }
+        return snapshot()
+    }
+
+    fun hydrateTypedWindow(sessionId: String, window: CachedHistoryWindow, replaceExisting: Boolean = false): SharedMobileSnapshot {
+        if (historyEvents.containsKey(sessionId) && (!replaceExisting || !historyStore.canPrependCachedPage(sessionId))) return snapshot()
+        if (helloReceived && window.historyFormatVersion != helloHistoryFormat) {
+            onCacheInvalidated(sessionId)
+            return snapshot()
+        }
+        if (replaceExisting) {
+            historyStore.clearSession(sessionId)
+            conversationStore.clearSession(sessionId)
+        }
+        if (historyStore.hydrateTypedCachedWindow(sessionId, window).accepted) {
+            historyHasMore[sessionId] = window.hasMore
+            assistantStream.rememberCachedFormat(sessionId, window.historyFormatVersion)
+            conversationStore.replaceTypedSession(sessionId, historyEvents[sessionId].orEmpty())
+        }
+        return snapshot()
+    }
+
+    fun closeSearchFragment(): SharedMobileSnapshot {
+        searchFragment = null
+        return snapshot()
+    }
+
+    fun hasNormalHistory(sessionId: String): Boolean = historyEvents.containsKey(sessionId)
+
+    private fun canPresentCachedSearchTarget(sessionId: String, sequence: Int): Boolean {
+        if (!historyEvents.containsKey(sessionId) || historyStore.canPrependCachedPage(sessionId)) return true
+        val first = historyEvents[sessionId]?.firstOrNull()?.seq ?: return false
+        return historyHasMore[sessionId] == true && sequence < first
+    }
+
+    /** 搜索旧页仅作为只读展示，不修改同步窗口、水位或现有 stream 基线。 */
+    fun showSearchFragment(sessionId: String, sequence: Int, window: CachedHistoryWindow): Boolean {
+        window.validate(sessionId)
+        if (window.events.none { it.seq == sequence } || !canPresentCachedSearchTarget(sessionId, sequence)) return false
+        if (helloReceived && window.historyFormatVersion != helloHistoryFormat) return false
+        searchFragment = SearchFragment(
+            sessionId,
+            sequence,
+            window,
+            ConversationProjector.make(window.events, mobileConversationLabels())
+        )
+        return true
+    }
+
+    fun dropObsoleteSearchFragment(): SearchFragmentDisposition? {
+        val fragment = searchFragment ?: return null
+        val id = fragment.sessionId
+        if (controlSnapshot.selectedSessionId != id) {
+            searchFragment = null
+            return null
+        }
+        if (!historyStore.canPrependCachedPage(id) && containsSequence(id, fragment.targetSequence)) {
+            searchFragment = null
+            return SearchFragmentDisposition.REPLACED
+        }
+        if (!canPresentCachedSearchTarget(id, fragment.targetSequence)) {
+            searchFragment = null
+            return SearchFragmentDisposition.EXPIRED
+        }
+        return null
+    }
+
+    /** 活跃会话不淘汰；旧窗口由 actor 完成持久化后再释放。 */
+    fun trimInactive(maximumSessions: Int = 6): List<String> {
+        val protected = controlSnapshot.sessions.filter { it.isRunning }.map { it.id }.toSet() +
+            listOfNotNull(controlSnapshot.selectedSessionId) +
+            controlSnapshot.pendingApprovals.map { it.sessionId } + controlSnapshot.pendingQuestions.map { it.sessionId }
+        val keep = recentSessions.keys.toList().asReversed().take(maximumSessions).toMutableSet() + protected
+        var bytes = keep.sumOf { id -> historyStore.estimatedRetainedBytes(id) + conversationStore.estimatedRetainedBytes(id) }
+        val bounded = keep.toMutableSet()
+        recentSessions.keys.toList().forEach { id ->
+            if (bytes > 24L * 1024 * 1024 && id !in protected && id in bounded) {
+                bytes -= historyStore.estimatedRetainedBytes(id) + conversationStore.estimatedRetainedBytes(id)
+                bounded.remove(id)
+            }
+        }
+        val removed = historyStore.retainSessions(bounded.toList())
+        mobileStore.retainCachedSessions(bounded.toList())
+        assistantStream.retainSessions(bounded.toList())
+        removed.forEach {
+            historyEvents.remove(it)
+            historyLastSequences.remove(it)
+            historySessionStates.remove(it)
+            conversationStore.clearSession(it)
+            conversationItems.remove(it)
+            conversationLastSequences.remove(it)
+            historyHasMore.remove(it)
+            historyErrors.remove(it)
+            recentSessions.remove(it)
+            if (trajectoryHistorySessionId == it) {
+                trajectoryHistorySessionId = null
+                trajectoryHistoryEvents = null
+                trajectoryHistoryNodes = emptyList()
+            }
+        }
+        return removed
+    }
+
+    fun canPrependCachedPage(sessionId: String): Boolean = historyStore.canPrependCachedPage(sessionId)
+
+    fun canPrependCachedPage(sessionId: String, window: CachedHistoryWindow): Boolean =
+        canPrependCachedPage(sessionId) && window.historyFormatVersion == assistantStream.formatVersion(sessionId)
+
+    fun prependCachedPage(sessionId: String, window: CachedHistoryWindow): SharedMobileSnapshot {
+        if (!canPrependCachedPage(sessionId, window)) return snapshot()
+        if (historyStore.prependTypedCachedPage(sessionId, window).accepted) {
+            historyHasMore[sessionId] = window.hasMore
+            conversationStore.replaceTypedSession(sessionId, historyEvents[sessionId].orEmpty())
+        }
+        return snapshot()
+    }
+
+    fun containsSequence(sessionId: String, sequence: Int): Boolean = historyEvents[sessionId]?.any { it.seq == sequence } == true
+
+    fun cacheSessionIds(): List<String> = historyEvents.keys.toList()
+
+    fun cachedWindowJson(sessionId: String): String? = historyStore.cachedWindowJson(
+        sessionId,
+        assistantStream.formatVersion(sessionId),
+        assistantStream.persistentCursorFor(sessionId)
+    )
 
     fun loadHistory(sessionId: String, older: Boolean): SharedMobileSnapshot {
         if (usesAssistantStream && !older && sessionId == controlSnapshot.selectedSessionId) {
@@ -136,7 +332,23 @@ internal class AndroidGatewayProjection(
     fun disconnected(): SharedMobileSnapshot {
         cancelSnapshotWait()
         assistantStream.disconnect()
-        controlSnapshot.selectedSessionId?.let { conversationStore.clearAssistantChunks(it) }
+        helloReceived = false
+        historySessionStates.keys.toList().forEach(historyStore::cancelled)
+        // 离线仅改变来源标记，保留相同 seq 空间的已加载正文，允许继续读取本地旧页。
+        historyEvents.toMap().forEach { (id, records) ->
+            if (!historyStore.canPrependCachedPage(id)) {
+                val window = CachedHistoryWindow(
+                    sessionId = id,
+                    historyFormatVersion = assistantStream.formatVersion(id),
+                    persistentCursor = assistantStream.persistentCursorFor(id),
+                    events = records,
+                    hasMore = historyHasMore[id] == true,
+                    nextBeforeSequence = records.firstOrNull()?.seq
+                )
+                historyStore.clearSession(id)
+                historyStore.hydrateTypedCachedWindow(id, window)
+            }
+        }
         return snapshot()
     }
 
@@ -200,6 +412,8 @@ internal class AndroidGatewayProjection(
         if (frame.kind == "hello") {
             cancelSnapshotWait()
             usesAssistantStream = "assistant-stream-v1" in frame.capabilities.orEmpty()
+            helloReceived = true
+            helloHistoryFormat = frame.historyFormatVersion
         }
         val id = frame.sessionId ?: correlatedSessionId
         if (frame.kind == "history" && id != null && assistantStream.hasBaseline(id) &&
@@ -207,6 +421,7 @@ internal class AndroidGatewayProjection(
         val update = assistantStream.accept(frame)
         if (update.accepted) lastError = null
         update.invalidatedSessionIds.forEach {
+            onCacheInvalidated(it)
             historyStore.clearSession(it)
             conversationStore.clearSession(it)
             historyHasMore.remove(it)
@@ -232,6 +447,7 @@ internal class AndroidGatewayProjection(
             historyCancelled(id)
         }
         if (!update.accepted) return snapshot()
+        val previouslyVisible = controlSnapshot.sessions.map { it.id }.toSet()
         when (frame.kind) {
             "session-snapshot" -> if (id != null) {
                 historyErrors.remove(id)
@@ -251,7 +467,15 @@ internal class AndroidGatewayProjection(
             "paired", "attachment" -> Unit
             else -> {
                 controlSnapshot = mobileStore.acceptFrame(rawJson)
-                if (frame.kind == "sent") assistantStream.selectSession(controlSnapshot.selectedSessionId)
+                if (frame.kind == "sent" && frame.sessionId == controlSnapshot.selectedSessionId) assistantStream.selectSession(controlSnapshot.selectedSessionId)
+            }
+        }
+        if (frame.kind in setOf("sessions", "session-archives", "session-archived", "workspaces")) {
+            val removed = previouslyVisible - controlSnapshot.sessions.map { it.id }.toSet()
+            (removed + frame.archivedSessionIds.orEmpty()).forEach { sessionId ->
+                onCacheInvalidated(sessionId)
+                historyStore.clearSession(sessionId)
+                conversationStore.clearSession(sessionId)
             }
         }
         if (id != null && update.attemptId != null && update.chunksJson != "[]") {
@@ -261,9 +485,12 @@ internal class AndroidGatewayProjection(
     }
 
     fun reset(): SharedMobileSnapshot {
+        searchFragment = null
         cancelSnapshotWait()
         assistantStream = AssistantStreamState()
         usesAssistantStream = false
+        helloReceived = false
+        helloHistoryFormat = null
         (historyEvents.keys + queueSessionIds).toSet().forEach {
             historyStore.clearSession(it)
             conversationStore.clearSession(it)
@@ -366,7 +593,10 @@ internal class AndroidGatewayProjection(
             return
         }
         historyHasMore[sessionId] = frame.hasMore == true
-        conversationStore.replaceSession(sessionId, adapterJson.encodeToString(historyEvents[sessionId].orEmpty()))
+        if (assistantStream.activeAttemptId() == null) {
+            controlSnapshot = mobileStore.reconcileHistory(sessionId, historyEvents[sessionId].orEmpty())
+        }
+        conversationStore.replaceTypedSession(sessionId, historyEvents[sessionId].orEmpty())
         assistantStream.activeAttemptId()?.takeIf { assistantStream.hasBaseline(sessionId) }?.let {
             conversationStore.assistantChunks(sessionId, it, assistantStream.replayChunksJson())
         }
@@ -396,7 +626,7 @@ internal class AndroidGatewayProjection(
         }
         val conversationResult = conversationStore.receiveEvent(recordJson)
         if (!conversationResult.accepted) {
-            conversationStore.replaceSession(sessionId, adapterJson.encodeToString(historyEvents[sessionId].orEmpty()))
+            conversationStore.replaceTypedSession(sessionId, historyEvents[sessionId].orEmpty())
         }
     }
 
@@ -419,6 +649,24 @@ internal class AndroidGatewayProjection(
         historyPendingSessionId = plan.pendingSessionId
         historyEnvelope.commit(event)
         if (event.kind == "error") lastError = event.errorCode ?: "history-store-error"
+        if (event.kind == "transition" &&
+            !event.transactionId.startsWith("history-cache:") &&
+            !event.transactionId.startsWith("history-clear:")
+        ) {
+            val patch = adapterJson.decodeFromString<SharedHistoryPatch>(requireNotNull(event.statePayloadJson))
+            if (patch.eventPatch?.authoritative == true) {
+                // 磁盘副本的展示序号不是已确认水位；允许本次权威窗口重建较短的正文。
+                conversationLastSequences.remove(patch.sessionId)
+            }
+            if ((patch.eventPatch != null || patch.outcome == "completed") &&
+                patch.eventPatch?.record?.event?.type != "assistant/chunk"
+            ) {
+                val immediate = patch.eventPatch?.record?.event?.type == "assistant/message" ||
+                    event.transactionId.startsWith("history-snapshot:") ||
+                    patch.outcome == "completed"
+                onCacheChanged(patch.sessionId, immediate)
+            }
+        }
         plan.effects.forEach { effect ->
             runCatching { onHistoryPageRequested(effect.sessionId, effect.beforeSequence, assistantStream.formatVersion(effect.sessionId)) }
                 .onFailure { lastError = "history-effect-failed" }
@@ -482,7 +730,7 @@ internal class AndroidGatewayProjection(
                     require(replacement.zipWithNext().all { (left, right) -> left.seq < right.seq })
                     val previousTail = nextSequences[patch.sessionId] ?: old.lastOrNull()?.seq ?: -1
                     val replacementTail = replacement.lastOrNull()?.seq ?: -1
-                    require(replacement.isEmpty() || replacementTail >= previousTail)
+                    require(eventPatch.authoritative || replacement.isEmpty() || replacementTail >= previousTail)
                     if (replacement.isEmpty()) nextSequences.remove(patch.sessionId)
                     else nextSequences[patch.sessionId] = replacementTail
                     replacement

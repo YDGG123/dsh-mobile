@@ -6,6 +6,113 @@ import org.junit.Test
 
 class AndroidRc2StreamTest {
     @Test
+    fun offlineReopeningKeepsLastVisibleStreamPrefixWithoutNetworkAndNextHelloClearsIt() {
+        val historyRequests = mutableListOf<String>()
+        val projection = AndroidGatewayProjection(onHistoryPageRequested = { id, _, _ -> historyRequests += id })
+        projection.selectSession("s")
+        projection.deliver("""{"kind":"hello","historyFormatVersion":3,"capabilities":["assistant-stream-v1"]}""")
+        projection.deliver("""{"kind":"subscribed","sessionId":"s","subscriptionId":"sub","assistantStream":true}""")
+        projection.deliver(snapshot)
+        projection.deliver(delta)
+        val before = projection.snapshot().conversation
+        val requests = historyRequests.toList()
+        assertEquals("Hello world", before.single().text)
+        projection.disconnected()
+        projection.selectSession("s", offline = true)
+        assertEquals(before, projection.snapshot().conversation)
+        assertEquals(requests, historyRequests)
+        assertFalse(projection.snapshot().selectedHistoryIsLoading)
+        projection.deliver("""{"kind":"hello","historyFormatVersion":3,"capabilities":["assistant-stream-v1"]}""")
+        assertTrue(projection.snapshot().conversation.isEmpty())
+    }
+
+    @Test
+    fun reopeningCompletedSessionClearsStaleRunningStateFromNetworkSnapshot() {
+        val projection = ready()
+        projection.deliver(
+            """
+            {
+              "kind": "sessions",
+              "items": [
+                {
+                  "sessionId": "s",
+                  "updatedAt": 100,
+                  "running": true,
+                  "blank": false
+                }
+              ]
+            }
+            """
+        )
+        assertTrue(projection.snapshot().sessions.single().isRunning)
+        projection.deliver(
+            """
+            {
+              "kind": "session-snapshot",
+              "sessionId": "s",
+              "subscriptionId": "sub",
+              "streamId": "stream",
+              "historyFormatVersion": 3,
+              "cursor": 42,
+              "events": [
+                {
+                  "type": "turn/end",
+                  "seq": 42,
+                  "time": 102,
+                  "data": {
+                    "turn": 2,
+                    "reason": "completed"
+                  }
+                }
+              ],
+              "hasMore": false
+            }
+            """
+        )
+        assertFalse(projection.snapshot().sessions.single().isRunning)
+        assertNull(projection.snapshot().lastError)
+        projection.deliver(
+            """
+            {
+              "kind": "event",
+              "sessionId": "s",
+              "subscriptionId": "sub",
+              "streamId": "stream",
+              "seq": 43,
+              "time": 103,
+              "event": {
+                "type": "turn/start",
+                "turn": 3
+              }
+            }
+            """
+        )
+        assertTrue(projection.snapshot().sessions.single().isRunning)
+        projection.loadHistory("s", older = true)
+        projection.deliver(
+            """
+            {
+              "kind": "history",
+              "sessionId": "s",
+              "historyFormatVersion": 3,
+              "events": [
+                {
+                  "type": "turn/end",
+                  "seq": 20,
+                  "time": 90,
+                  "data": {
+                    "turn": 1
+                  }
+                }
+              ],
+              "hasMore": false
+            }
+            """
+        )
+        assertTrue(projection.snapshot().sessions.single().isRunning)
+    }
+
+    @Test
     fun invisiblePersistentEventsDoNotBreakFollowingTransientUpdates() {
         val projection = ready()
         projection.deliver(snapshot)

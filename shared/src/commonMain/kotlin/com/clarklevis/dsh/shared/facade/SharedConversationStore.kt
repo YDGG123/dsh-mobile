@@ -1,5 +1,6 @@
 package com.clarklevis.dsh.shared.facade
 
+import com.clarklevis.dsh.shared.cache.ChatCacheMemoryEstimator
 import com.clarklevis.dsh.shared.projection.ConversationItem
 import com.clarklevis.dsh.shared.projection.ConversationProjectionLabels
 import com.clarklevis.dsh.shared.projection.ConversationProjectionOperation
@@ -31,6 +32,37 @@ data class SharedConversationPatch(
     val lastSequence: Int = -1
 )
 
+/** 只包含不可变输入，prepare 在 worker 中创建并独占全新的 projector。 */
+class SharedConversationHistoryPreparation internal constructor(
+    private val snapshot: SharedHistoryProjectionSnapshot,
+    private val labels: ConversationProjectionLabels,
+    private val steering: List<SessionEvent>,
+    private val revision: Long,
+    private val owner: Any
+) {
+    @Throws(Exception::class)
+    fun prepare(): SharedPreparedConversationHistory {
+        val projector = ConversationProjector(labels).apply { rebuild(snapshot.records) }
+        projector.replaceSteeringMessages(steering)
+        val patch = SharedConversationPatch(
+            sessionId = snapshot.sessionId, replacesAll = true,
+            replacementItems = projector.items, lastSequence = projector.lastSequence
+        )
+        return SharedPreparedConversationHistory(snapshot.sessionId, snapshot.eventSequence, revision, owner,
+            projector, wireJson.encodeToString(patch))
+    }
+}
+
+/** prepare 返回后 worker 不再访问 projector；仅成功提交的 owner 可以接管。 */
+class SharedPreparedConversationHistory internal constructor(
+    val sessionId: String,
+    val historyEventSequence: Long,
+    internal val revision: Long,
+    internal val owner: Any,
+    internal val projector: ConversationProjector,
+    internal val payload: String
+)
+
 /** KMP 持有逐 session projector；平台只 dispatch 原始事件并订阅增量 UI patch。 */
 class SharedConversationStore(
     private val labels: ConversationProjectionLabels = ConversationProjectionLabels()
@@ -38,6 +70,8 @@ class SharedConversationStore(
     private val projectors = mutableMapOf<String, ConversationProjector>()
     private val steeringRecords = mutableMapOf<String, List<SessionEvent>>()
     private val events = SharedMviEventEmitter("conversation")
+    private val mutationRevisions = mutableMapOf<String, Long>()
+    private val preparationOwner = Any()
 
     fun subscribe(observer: SharedMviEventObserver): SharedMviSubscription = try {
         events.subscribe(observer, wireJson.encodeToString(SharedConversationBootstrap()))
@@ -52,6 +86,7 @@ class SharedConversationStore(
     fun receiveEvent(eventJson: String): SharedMviDispatchResult = dispatch("event") {
         val record = wireJson.decodeFromString<SessionEvent>(eventJson)
         require(record.sessionId.isNotBlank()) { "sessionId must not be blank" }
+        invalidatePreparation(record.sessionId)
         val projector = projectors.getOrPut(record.sessionId) { ConversationProjector(labels) }
         require(record.seq > projector.lastSequence) {
             "event sequence ${record.seq} is not newer than ${projector.lastSequence}; replace baseline first"
@@ -77,6 +112,7 @@ class SharedConversationStore(
     fun receiveStreamDelta(eventJson: String): SharedMviDispatchResult = dispatch("stream") {
         val record = wireJson.decodeFromString<SessionEvent>(eventJson)
         require(record.sessionId.isNotBlank()) { "sessionId must not be blank" }
+        invalidatePreparation(record.sessionId)
         val projector = projectors[record.sessionId]
             ?: error("no conversation baseline for session ${record.sessionId}; replace baseline first")
         val previousSequence = projector.lastSequence
@@ -95,6 +131,7 @@ class SharedConversationStore(
     fun assistantChunks(sessionId: String, attemptId: String, chunksJson: String): SharedMviDispatchResult =
         dispatch("assistant-chunks") {
             val chunks = wireJson.decodeFromString<List<AssistantChunk>>(chunksJson)
+            invalidatePreparation(sessionId)
             val projector = projectors.getOrPut(sessionId) { ConversationProjector(labels) }
             val operations = projector.foldAssistantChunks(attemptId, chunks)
             if (operations.isEmpty()) null else SharedConversationPatch(
@@ -103,6 +140,7 @@ class SharedConversationStore(
         }
 
     fun clearAssistantChunks(sessionId: String): SharedMviDispatchResult = dispatch("assistant-clear") {
+        invalidatePreparation(sessionId)
         val projector = projectors[sessionId] ?: return@dispatch null
         val operations = projector.clearAssistantChunks()
         if (operations.isEmpty()) null else SharedConversationPatch(
@@ -120,6 +158,7 @@ class SharedConversationStore(
             requireNotNull(message["content"]?.arrayValue)
             RawSessionEvent("user/message", 0, now, message).normalized(sessionId)
         }
+        mutationRevisions[sessionId] = (mutationRevisions[sessionId] ?: 0L) + 1
         steeringRecords[sessionId] = records
         val projector = projectors.getOrPut(sessionId) { ConversationProjector(labels) }
         val operations = projector.replaceSteeringMessages(records)
@@ -128,25 +167,59 @@ class SharedConversationStore(
         )
     }
 
-    fun replaceSession(sessionId: String, eventsJson: String): SharedMviDispatchResult =
-        dispatch("replace") {
+    fun replaceSession(sessionId: String, eventsJson: String): SharedMviDispatchResult = dispatch("replace") {
+        replaceSessionPatch(sessionId, wireJson.decodeFromString<List<SessionEvent>>(eventsJson))
+    }
+
+    fun replaceTypedSession(sessionId: String, records: List<SessionEvent>): SharedMviDispatchResult = dispatch("replace") {
+        replaceSessionPatch(sessionId, records)
+    }
+
+    fun replaceHistorySnapshot(sessionId: String, snapshot: SharedHistoryProjectionSnapshot): SharedMviDispatchResult = dispatch("replace") {
+        require(sessionId == snapshot.sessionId) { "history snapshot contains another session" }
+        replaceSessionPatch(sessionId, snapshot.records)
+    }
+
+    fun prepareHistorySnapshot(sessionId: String, snapshot: SharedHistoryProjectionSnapshot): SharedConversationHistoryPreparation? {
+        if (sessionId != snapshot.sessionId) return null
+        return SharedConversationHistoryPreparation(snapshot, labels, steeringRecords[sessionId].orEmpty().toList(),
+            mutationRevisions[sessionId] ?: 0L, preparationOwner)
+    }
+
+    /** 失配不是领域错误：调用方保留原投影并同步处理最新 pending 历史。 */
+    fun commitPreparedHistory(prepared: SharedPreparedConversationHistory): SharedMviDispatchResult? {
+        if (prepared.owner !== preparationOwner || (mutationRevisions[prepared.sessionId] ?: 0L) != prepared.revision) return null
+        projectors[prepared.sessionId] = prepared.projector
+        mutationRevisions[prepared.sessionId] = prepared.revision + 1
+        val event = events.emitTransition(
+            transactionId = "conversation-prepared:${events.currentSequence + 1}",
+            statePayloadJson = prepared.payload
+        )
+        return SharedMviDispatchResult(true, event.transactionId, event.sequence)
+    }
+
+    private fun replaceSessionPatch(sessionId: String, records: List<SessionEvent>): SharedConversationPatch {
             require(sessionId.isNotBlank()) { "sessionId must not be blank" }
-            val records = wireJson.decodeFromString<List<SessionEvent>>(eventsJson)
             require(records.all { it.sessionId == sessionId }) { "baseline contains another session" }
+            invalidatePreparation(sessionId)
             val normalized = records.associateBy(SessionEvent::seq).values.sortedBy(SessionEvent::seq)
             val projector = ConversationProjector(labels).apply { rebuild(normalized) }
             projector.replaceSteeringMessages(steeringRecords[sessionId].orEmpty())
             projectors[sessionId] = projector
-            SharedConversationPatch(
+            return SharedConversationPatch(
                 sessionId = sessionId,
                 replacesAll = true,
                 replacementItems = projector.items,
                 lastSequence = projector.lastSequence
             )
-        }
+    }
+
+    fun estimatedRetainedBytes(sessionId: String): Long =
+        ChatCacheMemoryEstimator.estimateProjection(projectors[sessionId]?.items.orEmpty())
 
     fun clearSession(sessionId: String): SharedMviDispatchResult = dispatch("clear") {
         require(sessionId.isNotBlank()) { "sessionId must not be blank" }
+        invalidatePreparation(sessionId)
         projectors.remove(sessionId)
         steeringRecords.remove(sessionId)
         SharedConversationPatch(
@@ -157,6 +230,10 @@ class SharedConversationStore(
         )
     }
 
+    private fun invalidatePreparation(sessionId: String) {
+        mutationRevisions[sessionId] = (mutationRevisions[sessionId] ?: 0L) + 1
+    }
+
     private inline fun dispatch(
         operation: String,
         block: () -> SharedConversationPatch?
@@ -165,6 +242,7 @@ class SharedConversationStore(
         if (patch == null) {
             SharedMviDispatchResult(true, null, null)
         } else {
+            mutationRevisions[patch.sessionId] = (mutationRevisions[patch.sessionId] ?: 0L) + 1
             val event = events.emitTransition(
                 transactionId = "conversation-$operation:${events.currentSequence + 1}",
                 statePayloadJson = wireJson.encodeToString(patch)

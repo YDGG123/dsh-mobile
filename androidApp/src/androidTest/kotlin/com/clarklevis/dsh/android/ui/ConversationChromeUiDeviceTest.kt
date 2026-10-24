@@ -37,6 +37,7 @@ import org.junit.Test
 import kotlinx.coroutines.launch
 
 class ConversationChromeUiDeviceTest {
+    @get:Rule val locale = ChineseDeviceLocaleRule()
     @get:Rule
     val compose = createComposeRule()
 

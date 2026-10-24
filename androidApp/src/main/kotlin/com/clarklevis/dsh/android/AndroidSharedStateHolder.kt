@@ -11,14 +11,14 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import com.clarklevis.dsh.android.localization.appText
 import com.clarklevis.dsh.android.platform.AndroidGatewayPreferences
-import com.clarklevis.dsh.android.platform.GatewayDiagnosticAction
 import com.clarklevis.dsh.android.platform.AndroidImagePreprocessor
 import com.clarklevis.dsh.android.platform.AndroidPreparedImage
 import com.clarklevis.dsh.android.platform.BoundedLruCache
-import com.clarklevis.dsh.shared.facade.SharedSessionAgentPresetStore
-import com.clarklevis.dsh.shared.facade.SharedSessionAgentPresetTransition
+import com.clarklevis.dsh.android.platform.GatewayDiagnosticAction
 import com.clarklevis.dsh.shared.facade.SharedMobileSnapshot
 import com.clarklevis.dsh.shared.facade.SharedMobileStore
+import com.clarklevis.dsh.shared.facade.SharedSessionAgentPresetStore
+import com.clarklevis.dsh.shared.facade.SharedSessionAgentPresetTransition
 import com.clarklevis.dsh.shared.facade.SharedSlashCommandSnapshot
 import com.clarklevis.dsh.shared.facade.SharedSlashCommandStore
 import com.clarklevis.dsh.shared.facade.SharedSlashCommandTransition
@@ -26,28 +26,27 @@ import com.clarklevis.dsh.shared.facade.SharedWorkspaceFileStore
 import com.clarklevis.dsh.shared.facade.SharedWorkspaceFileTransition
 import com.clarklevis.dsh.shared.gateway.GatewayConnectionState
 import com.clarklevis.dsh.shared.gateway.GatewayPairingPayloadException
+import com.clarklevis.dsh.shared.gateway.GatewayRequestLanePolicy
+import com.clarklevis.dsh.shared.gateway.GatewayRequests
 import com.clarklevis.dsh.shared.gateway.GatewayRuntimeEvent
 import com.clarklevis.dsh.shared.gateway.GatewayRuntimeState
-import com.clarklevis.dsh.shared.gateway.GatewayRequests
-import com.clarklevis.dsh.shared.gateway.GatewayRequestLanePolicy
 import com.clarklevis.dsh.shared.gateway.gatewayAttachmentCacheKey
+import com.clarklevis.dsh.shared.projection.TrajectoryNode
+import com.clarklevis.dsh.shared.protocol.GatewayApprovalOutcome
 import com.clarklevis.dsh.shared.protocol.GatewayDirectoryItem
 import com.clarklevis.dsh.shared.protocol.GatewayFrame
 import com.clarklevis.dsh.shared.protocol.GatewayGoalRef
 import com.clarklevis.dsh.shared.protocol.GatewayQuestionAnswer
-import com.clarklevis.dsh.shared.protocol.GatewayApprovalOutcome
+import com.clarklevis.dsh.shared.protocol.GatewayWireDecoder
 import com.clarklevis.dsh.shared.protocol.GatewayWorkspace
 import com.clarklevis.dsh.shared.protocol.JsonValue
-import com.clarklevis.dsh.shared.projection.TrajectoryNode
-import com.clarklevis.dsh.shared.protocol.GatewayWireDecoder
-import java.util.TimeZone
-import java.util.Locale
 import java.io.File
 import java.io.FileOutputStream
+import java.util.Locale
+import java.util.TimeZone
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -56,6 +55,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 @Stable
 class AndroidSharedStateHolder(
@@ -64,6 +64,68 @@ class AndroidSharedStateHolder(
     voiceStore: com.clarklevis.dsh.shared.facade.SharedVoiceInputStore = com.clarklevis.dsh.shared.facade.SharedVoiceInputStore(),
     voiceContext: android.content.Context? = graph?.application
 ) {
+    private val teamStore = com.clarklevis.dsh.shared.facade.SharedTeamStore()
+    var teamSnapshot by mutableStateOf(com.clarklevis.dsh.shared.facade.TeamSnapshot())
+        private set
+    private var teamLeadSessionId: String? = null
+    private var persistedTeamRouting = "[]"
+    private var persistedTeamAvatars = "[]"
+    private var switchingTeamMember = false
+    private val teamDrafts = mutableMapOf<String, Pair<String, List<AndroidPreparedImage>>>()
+    val teamSessionTitle get() = snapshot.sessions.firstOrNull { it.id == teamLeadSessionId }?.title ?: "Lead 会话"
+    val isViewingTeamMember get() = snapshot.selectedSessionId?.let(teamStore::isChild) == true
+    val selectedMemberCanSend get() = snapshot.selectedSessionId?.let(teamStore::canSend) != false
+    val selectedSessionIsRunning get() = teamSnapshot.members.firstOrNull { it.id == snapshot.selectedSessionId }?.running
+        ?: (snapshot.sessions.firstOrNull { it.id == snapshot.selectedSessionId }?.isRunning == true)
+
+    fun refreshTeam() {
+        requestTeam(refresh = true)
+    }
+
+    private fun requestTeam(refresh: Boolean) {
+        val lead = teamLeadSessionId ?: return
+        val appGraph = graph ?: return
+        if (gatewayState.connection != GatewayConnectionState.CONNECTED) return
+        for (kind in listOf("agent-team", "subagents")) {
+            val payload = (if (refresh) teamStore.queryJson(lead, kind) else teamStore.queryIfNeededJson(lead, kind)) ?: continue
+            val request = com.clarklevis.dsh.shared.gateway.GatewayRequest(kind, kind, lead,
+                lanePolicy = GatewayRequestLanePolicy.COALESCE_LATEST, payload = payload)
+            appGraph.gatewayScope.launch { appGraph.gatewayRuntime.sendRequest(request) }
+        }
+        prepareTeamMemberProfiles()
+    }
+
+    private fun prepareTeamMemberProfiles() {
+        val lead = teamLeadSessionId ?: return
+        val appGraph = graph ?: return
+        if (gatewayState.connection != GatewayConnectionState.CONNECTED) return
+        val requests = kotlinx.serialization.json.Json.decodeFromString<List<com.clarklevis.dsh.shared.facade.TeamMemberProfileRequest>>(
+            teamStore.memberProfileRequestsJson(lead)
+        )
+        for (request in requests) {
+            val target = teamStore.targetJson(request.sessionId)
+            appGraph.gatewayScope.launch {
+                appGraph.gatewayRuntime.registerConversationTarget(target)
+                appGraph.gatewayRuntime.sendRequest(com.clarklevis.dsh.shared.gateway.GatewayRequest(
+                    requestType = "history", responseKind = request.requestId, targetSessionId = request.sessionId,
+                    correlationId = request.requestId, payload = request.payload, timeoutMilliseconds = 10_000
+                ))
+            }
+        }
+    }
+
+    fun selectTeamMember(member: com.clarklevis.dsh.shared.facade.TeamMemberView) {
+        if (!member.canOpen || member.id == (pendingSelectedSessionId ?: snapshot.selectedSessionId)) return
+        switchingTeamMember = true
+        try { selectSession(member.id) } finally { switchingTeamMember = false }
+    }
+
+    private suspend fun registerTeamConversationTarget(sessionId: String) {
+        val appGraph = graph ?: return
+        val target = withContext(Dispatchers.Main.immediate) { teamStore.targetJson(sessionId) }
+        appGraph.gatewayRuntime.registerConversationTarget(target)
+    }
+
     private val workspaceFileStore = SharedWorkspaceFileStore()
     private val slashCommandStore = SharedSlashCommandStore()
     val voiceInput = com.clarklevis.dsh.android.platform.AndroidVoiceInputAdapter(voiceContext, ::sendVoiceRequest, voiceStore)
@@ -79,7 +141,23 @@ class AndroidSharedStateHolder(
     var sessionAgentPreset by mutableStateOf(sessionAgentPresetStore.snapshot())
         private set
     private val scope = graph?.let { CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate) }
+    val fileUploads = com.clarklevis.dsh.android.platform.AndroidFileUploadController(graph, scope) { platformError = it }
+
+    fun prepareFiles(uris: List<Uri>, pickerSessionId: String?) {
+        if (pickerSessionId != snapshot.selectedSessionId || isViewingTeamMember) return
+        scope?.launch {
+            if (snapshot.selectedSessionId == null && !prepareNewSession()) return@launch
+            fileUploads.select(snapshot.selectedSessionId, !isViewingTeamMember)
+            voiceInput.setVoiceMode(false)
+            fileUploads.importFiles(uris)
+        }
+    }
     private var runtimeCollection: Job? = null
+    private var catalogWriteJob: Job? = null
+    private var closed = false
+    private var hasOfflineCatalogState = false
+    private var catalogLoadCompleted = false
+    private var workspaceSelectedByUser = false
     private val gatewayFollowUps = graph?.let { appGraph ->
         AndroidGatewayFollowUpQueue(appGraph.gatewayScope, onFailure = { error ->
             scope?.launch { platformError = error.message ?: appText("后续请求提交失败") }
@@ -88,15 +166,22 @@ class AndroidSharedStateHolder(
     private val projectionActor = AndroidProjectionActor(
         projection = AndroidGatewayProjection(store, onResubscribe = { sessionId ->
             graph?.let { appGraph ->
-                appGraph.gatewayScope.launch { appGraph.gatewayRuntime.subscribe(sessionId) }
+                appGraph.gatewayScope.launch {
+                    if (appGraph.gatewayRuntime.state.value.connection == GatewayConnectionState.CONNECTED) {
+                        registerTeamConversationTarget(sessionId)
+                        appGraph.gatewayRuntime.subscribe(sessionId)
+                    }
+                }
             }
         }) { sessionId, beforeSequence, historyFormatVersion ->
             graph?.let { appGraph ->
                 appGraph.gatewayScope.launch {
+                    if (appGraph.gatewayRuntime.state.value.connection != GatewayConnectionState.CONNECTED) return@launch
+                    registerTeamConversationTarget(sessionId)
                     appGraph.gatewayRuntime.requestHistory(
                         sessionId = sessionId,
                         beforeSequence = beforeSequence,
-                        maxMessages = HISTORY_PAGE_MESSAGE_LIMIT,
+                        maxMessages = if (beforeSequence == null) HISTORY_PAGE_MESSAGE_LIMIT else OLDER_HISTORY_PAGE_MESSAGE_LIMIT,
                         maxBytes = HISTORY_PAGE_BYTE_BUDGET,
                         view = HISTORY_VIEW,
                         historyFormatVersion = historyFormatVersion
@@ -106,8 +191,61 @@ class AndroidSharedStateHolder(
         },
         uiDispatcher = if (graph == null) Dispatchers.Unconfined else Dispatchers.Main.immediate,
         publish = ::publishProjectionSnapshot,
-        backgroundDispatcher = graph?.gatewayDispatcher ?: Dispatchers.Default
+        chatCache = graph?.let { com.clarklevis.dsh.android.platform.AndroidChatHistoryCache.shared(it.application) },
+        gatewayCacheId = graph?.gatewayLocalId ?: "legacy",
+        backgroundDispatcher = graph?.gatewayDispatcher ?: Dispatchers.Default,
+        onDiskChanged = {
+            graph?.let { AndroidCacheStorage.shared(it.application).maintain() }
+            Unit
+        },
+        onSearchNavigationResolved = { found, fragment ->
+            val wasFragment = localSearchIsFragment
+            localSearchIsOpening = false
+            localSearchIsFragment = fragment
+            if (!found) {
+                localSearchScrollTarget = null
+                localSearchContextSessionId = null
+                localSearchContextTarget = null
+                platformError = appText("本地搜索结果已失效，请重新搜索。")
+            } else if (wasFragment && !fragment) {
+                localSearchScrollTarget = localSearchContextTarget
+            }
+        }
     )
+    private var prefetchUsesAssistantStream = false
+    private val chatPrefetcher = graph?.let { appGraph ->
+        val cache = com.clarklevis.dsh.android.platform.AndroidChatHistoryCache.shared(appGraph.application)
+        AndroidChatPrefetcher(
+            scope = appGraph.gatewayScope,
+            plan = { excluded, selected ->
+                val candidates = withContext(Dispatchers.Main.immediate) {
+                    kotlinx.serialization.json.JsonArray(snapshot.sessions.filter {
+                        it.isVisibleInHistory && it.id !in excluded
+                    }.map { session ->
+                        kotlinx.serialization.json.buildJsonObject {
+                            put("id", kotlinx.serialization.json.JsonPrimitive(session.id))
+                            put("lastActivityEpochSeconds", kotlinx.serialization.json.JsonPrimitive(session.lastActivityEpochSeconds))
+                            put("isRunning", kotlinx.serialization.json.JsonPrimitive(session.isRunning))
+                            put("hasUnread", kotlinx.serialization.json.JsonPrimitive(session.hasUnread))
+                            put("hasConversation", kotlinx.serialization.json.JsonPrimitive(session.hasConversation != false))
+                        }
+                    }).toString()
+                }
+                val ranked = cache.planPrefetch(appGraph.gatewayLocalId, candidates, selected)
+                (kotlinx.serialization.json.Json.parseToJsonElement(ranked) as? kotlinx.serialization.json.JsonArray)
+                    ?.mapNotNull { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }.orEmpty()
+            },
+            ticket = { cache.prefetchTicket(appGraph.gatewayLocalId, it) },
+            request = { id, format ->
+                registerTeamConversationTarget(id)
+                appGraph.gatewayRuntime.tryRequestHistoryInBackground(id, maxMessages = 80, maxBytes = 256 * 1024,
+                    view = HISTORY_VIEW, historyFormatVersion = format)
+            },
+            accept = { id, raw, ticket -> cache.acceptPrefetchHistory(appGraph.gatewayLocalId, id, raw, ticket) },
+            cancelTicket = { id, ticket -> cache.cancelPrefetch(appGraph.gatewayLocalId, id, ticket) },
+            log = appGraph.diagnostics::chatPrefetch
+        )
+    }
     private var pendingStreamingSnapshot: SharedMobileSnapshot? = null
     private var streamingSnapshotPublishJob: Job? = null
     private val attachmentQueue = ArrayDeque<AttachmentRequest>()
@@ -121,6 +259,10 @@ class AndroidSharedStateHolder(
     private var pendingDirectoryCreationParentPath: String? = null
     private var workspaceFileOutput: FileOutputStream? = null
     private var workspaceFileTemporaryFile: File? = null
+    private var workspaceFileTemporaryLease: java.io.Closeable? = null
+    private var completedWorkspaceFileLease: java.io.Closeable? = null
+    private val cacheStorage = graph?.let { AndroidCacheStorage.shared(it.application) }
+    private var workspaceFileCacheEpoch = 0L
     @Volatile private var workspaceFileOperationId = UUID.randomUUID()
     private var recentlyCreatedWorkspace: GatewayWorkspace? by mutableStateOf(null)
     private var inputGeneration = 0L
@@ -197,6 +339,10 @@ class AndroidSharedStateHolder(
         private set
     var workspaceFileDownloadPurpose: String? by mutableStateOf(null)
         private set
+    var conversationDirectorySessionId: String? = null
+        private set
+    var conversationDirectoryPath: String? by mutableStateOf(null)
+        private set
     var conversationFileIsOpening: Boolean by mutableStateOf(false)
         private set
     var workspaceFilePreviewProgress: Float by mutableStateOf(0f)
@@ -228,7 +374,7 @@ class AndroidSharedStateHolder(
                         sessionId = pendingSelectedSessionId ?: snapshot.selectedSessionId,
                         text = value,
                         isConnected = gatewayState.connection == GatewayConnectionState.CONNECTED,
-                        isSupported = "commands" in gatewayState.capabilities,
+                        isSupported = "commands" in gatewayState.capabilities && !isViewingTeamMember,
                         locale = Locale.getDefault().toLanguageTag()
                     )
                 )
@@ -300,460 +446,10 @@ class AndroidSharedStateHolder(
     var cancellingSessionIds: Set<String> by mutableStateOf(emptySet())
         private set
 
-    init {
-        graph?.let { appGraph ->
-            val holderScope = requireNotNull(scope)
-            runtimeCollection = appGraph.gatewayScope.launch {
-                launch {
-                    appGraph.preferences.snapshots.collect { value ->
-                        withContext(Dispatchers.Main.immediate) {
-                            endpoint = value.endpoint
-                            selectedWorkspaceId = value.selectedWorkspaceId
-                            workspacePreferenceLoaded = true
-                            if (hasReceivedWorkspaces) reconcileWorkspaceSelection()
-                        }
-                    }
-                }
-                launch {
-                    appGraph.gatewayRuntime.state.collect { state ->
-                        appGraph.diagnostics.runtimeState(state)
-                        var shouldCatchUpSelectedHistory = false
-                        var sessionIdToRefresh: String? = null
-                        withContext(Dispatchers.Main.immediate) {
-                            val didReconnect = state.connection == GatewayConnectionState.CONNECTED &&
-                                lastObservedConnection != GatewayConnectionState.CONNECTED
-                            gatewayState = state
-                            voiceInput.connectionChanged(state.connection == GatewayConnectionState.CONNECTED,
-                                "speech-input-v1" in state.capabilities)
-                            if (didReconnect) queueState = queueStore.resetConnection()
-                            if (state.connection != GatewayConnectionState.CONNECTED) {
-                                applySessionAgentPresetTransition(sessionAgentPresetStore.disconnected())
-                                pendingMessageSubmission = null
-                                cancellingSessionIds = emptySet()
-                            }
-                            if (state.connection != GatewayConnectionState.CONNECTED &&
-                                state.connection != GatewayConnectionState.CONNECTING &&
-                                state.connection != GatewayConnectionState.AUTHENTICATING
-                            ) {
-                                defaultConfigurationLoadingKinds = emptySet()
-                                clearWorkspaceRequestLoading()
-                            }
-                            if (
-                                didReconnect &&
-                                activeAttachment != null
-                            ) {
-                                attachmentQueue.addFirst(requireNotNull(activeAttachment))
-                                activeAttachment = null
-                                drainAttachmentQueue()
-                            }
-                            if (didReconnect) {
-                                shouldCatchUpSelectedHistory = snapshot.selectedSessionId != null
-                                sessionIdToRefresh = snapshot.selectedSessionId
-                                if (pluginPageVisited) refreshPlugins()
-                            }
-                            if (state.connection != GatewayConnectionState.CONNECTED && pluginToggleRequestId != null) {
-                                pluginNotice = if (pluginPendingName == "dsh-plugin-mobile-gateway") {
-                                    appText("网关连接已断开，停用结果待重连确认。若已停用，请从 DSH Web 或 CLI 重新开启。")
-                                } else appText("连接已断开，操作结果待重连确认")
-                                pluginToggleRequestId = null
-                                pluginPendingName = null
-                            }
-                            lastObservedConnection = state.connection
-                        }
-                        if (state.connection != GatewayConnectionState.CONNECTED) {
-                            withContext(Dispatchers.Main.immediate) { conversationFileIsOpening = false }
-                            workspaceFileOperationId = UUID.randomUUID()
-                            applyWorkspaceFileTransition(appGraph, workspaceFileStore.cancel())
-                            projectionActor.disconnected()
-                        }
-                        // 订阅只补发重连后的实时事件。重新拉取 latest history，按 seq 与
-                        // 本地 live tail 合并，补齐应用在后台断线期间由其他端发送的用户消息。
-                        if (shouldCatchUpSelectedHistory) {
-                            projectionActor.catchUpSelectedHistoryAfterReconnect()
-                        }
-                        sessionIdToRefresh?.let { requestSessionControls(appGraph, it) }
-                    }
-                }
-                // 两条物理线路分别消费，文件响应不等待对话投影队列清空。
-                for (eventStream in listOf(appGraph.gatewayRuntime.events, appGraph.gatewayRuntime.conversationEvents)) {
-                    launch {
-                        eventStream.collect { event ->
-                            // Runtime events 是单消费者流。所有一次性响应也必须由这里分发，
-                            // 否则另起 collector 会与投影竞争并随机吞掉 session-created。
-                            pendingSessionCreation.accept(event)
-                            appGraph.diagnostics.runtimeEvent(event)
-                            when (event) {
-                                is GatewayRuntimeEvent.Frame -> {
-                                    withContext(Dispatchers.Main.immediate) { voiceInput.accept(event.rawJson) }
-                                    withContext(Dispatchers.Main.immediate) {
-                                        applySessionAgentPresetTransition(sessionAgentPresetStore.accept(
-                                            if (event.frame.sessionId == null && event.correlatedSessionId != null) {
-                                                event.frame.copy(sessionId = event.correlatedSessionId)
-                                            } else event.frame
-                                        ))
-                                        handleSessionCancellationFrame(event.frame)
-                                        acceptPluginFrame(event.frame)
-                                        if (event.frame.kind == scheduledTaskMutationKind &&
-                                            event.frame.requestId == scheduledTaskMutationRequestId
-                                        ) {
-                                            val succeeded = if (event.frame.kind == "schedule-update") {
-                                                event.frame.updated == true
-                                            } else event.frame.deleted == true
-                                            finishScheduledTaskMutation(
-                                                if (succeeded) null else scheduledTaskFailureMessage(event.frame.code, event.frame.message)
-                                            )
-                                        } else if (event.frame.kind == "error" &&
-                                            event.frame.requestType == scheduledTaskMutationKind &&
-                                            (event.frame.requestId == null || event.frame.requestId == scheduledTaskMutationRequestId)
-                                        ) {
-                                            finishScheduledTaskMutation(scheduledTaskFailureMessage(event.frame.code, event.frame.message))
-                                        }
-                                        when (event.frame.kind) {
-                                            "schedule-catalog" -> {
-                                                scheduledTasks = event.frame.items.orEmpty().mapNotNull(MobileScheduledTask::from)
-                                                    .sortedWith(compareBy<MobileScheduledTask> { it.status != "active" }.thenBy { it.scheduledAt })
-                                                scheduledTasksLoading = false
-                                                scheduledTasksError = null
-                                            }
-                                            "schedule-changed" -> refreshScheduledTasks()
-                                            "error" -> if (event.frame.requestType == "schedule-catalog") {
-                                                scheduledTasksLoading = false
-                                                scheduledTasksError = event.frame.message ?: appText("定时任务加载失败")
-                                            }
-                                        }
-                                        if (event.frame.kind == "sent") {
-                                            pendingMessageSubmission?.let { applyMessageSendResult(it, true) }
-                                            pendingMessageSubmission = null
-                                        }
-                                        if (event.frame.kind in setOf("session-queues", "session-queue", "queue-item-updated") ||
-                                            (event.frame.kind == "error" && event.frame.requestType == "queue-update")
-                                        ) acceptQueueFrame(event.rawJson)
-                                    }
-                                    if (event.frame.kind in GOAL_MUTATION_RESPONSE_KINDS) {
-                                        withContext(Dispatchers.Main.immediate) { goalMutationKind = null }
-                                        event.frame.sessionId?.let { sessionId ->
-                                            gatewayFollowUps?.submit {
-                                                appGraph.gatewayRuntime.sendRequest(GatewayRequests.goal(sessionId))
-                                            }
-                                        }
-                                    }
-                                    if (event.frame.kind == "command-executed") {
-                                        handleCommandExecuted(event.frame)
-                                    }
-                                    if (event.frame.kind in SLASH_COMMAND_FRAME_KINDS ||
-                                        (event.frame.kind == "error" && event.frame.requestType in SLASH_COMMAND_REQUEST_TYPES)
-                                    ) {
-                                        applySlashCommandTransition(slashCommandStore.acceptFrame(event.rawJson))
-                                    }
-                                    if (event.frame.kind in WORKSPACE_FILE_FRAME_KINDS) {
-                                        applyWorkspaceFileTransition(
-                                            appGraph,
-                                            workspaceFileStore.acceptFrame(event.rawJson)
-                                        )
-                                    }
-                                    val isStreamingChunk = event.frame.kind == "event" &&
-                                        event.frame.event?.type == "assistant/chunk"
-                                    val streamingProjectionFlushed = if (isStreamingChunk) {
-                                        projectionActor.acceptStreamingFrame(
-                                            event.rawJson,
-                                            event.frame,
-                                            event.correlatedSessionId
-                                        )
-                                    } else {
-                                        projectionActor.acceptFrame(
-                                            event.rawJson,
-                                            event.frame,
-                                            event.correlatedSessionId
-                                        ) {
-                                            pruneAttachmentStateForSession()
-                                            handleWorkspaceFrame(event.frame)
-                                            if (event.frame.kind == "history") {
-                                                event.correlatedSessionId?.let { sessionId ->
-                                                    historyPagingSessionIds = historyPagingSessionIds - sessionId
-                                                }
-                                            }
-                                        }
-                                        false
-                                    }
-                                    if (!isStreamingChunk) {
-                                        withContext(Dispatchers.Main.immediate) {
-                                            defaultConfigurationLoadingKinds =
-                                                defaultConfigurationLoadingKinds - event.frame.kind
-                                            if (event.frame.kind == "agent-presets") {
-                                                agentPresetsAuthorable = event.frame.authorable == true
-                                                agentPresetsHasDocument = event.frame.hasDocument == true
-                                            }
-                                            if (event.frame.kind.startsWith("approval")) {
-                                                appGraph.diagnostics.approval(
-                                                    stage = "frame-applied",
-                                                    frameKind = event.frame.kind,
-                                                    hasRpc = !event.frame.rpcId.isNullOrBlank(),
-                                                    hasSession = !event.frame.sessionId.isNullOrBlank(),
-                                                    hasApprovalId = !event.frame.approvalId.isNullOrBlank(),
-                                                    hasTool = !event.frame.toolName.isNullOrBlank(),
-                                                    replay = event.frame.replay == true,
-                                                    pendingCount = snapshot.pendingApprovals.size,
-                                                    selectedVisible = snapshot.pendingApprovals.any {
-                                                        it.sessionId == snapshot.selectedSessionId
-                                                    }
-                                                )
-                                            }
-                                            notifyUserForAgentFrame(appGraph, event.frame)
-                                        }
-                                        if (event.frame.kind in setOf("session-archives", "session-archived")) {
-                                            gatewayFollowUps?.submit { appGraph.gatewayRuntime.requestSessions() }
-                                        }
-                                        if (event.frame.kind == "sent") {
-                                            event.frame.sessionId?.takeIf(String::isNotBlank)?.let { sessionId ->
-                                                handleSentSession(appGraph, sessionId)
-                                            }
-                                        }
-                                    }
-                                    if (trajectoryIsActive &&
-                                        (!isStreamingChunk || streamingProjectionFlushed) &&
-                                        event.frame.kind in TRAJECTORY_FRAME_KINDS &&
-                                        (event.frame.sessionId ?: event.correlatedSessionId).let {
-                                            it == null || it == snapshot.selectedSessionId
-                                        }
-                                    ) {
-                                        requestTrajectoryPublish(
-                                            streaming = isStreamingChunk || event.frame.kind == "assistant-stream"
-                                        )
-                                    }
-                                }
-                                is GatewayRuntimeEvent.AttachmentCached -> withContext(Dispatchers.Main.immediate) {
-                                    attachmentCompleted(event.sessionId, event.attachmentId)
-                                }
-                                is GatewayRuntimeEvent.RequestQueued -> Unit
-                                is GatewayRuntimeEvent.RequestCancelled -> {
-                                    if (event.requestType == scheduledTaskMutationKind &&
-                                        event.correlationId == scheduledTaskMutationRequestId
-                                    ) withContext(Dispatchers.Main.immediate) {
-                                        finishScheduledTaskMutation(appText("操作已取消，请刷新任务后重试"))
-                                    }
-                                    withContext(Dispatchers.Main.immediate) {
-                                        applySessionAgentPresetTransition(sessionAgentPresetStore.requestFailed(
-                                            event.requestType, event.targetSessionId, event.correlationId, appText("请求未完成，请重试")
-                                        ))
-                                        handleSessionCancellationFailure(event.requestType, event.targetSessionId)
-                                        if (event.requestType == "message") pendingMessageSubmission = null
-                                        if (event.requestType == "queue-update") {
-                                            queueState = queueStore.failPending(appText("队列操作未完成，请检查最新状态后重试"))
-                                            platformError = queueState.lastError
-                                        }
-                                    }
-                                    if (event.requestType == "command-execute") {
-                                        pendingCommandSubmission = null
-                                    }
-                                    if (event.requestType in SLASH_COMMAND_REQUEST_TYPES) {
-                                        applySlashCommandTransition(
-                                            slashCommandStore.requestFailed(event.requestType, event.reason)
-                                        )
-                                    }
-                                    if (event.requestType in WORKSPACE_FILE_REQUEST_TYPES) {
-                                        applyWorkspaceFileTransition(
-                                            appGraph,
-                                            workspaceFileStore.requestFailed(
-                                                event.requestType,
-                                                event.reason,
-                                                event.correlationId
-                                            )
-                                        )
-                                    }
-                                    withContext(Dispatchers.Main.immediate) {
-                                        defaultConfigurationLoadingKinds =
-                                            defaultConfigurationLoadingKinds - event.requestType
-                                        if (event.requestType == "history") {
-                                            event.targetSessionId?.let {
-                                                historyPagingSessionIds = historyPagingSessionIds - it
-                                            }
-                                        }
-                                    }
-                                    event.targetSessionId?.takeIf { event.requestType == "history" }
-                                        ?.let { projectionActor.historyCancelled(it) }
-                                    if (event.requestType == "attachment") {
-                                        withContext(Dispatchers.Main.immediate) {
-                                            attachmentFailed(event.targetSessionId, event.correlationId)
-                                        }
-                                    }
-                                    if (event.requestType == "approval-response") {
-                                        event.correlationId?.let {
-                                            projectionActor.approvalRequestFailed(it, event.reason)
-                                        }
-                                    }
-                                    finishGoalMutationAfterFailure(
-                                        appGraph,
-                                        event.requestType,
-                                        event.targetSessionId,
-                                        event.reason
-                                    )
-                                }
-                                is GatewayRuntimeEvent.RequestTimedOut -> {
-                                    if (event.requestType.startsWith("speech-")) withContext(Dispatchers.Main.immediate) {
-                                        voiceInput.requestFailed(event.correlationId, appText("语音服务请求超时，请重试"))
-                                    }
-                                    if (event.requestType == scheduledTaskMutationKind &&
-                                        event.correlationId == scheduledTaskMutationRequestId
-                                    ) withContext(Dispatchers.Main.immediate) {
-                                        finishScheduledTaskMutation(appText("操作超时，请刷新任务后重试"))
-                                    }
-                                    if (event.requestType == "schedule-catalog") {
-                                        withContext(Dispatchers.Main.immediate) {
-                                            scheduledTasksLoading = false
-                                            scheduledTasksError = appText("定时任务请求超时，请重试")
-                                        }
-                                    }
-                                    withContext(Dispatchers.Main.immediate) {
-                                        applySessionAgentPresetTransition(sessionAgentPresetStore.requestFailed(
-                                            event.requestType, event.targetSessionId, event.correlationId, appText("请求未完成，请重试")
-                                        ))
-                                        handleSessionCancellationFailure(event.requestType, event.targetSessionId)
-                                        if (event.requestType == "message") pendingMessageSubmission = null
-                                        if (event.requestType == "queue-update") {
-                                            queueState = queueStore.failPending(appText("队列操作未完成，请检查最新状态后重试"))
-                                            platformError = queueState.lastError
-                                        }
-                                    }
-                                    if (event.requestType == "command-execute") {
-                                        pendingCommandSubmission = null
-                                    }
-                                    if (event.requestType in SLASH_COMMAND_REQUEST_TYPES) {
-                                        applySlashCommandTransition(
-                                            slashCommandStore.requestFailed(event.requestType, "request-timeout")
-                                        )
-                                    }
-                                    if (event.requestType in WORKSPACE_FILE_REQUEST_TYPES) {
-                                        applyWorkspaceFileTransition(
-                                            appGraph,
-                                            workspaceFileStore.requestFailed(
-                                                event.requestType,
-                                                "request-timeout",
-                                                event.correlationId
-                                            )
-                                        )
-                                    }
-                                    withContext(Dispatchers.Main.immediate) {
-                                        defaultConfigurationLoadingKinds =
-                                            defaultConfigurationLoadingKinds - event.requestType
-                                        clearWorkspaceRequestLoading(event.requestType)
-                                        if (event.requestType == "history") {
-                                            event.targetSessionId?.let {
-                                                historyPagingSessionIds = historyPagingSessionIds - it
-                                            }
-                                        }
-                                    }
-                                    event.targetSessionId?.takeIf { event.requestType == "history" }
-                                        ?.let { projectionActor.historyTimedOut(it) }
-                                    if (event.requestType == "attachment") {
-                                        withContext(Dispatchers.Main.immediate) {
-                                            attachmentFailed(event.targetSessionId, event.correlationId)
-                                        }
-                                    }
-                                    if (event.requestType == "approval-response") {
-                                        event.correlationId?.let {
-                                            projectionActor.approvalRequestFailed(it, "request-timeout")
-                                        }
-                                    }
-                                    finishGoalMutationAfterFailure(
-                                        appGraph,
-                                        event.requestType,
-                                        event.targetSessionId,
-                                        "request-timeout"
-                                    )
-                                }
-                                is GatewayRuntimeEvent.RequestRejected -> {
-                                    if (event.requestType.startsWith("speech-")) withContext(Dispatchers.Main.immediate) {
-                                        voiceInput.requestFailed(event.correlationId, appText("语音请求未完成，请重试"))
-                                    }
-                                    if (event.requestType == scheduledTaskMutationKind &&
-                                        event.correlationId == scheduledTaskMutationRequestId
-                                    ) withContext(Dispatchers.Main.immediate) {
-                                        finishScheduledTaskMutation(appText("操作未被接受，请刷新任务后重试"))
-                                    }
-                                    withContext(Dispatchers.Main.immediate) {
-                                        applySessionAgentPresetTransition(sessionAgentPresetStore.requestFailed(
-                                            event.requestType, event.targetSessionId, event.correlationId, appText("请求未完成，请重试")
-                                        ))
-                                        handleSessionCancellationFailure(event.requestType, event.targetSessionId)
-                                        if (event.requestType == "message") pendingMessageSubmission = null
-                                        if (event.requestType == "queue-update") {
-                                            queueState = queueStore.failPending(appText("队列操作未完成，请检查最新状态后重试"))
-                                            platformError = queueState.lastError
-                                        }
-                                    }
-                                    if (event.requestType == "command-execute") {
-                                        pendingCommandSubmission = null
-                                    }
-                                    if (event.requestType in SLASH_COMMAND_REQUEST_TYPES) {
-                                        applySlashCommandTransition(
-                                            slashCommandStore.requestFailed(event.requestType, event.reason)
-                                        )
-                                    }
-                                    if (event.requestType in WORKSPACE_FILE_REQUEST_TYPES) {
-                                        applyWorkspaceFileTransition(
-                                            appGraph,
-                                            workspaceFileStore.requestFailed(
-                                                event.requestType,
-                                                event.reason,
-                                                event.correlationId
-                                            )
-                                        )
-                                    }
-                                    withContext(Dispatchers.Main.immediate) {
-                                        defaultConfigurationLoadingKinds =
-                                            defaultConfigurationLoadingKinds - event.requestType
-                                        clearWorkspaceRequestLoading(event.requestType)
-                                        platformError = "${event.requestType}: ${event.reason}"
-                                        if (event.requestType == "history") {
-                                            event.targetSessionId?.let {
-                                                historyPagingSessionIds = historyPagingSessionIds - it
-                                            }
-                                        }
-                                    }
-                                    event.targetSessionId?.takeIf { event.requestType == "history" }
-                                        ?.let { projectionActor.historyCancelled(it) }
-                                    if (event.requestType == "attachment") {
-                                        withContext(Dispatchers.Main.immediate) {
-                                            attachmentFailed(event.targetSessionId, event.correlationId)
-                                        }
-                                    }
-                                    if (event.requestType == "approval-response") {
-                                        val correlationId = event.correlationId
-                                        val targetSessionId = event.targetSessionId
-                                        if (correlationId != null) {
-                                            projectionActor.approvalRequestFailed(
-                                                correlationId,
-                                                event.reason
-                                            )
-                                        } else if (targetSessionId != null) {
-                                            projectionActor.approvalSessionRequestsFailed(
-                                                targetSessionId,
-                                                event.reason
-                                            )
-                                        }
-                                    }
-                                    finishGoalMutationAfterFailure(
-                                        appGraph,
-                                        event.requestType,
-                                        event.targetSessionId,
-                                        event.reason
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-                launch {
-                    runCatching { appGraph.gatewayRuntime.connectStoredIfPaired() }
-                        .onFailure {
-                            withContext(Dispatchers.Main.immediate) {
-                                platformError = "stored-connect-failed"
-                            }
-                        }
-                }
-            }
-        }
-    }
+    private val remoteSearch = AndroidRemoteSearch()
+    private var remoteSearchTimeout: Job? = null
+    var remoteSearchResultQuery: String? by mutableStateOf(null)
+        private set
 
     fun loadFixture() {
         val appGraph = graph
@@ -772,6 +468,9 @@ class AndroidSharedStateHolder(
             runCatching { GatewayWireDecoder.decode(payload) }
                 .onSuccess { frame ->
                     projectionActor.acceptFrameImmediate(payload, frame, frame.sessionId)
+                    if (!snapshot.selectedHistoryIsLoadingOlder && frame.kind in setOf("history", "error", "session-stream-reset")) {
+                        frame.sessionId?.let { historyPagingSessionIds = historyPagingSessionIds - it }
+                    }
                     handleWorkspaceFrame(frame)
                 }
                 .onFailure { error -> platformError = GatewayWireDecoder.failureSummary(payload, error) }
@@ -782,6 +481,13 @@ class AndroidSharedStateHolder(
                 .onSuccess { frame ->
                     projectionActor.acceptFrame(payload, frame, frame.sessionId) {
                         pruneAttachmentStateForSession()
+                        handleWorkspaceFrame(frame)
+                        if (frame.hasOfflineCatalogMutation()) {
+                            if (snapshot.sessions.isNotEmpty() || snapshot.workspaces.isNotEmpty() ||
+                                frame.kind in setOf("session-archives", "session-archived")
+                            ) hasOfflineCatalogState = true
+                            scheduleOfflineCatalogSave()
+                        }
                     }
                 }
                 .onFailure { error ->
@@ -792,10 +498,79 @@ class AndroidSharedStateHolder(
         }
     }
 
+    var localSearchScrollTarget: AndroidLocalChatMatch? by mutableStateOf(null)
+        private set
+    private var pendingSearchTarget: AndroidLocalChatMatch? = null
+    private var localSearchContextTarget: AndroidLocalChatMatch? = null
+    var localSearchIsOpening by mutableStateOf(false)
+        private set
+    var localSearchIsFragment by mutableStateOf(false)
+        private set
+    var localSearchContextSessionId: String? by mutableStateOf(null)
+        private set
+    var cacheViewGeneration by mutableLongStateOf(0L)
+        private set
+
+    fun returnToLatestCached() {
+        val appGraph = graph ?: return
+        val id = snapshot.selectedSessionId ?: return
+        appGraph.gatewayScope.launch {
+            val hadNormal = projectionActor.returnToLatestCached(id)
+            withContext(Dispatchers.Main.immediate) {
+                localSearchContextSessionId = null
+                localSearchContextTarget = null
+                localSearchScrollTarget = null
+                localSearchIsOpening = false
+                localSearchIsFragment = false
+                cacheViewGeneration += 1
+            }
+            if (!hadNormal && gatewayState.connection == GatewayConnectionState.CONNECTED) projectionActor.loadHistory(id, older = false)
+        }
+    }
+
+    fun prepareLocalChatMatch(match: AndroidLocalChatMatch) {
+        pendingSearchTarget = match
+    }
+    fun consumeLocalSearchScrollTarget() {
+        localSearchScrollTarget = null
+    }
+
     fun selectSession(sessionId: String) {
+        fileUploads.select(sessionId, !isViewingTeamMember && !switchingTeamMember)
+        if (switchingTeamMember || isViewingTeamMember) {
+            (pendingSelectedSessionId ?: snapshot.selectedSessionId)?.let { teamDrafts[it] = messageDraft to preparedImages }
+            val saved = teamDrafts[sessionId]
+            messageDraft = saved?.first.orEmpty()
+            preparedImages = saved?.second.orEmpty()
+        }
+        if (!switchingTeamMember) {
+            teamLeadSessionId = sessionId
+            teamSnapshot = teamStore.snapshot(sessionId)
+            persistTeamAvatarsIfChanged()
+            requestTeam(refresh = false)
+        }
+        val targetJson = teamStore.targetJson(sessionId)
+        teamStore.sessionsRequested()
+        chatPrefetcher?.foregroundChanged(sessionId, true, !prefetchUsesAssistantStream)
+        graph?.let { appGraph ->
+            appGraph.gatewayScope.launch(Dispatchers.IO) {
+                runCatching {
+                    com.clarklevis.dsh.android.platform.AndroidChatHistoryCache.shared(appGraph.application)
+                        .recordSessionOpen(appGraph.gatewayLocalId, sessionId)
+                }
+            }
+        }
+        val searchTarget = pendingSearchTarget?.takeIf { it.sessionId == sessionId }
+        val preserveSubscription = searchTarget != null && sessionId == snapshot.selectedSessionId
+        pendingSearchTarget = null
+        localSearchScrollTarget = searchTarget
+        localSearchContextSessionId = searchTarget?.sessionId
+        localSearchContextTarget = searchTarget
+        localSearchIsOpening = searchTarget != null
+        localSearchIsFragment = false
         if (sessionId != snapshot.selectedSessionId) {
             cancelWorkspaceFileDownload()
-            completedWorkspaceFile = null
+            releaseCompletedWorkspaceFile()
         }
         graph?.diagnostics?.intent(GatewayDiagnosticAction.SELECT_SESSION, hasSession = true)
         applySessionAgentPresetTransition(sessionAgentPresetStore.leave())
@@ -804,6 +579,7 @@ class AndroidSharedStateHolder(
         applySlashCommandTransition(slashCommandStore.reset(sessionId))
         val afterPublish = {
             if (pendingSelectedSessionId == sessionId) pendingSelectedSessionId = null
+            scheduleOfflineCatalogSave()
             visibleAttachmentKeys = emptySet()
             pruneAttachmentStateForSession()
         }
@@ -812,10 +588,17 @@ class AndroidSharedStateHolder(
             projectionActor.selectSessionImmediate(sessionId, afterPublish)
         } else {
             appGraph.gatewayScope.launch {
-                projectionActor.selectSession(sessionId, afterPublish)
+                appGraph.gatewayRuntime.registerConversationTarget(targetJson)
+                projectionActor.selectSession(
+                    sessionId,
+                    offline = gatewayState.connection != GatewayConnectionState.CONNECTED,
+                    targetSequence = searchTarget?.seq,
+                    afterPublish = afterPublish
+                )
                 if (trajectoryIsActive) publishTrajectory()
-                if (gatewayState.connection == GatewayConnectionState.CONNECTED) {
+                if (!preserveSubscription && gatewayState.connection == GatewayConnectionState.CONNECTED) {
                     appGraph.gatewayRuntime.subscribe(sessionId)
+                    appGraph.gatewayRuntime.requestSessions()
                     appGraph.diagnostics.approval(
                         stage = "session-subscribed",
                         hasSession = true,
@@ -1027,6 +810,8 @@ class AndroidSharedStateHolder(
     private var preparingNewSession = false
 
     suspend fun prepareNewSession(): Boolean {
+        teamLeadSessionId = null
+        teamSnapshot = com.clarklevis.dsh.shared.facade.TeamSnapshot()
         if (preparingNewSession) return false
         val appGraph = graph ?: return false
         if (gatewayState.connection != GatewayConnectionState.CONNECTED) {
@@ -1106,6 +891,7 @@ class AndroidSharedStateHolder(
         get() = selectedWorkspaceId == UNGROUPED_WORKSPACE_ID || availableWorkspaces.isEmpty()
 
     fun selectWorkspace(workspaceId: String?) {
+        workspaceSelectedByUser = true
         val resolved = workspaceId ?: resolveWorkspaceSelection(null, availableWorkspaces)
         applyWorkspaceSelection(resolved, persist = true)
     }
@@ -1201,7 +987,9 @@ class AndroidSharedStateHolder(
             platformError = appText("当前 Mobile Gateway 不支持文件下载，请升级并重启网关。")
             return
         }
+        val workspaceSessionId = teamStore.workspaceSessionId(sessionId)
         appGraph.gatewayScope.launch {
+            workspaceFileStore.setWorkspaceSession(sessionId, workspaceSessionId)
             applyWorkspaceFileTransition(
                 appGraph,
                 workspaceFileStore.load(sessionId, path, UUID.randomUUID().toString())
@@ -1213,7 +1001,7 @@ class AndroidSharedStateHolder(
         val appGraph = graph ?: return
         val sessionId = snapshot.selectedSessionId ?: return
         if (entry.kind != "file" || workspaceFilePreviewRequest != null || conversationFileIsOpening) return
-        completedWorkspaceFile = null
+        releaseCompletedWorkspaceFile()
         val previewsFile = purpose == "preview" && !entry.name.endsWith(".apk", ignoreCase = true)
         if (previewsFile) {
             platformError = null
@@ -1221,9 +1009,14 @@ class AndroidSharedStateHolder(
             workspaceFilePreviewProgress = 0f
             workspaceFilePreviewRequest = AndroidWorkspaceFilePreviewRequest(sessionId, entry.path, entry.name)
         }
-        val operationId = UUID.randomUUID().also { workspaceFileOperationId = it }
+        val operationId = UUID.randomUUID().also {
+            workspaceFileOperationId = it
+            workspaceFileCacheEpoch = cacheStorage?.categoryEpoch(AndroidCacheDiskManager.PREVIEWS) ?: 0
+        }
+        val workspaceSessionId = teamStore.workspaceSessionId(sessionId)
         appGraph.gatewayScope.launch {
             if (operationId != workspaceFileOperationId || sessionId != snapshot.selectedSessionId) return@launch
+            workspaceFileStore.setWorkspaceSession(sessionId, workspaceSessionId)
             if (purpose == "preview" && !entry.name.endsWith(".apk", ignoreCase = true)) {
                 applyWorkspaceFileTransition(appGraph, workspaceFileStore.resolve(
                     sessionId, entry.path, UUID.randomUUID().toString(),
@@ -1256,19 +1049,30 @@ class AndroidSharedStateHolder(
             platformError = appText("当前网关不支持文件下载，请升级网关。")
             return
         }
-        completedWorkspaceFile = null
+        releaseCompletedWorkspaceFile()
         conversationFileIsOpening = true
         platformError = null
         workspaceFilePreviewProgress = 0f
         workspaceFilePreviewRequest = AndroidWorkspaceFilePreviewRequest(sessionId, path, path.substringAfterLast('/'))
-        val operationId = UUID.randomUUID().also { workspaceFileOperationId = it }
+        val operationId = UUID.randomUUID().also {
+            workspaceFileOperationId = it
+            workspaceFileCacheEpoch = cacheStorage?.categoryEpoch(AndroidCacheDiskManager.PREVIEWS) ?: 0
+        }
+        val workspaceSessionId = teamStore.workspaceSessionId(sessionId)
         appGraph.gatewayScope.launch {
             if (operationId != workspaceFileOperationId || sessionId != snapshot.selectedSessionId) return@launch
-            applyWorkspaceFileTransition(appGraph, workspaceFileStore.resolve(
+            workspaceFileStore.setWorkspaceSession(sessionId, workspaceSessionId)
+            applyWorkspaceFileTransition(appGraph, workspaceFileStore.resolveReference(
                 sessionId, path, UUID.randomUUID().toString(),
-                "file-references-v1" in gatewayState.capabilities, useCache = true
+                "file-references-v1" in gatewayState.capabilities,
+                snapshot.workspaces.firstOrNull { workspaceSessionId in it.sessionIds }?.path
             ))
         }
+    }
+
+    fun consumeConversationDirectoryPath() {
+        conversationDirectorySessionId = null
+        conversationDirectoryPath = null
     }
 
     fun cancelWorkspaceFileDownload() {
@@ -1276,7 +1080,7 @@ class AndroidSharedStateHolder(
         conversationFileIsOpening = false
         workspaceFilePreviewRequest = null
         workspaceFilePreviewProgress = 0f
-        if (completedWorkspaceFile?.purpose == "preview") completedWorkspaceFile = null
+        if (completedWorkspaceFile == null || completedWorkspaceFile?.purpose == "preview") releaseCompletedWorkspaceFile()
         val appGraph = graph ?: return
         appGraph.gatewayScope.launch {
             applyWorkspaceFileTransition(appGraph, workspaceFileStore.cancel())
@@ -1285,10 +1089,33 @@ class AndroidSharedStateHolder(
     }
 
     fun consumeCompletedWorkspaceFile() {
+        releaseCompletedWorkspaceFile()
+    }
+
+    private fun releaseCompletedWorkspaceFile() {
+        val file = completedWorkspaceFile?.file
         completedWorkspaceFile = null
+        completedWorkspaceFileLease?.close()
+        completedWorkspaceFileLease = null
+        if (file != null && file.parentFile?.parentFile?.name == "workspace-files") {
+            cacheStorage?.deleteTemporary(file)
+        }
+    }
+
+    /** 导出读操作持有独立租约，关闭预览不会删掉尚在复制的临时文件。 */
+    fun leaseWorkspaceFile(file: File): java.io.Closeable? = cacheStorage?.lease(file)
+
+    fun releaseWorkspaceTemporaryFile(file: File) {
+        cacheStorage?.deleteTemporary(file)
+    }
+
+    fun retainExternalWorkspaceFile(file: File) {
+        cacheStorage?.retainExternal(file)
     }
 
     fun refreshProductState() {
+        refreshTeam()
+        teamStore.sessionsRequested()
         val appGraph = graph ?: return
         if (gatewayState.connection != GatewayConnectionState.CONNECTED) return
         defaultConfigurationLoadingKinds = defaultConfigurationLoadingKinds + setOf(
@@ -1365,29 +1192,157 @@ class AndroidSharedStateHolder(
         }
     }
 
+    var localChatMatches: List<AndroidLocalChatMatch> by mutableStateOf(emptyList())
+        private set
+    var localSearchHasMore by mutableStateOf(false)
+        private set
+    private var localSearchJob: Job? = null
+    private var localSearchQuery = ""
+
     fun search(query: String) {
         val normalized = query.trim()
+        localSearchQuery = normalized
+        remoteSearchResultQuery = null
+        val remoteQuery = if (gatewayState.connection == GatewayConnectionState.CONNECTED) {
+            remoteSearch.request(normalized)
+        } else {
+            remoteSearch.disconnected()
+            null
+        }
+        localSearchJob?.cancel()
+        localChatMatches = emptyList()
+        localSearchHasMore = false
         if (normalized.isEmpty()) return
-        graph?.let { appGraph ->
-            appGraph.gatewayScope.launch {
-                appGraph.gatewayRuntime.sendRequest(GatewayRequests.search(normalized))
+        val appGraph = graph ?: return
+        localSearchJob = scope?.launch {
+            val cache = com.clarklevis.dsh.android.platform.AndroidChatHistoryCache.shared(appGraph.application)
+            val matches = try {
+                withContext(Dispatchers.IO) {
+                    val payload = cache.search(gatewayLocalId, normalized, null, 50)
+                    AndroidLocalChatMatches.decode(payload)
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                AndroidLocalChatMatches()
+            }
+            if (localSearchQuery == normalized) {
+                localChatMatches = matches.results
+                localSearchHasMore = matches.hasMore
+            }
+        }
+        if (gatewayState.connection == GatewayConnectionState.CONNECTED && remoteQuery != null) sendRemoteSearch(remoteQuery)
+    }
+
+    private fun sendRemoteSearch(query: String) {
+        val appGraph = graph ?: return
+        appGraph.gatewayScope.launch { appGraph.gatewayRuntime.sendRequest(GatewayRequests.search(query)) }
+        remoteSearchTimeout?.cancel()
+        remoteSearchTimeout = scope?.launch {
+            delay(15_000)
+            remoteSearch.timeout(query)
+        }
+    }
+
+    var storageUsage: AndroidStorageUsage? by mutableStateOf(null)
+        private set
+    var cacheStorageNotice: String? by mutableStateOf(null)
+        private set
+    var cacheStorageError: String? by mutableStateOf(null)
+        private set
+    var cacheMaintenanceRunning by mutableStateOf(false)
+        private set
+
+    fun refreshCacheStorage(clear: Boolean = false, category: CacheStorageCategory? = null) {
+        val appGraph = graph ?: return
+        if (cacheMaintenanceRunning) return
+        cacheMaintenanceRunning = true
+        cacheStorageNotice = null
+        cacheStorageError = null
+        val previousBytes = storageUsage?.totalBytes
+        val clearChats = clear || category == CacheStorageCategory.CHATS
+        if (clearChats) chatPrefetcher?.stop("clear")
+        scope?.launch {
+            try {
+                val stats = withContext(Dispatchers.IO) {
+                    if (clearChats) projectionActor.clearDiskCache()
+                    val disk = requireNotNull(cacheStorage)
+                    when {
+                        clear -> disk.maintain(clear = true)
+                        category == CacheStorageCategory.IMAGES -> disk.clearCategory(AndroidCacheDiskManager.IMAGES)
+                        category == CacheStorageCategory.PREVIEWS -> disk.clearCategory(AndroidCacheDiskManager.PREVIEWS)
+                        category == CacheStorageCategory.TEMPORARY -> disk.clearCategory(AndroidCacheDiskManager.TEMPORARY)
+                        category == CacheStorageCategory.UPDATES -> disk.clearCategory(AndroidCacheDiskManager.UPDATES)
+                        else -> disk.statistics()
+                    }
+                }
+                storageUsage = AndroidStorageUsage(
+                    stats.chatBytes, stats.imageBytes, stats.previewBytes, stats.temporaryBytes,
+                    stats.updateBytes, stats.protectedBytes, stats.freeBytes
+                )
+                if (clear || category != null) {
+                    val reclaimed = ((previousBytes ?: stats.totalBytes) - stats.totalBytes).coerceAtLeast(0)
+                    cacheStorageNotice = if (reclaimed > 0) {
+                        com.clarklevis.dsh.android.localization.appText(
+                            "已释放 %1\$s", android.text.format.Formatter.formatFileSize(appGraph.application, reclaimed)
+                        )
+                    } else {
+                        com.clarklevis.dsh.android.localization.appText("没有更多可回收内容，正在使用的文件会保留。")
+                    }
+                }
+                if (clearChats) {
+                    scheduleOfflineCatalogSave()
+                    localChatMatches = emptyList()
+                }
+                if (clear || category == CacheStorageCategory.IMAGES) {
+                    thumbnailCache.retainKeys(emptySet())
+                    attachmentStateCache.retainKeys(emptySet())
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                cacheStorageError = com.clarklevis.dsh.android.localization.appText("存储空间读取或清理失败，请稍后重试。")
+            } finally {
+                cacheMaintenanceRunning = false
             }
         }
     }
 
-    fun loadOlderHistory() {
-        val sessionId = snapshot.selectedSessionId ?: return
-        snapshot.selectedHistoryEarliestSequence ?: return
+    fun loadOlderHistory(): Boolean {
+        val sessionId = snapshot.selectedSessionId ?: return false
+        snapshot.selectedHistoryEarliestSequence ?: return false
         if (
             !snapshot.selectedHistoryHasMore ||
             snapshot.selectedHistoryIsLoading ||
             sessionId in historyPagingSessionIds
-        ) return
-        val appGraph = graph ?: return
+        ) return false
         historyPagingSessionIds = historyPagingSessionIds + sessionId
-        appGraph.gatewayScope.launch {
-            projectionActor.loadHistory(sessionId, older = true)
+        val appGraph = graph
+        if (appGraph == null) {
+            projectionActor.loadHistoryImmediate(sessionId, older = true)
+            return true
         }
+        android.util.Log.d("HistoryPresentation", "stage=request-start rows=${snapshot.conversation.size}")
+        appGraph.gatewayScope.launch {
+            try {
+                projectionActor.loadHistory(sessionId, older = true, offline = offlineBrowsing) {
+                    if (!snapshot.selectedHistoryIsLoadingOlder) historyPagingSessionIds = historyPagingSessionIds - sessionId
+                }
+            } catch (cancelled: CancellationException) {
+                withContext(kotlinx.coroutines.NonCancellable + Dispatchers.Main.immediate) {
+                    historyPagingSessionIds = historyPagingSessionIds - sessionId
+                }
+                throw cancelled
+            } catch (error: Exception) {
+                projectionActor.historyCancelled(sessionId)
+                withContext(Dispatchers.Main.immediate) {
+                    historyPagingSessionIds = historyPagingSessionIds - sessionId
+                    platformError = appText("历史记录加载失败")
+                }
+                android.util.Log.w("HistoryPresentation", "stage=request-failed type=${error.javaClass.simpleName}")
+            }
+        }
+        return true
     }
 
     fun setTrajectoryActive(active: Boolean) {
@@ -1415,7 +1370,9 @@ class AndroidSharedStateHolder(
     }
 
     private fun scheduleTrajectoryPublish() {
-        if (!trajectoryIsActive || trajectoryPublishJob?.isActive == true) return
+        if (!trajectoryIsActive || trajectoryPublishJob?.isActive == true) {
+            return
+        }
         trajectoryPublishPending = false
         trajectoryPublishJob = graph?.gatewayScope?.launch {
             delay(TRAJECTORY_STREAM_INTERVAL_MILLISECONDS)
@@ -1492,6 +1449,7 @@ class AndroidSharedStateHolder(
     }
 
     fun refreshSessionAgentPreset() {
+        if (isViewingTeamMember) { leaveSessionAgentPreset(); return }
         applySessionAgentPresetTransition(sessionAgentPresetStore.open(
             snapshot.selectedSessionId,
             "session-agent-preset" in gatewayState.capabilities,
@@ -1544,7 +1502,10 @@ class AndroidSharedStateHolder(
 
     private suspend fun handleSentSession(appGraph: AndroidAppGraph, sessionId: String) {
         gatewayFollowUps?.submit {
-            appGraph.gatewayRuntime.subscribe(sessionId)
+            val isCurrent = withContext(Dispatchers.Main.immediate) {
+                (pendingSelectedSessionId ?: snapshot.selectedSessionId) == sessionId
+            }
+            if (isCurrent) appGraph.gatewayRuntime.subscribe(sessionId)
             appGraph.gatewayRuntime.requestSessions()
             requestSessionControls(appGraph, sessionId)
         }
@@ -1553,6 +1514,11 @@ class AndroidSharedStateHolder(
     private suspend fun requestSessionControls(appGraph: AndroidAppGraph, sessionId: String) {
         withContext(Dispatchers.Main.immediate) {
             if (snapshot.selectedSessionId == sessionId) refreshSessionAgentPreset()
+        }
+        if (withContext(Dispatchers.Main.immediate) { teamStore.isChild(sessionId) }) {
+            if ("tasks" in gatewayState.capabilities) appGraph.gatewayRuntime.sendRequest(GatewayRequests.tasks(sessionId))
+            if ("goals" in gatewayState.capabilities) appGraph.gatewayRuntime.sendRequest(GatewayRequests.goal(sessionId))
+            return
         }
         appGraph.gatewayRuntime.sendRequest(GatewayRequests.sessionControl("models", sessionId))
         appGraph.gatewayRuntime.sendRequest(GatewayRequests.sessionControl("permission-options", sessionId))
@@ -1735,7 +1701,7 @@ class AndroidSharedStateHolder(
 
     fun disconnect() {
         cancelWorkspaceFileDownload()
-        completedWorkspaceFile = null
+        releaseCompletedWorkspaceFile()
         graph?.let { appGraph ->
             appGraph.diagnostics.intent(GatewayDiagnosticAction.DISCONNECT)
             appGraph.gatewayScope.launch { appGraph.gatewayRuntime.disconnect() }
@@ -1752,13 +1718,15 @@ class AndroidSharedStateHolder(
     fun prepareImage(uri: Uri) {
         val appGraph = graph ?: return
         appGraph.diagnostics.intent(GatewayDiagnosticAction.PREPARE_IMAGE)
+        val imageTarget = snapshot.selectedSessionId
         platformError = null
         scope?.launch {
             runCatching { appGraph.imagePreprocessor.prepare(uri) }
                 .onSuccess { image ->
-                    val nextCount = preparedImages.size + 1
-                    val nextBytes = preparedImages.sumOf(AndroidPreparedImage::byteCount) + image.byteCount
-                    val nextBase64Characters = preparedImages.sumOf { it.outgoing.base64Data.length } +
+                    val destination = if (snapshot.selectedSessionId == imageTarget) preparedImages else teamDrafts[imageTarget]?.second.orEmpty()
+                    val nextCount = destination.size + 1
+                    val nextBytes = destination.sumOf(AndroidPreparedImage::byteCount) + image.byteCount
+                    val nextBase64Characters = destination.sumOf { it.outgoing.base64Data.length } +
                         image.outgoing.base64Data.length
                     if (
                         nextCount > AndroidImagePreprocessor.MAXIMUM_IMAGE_COUNT ||
@@ -1767,7 +1735,8 @@ class AndroidSharedStateHolder(
                     ) {
                         platformError = "image-selection-limit-exceeded"
                     } else {
-                        preparedImages = preparedImages + image
+                        if (snapshot.selectedSessionId == imageTarget) preparedImages = destination + image
+                        else if (imageTarget != null) teamDrafts[imageTarget] = teamDrafts[imageTarget]?.first.orEmpty() to (destination + image)
                     }
                 }
                 .onFailure { platformError = "image-preprocess-failed" }
@@ -1799,10 +1768,21 @@ class AndroidSharedStateHolder(
     }
 
     fun sendMessage(mode: String = "queue") {
+        if (!selectedMemberCanSend) { platformError = "此子智能体会话为只读，无法继续对话"; return }
+        if (localSearchIsFragment || localSearchIsOpening) {
+            platformError = appText("当前为只读本地搜索片段，请先返回最新消息。")
+            return
+        }
         val appGraph = graph ?: return
         if (pendingMessageSubmission != null || sessionAgentPreset.blocksSending) return
-        val submission = captureMessageSubmission()
-        val commandExecution = slashCommandStore.commandExecutionForInput(submission.draft)
+        if (fileUploads.preparing || (fileUploads.drafts.isNotEmpty() &&
+            (!fileUploads.canSend || fileUploads.sessionId != snapshot.selectedSessionId || isViewingTeamMember))) return
+        val submission = captureMessageSubmission(mode)
+        val commandExecution = if (isViewingTeamMember) null else slashCommandStore.commandExecutionForInput(submission.draft)
+        if (commandExecution != null && submission.fileIds.isNotEmpty()) {
+            platformError = "斜杠命令不支持文件，请使用普通消息发送"
+            return
+        }
         if (commandExecution == null || submission.images.isEmpty() || commandExecution.allowsImages) {
             applySessionAgentPresetTransition(sessionAgentPresetStore.beginMessage())
         }
@@ -1843,7 +1823,9 @@ class AndroidSharedStateHolder(
                     sessionId = submission.sessionId,
                     workspaceId = activeWorkspace?.workspaceId,
                     clientTimeZone = TimeZone.getDefault().id,
-                    mode = mode
+                    mode = mode,
+                    receipts = submission.receipts,
+                    requestId = submission.requestId.takeIf { submission.fileIds.isNotEmpty() }
                 )
                 if (!sent) withContext(Dispatchers.Main.immediate) {
                     pendingMessageSubmission = null
@@ -1856,9 +1838,10 @@ class AndroidSharedStateHolder(
     }
 
     fun cancelSelectedSession() {
+        if (!selectedMemberCanSend) return
         val appGraph = graph ?: return
         val sessionId = snapshot.selectedSessionId ?: return
-        val isRunning = snapshot.sessions.firstOrNull { it.id == sessionId }?.isRunning == true
+        val isRunning = selectedSessionIsRunning
         if (
             !isRunning ||
             "session-cancel" !in gatewayState.capabilities ||
@@ -1884,15 +1867,27 @@ class AndroidSharedStateHolder(
         applyMessageSendResult(submission, sent)
     }
 
-    private fun captureMessageSubmission(): MessageSubmission = MessageSubmission(
+    private fun captureMessageSubmission(mode: String = "queue"): MessageSubmission = MessageSubmission(
         generation = inputGeneration,
         sessionId = pendingSelectedSessionId ?: snapshot.selectedSessionId,
         draft = composedMessageText(),
-        images = preparedImages.toList()
+        images = preparedImages.toList(),
+        fileIds = fileUploads.drafts.map { it.id },
+        receipts = fileUploads.receipts,
+        requestId = if (fileUploads.drafts.isEmpty()) UUID.randomUUID().toString()
+            else fileUploads.submission(composedMessageText(), preparedImages.map { System.identityHashCode(it) }.toString() + "|" + mode)
     )
 
     private fun applyMessageSendResult(submission: MessageSubmission, sent: Boolean) {
         if (!sent) return
+        fileUploads.accepted(submission.fileIds)
+        if (submission.sessionId != (pendingSelectedSessionId ?: snapshot.selectedSessionId)) {
+            val saved = teamDrafts[submission.sessionId]
+            if (saved?.first == submission.draft && saved.second == submission.images) {
+                teamDrafts[submission.sessionId!!] = "" to emptyList()
+            }
+            return
+        }
         if (
             inputGeneration != submission.generation ||
             composedMessageText() != submission.draft ||
@@ -1986,26 +1981,82 @@ class AndroidSharedStateHolder(
         if (heightPixels > 0) thumbnailTargetHeightPixels = heightPixels
     }
 
+    fun trimMemory() {
+        chatPrefetcher?.stop("memory")
+        thumbnailCache.retainKeys(visibleAttachmentKeys)
+        attachmentStateCache.retainKeys(visibleAttachmentKeys)
+        publishAttachmentState()
+        graph?.gatewayScope?.launch { projectionActor.trimMemory() }
+    }
+
     fun close() {
+        fileUploads.clear()
+        closed = true
+        catalogWriteJob?.cancel()
+        chatPrefetcher?.stop("close")
+        workspaceFileOperationId = UUID.randomUUID()
+        thumbnailCache.retainKeys(emptySet())
+        attachmentStateCache.retainKeys(emptySet())
+        attachmentThumbnails = emptyMap()
+        releaseCompletedWorkspaceFile()
+        closeWorkspaceTemporaryFile(remove = true)
         gatewayFollowUps?.close()
         streamingSnapshotPublishJob?.cancel()
         projectionActor.close()
+        localSearchJob?.cancel()
         runtimeCollection?.cancel()
         scope?.cancel()
     }
 
+    val offlineBrowsing: Boolean
+        get() = graph != null && gatewayState.connection != GatewayConnectionState.CONNECTED
+
+    private fun scheduleOfflineCatalogSave() {
+        val appGraph = graph ?: return
+        if (closed || !catalogLoadCompleted) return
+        catalogWriteJob?.cancel()
+        catalogWriteJob = appGraph.gatewayScope.launch {
+            val cache = com.clarklevis.dsh.android.platform.AndroidChatHistoryCache.shared(appGraph.application)
+            val ticket = cache.offlineCatalogTicket(appGraph.gatewayLocalId)
+            delay(150)
+            if (!hasOfflineCatalogState && !projectionActor.hasOfflineCatalogAuthority()) return@launch
+            val workspace = withContext(Dispatchers.Main.immediate) { selectedWorkspaceId }
+            val baseCatalog = projectionActor.exportOfflineCatalog(workspace)
+            val routing = withContext(Dispatchers.Main.immediate) { teamStore.routingJson() }
+            val avatars = withContext(Dispatchers.Main.immediate) { teamStore.avatarAssignmentsJson() }
+            val codec = com.clarklevis.dsh.shared.facade.SharedOfflineCatalogCodec()
+            val routed = codec.withConversationTargets(baseCatalog, routing) ?: return@launch
+            val catalog = codec.withTeamAvatars(routed, avatars) ?: return@launch
+            val saved = withContext(Dispatchers.IO) { cache.saveOfflineCatalog(appGraph.gatewayLocalId, catalog, ticket) }
+            appGraph.diagnostics.offlineCatalog(if (saved) "saved" else "skip-write", snapshot.sessions.size)
+        }
+    }
+
+    private fun persistTeamAvatarsIfChanged() {
+        val avatars = teamStore.avatarAssignmentsJson()
+        if (avatars != persistedTeamAvatars) {
+            persistedTeamAvatars = avatars
+            scheduleOfflineCatalogSave()
+        }
+    }
+
+    val messageSubmissionPending: Boolean get() = pendingMessageSubmission != null
+
     val canSend: Boolean
-        get() = gatewayState.connection == GatewayConnectionState.CONNECTED &&
+        get() = gatewayState.connection == GatewayConnectionState.CONNECTED && selectedMemberCanSend &&
+            !localSearchIsFragment &&
+            !localSearchIsOpening &&
             !sessionAgentPreset.blocksSending &&
             pendingCommandSubmission == null && pendingMessageSubmission == null &&
-            (composedMessageText().isNotBlank() || preparedImages.isNotEmpty())
+            !fileUploads.preparing && (fileUploads.drafts.isEmpty() || fileUploads.canSend) &&
+            (composedMessageText().isNotBlank() || preparedImages.isNotEmpty() || fileUploads.drafts.isNotEmpty())
 
     val showsSessionStopButton: Boolean
         get() {
             val sessionId = snapshot.selectedSessionId ?: return false
-            return composedMessageText().isBlank() && preparedImages.isEmpty() &&
+            return composedMessageText().isBlank() && preparedImages.isEmpty() && fileUploads.drafts.isEmpty() && !fileUploads.preparing &&
                 "session-cancel" in gatewayState.capabilities &&
-                snapshot.sessions.firstOrNull { it.id == sessionId }?.isRunning == true
+                selectedMemberCanSend && selectedSessionIsRunning
         }
 
     val canCancelSelectedSession: Boolean
@@ -2104,6 +2155,7 @@ class AndroidSharedStateHolder(
     }
 
     private fun sendSlashCommandImmediately(text: String) {
+        if (localSearchIsFragment || localSearchIsOpening) return
         if (sessionAgentPreset.blocksSending) return
         applySessionAgentPresetTransition(sessionAgentPresetStore.beginMessage())
         val appGraph = graph ?: return
@@ -2189,12 +2241,27 @@ class AndroidSharedStateHolder(
     }
 
     private fun publishSnapshot(next: SharedMobileSnapshot) {
+        val context = localSearchContextSessionId
+        if (context != null && next.selectedSessionId != context && pendingSelectedSessionId != context) {
+            localSearchContextSessionId = null
+            localSearchContextTarget = null
+            localSearchScrollTarget = null
+            localSearchIsFragment = false
+            localSearchIsOpening = false
+        }
         snapshot = next
+        updatePrefetchForeground(next)
         restoreQueuedDraft()
         val runningSessionIds = next.sessions
             .filter { it.isRunning }
             .mapTo(mutableSetOf()) { it.id }
         cancellingSessionIds = cancellingSessionIds.intersect(runningSessionIds)
+    }
+
+    private fun updatePrefetchForeground(state: SharedMobileSnapshot) {
+        chatPrefetcher?.foregroundChanged(state.selectedSessionId,
+            state.isChatPrefetchBusy(),
+            !prefetchUsesAssistantStream)
     }
 
     private fun handleWorkspaceFrame(frame: GatewayFrame) {
@@ -2244,138 +2311,208 @@ class AndroidSharedStateHolder(
     private suspend fun applyWorkspaceFileTransition(
         appGraph: AndroidAppGraph,
         transition: SharedWorkspaceFileTransition,
-        cachedFile: File? = null
+        cachedFile: File? = null,
+        cachedLease: java.io.Closeable? = null,
+        operationId: UUID = workspaceFileOperationId
     ) {
-        val operationId = workspaceFileOperationId
-        val cache = AndroidWorkspacePreviewCache(File(appGraph.application.cacheDir, "workspace-previews"), gatewayLocalId)
-        transition.cacheLookup?.let { lookup ->
-            val file = withContext(Dispatchers.IO) { cache.find(lookup) }
-            if (operationId != workspaceFileOperationId) return
-            val next = workspaceFileStore.completeCacheLookup(lookup.requestId, file != null)
-            applyWorkspaceFileTransition(appGraph, next, file)
-            return
-        }
-        if (transition.discardTransferId != null) closeWorkspaceTemporaryFile(remove = true)
-        val snapshot = transition.snapshot
-        try {
-            if (snapshot.activeDownload != null && workspaceFileOutput == null) {
-                openWorkspaceTemporaryFile(appGraph, snapshot.activeDownload?.name ?: "download")
-            }
-            transition.appendBase64Data?.let { encoded ->
-                val bytes = Base64.decode(encoded, Base64.NO_WRAP)
-                requireNotNull(workspaceFileOutput).write(bytes)
-            }
-        } catch (_: Throwable) {
-            val cancelled = workspaceFileStore.cancel()
-            closeWorkspaceTemporaryFile(remove = true)
+        transition.directory?.let { directory ->
             withContext(Dispatchers.Main.immediate) {
-                workspaceFileDownloadProgress = null
-                workspaceFileDownloadPath = null
-                workspaceFileDownloadPurpose = null
-                platformError = appText("写入下载文件失败")
-                conversationFileIsOpening = false
-            }
-            cancelled.request?.let { request ->
-                gatewayFollowUps?.submit { appGraph.gatewayRuntime.sendRequest(request) }
+                if (operationId == workspaceFileOperationId && directory.sessionId == snapshot.selectedSessionId) {
+                    conversationFileIsOpening = false
+                    workspaceFilePreviewRequest = null
+                    workspaceFilePreviewProgress = 0f
+                    workspaceFilePath = directory.path
+                    workspaceFileEntries = emptyList()
+                    workspaceFilesAreLoading = true
+                    conversationDirectorySessionId = directory.sessionId
+                    conversationDirectoryPath = directory.path
+                }
             }
             return
         }
-
-        var completed: AndroidWorkspaceLocalFile? = transition.cacheHit?.let { hit ->
-            cachedFile?.let { file -> AndroidWorkspaceLocalFile(
-                file, hit.sessionId, hit.path, hit.name, hit.mediaType, "preview"
-            ) }
-        }
-        transition.completion?.let { completion ->
-            workspaceFileOutput?.fd?.sync()
-            closeWorkspaceTemporaryFile(remove = false)
-            val file = workspaceFileTemporaryFile
-            if (file == null || file.length() != completion.size) {
-                file?.delete()
-                workspaceFileTemporaryFile = null
+        val storage = requireNotNull(cacheStorage)
+        var readyLease: java.io.Closeable? = cachedLease
+        var pendingTemporaryFile: File? = null
+        try {
+            val cache = AndroidWorkspacePreviewCache(File(appGraph.application.cacheDir, "workspace-previews"), gatewayLocalId, storage)
+            transition.cacheLookup?.let { lookup ->
+                val file = withContext(Dispatchers.IO) { cache.find(lookup) { readyLease = storage.lease(it) } }
+                if (operationId != workspaceFileOperationId) {
+                    readyLease?.close()
+                    return
+                }
+                val next = workspaceFileStore.completeCacheLookup(lookup.requestId, file != null)
+                val transferredLease = readyLease
+                readyLease = null
+                applyWorkspaceFileTransition(appGraph, next, file, transferredLease, operationId)
+                return
+            }
+            if (transition.discardTransferId != null) closeWorkspaceTemporaryFile(remove = true)
+            val snapshot = transition.snapshot
+            try {
+                if (snapshot.activeDownload != null && workspaceFileOutput == null) {
+                    check(storage.canWriteTemporary(snapshot.activeDownload?.size ?: 0))
+                    openWorkspaceTemporaryFile(appGraph, snapshot.activeDownload?.name ?: "download")
+                }
+                transition.appendBase64Data?.let { encoded ->
+                    val bytes = Base64.decode(encoded, Base64.NO_WRAP)
+                    check(storage.canWriteTemporary(bytes.size.toLong()))
+                    requireNotNull(workspaceFileOutput).write(bytes)
+                }
+            } catch (_: Throwable) {
+                val cancelled = workspaceFileStore.cancel()
+                closeWorkspaceTemporaryFile(remove = true)
                 withContext(Dispatchers.Main.immediate) {
-                    platformError = appText("下载文件的本地大小校验失败")
+                    workspaceFileDownloadProgress = null
+                    workspaceFileDownloadPath = null
+                    workspaceFileDownloadPurpose = null
+                    platformError = appText("写入下载文件失败")
                     conversationFileIsOpening = false
                 }
-                return
-            }
-            workspaceFileTemporaryFile = null
-            val saved = withContext(Dispatchers.IO) { cache.store(file, completion) }
-            if (saved != null) {
-                file.delete()
-                file.parentFile?.delete()
-            }
-            if (operationId != workspaceFileOperationId) {
-                if (saved == null) {
-                    file.delete()
-                    file.parentFile?.delete()
+                cancelled.request?.let { request ->
+                    gatewayFollowUps?.submit { appGraph.gatewayRuntime.sendRequest(request) }
                 }
                 return
             }
-            completed = AndroidWorkspaceLocalFile(
-                file = saved ?: file,
-                sessionId = completion.sessionId,
-                remotePath = completion.path,
-                name = completion.name,
-                mediaType = completion.mediaType,
-                purpose = completion.purpose
-            )
-        }
 
-        withContext(Dispatchers.Main.immediate) {
-            if (operationId != workspaceFileOperationId) return@withContext
-            if (workspaceFilePreviewRequest != null) {
-                val active = snapshot.activeDownload
-                if (active?.purpose == "preview" && active.size > 0) {
-                    workspaceFilePreviewProgress = (active.receivedBytes.toFloat() / active.size).coerceIn(0f, 1f)
-                } else if (snapshot.lastError == null && (transition.appendBase64Data != null ||
-                        transition.completion?.purpose == "preview" || transition.cacheHit != null)) {
-                    workspaceFilePreviewProgress = 1f
+            var completed: AndroidWorkspaceLocalFile? = transition.cacheHit?.let { hit ->
+                cachedFile?.let { file ->
+                    AndroidWorkspaceLocalFile(
+                        file,
+                        hit.sessionId,
+                        hit.path,
+                        hit.name,
+                        hit.mediaType,
+                        "preview"
+                    )
                 }
             }
-            workspaceFilePath = snapshot.path
-            workspaceFileEntries = snapshot.entries
-            workspaceFilesAreLoading = snapshot.isLoading
-            workspaceFileDownloadProgress = snapshot.activeDownload?.let { active ->
-                if (active.size == 0L) 0f
-                else (active.receivedBytes.toFloat() / active.size.toFloat()).coerceIn(0f, 1f)
+            transition.completion?.let { completion ->
+                workspaceFileOutput?.fd?.sync()
+                closeWorkspaceTemporaryFile(remove = false)
+                val file = workspaceFileTemporaryFile
+                if (file == null || file.length() != completion.size) {
+                    closeWorkspaceTemporaryFile(remove = true)
+                    withContext(Dispatchers.Main.immediate) {
+                        platformError = appText("下载文件的本地大小校验失败")
+                        conversationFileIsOpening = false
+                    }
+                    return
+                }
+                workspaceFileTemporaryFile = null
+                pendingTemporaryFile = file
+                val temporaryLease = workspaceFileTemporaryLease
+                workspaceFileTemporaryLease = null
+                val saved = try {
+                    withContext(Dispatchers.IO) {
+                        cache.store(file, completion, workspaceFileCacheEpoch) { readyLease = storage.lease(it) }
+                    }
+                } catch (error: Throwable) {
+                    temporaryLease?.close()
+                    throw error
+                }
+                if (saved != null) {
+                    temporaryLease?.close()
+                    storage.deleteTemporary(file)
+                    pendingTemporaryFile = null
+                } else {
+                    readyLease = temporaryLease
+                }
+                if (operationId != workspaceFileOperationId) {
+                    readyLease?.close()
+                    if (saved == null) storage.deleteTemporary(file)
+                    return
+                }
+                completed = AndroidWorkspaceLocalFile(
+                    file = saved ?: file,
+                    sessionId = completion.sessionId,
+                    remotePath = completion.path,
+                    name = completion.name,
+                    mediaType = completion.mediaType,
+                    purpose = completion.purpose
+                )
             }
-            workspaceFileDownloadPath = snapshot.activeDownload?.path
-            workspaceFileDownloadPurpose = snapshot.activeDownload?.purpose
-            snapshot.lastError?.let {
-                platformError = workspaceFileErrorMessage(it)
-                conversationFileIsOpening = false
-            }
-            completed?.let {
-                conversationFileIsOpening = false
-                if (it.sessionId == this@AndroidSharedStateHolder.snapshot.selectedSessionId) completedWorkspaceFile = it
-                else if (it.file.parentFile?.parentFile?.name == "workspace-files") {
-                    it.file.delete()
-                    it.file.parentFile?.delete()
+
+            withContext(Dispatchers.Main.immediate) {
+                if (operationId != workspaceFileOperationId) {
+                    readyLease?.close()
+                    completed?.file?.let(storage::deleteTemporary)
+                    return@withContext
+                }
+                if (workspaceFilePreviewRequest != null) {
+                    val active = snapshot.activeDownload
+                    if (active?.purpose == "preview" && active.size > 0) {
+                        workspaceFilePreviewProgress = (active.receivedBytes.toFloat() / active.size).coerceIn(0f, 1f)
+                    } else if (snapshot.lastError == null &&
+                        (
+                            transition.appendBase64Data != null ||
+                                transition.completion?.purpose == "preview" ||
+                                transition.cacheHit != null
+                            )
+                    ) {
+                        workspaceFilePreviewProgress = 1f
+                    }
+                }
+                workspaceFilePath = snapshot.path
+                workspaceFileEntries = snapshot.entries
+                workspaceFilesAreLoading = snapshot.isLoading
+                workspaceFileDownloadProgress = snapshot.activeDownload?.let { active ->
+                    if (active.size == 0L) {
+                        0f
+                    } else {
+                        (active.receivedBytes.toFloat() / active.size.toFloat()).coerceIn(0f, 1f)
+                    }
+                }
+                workspaceFileDownloadPath = snapshot.activeDownload?.path
+                workspaceFileDownloadPurpose = snapshot.activeDownload?.purpose
+                snapshot.lastError?.let {
+                    platformError = workspaceFileErrorMessage(it)
+                    conversationFileIsOpening = false
+                }
+                completed?.let {
+                    conversationFileIsOpening = false
+                    if (it.sessionId == this@AndroidSharedStateHolder.snapshot.selectedSessionId) {
+                        if (readyLease != null) {
+                            completedWorkspaceFileLease?.close()
+                            completedWorkspaceFileLease = readyLease
+                            readyLease = null
+                        }
+                        pendingTemporaryFile = null
+                        completedWorkspaceFile = it
+                    } else {
+                        readyLease?.close()
+                        storage.deleteTemporary(it.file)
+                    }
                 }
             }
-        }
-        transition.request?.let { request ->
-            gatewayFollowUps?.submit {
-                // 取消指令始终发送，快速重开也不能让服务端旧 transfer 残留。
-                if (request.requestType == "file-download-cancel" || operationId == workspaceFileOperationId) {
-                    // 快速重开时，旧的 stat 响应可能仍在途中；解析请求排队，避免误报 request-busy。
-                    val next = if (request.requestType == "file-resolve") {
-                        request.copy(lanePolicy = GatewayRequestLanePolicy.COALESCE_LATEST)
-                    } else request
-                    appGraph.gatewayRuntime.sendRequest(next)
+            transition.request?.let { request ->
+                gatewayFollowUps?.submit {
+                    // 取消指令始终发送，快速重开也不能让服务端旧 transfer 残留。
+                    if (request.requestType == "file-download-cancel" || operationId == workspaceFileOperationId) {
+                        // 快速重开时，旧的 stat 响应可能仍在途中；解析请求排队，避免误报 request-busy。
+                        val next = if (request.requestType == "file-resolve") {
+                            request.copy(lanePolicy = GatewayRequestLanePolicy.COALESCE_LATEST)
+                        } else {
+                            request
+                        }
+                        appGraph.gatewayRuntime.sendRequest(next)
+                    }
                 }
             }
+        } finally {
+            readyLease?.close()
+            pendingTemporaryFile?.let(storage::deleteTemporary)
         }
     }
 
-    private fun openWorkspaceTemporaryFile(appGraph: AndroidAppGraph, name: String) {
+    private fun openWorkspaceTemporaryFile(appGraph: AndroidAppGraph, name: String) = requireNotNull(cacheStorage).access {
         closeWorkspaceTemporaryFile(remove = true)
         val directory = File(
             appGraph.application.cacheDir,
             "workspace-files/${UUID.randomUUID()}"
         ).apply { check(mkdirs() || isDirectory) }
-        val file = File(directory, File(name).name)
+        val file = File(directory, AndroidCacheDiskManager.safeFileName(name))
+        workspaceFileTemporaryLease = cacheStorage?.lease(file)
         workspaceFileTemporaryFile = file
         workspaceFileOutput = FileOutputStream(file, false)
     }
@@ -2384,9 +2521,15 @@ class AndroidSharedStateHolder(
         runCatching { workspaceFileOutput?.close() }
         workspaceFileOutput = null
         if (remove) {
+            workspaceFileTemporaryLease?.close()
+            workspaceFileTemporaryLease = null
             workspaceFileTemporaryFile?.let { file ->
-                file.delete()
-                file.parentFile?.delete()
+                if (cacheStorage != null) {
+                    cacheStorage.deleteTemporary(file)
+                } else {
+                    file.delete()
+                    file.parentFile?.delete()
+                }
             }
             workspaceFileTemporaryFile = null
         }
@@ -2404,6 +2547,7 @@ class AndroidSharedStateHolder(
         if (selectedWorkspaceId == workspaceId) return
         selectedWorkspaceId = workspaceId
         if (!persist) return
+        scheduleOfflineCatalogSave()
         graph?.let { appGraph ->
             appGraph.gatewayScope.launch {
                 val current = appGraph.preferences.load()
@@ -2455,7 +2599,9 @@ class AndroidSharedStateHolder(
                     if (!published) markAttachmentFailed(request.cacheKey)
                     finishActiveAttachment(request.cacheKey)
                 }
-            } else if (!appGraph.gatewayRuntime.requestAttachment(request.sessionId, request.attachmentId)) {
+            } else if (appGraph.gatewayRuntime.state.value.connection != GatewayConnectionState.CONNECTED ||
+                !appGraph.gatewayRuntime.requestAttachment(request.sessionId, request.attachmentId)
+            ) {
                 withContext(Dispatchers.Main.immediate) {
                     markAttachmentFailed(request.cacheKey)
                     finishActiveAttachment(request.cacheKey)
@@ -2577,8 +2723,606 @@ class AndroidSharedStateHolder(
         val generation: Long,
         val sessionId: String?,
         val draft: String,
-        val images: List<AndroidPreparedImage>
+        val images: List<AndroidPreparedImage>,
+        val fileIds: List<String> = emptyList(),
+        val receipts: List<String> = emptyList(),
+        val requestId: String = UUID.randomUUID().toString()
     )
+
+    // 所有实例状态初始化完成后才启动异步观察；回调可在构造线程返回前到达。
+    init {
+        graph?.let { appGraph ->
+            val holderScope = requireNotNull(scope)
+            runtimeCollection = appGraph.gatewayScope.launch {
+                launch {
+                    val cache = com.clarklevis.dsh.android.platform.AndroidChatHistoryCache.shared(appGraph.application)
+                    val generation = projectionActor.offlineCatalogRestoreGeneration()
+                    val catalog = try {
+                        withContext(Dispatchers.IO) { cache.loadOfflineCatalog(appGraph.gatewayLocalId) }
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        null
+                    }
+                    if (catalog != null) {
+                        withContext(Dispatchers.Main.immediate) {
+                            com.clarklevis.dsh.shared.facade.SharedOfflineCatalogCodec()
+                                .conversationTargetsJson(catalog)?.let { teamStore.restoreRoutingJson(it) }
+                            persistedTeamRouting = teamStore.routingJson()
+                            com.clarklevis.dsh.shared.facade.SharedOfflineCatalogCodec()
+                                .teamAvatarsJson(catalog)?.let { teamStore.restoreAvatarAssignmentsJson(it) }
+                            persistedTeamAvatars = teamStore.avatarAssignmentsJson()
+                        }
+                        val restored = projectionActor.restoreOfflineCatalog(catalog, generation) { restoredWorkspaces ->
+                            hasOfflineCatalogState = true
+                            if (restoredWorkspaces && !workspaceSelectedByUser && selectedWorkspaceId == null) {
+                                selectedWorkspaceId = com.clarklevis.dsh.shared.facade.SharedOfflineCatalogCodec().selectedWorkspaceId(catalog)
+                            }
+                        }
+                        appGraph.diagnostics.offlineCatalog(if (restored) "restore" else "skip-late", snapshot.sessions.size)
+                    } else appGraph.diagnostics.offlineCatalog("miss", 0)
+                    catalogLoadCompleted = true
+                    withContext(Dispatchers.Main.immediate) { scheduleOfflineCatalogSave() }
+                }
+                launch {
+                    appGraph.preferences.snapshots.collect { value ->
+                        withContext(Dispatchers.Main.immediate) {
+                            endpoint = value.endpoint
+                            if (!workspaceSelectedByUser) selectedWorkspaceId = value.selectedWorkspaceId ?: selectedWorkspaceId
+                            workspacePreferenceLoaded = true
+                            if (hasReceivedWorkspaces) reconcileWorkspaceSelection()
+                        }
+                    }
+                }
+                launch {
+                    appGraph.gatewayRuntime.state.collect { state ->
+                        appGraph.diagnostics.runtimeState(state)
+                        chatPrefetcher?.connectionChanged(state.connection == GatewayConnectionState.CONNECTED)
+                        var shouldCatchUpSelectedHistory = false
+                        var sessionIdToRefresh: String? = null
+                        withContext(Dispatchers.Main.immediate) {
+                            val didReconnect = state.connection == GatewayConnectionState.CONNECTED &&
+                                lastObservedConnection != GatewayConnectionState.CONNECTED
+                            gatewayState = state
+                            voiceInput.connectionChanged(state.connection == GatewayConnectionState.CONNECTED,
+                                "speech-input-v1" in state.capabilities)
+                            if (didReconnect) {
+                                queueState = queueStore.resetConnection()
+                                fileUploads.connected(snapshot.selectedSessionId, "file-upload-v1" in state.capabilities)
+                            }
+                            if (state.connection != GatewayConnectionState.CONNECTED) {
+                                fileUploads.disconnected()
+                                remoteSearch.disconnected()
+                                remoteSearchTimeout?.cancel()
+                                remoteSearchResultQuery = null
+                                applySessionAgentPresetTransition(sessionAgentPresetStore.disconnected())
+                                pendingMessageSubmission = null
+                                cancellingSessionIds = emptySet()
+                            }
+                            if (state.connection != GatewayConnectionState.CONNECTED &&
+                                state.connection != GatewayConnectionState.CONNECTING &&
+                                state.connection != GatewayConnectionState.AUTHENTICATING
+                            ) {
+                                defaultConfigurationLoadingKinds = emptySet()
+                                clearWorkspaceRequestLoading()
+                            }
+                            if (
+                                didReconnect &&
+                                activeAttachment != null
+                            ) {
+                                attachmentQueue.addFirst(requireNotNull(activeAttachment))
+                                activeAttachment = null
+                                drainAttachmentQueue()
+                            }
+                            if (didReconnect) {
+                                // 离线目录中的选中项不代表用户已打开该会话。
+                                sessionIdToRefresh = snapshot.selectedSessionId?.takeIf { teamLeadSessionId != null }
+                                shouldCatchUpSelectedHistory = sessionIdToRefresh != null
+                                if (pluginPageVisited) refreshPlugins()
+                            }
+                            if (state.connection != GatewayConnectionState.CONNECTED && pluginToggleRequestId != null) {
+                                pluginNotice = if (pluginPendingName == "dsh-plugin-mobile-gateway") {
+                                    appText("网关连接已断开，停用结果待重连确认。若已停用，请从 DSH Web 或 CLI 重新开启。")
+                                } else appText("连接已断开，操作结果待重连确认")
+                                pluginToggleRequestId = null
+                                pluginPendingName = null
+                            }
+                            lastObservedConnection = state.connection
+                        }
+                        if (state.connection != GatewayConnectionState.CONNECTED) {
+                            withContext(Dispatchers.Main.immediate) { conversationFileIsOpening = false }
+                            workspaceFileOperationId = UUID.randomUUID()
+                            applyWorkspaceFileTransition(appGraph, workspaceFileStore.cancel())
+                            projectionActor.disconnected()
+                        }
+                        // 订阅只补发重连后的实时事件。重新拉取 latest history，按 seq 与
+                        // 本地 live tail 合并，补齐应用在后台断线期间由其他端发送的用户消息。
+                        if (shouldCatchUpSelectedHistory) {
+                            projectionActor.catchUpSelectedHistoryAfterReconnect()
+                        }
+                        sessionIdToRefresh?.let { requestSessionControls(appGraph, it) }
+                    }
+                }
+                // 两条物理线路分别消费，文件响应不等待对话投影队列清空。
+                for (eventStream in listOf(appGraph.gatewayRuntime.events, appGraph.gatewayRuntime.conversationEvents)) {
+                    launch {
+                        eventStream.collect { event ->
+                            // Runtime events 是单消费者流。所有一次性响应也必须由这里分发，
+                            // 否则另起 collector 会与投影竞争并随机吞掉 session-created。
+                            pendingSessionCreation.accept(event)
+                            appGraph.diagnostics.runtimeEvent(event)
+                            val profileId = when (event) {
+                                is GatewayRuntimeEvent.RequestCancelled -> event.correlationId
+                                is GatewayRuntimeEvent.RequestTimedOut -> event.correlationId
+                                is GatewayRuntimeEvent.RequestRejected -> event.correlationId
+                                else -> null
+                            }?.takeIf { it.startsWith("team-profile-") }
+                            if (profileId != null) {
+                                withContext(Dispatchers.Main.immediate) {
+                                    teamStore.finishMemberProfileRequest(profileId)
+                                    prepareTeamMemberProfiles()
+                                }
+                                return@collect
+                            }
+                            if (event is GatewayRuntimeEvent.RequestTimedOut && event.requestType.startsWith("file-upload-")) {
+                                withContext(Dispatchers.Main.immediate) { event.correlationId?.let(fileUploads::timedOut) }
+                                return@collect
+                            }
+                            if (chatPrefetcher?.interceptTerminal(event) == true) return@collect
+                            when (event) {
+                                is GatewayRuntimeEvent.Frame -> {
+                                    if (event.frame.kind.startsWith("file-upload-") || event.frame.requestType?.startsWith("file-upload-") == true) {
+                                        withContext(Dispatchers.Main.immediate) { fileUploads.accept(event.frame) }
+                                        return@collect
+                                    }
+                                    if (event.frame.kind == "error" && event.frame.requestType in WORKSPACE_FILE_REQUEST_TYPES) {
+                                        applyWorkspaceFileTransition(appGraph, workspaceFileStore.acceptFrame(event.rawJson))
+                                        return@collect
+                                    }
+                                    if (event.frame.kind in setOf("history", "error") && event.frame.requestId?.startsWith("team-profile-") == true) {
+                                        withContext(Dispatchers.Main.immediate) {
+                                            if (teamStore.acceptFrameJson(event.rawJson)) {
+                                                teamLeadSessionId?.let { teamSnapshot = teamStore.snapshot(it) }
+                                                persistTeamAvatarsIfChanged()
+                                            }
+                                            prepareTeamMemberProfiles()
+                                        }
+                                        return@collect
+                                    }
+                                    if (event.frame.kind in setOf("hello", "sessions", "session-status", "projection-baseline", "agent-team", "agent-team-updated", "subagents", "subagents-updated", "subagent-identity-updated", "subagent-timing-updated", "session-snapshot", "history", "error")) {
+                                        withContext(Dispatchers.Main.immediate) {
+                                            if (teamStore.acceptFrameJson(event.rawJson)) {
+                                                teamLeadSessionId?.let { teamSnapshot = teamStore.snapshot(it) }
+                                                prepareTeamMemberProfiles()
+                                                persistTeamAvatarsIfChanged()
+                                                val routing = teamStore.routingJson()
+                                                if (routing != persistedTeamRouting) {
+                                                    persistedTeamRouting = routing
+                                                    scheduleOfflineCatalogSave()
+                                                }
+                                                if (event.frame.kind == "hello") refreshTeam()
+                                                if (event.frame.kind in setOf("session-snapshot", "subagent-identity-updated")) {
+                                                    snapshot.selectedSessionId?.let { selected ->
+                                                        val address = teamStore.targetJson(selected)
+                                                        appGraph.gatewayScope.launch { appGraph.gatewayRuntime.registerConversationTarget(address) }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    // 预加载失败只结束对应缓存任务，不能冒充当前会话的错误弹窗。
+                                    if (chatPrefetcher?.intercept(event.rawJson, event.frame, event.correlatedSessionId, event.isBackgroundHistory) == true) return@collect
+                                    if (event.frame.kind == "error" && !event.isBackgroundHistory &&
+                                        event.frame.requestType in setOf("message", "subscribe", "history", "session-cancel")) {
+                                        withContext(Dispatchers.Main.immediate) {
+                                            platformError = event.frame.message ?: "子智能体请求失败"
+                                            if (event.frame.requestType == "message") {
+                                                pendingMessageSubmission?.takeIf {
+                                                    event.frame.requestId == it.requestId || (it.fileIds.isEmpty() && event.frame.requestId == null)
+                                                }?.let {
+                                                    if (event.frame.code == "session/attachment-invalid") fileUploads.invalidReceipts()
+                                                    pendingMessageSubmission = null
+                                                }
+                                            }
+                                        }
+                                    }
+                                    if (event.frame.kind == "search") {
+                                        if (gatewayState.connection != GatewayConnectionState.CONNECTED) return@collect
+                                        val searchResponse = remoteSearch.response(event.frame.query)
+                                        if (!searchResponse.matched) return@collect
+                                        withContext(Dispatchers.Main.immediate) {
+                                            remoteSearchTimeout?.cancel()
+                                            searchResponse.nextQuery?.let(::sendRemoteSearch)
+                                            remoteSearchResultQuery = searchResponse.acceptedQuery
+                                        }
+                                        if (searchResponse.acceptedQuery == null) return@collect
+                                    }
+                                    withContext(Dispatchers.Main.immediate) { voiceInput.accept(event.rawJson) }
+                                    withContext(Dispatchers.Main.immediate) {
+                                        applySessionAgentPresetTransition(sessionAgentPresetStore.accept(
+                                            if (event.frame.sessionId == null && event.correlatedSessionId != null) {
+                                                event.frame.copy(sessionId = event.correlatedSessionId)
+                                            } else event.frame
+                                        ))
+                                        handleSessionCancellationFrame(event.frame)
+                                        acceptPluginFrame(event.frame)
+                                        if (event.frame.kind == scheduledTaskMutationKind &&
+                                            event.frame.requestId == scheduledTaskMutationRequestId
+                                        ) {
+                                            val succeeded = if (event.frame.kind == "schedule-update") {
+                                                event.frame.updated == true
+                                            } else event.frame.deleted == true
+                                            finishScheduledTaskMutation(
+                                                if (succeeded) null else scheduledTaskFailureMessage(event.frame.code, event.frame.message)
+                                            )
+                                        } else if (event.frame.kind == "error" &&
+                                            event.frame.requestType == scheduledTaskMutationKind &&
+                                            (event.frame.requestId == null || event.frame.requestId == scheduledTaskMutationRequestId)
+                                        ) {
+                                            finishScheduledTaskMutation(scheduledTaskFailureMessage(event.frame.code, event.frame.message))
+                                        }
+                                        when (event.frame.kind) {
+                                            "schedule-catalog" -> {
+                                                scheduledTasks = event.frame.items.orEmpty().mapNotNull(MobileScheduledTask::from)
+                                                    .sortedWith(compareBy<MobileScheduledTask> { it.status != "active" }.thenBy { it.scheduledAt })
+                                                scheduledTasksLoading = false
+                                                scheduledTasksError = null
+                                            }
+                                            "schedule-changed" -> refreshScheduledTasks()
+                                            "error" -> if (event.frame.requestType == "schedule-catalog") {
+                                                scheduledTasksLoading = false
+                                                scheduledTasksError = event.frame.message ?: appText("定时任务加载失败")
+                                            }
+                                        }
+                                        if (event.frame.kind == "sent") {
+                                            pendingMessageSubmission?.takeIf { event.frame.requestId == it.requestId || (it.fileIds.isEmpty() && event.frame.requestId == null) }?.let {
+                                                applyMessageSendResult(it, true)
+                                                pendingMessageSubmission = null
+                                            }
+                                        }
+                                        if (event.frame.kind in setOf("session-queues", "session-queue", "queue-item-updated") ||
+                                            (event.frame.kind == "error" && event.frame.requestType == "queue-update")
+                                        ) acceptQueueFrame(event.rawJson)
+                                    }
+                                    if (event.frame.kind in GOAL_MUTATION_RESPONSE_KINDS) {
+                                        withContext(Dispatchers.Main.immediate) { goalMutationKind = null }
+                                        event.frame.sessionId?.let { sessionId ->
+                                            gatewayFollowUps?.submit {
+                                                appGraph.gatewayRuntime.sendRequest(GatewayRequests.goal(sessionId))
+                                            }
+                                        }
+                                    }
+                                    if (event.frame.kind == "command-executed") {
+                                        handleCommandExecuted(event.frame)
+                                    }
+                                    if (event.frame.kind in SLASH_COMMAND_FRAME_KINDS ||
+                                        (event.frame.kind == "error" && event.frame.requestType in SLASH_COMMAND_REQUEST_TYPES)
+                                    ) {
+                                        applySlashCommandTransition(slashCommandStore.acceptFrame(event.rawJson))
+                                    }
+                                    if (event.frame.kind in WORKSPACE_FILE_FRAME_KINDS) {
+                                        applyWorkspaceFileTransition(
+                                            appGraph,
+                                            workspaceFileStore.acceptFrame(event.rawJson)
+                                        )
+                                    }
+                                    val isStreamingChunk = event.frame.kind == "event" &&
+                                        event.frame.event?.type == "assistant/chunk"
+                                    val streamingProjectionFlushed = if (isStreamingChunk) {
+                                        projectionActor.acceptStreamingFrame(
+                                            event.rawJson,
+                                            event.frame,
+                                            event.correlatedSessionId
+                                        )
+                                    } else {
+                                        projectionActor.acceptFrame(
+                                            event.rawJson,
+                                            event.frame,
+                                            event.correlatedSessionId
+                                        ) {
+                                            pruneAttachmentStateForSession()
+                                            handleWorkspaceFrame(event.frame)
+                                            if (event.frame.hasOfflineCatalogMutation()) {
+                                                if (snapshot.sessions.isNotEmpty() || snapshot.workspaces.isNotEmpty() ||
+                                                    event.frame.kind in setOf("session-archives", "session-archived")
+                                                ) hasOfflineCatalogState = true
+                                                scheduleOfflineCatalogSave()
+                                            }
+                                            if (event.frame.kind == "history") {
+                                                event.correlatedSessionId?.let { sessionId ->
+                                                    historyPagingSessionIds = historyPagingSessionIds - sessionId
+                                                }
+                                            }
+                                        }
+                                        false
+                                    }
+                                    if (event.frame.kind == "hello") {
+                                        prefetchUsesAssistantStream = "assistant-stream-v1" in event.frame.capabilities.orEmpty()
+                                        updatePrefetchForeground(snapshot)
+                                        chatPrefetcher?.helloReceived(event.frame.historyFormatVersion)
+                                    }
+                                    if (event.frame.kind == "sessions") chatPrefetcher?.sessionsReceived()
+                                    if (!isStreamingChunk) {
+                                        withContext(Dispatchers.Main.immediate) {
+                                            defaultConfigurationLoadingKinds =
+                                                defaultConfigurationLoadingKinds - event.frame.kind
+                                            if (event.frame.kind == "agent-presets") {
+                                                agentPresetsAuthorable = event.frame.authorable == true
+                                                agentPresetsHasDocument = event.frame.hasDocument == true
+                                            }
+                                            if (event.frame.kind.startsWith("approval")) {
+                                                appGraph.diagnostics.approval(
+                                                    stage = "frame-applied",
+                                                    frameKind = event.frame.kind,
+                                                    hasRpc = !event.frame.rpcId.isNullOrBlank(),
+                                                    hasSession = !event.frame.sessionId.isNullOrBlank(),
+                                                    hasApprovalId = !event.frame.approvalId.isNullOrBlank(),
+                                                    hasTool = !event.frame.toolName.isNullOrBlank(),
+                                                    replay = event.frame.replay == true,
+                                                    pendingCount = snapshot.pendingApprovals.size,
+                                                    selectedVisible = snapshot.pendingApprovals.any {
+                                                        it.sessionId == snapshot.selectedSessionId
+                                                    }
+                                                )
+                                            }
+                                            notifyUserForAgentFrame(appGraph, event.frame)
+                                        }
+                                        if (event.frame.kind in setOf("session-archives", "session-archived")) {
+                                            gatewayFollowUps?.submit { appGraph.gatewayRuntime.requestSessions() }
+                                        }
+                                        if (event.frame.kind == "sent") {
+                                            event.frame.sessionId?.takeIf(String::isNotBlank)?.let { sessionId ->
+                                                handleSentSession(appGraph, sessionId)
+                                            }
+                                        }
+                                    }
+                                    if (trajectoryIsActive &&
+                                        (!isStreamingChunk || streamingProjectionFlushed) &&
+                                        event.frame.kind in TRAJECTORY_FRAME_KINDS &&
+                                        (event.frame.sessionId ?: event.correlatedSessionId).let {
+                                            it == null || it == snapshot.selectedSessionId
+                                        }
+                                    ) {
+                                        requestTrajectoryPublish(
+                                            streaming = isStreamingChunk || event.frame.kind == "assistant-stream"
+                                        )
+                                    }
+                                }
+                                is GatewayRuntimeEvent.AttachmentCached -> withContext(Dispatchers.Main.immediate) {
+                                    attachmentCompleted(event.sessionId, event.attachmentId)
+                                }
+                                is GatewayRuntimeEvent.RequestQueued -> Unit
+                                is GatewayRuntimeEvent.RequestCancelled -> {
+                                    if (event.requestType == scheduledTaskMutationKind &&
+                                        event.correlationId == scheduledTaskMutationRequestId
+                                    ) withContext(Dispatchers.Main.immediate) {
+                                        finishScheduledTaskMutation(appText("操作已取消，请刷新任务后重试"))
+                                    }
+                                    withContext(Dispatchers.Main.immediate) {
+                                        applySessionAgentPresetTransition(sessionAgentPresetStore.requestFailed(
+                                            event.requestType, event.targetSessionId, event.correlationId, appText("请求未完成，请重试")
+                                        ))
+                                        handleSessionCancellationFailure(event.requestType, event.targetSessionId)
+                                        if (event.requestType == "message") pendingMessageSubmission = null
+                                        if (event.requestType == "queue-update") {
+                                            queueState = queueStore.failPending(appText("队列操作未完成，请检查最新状态后重试"))
+                                            platformError = queueState.lastError
+                                        }
+                                    }
+                                    if (event.requestType == "command-execute") {
+                                        pendingCommandSubmission = null
+                                    }
+                                    if (event.requestType in SLASH_COMMAND_REQUEST_TYPES) {
+                                        applySlashCommandTransition(
+                                            slashCommandStore.requestFailed(event.requestType, event.reason)
+                                        )
+                                    }
+                                    if (event.requestType in WORKSPACE_FILE_REQUEST_TYPES) {
+                                        applyWorkspaceFileTransition(
+                                            appGraph,
+                                            workspaceFileStore.requestFailed(
+                                                event.requestType,
+                                                event.reason,
+                                                event.correlationId
+                                            )
+                                        )
+                                    }
+                                    withContext(Dispatchers.Main.immediate) {
+                                        defaultConfigurationLoadingKinds =
+                                            defaultConfigurationLoadingKinds - event.requestType
+                                        if (event.requestType == "history") {
+                                            event.targetSessionId?.let {
+                                                historyPagingSessionIds = historyPagingSessionIds - it
+                                            }
+                                        }
+                                    }
+                                    event.targetSessionId?.takeIf { event.requestType == "history" }
+                                        ?.let { projectionActor.historyCancelled(it) }
+                                    if (event.requestType == "attachment") {
+                                        withContext(Dispatchers.Main.immediate) {
+                                            attachmentFailed(event.targetSessionId, event.correlationId)
+                                        }
+                                    }
+                                    if (event.requestType == "approval-response") {
+                                        event.correlationId?.let {
+                                            projectionActor.approvalRequestFailed(it, event.reason)
+                                        }
+                                    }
+                                    finishGoalMutationAfterFailure(
+                                        appGraph,
+                                        event.requestType,
+                                        event.targetSessionId,
+                                        event.reason
+                                    )
+                                }
+                                is GatewayRuntimeEvent.RequestTimedOut -> {
+                                    if (event.requestType.startsWith("speech-")) withContext(Dispatchers.Main.immediate) {
+                                        voiceInput.requestFailed(event.correlationId, appText("语音服务请求超时，请重试"))
+                                    }
+                                    if (event.requestType == scheduledTaskMutationKind &&
+                                        event.correlationId == scheduledTaskMutationRequestId
+                                    ) withContext(Dispatchers.Main.immediate) {
+                                        finishScheduledTaskMutation(appText("操作超时，请刷新任务后重试"))
+                                    }
+                                    if (event.requestType == "schedule-catalog") {
+                                        withContext(Dispatchers.Main.immediate) {
+                                            scheduledTasksLoading = false
+                                            scheduledTasksError = appText("定时任务请求超时，请重试")
+                                        }
+                                    }
+                                    withContext(Dispatchers.Main.immediate) {
+                                        applySessionAgentPresetTransition(sessionAgentPresetStore.requestFailed(
+                                            event.requestType, event.targetSessionId, event.correlationId, appText("请求未完成，请重试")
+                                        ))
+                                        handleSessionCancellationFailure(event.requestType, event.targetSessionId)
+                                        if (event.requestType == "message") pendingMessageSubmission = null
+                                        if (event.requestType == "queue-update") {
+                                            queueState = queueStore.failPending(appText("队列操作未完成，请检查最新状态后重试"))
+                                            platformError = queueState.lastError
+                                        }
+                                    }
+                                    if (event.requestType == "command-execute") {
+                                        pendingCommandSubmission = null
+                                    }
+                                    if (event.requestType in SLASH_COMMAND_REQUEST_TYPES) {
+                                        applySlashCommandTransition(
+                                            slashCommandStore.requestFailed(event.requestType, "request-timeout")
+                                        )
+                                    }
+                                    if (event.requestType in WORKSPACE_FILE_REQUEST_TYPES) {
+                                        applyWorkspaceFileTransition(
+                                            appGraph,
+                                            workspaceFileStore.requestFailed(
+                                                event.requestType,
+                                                "request-timeout",
+                                                event.correlationId
+                                            )
+                                        )
+                                    }
+                                    withContext(Dispatchers.Main.immediate) {
+                                        defaultConfigurationLoadingKinds =
+                                            defaultConfigurationLoadingKinds - event.requestType
+                                        clearWorkspaceRequestLoading(event.requestType)
+                                        if (event.requestType == "history") {
+                                            event.targetSessionId?.let {
+                                                historyPagingSessionIds = historyPagingSessionIds - it
+                                            }
+                                        }
+                                    }
+                                    event.targetSessionId?.takeIf { event.requestType == "history" }
+                                        ?.let { projectionActor.historyTimedOut(it) }
+                                    if (event.requestType == "attachment") {
+                                        withContext(Dispatchers.Main.immediate) {
+                                            attachmentFailed(event.targetSessionId, event.correlationId)
+                                        }
+                                    }
+                                    if (event.requestType == "approval-response") {
+                                        event.correlationId?.let {
+                                            projectionActor.approvalRequestFailed(it, "request-timeout")
+                                        }
+                                    }
+                                    finishGoalMutationAfterFailure(
+                                        appGraph,
+                                        event.requestType,
+                                        event.targetSessionId,
+                                        "request-timeout"
+                                    )
+                                }
+                                is GatewayRuntimeEvent.RequestRejected -> {
+                                    // 旧 socket 的迟到响应已被 Runtime 丢弃，只保留诊断，不打断离线阅读。
+                                    if (event.requestType == "transport" && event.reason == "stale-frame") return@collect
+                                    if (event.requestType.startsWith("speech-")) withContext(Dispatchers.Main.immediate) {
+                                        voiceInput.requestFailed(event.correlationId, appText("语音请求未完成，请重试"))
+                                    }
+                                    if (event.requestType == scheduledTaskMutationKind &&
+                                        event.correlationId == scheduledTaskMutationRequestId
+                                    ) withContext(Dispatchers.Main.immediate) {
+                                        finishScheduledTaskMutation(appText("操作未被接受，请刷新任务后重试"))
+                                    }
+                                    withContext(Dispatchers.Main.immediate) {
+                                        applySessionAgentPresetTransition(sessionAgentPresetStore.requestFailed(
+                                            event.requestType, event.targetSessionId, event.correlationId, appText("请求未完成，请重试")
+                                        ))
+                                        handleSessionCancellationFailure(event.requestType, event.targetSessionId)
+                                        if (event.requestType == "message") pendingMessageSubmission = null
+                                        if (event.requestType == "queue-update") {
+                                            queueState = queueStore.failPending(appText("队列操作未完成，请检查最新状态后重试"))
+                                            platformError = queueState.lastError
+                                        }
+                                    }
+                                    if (event.requestType == "command-execute") {
+                                        pendingCommandSubmission = null
+                                    }
+                                    if (event.requestType in SLASH_COMMAND_REQUEST_TYPES) {
+                                        applySlashCommandTransition(
+                                            slashCommandStore.requestFailed(event.requestType, event.reason)
+                                        )
+                                    }
+                                    if (event.requestType in WORKSPACE_FILE_REQUEST_TYPES) {
+                                        applyWorkspaceFileTransition(
+                                            appGraph,
+                                            workspaceFileStore.requestFailed(
+                                                event.requestType,
+                                                event.reason,
+                                                event.correlationId
+                                            )
+                                        )
+                                    }
+                                    withContext(Dispatchers.Main.immediate) {
+                                        defaultConfigurationLoadingKinds =
+                                            defaultConfigurationLoadingKinds - event.requestType
+                                        clearWorkspaceRequestLoading(event.requestType)
+                                        platformError = "${event.requestType}: ${event.reason}"
+                                        if (event.requestType == "history") {
+                                            event.targetSessionId?.let {
+                                                historyPagingSessionIds = historyPagingSessionIds - it
+                                            }
+                                        }
+                                    }
+                                    event.targetSessionId?.takeIf { event.requestType == "history" }
+                                        ?.let { projectionActor.historyCancelled(it) }
+                                    if (event.requestType == "attachment") {
+                                        withContext(Dispatchers.Main.immediate) {
+                                            attachmentFailed(event.targetSessionId, event.correlationId)
+                                        }
+                                    }
+                                    if (event.requestType == "approval-response") {
+                                        val correlationId = event.correlationId
+                                        val targetSessionId = event.targetSessionId
+                                        if (correlationId != null) {
+                                            projectionActor.approvalRequestFailed(
+                                                correlationId,
+                                                event.reason
+                                            )
+                                        } else if (targetSessionId != null) {
+                                            projectionActor.approvalSessionRequestsFailed(
+                                                targetSessionId,
+                                                event.reason
+                                            )
+                                        }
+                                    }
+                                    finishGoalMutationAfterFailure(
+                                        appGraph,
+                                        event.requestType,
+                                        event.targetSessionId,
+                                        event.reason
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+                launch {
+                    runCatching { appGraph.gatewayRuntime.connectStoredIfPaired() }
+                        .onFailure {
+                            withContext(Dispatchers.Main.immediate) {
+                                platformError = "stored-connect-failed"
+                            }
+                        }
+                }
+            }
+        }
+    }
 
     companion object {
         private const val STREAMING_SNAPSHOT_INTERVAL_MILLISECONDS = 32L
@@ -2588,6 +3332,7 @@ class AndroidSharedStateHolder(
             "session-stream-reset", "subscribed", "hello", "error"
         )
         private const val HISTORY_PAGE_MESSAGE_LIMIT = 60
+        private const val OLDER_HISTORY_PAGE_MESSAGE_LIMIT = 120
         private const val HISTORY_PAGE_BYTE_BUDGET = 4 * 1_024 * 1_024
         private const val HISTORY_VIEW = "conversation"
         const val UNGROUPED_WORKSPACE_ID = "__ungrouped__"

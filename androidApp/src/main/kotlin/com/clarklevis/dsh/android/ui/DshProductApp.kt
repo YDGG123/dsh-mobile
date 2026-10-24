@@ -2,18 +2,13 @@ package com.clarklevis.dsh.android.ui
 
 import android.app.Activity
 import android.net.Uri
-import androidx.compose.runtime.rememberCoroutineScope
-import com.clarklevis.dsh.android.localization.appText
-import kotlinx.coroutines.launch
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -27,39 +22,34 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.requiredSize
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -67,37 +57,35 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Shadow as TextShadow
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.drawscope.withTransform
-import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.Shadow as TextShadow
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.PlatformTextStyle
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.text.PlatformTextStyle
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.navigation.NavHostController
+import androidx.core.view.WindowCompat
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
-import androidx.navigation.compose.rememberNavController
 import androidx.navigation.compose.currentBackStackEntryAsState
-import androidx.core.view.WindowCompat
+import androidx.navigation.compose.rememberNavController
 import com.clarklevis.dsh.android.AndroidNotificationSessionRoute
 import com.clarklevis.dsh.android.AndroidSharedStateHolder
 import com.clarklevis.dsh.android.R
+import com.clarklevis.dsh.android.localization.appText
 import com.clarklevis.dsh.shared.domain.SessionSummary
 import com.clarklevis.dsh.shared.gateway.GatewayConnectionState
 import com.clarklevis.dsh.shared.gateway.GatewayRuntimeState
@@ -105,10 +93,12 @@ import com.clarklevis.dsh.shared.protocol.GatewayWorkspace
 import java.util.Calendar
 import java.util.TimeZone
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 private const val ROUTE_WORKSPACE = "workspace"
 private const val ROUTE_CONVERSATION = "conversation"
 private const val ROUTE_SETTINGS = "settings"
+private const val ROUTE_SETTINGS_STORAGE = "settings/storage"
 private const val ROUTE_SETTINGS_FONT_SIZE = "settings/font-size"
 private const val ROUTE_SETTINGS_AGENT_PRESETS = "settings/agent-presets"
 private const val ROUTE_SETTINGS_DEFAULT_MODEL = "settings/default-model"
@@ -121,6 +111,7 @@ private const val ROUTE_SCHEDULED_TASKS = "scheduled-tasks"
 internal fun DshProductApp(
     stateHolder: AndroidSharedStateHolder,
     onPickImage: () -> Unit,
+    onPickFile: () -> Unit,
     notificationRoute: AndroidNotificationSessionRoute?,
     onNotificationRouteOpened: (AndroidNotificationSessionRoute) -> Unit
 ) {
@@ -190,7 +181,7 @@ internal fun DshProductApp(
             )
         }
         composable(ROUTE_CONVERSATION) {
-            ConversationScreen(stateHolder, onPickImage, navController::popBackStack)
+            ConversationScreen(stateHolder, onPickImage, navController::popBackStack, onPickFile)
         }
         composable(ROUTE_SETTINGS) {
             SettingsScreen(
@@ -199,8 +190,12 @@ internal fun DshProductApp(
                 onBack = navController::popBackStack,
                 onOpenAgentPresets = { navController.navigate(ROUTE_SETTINGS_AGENT_PRESETS) },
                 onOpenDefaultModel = { navController.navigate(ROUTE_SETTINGS_DEFAULT_MODEL) },
-                onOpenFontSize = { navController.navigate(ROUTE_SETTINGS_FONT_SIZE) }
+                onOpenFontSize = { navController.navigate(ROUTE_SETTINGS_FONT_SIZE) },
+                onOpenStorage = { navController.navigate(ROUTE_SETTINGS_STORAGE) }
             )
+        }
+        composable(ROUTE_SETTINGS_STORAGE) {
+            StorageSpaceScreen(stateHolder, navController::popBackStack)
         }
         composable(ROUTE_SETTINGS_FONT_SIZE) {
             FontSizeSettingsScreen(navController::popBackStack)
@@ -292,7 +287,7 @@ private fun DrawerDestinationScreen(title: String, message: String, onBack: () -
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun WorkspaceScreen(
+internal fun WorkspaceScreen(
     stateHolder: AndroidSharedStateHolder,
     onOpenSession: (String) -> Unit,
     onNewSession: () -> Unit,
@@ -309,10 +304,8 @@ private fun WorkspaceScreen(
     var showDirectoryBrowser by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(stateHolder.gatewayState.connection) { stateHolder.refreshProductState() }
     LaunchedEffect(searchQuery) {
-        if (searchQuery.isNotBlank()) {
-            delay(350)
-            stateHolder.search(searchQuery)
-        }
+        if (searchQuery.isNotBlank()) delay(350)
+        stateHolder.search(searchQuery)
     }
 
     val workspaces = stateHolder.availableWorkspaces
@@ -322,20 +315,28 @@ private fun WorkspaceScreen(
         stateHolder.snapshot.sessions,
         stateHolder.gatewayState.connection,
         stateHolder.snapshot.searchResultSessionIds,
+        stateHolder.localChatMatches,
+        stateHolder.remoteSearchResultQuery,
         workspaces,
         stateHolder.selectedWorkspaceId,
         searchQuery
     ) {
-        if (stateHolder.gatewayState.connection != GatewayConnectionState.CONNECTED) return@remember emptyList()
         val scoped = workspaceScopedSessions(
             sessions = stateHolder.snapshot.sessions,
             workspaces = workspaces,
             selectedWorkspaceId = stateHolder.selectedWorkspaceId
         )
-        if (searchQuery.isBlank()) scoped else scoped.filter {
-            it.title.contains(searchQuery, ignoreCase = true) ||
-                it.id.contains(searchQuery, ignoreCase = true) ||
-                it.id in stateHolder.snapshot.searchResultSessionIds
+        if (searchQuery.isBlank()) {
+            scoped
+        } else {
+            filterSessionsByQuery(
+                scoped,
+                searchQuery,
+                stateHolder.localChatMatches.mapTo(mutableSetOf()) { it.sessionId },
+                stateHolder.snapshot.searchResultSessionIds.toSet().takeIf {
+                    stateHolder.remoteSearchResultQuery == searchQuery.trim()
+                }.orEmpty()
+            )
         }
     }
 
@@ -386,9 +387,7 @@ private fun WorkspaceScreen(
                                     fontWeight = FontWeight.Bold,
                                     modifier = Modifier.semantics { heading() }.testTag("workspace-hero-title")
                                 )
-                                if (stateHolder.gatewayState.connection == GatewayConnectionState.CONNECTED) {
-                                    Text(appText("已连接Deepseek Harness预览版"), color = Color.White.copy(alpha = 0.65f), fontSize = 14.sp)
-                                }
+                                Text(appText("Deepseek Harness 预览版"), color = Color.White.copy(alpha = 0.65f), fontSize = 14.sp)
                             }
                             Box(Modifier.fillMaxWidth()) {
                                 WorkspaceCard(
@@ -423,9 +422,13 @@ private fun WorkspaceScreen(
                                 Spacer(Modifier.weight(1f))
                                 ConnectionStatusText(stateHolder.gatewayState)
                             }
-                            SessionSearch(searchQuery) { searchQuery = it }
+                            LocalChatSearchContent(stateHolder, searchQuery, { searchQuery = it }, onOpenSession)
                             if (sessions.isEmpty()) EmptySessions()
-                            else SessionList(sessions, onOpenSession, stateHolder::renameSession, stateHolder::archiveSession)
+                            else SessionList(sessions, { id ->
+                                if (searchQuery.isNotBlank()) stateHolder.localChatMatches.firstOrNull { it.sessionId == id }
+                                    ?.let(stateHolder::prepareLocalChatMatch)
+                                onOpenSession(id)
+                            }, stateHolder::renameSession, stateHolder::archiveSession)
                             Spacer(Modifier.height(24.dp))
                         }
                     )
@@ -610,6 +613,48 @@ private fun GlassActionButton(icon: String, title: String, onClick: () -> Unit) 
 }
 
 @Composable
+internal fun LocalChatSearchContent(
+    stateHolder: AndroidSharedStateHolder,
+    searchQuery: String,
+    onQueryChange: (String) -> Unit,
+    onOpenSession: (String) -> Unit
+) {
+    SessionSearch(searchQuery, onQueryChange)
+    if (searchQuery.isBlank()) return
+    Text(
+        text = if (stateHolder.localSearchHasMore) {
+            "本地聊天内容（仅已缓存部分，显示前 50 条）。打开结果可定位对应消息。"
+        } else {
+            "本地聊天内容（仅已缓存部分）；联网时同时补充网关搜索。"
+        },
+        color = Color.White.copy(alpha = 0.7f),
+        fontSize = 12.sp,
+        modifier = Modifier.padding(vertical = 8.dp)
+    )
+    val scopedIds = workspaceScopedSessions(
+        stateHolder.snapshot.sessions,
+        stateHolder.availableWorkspaces,
+        stateHolder.selectedWorkspaceId
+    ).mapTo(mutableSetOf()) { it.id }
+    val catalogIds = stateHolder.snapshot.sessions.mapTo(mutableSetOf()) { it.id }
+    stateHolder.localChatMatches.filter { it.sessionId !in catalogIds || it.sessionId in scopedIds }.forEach { match ->
+        Column(
+            Modifier.fillMaxWidth().clickable {
+                stateHolder.prepareLocalChatMatch(match)
+                onOpenSession(match.sessionId)
+            }.padding(vertical = 10.dp)
+        ) {
+            Text(
+                stateHolder.snapshot.sessions.firstOrNull { it.id == match.sessionId }?.title ?: "已缓存会话",
+                color = Color.White,
+                fontWeight = FontWeight.Medium
+            )
+            Text(match.snippet, color = Color.White.copy(alpha = 0.8f), maxLines = 3, fontSize = 13.sp)
+        }
+    }
+}
+
+@Composable
 private fun SessionSearch(query: String, onChange: (String) -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth().height(42.dp)
@@ -764,10 +809,7 @@ private fun SessionRow(session: SessionSummary, onClick: () -> Unit, onLongClick
 private fun ConnectionDot(state: GatewayRuntimeState) {
     val color = when (state.connection) {
         GatewayConnectionState.CONNECTED -> DshColors.Success
-        GatewayConnectionState.FAILED -> Color.Red
-        GatewayConnectionState.CONNECTING, GatewayConnectionState.AUTHENTICATING,
-        GatewayConnectionState.WAITING_FOR_NETWORK -> DshColors.Amber
-        else -> Color.Gray
+        else -> Color.Red
     }
     StatusIndicatorDot(
         color = color,
@@ -781,8 +823,7 @@ private fun ConnectionStatusText(state: GatewayRuntimeState) {
     val connected = state.connection == GatewayConnectionState.CONNECTED
     val color = when (state.connection) {
         GatewayConnectionState.CONNECTED -> DshColors.Success
-        GatewayConnectionState.FAILED -> Color.Red.copy(alpha = 0.85f)
-        else -> Color.White.copy(alpha = 0.55f)
+        else -> Color.Red.copy(alpha = 0.85f)
     }
     Text(
         when (state.connection) {
@@ -802,6 +843,20 @@ private fun ConnectionStatusText(state: GatewayRuntimeState) {
             }
         )
     )
+}
+
+internal fun filterSessionsByQuery(
+    sessions: List<SessionSummary>,
+    query: String,
+    localBodySessionIds: Set<String>,
+    remoteSessionIds: Set<String> = emptySet()
+): List<SessionSummary> {
+    val normalized = query.trim()
+    if (normalized.isEmpty()) return sessions
+    return sessions.filter {
+        it.title.contains(normalized, ignoreCase = true) || it.id.contains(normalized, ignoreCase = true) ||
+            it.id in localBodySessionIds || it.id in remoteSessionIds
+    }
 }
 
 internal fun workspaceScopedSessions(

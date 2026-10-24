@@ -8,7 +8,13 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertSame
+import org.junit.Assert.assertNotSame
 import org.junit.Test
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 
 class ConversationDisplayGroupsTest {
     @get:Rule val locale = LocaleTestRule()
@@ -220,6 +226,68 @@ class ConversationDisplayGroupsTest {
         val codeBlock = blocks.single { it.contains("```kotlin") }
         assertTrue(codeBlock.contains("val first = 1\n\nval second = 2"))
         assertTrue(codeBlock.endsWith("```"))
+    }
+
+    @Test
+    fun `markdown blocks reuse unchanged history and separate layout targets`() {
+        val cache = MarkdownLayoutBlocksCache()
+        val markdown = "第一段内容\n\n第二段内容\n\n第三段内容"
+        val small = cache.getOrPut(markdown, 8)
+        assertSame(small, cache.getOrPut(markdown, 8))
+        val large = cache.getOrPut(markdown, 100)
+        assertEquals(3, small.size)
+        assertEquals(listOf(markdown), large)
+        assertEquals(markdown, small.joinToString("\n\n"))
+        cache.clear()
+        assertNotSame(small, cache.getOrPut(markdown, 8))
+    }
+
+    @Test
+    fun `markdown block cache evicts least recently used within both budgets`() {
+        val cache = MarkdownLayoutBlocksCache(maxSourceCharacters = 30, maxEntries = 2)
+        val first = cache.getOrPut("first\n\nreply", 5)
+        val second = cache.getOrPut("second\n\nreply", 5)
+        assertSame(first, cache.getOrPut("first\n\nreply", 5))
+        cache.getOrPut("third\n\nreply", 5)
+        assertSame(first, cache.getOrPut("first\n\nreply", 5))
+        assertNotSame(second, cache.getOrPut("second\n\nreply", 5))
+
+        val characterBound = MarkdownLayoutBlocksCache(maxSourceCharacters = 15, maxEntries = 20)
+        val retained = characterBound.getOrPut("one\n\ntwo", 3)
+        characterBound.getOrPut("x".repeat(100), 3)
+        assertSame("单条超预算不能挤掉已预热窗口", retained, characterBound.getOrPut("one\n\ntwo", 3))
+        characterBound.getOrPut("new\n\nreply", 3)
+        assertNotSame(retained, characterBound.getOrPut("one\n\ntwo", 3))
+    }
+
+    @Test
+    fun `slow splitting does not block hits and cannot refill after memory trim`() {
+        val started = CountDownLatch(1)
+        val resume = CountDownLatch(1)
+        val slowComputations = AtomicInteger()
+        val cache = MarkdownLayoutBlocksCache { markdown, _ ->
+            if (markdown == "slow" && slowComputations.incrementAndGet() == 1) {
+                started.countDown()
+                check(resume.await(5, TimeUnit.SECONDS))
+            }
+            listOf(markdown)
+        }
+        val workers = Executors.newFixedThreadPool(2)
+        try {
+            val cached = cache.getOrPut("cached", 320)
+            val pending = workers.submit<List<String>> { cache.getOrPut("slow", 320) }
+            assertTrue(started.await(5, TimeUnit.SECONDS))
+            val hit = workers.submit<List<String>> { cache.getOrPut("cached", 320) }
+            assertSame("慢分块期间命中不能等待分块完成", cached, hit.get(2, TimeUnit.SECONDS))
+            cache.clear()
+            resume.countDown()
+            val stale = pending.get(5, TimeUnit.SECONDS)
+            assertNotSame("清理后的缓存不能接受迟到计算", stale, cache.getOrPut("slow", 320))
+            assertEquals(2, slowComputations.get())
+        } finally {
+            resume.countDown()
+            workers.shutdownNow()
+        }
     }
 
     @Test

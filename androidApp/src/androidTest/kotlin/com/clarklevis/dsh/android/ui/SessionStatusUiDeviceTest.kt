@@ -1,14 +1,18 @@
 package com.clarklevis.dsh.android.ui
 
+import android.content.Context
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isRoot
@@ -17,9 +21,13 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.asAndroidPath
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.toPixelMap
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.test.espresso.Espresso.pressBack
+import androidx.test.platform.app.InstrumentationRegistry
 import com.clarklevis.dsh.shared.protocol.GatewayContextPressure
 import com.clarklevis.dsh.shared.protocol.GatewaySessionStats
 import com.clarklevis.dsh.shared.protocol.GatewaySessionStatsSnapshot
@@ -152,5 +160,61 @@ class SessionStatusUiDeviceTest {
             "Bottom sheet must cover the window bottom: sheet=$sheetBottom, window=$windowBottom",
             sheetBottom >= windowBottom
         )
+    }
+
+    @Test
+    fun fullStatsSheetFollowsAppAppearanceWithAndWithoutStats() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val preferences = context.getSharedPreferences("session-stats-theme-test", Context.MODE_PRIVATE)
+        preferences.edit().clear().commit()
+        val appearance = AppearanceSettings(preferences)
+        var snapshot by mutableStateOf<GatewaySessionStatsSnapshot?>(null)
+        try {
+            compose.setContent {
+                // 系统保持浅色，验证应用主动选择深色时弹窗也能正确切换。
+                val configuration = Configuration(LocalConfiguration.current).apply {
+                    uiMode = (uiMode and Configuration.UI_MODE_NIGHT_MASK.inv()) or
+                        Configuration.UI_MODE_NIGHT_NO
+                }
+                CompositionLocalProvider(LocalConfiguration provides configuration) {
+                    DshTheme(appearance) {
+                        SessionStatsSheet(snapshot, onDismiss = {})
+                    }
+                }
+            }
+            for (hasStats in listOf(true, false)) {
+                for (style in listOf(InterfaceStyle.LIGHT, InterfaceStyle.DARK)) {
+                    compose.runOnIdle {
+                        snapshot = if (hasStats) {
+                            GatewaySessionStatsSnapshot(stats = GatewaySessionStats(turns = 2, steps = 3))
+                        } else {
+                            null
+                        }
+                        appearance.selectInterfaceStyle(style)
+                    }
+                    compose.onNode(hasText(if (hasStats) "执行" else "正在读取会话统计"))
+                        .assertIsDisplayed()
+                    val pixels = compose.onNode(hasTestTag("session-stats-sheet"))
+                        .captureToImage().toPixelMap()
+                    // 侧边留白处避开卡片与文字，检查实际绘制的弹窗底色。
+                    val backgroundLuminance = pixels[4, pixels.height / 2].luminance()
+                    val dark = style == InterfaceStyle.DARK
+                    assertTrue(
+                        "Stats background must follow $style (hasStats=$hasStats): $backgroundLuminance",
+                        if (dark) backgroundLuminance in 0.02f..0.04f else backgroundLuminance > 0.8f
+                    )
+                    val title = compose.onNode(hasText("会话状态")).captureToImage().toPixelMap()
+                    val titleLuminances = (0 until title.height).flatMap { y ->
+                        (0 until title.width).map { x -> title[x, y].luminance() }
+                    }
+                    assertTrue(
+                        "Stats title must contrast with $style background",
+                        if (dark) titleLuminances.max() > 0.7f else titleLuminances.min() < 0.1f
+                    )
+                }
+            }
+        } finally {
+            preferences.edit().clear().commit()
+        }
     }
 }
