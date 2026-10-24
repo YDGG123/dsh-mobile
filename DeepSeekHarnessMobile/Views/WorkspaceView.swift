@@ -440,10 +440,14 @@ struct WorkspaceView: View {
 
     private func gatewayTeamRow(_ row: GatewayTeamFeed.Row) -> some View {
         HStack(spacing: 11) {
-            Circle()
-                .fill(statusTint(for: row))
-                .frame(width: 7, height: 7)
-                .shadow(color: gatewayTeam.isLive(row) ? palette.success : .clear, radius: 5)
+            // 头像（静态字段）：有 data URL 用它，没有就回落默认块（色块 + 首字母），**不留空白**。
+            gatewayAvatar(row)
+                .overlay(alignment: .bottomTrailing) {
+                    Circle()
+                        .fill(statusTint(for: row))
+                        .frame(width: 9, height: 9)
+                        .overlay(Circle().stroke(palette.surface(0.9), lineWidth: 1.5))
+                }
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text(row.name).lineLimit(1).appFont(.subheadline.weight(.medium))
@@ -467,6 +471,57 @@ struct WorkspaceView: View {
         .padding(.horizontal, 4)
         .padding(.vertical, 10)
         .contentShape(Rectangle())
+    }
+
+    /// 头像：Bot 用 avatar 或默认块；群聊用**成员头像堆叠**（room 没有 avatar 字段，用 members join）。
+    @ViewBuilder
+    private func gatewayAvatar(_ row: GatewayTeamFeed.Row, size: CGFloat = 38) -> some View {
+        if row.kind == .room {
+            let members = gatewayTeam.memberAvatars(for: row, limit: 3)
+            ZStack(alignment: .leading) {
+                if members.isEmpty {
+                    Circle()
+                        .fill(Color(red: 0.06, green: 0.27, blue: 0.66))
+                        .frame(width: size, height: size)
+                        .overlay {
+                            Image(systemName: "person.2.fill")
+                                .appFont(.system(size: size * 0.38, weight: .semibold))
+                                .foregroundStyle(.white)
+                        }
+                } else {
+                    ForEach(Array(members.enumerated()), id: \.element.id) { index, member in
+                        avatarBlock(member, size: size * 0.72)
+                            .overlay(Circle().stroke(palette.surface(0.9), lineWidth: 1.5))
+                            .offset(x: CGFloat(index) * size * 0.42)
+                            .zIndex(Double(3 - index))
+                    }
+                }
+            }
+            .frame(width: size + CGFloat(max(0, members.count - 1)) * size * 0.42, height: size, alignment: .leading)
+        } else {
+            avatarBlock(row, size: size)
+        }
+    }
+
+    /// 单个头像块：有 data URL 就画图，否则「深色不透明底 + 白色首字母」（白字 ≥4.6:1，方案 A）。
+    @ViewBuilder
+    private func avatarBlock(_ row: GatewayTeamFeed.Row, size: CGFloat) -> some View {
+        if let image = GatewayTeamFeed.avatarImage(row) {
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFill()
+                .frame(width: size, height: size)
+                .clipShape(Circle())
+        } else {
+            Circle()
+                .fill(GatewayTeamFeed.avatarColor(row))
+                .frame(width: size, height: size)
+                .overlay {
+                    Text(String(row.name.prefix(1)))
+                        .appFont(.system(size: size * 0.42, weight: .semibold))
+                        .foregroundStyle(.white)
+                }
+        }
     }
 
     private func statusTint(for row: GatewayTeamFeed.Row) -> Color {
