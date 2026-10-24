@@ -270,9 +270,25 @@ final class GatewayTeamFeed: ObservableObject {
         case "delta": applyDelta(object)
         case "order": applyOrder(object)
         case "card", "card-snapshot": applyCards(object)
+        case "avatar": applyAvatarBatches(object)
         default: break
         }
         if phase == .live || phase == .connecting { phase = .live }
+    }
+
+    /// 大快照分帧的补充帧：`{kind:"avatar", items:[{id, avatar:{shape,image}}]}`。
+    /// 主帧带 `avatarDeferred: true` 时头像随后到；这里把 image 合回对应行。
+    private func applyAvatarBatches(_ object: [String: Any]) {
+        guard let items = object["items"] as? [[String: Any]], !items.isEmpty else { return }
+        var index = Dictionary(uniqueKeysWithValues: rows.enumerated().map { ($1.id, $0) })
+        for item in items {
+            guard let id = item["id"] as? String, let position = index[id],
+                  let avatar = item["avatar"] as? [String: Any] else { continue }
+            rows[position].avatarShape = (avatar["shape"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            rows[position].avatarImage = (avatar["image"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        }
+        _ = index
+        objectWillChange.send()
     }
 
     private func applySnapshot(_ object: [String: Any]) {
@@ -662,13 +678,30 @@ final class GatewayTeamFeed: ObservableObject {
     }
 
     /// data URL → UIImage。非 data URL（本地路径）这里不解，交给默认块。
+    /// 解码结果缓存：SwiftUI 每次 body 求值都会问一次头像，base64 解码 + UIImage 构造
+    /// 放在列表里是明显的每帧成本。键用 **data URL 的内容哈希**（同一 bot 换图会自动失效），
+    /// 上限 64 张，够覆盖 20 个 Bot 的两份快照。
+    private static let avatarCache: NSCache<NSString, UIImage> = {
+        let cache = NSCache<NSString, UIImage>()
+        cache.countLimit = 64
+        return cache
+    }()
+
     static func avatarImage(_ row: Row) -> UIImage? {
         guard let raw = row.avatarImage, raw.hasPrefix("data:"),
               let comma = raw.firstIndex(of: ","),
-              raw[raw.startIndex..<comma].contains("base64"),
-              let data = Data(base64Encoded: String(raw[raw.index(after: comma)...])),
-              let image = UIImage(data: data) else { return nil }
-        return image
+              raw[raw.startIndex..<comma].contains("base64") else { return nil }
+        // 32 字符的稳定哈希键（FNV-1a 双轮），比整串 data URL 当键省内存
+        var hash: UInt64 = 0xcbf29ce484222325
+        for byte in raw.utf8 { hash = (hash ^ UInt64(byte)) &* 0x100000001b3 }
+        let key = NSString(string: String(hash, radix: 36))
+        if let cached = avatarCache.object(forKey: key) { return cached }
+        let base64 = String(raw[raw.index(after: comma)...])
+        guard let data = Data(base64Encoded: base64), let image = UIImage(data: data) else { return nil }
+        // 渲染尺寸压到 ≤256pt（头像最大 46pt），避免为小图解码整张原图占内存
+        let scaled = image.preparingThumbnail(of: CGSize(width: 128, height: 128)) ?? image
+        avatarCache.setObject(scaled, forKey: key)
+        return scaled
     }
 
     func isLive(_ row: Row) -> Bool { row.activity == "working" || row.activity == "thinking" }
