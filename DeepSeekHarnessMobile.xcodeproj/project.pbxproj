@@ -32,6 +32,7 @@
 		A1B2C3D4E5F60718293A4B5C /* ApprovalRequestView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B5D /* ApprovalRequestView.swift */; };
 		B0A100000000000000000001 /* BridgeTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A100000000000000000002 /* BridgeTransport.swift */; };
 		B0A100000000000000000003 /* BridgeTeamAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A100000000000000000004 /* BridgeTeamAdapter.swift */; };
+		B0A10000000000000000000E /* GatewayTeamFeed.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A10000000000000000000D /* GatewayTeamFeed.swift */; };
 		B0A100000000000000000005 /* TeamView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A100000000000000000006 /* TeamView.swift */; };
 		B0A100000000000000000007 /* BridgeTransportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A100000000000000000008 /* BridgeTransportTests.swift */; };
 		B0A100000000000000000009 /* BridgeChatEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A10000000000000000000A /* BridgeChatEngine.swift */; };
@@ -166,6 +167,7 @@
 		EEABECFD00017A6E10B1F4A3 /* HumanQuestionView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HumanQuestionView.swift; sourceTree = "<group>"; };
 		B0A100000000000000000002 /* BridgeTransport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BridgeTransport.swift; sourceTree = "<group>"; };
 		B0A100000000000000000004 /* BridgeTeamAdapter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BridgeTeamAdapter.swift; sourceTree = "<group>"; };
+		B0A10000000000000000000D /* GatewayTeamFeed.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GatewayTeamFeed.swift; sourceTree = "<group>"; };
 		B0A100000000000000000006 /* TeamView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TeamView.swift; sourceTree = "<group>"; };
 		B0A100000000000000000008 /* BridgeTransportTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BridgeTransportTests.swift; sourceTree = "<group>"; };
 		B0A10000000000000000000A /* BridgeChatEngine.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BridgeChatEngine.swift; sourceTree = "<group>"; };
@@ -246,6 +248,7 @@
 				E61E231D0CD3E07857F861B0 /* GatewayClient.swift */,
 				B0A100000000000000000002 /* BridgeTransport.swift */,
 				B0A100000000000000000004 /* BridgeTeamAdapter.swift */,
+				B0A10000000000000000000D /* GatewayTeamFeed.swift */,
 				B0A10000000000000000000A /* BridgeChatEngine.swift */,
 				954FCEA4A6E71F3D1A22BB53 /* GatewayModels.swift */,
 				CA11E000000000000000000A /* L10n.swift */,
@@ -673,6 +676,7 @@
 				605DCE79952E970820A95607 /* HumanQuestionView.swift in Sources */,
 				B0A100000000000000000001 /* BridgeTransport.swift in Sources */,
 				B0A100000000000000000003 /* BridgeTeamAdapter.swift in Sources */,
+				B0A10000000000000000000E /* GatewayTeamFeed.swift in Sources */,
 				B0A100000000000000000009 /* BridgeChatEngine.swift in Sources */,
 				B0A100000000000000000005 /* TeamView.swift in Sources */,
 				B0A10000000000000000000B /* BridgeConversationView.swift in Sources */,

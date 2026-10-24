@@ -15,6 +15,10 @@ struct TeamView: View {
     @State private var showsDevices = false
     @State private var didBootstrap = false
     @State private var bridgeChat: BridgeChatTarget?
+    /// 需求 1-4：团队页的数据源迁到网关团队帧（WS `/mobile/v1/team`）。
+    /// bridge 在本轮仍只负责**聊天**（点进去之后的会话），团队名册不再由它供数。
+    @StateObject private var feed = GatewayTeamFeed()
+    @State private var feedDetail: GatewayTeamFeed.Row?
 
     private enum Segment: String, CaseIterable {
         case team = "团队"
@@ -31,7 +35,9 @@ struct TeamView: View {
                         if mirror.isOffline {
                             offlineBanner
                         }
-                        if mirror.isLoading && mirror.bots.isEmpty && mirror.rooms.isEmpty {
+                        if usesGatewayFeed, segment == .team {
+                            gatewayTeamContent
+                        } else if mirror.isLoading && mirror.bots.isEmpty && mirror.rooms.isEmpty {
                             loadingView
                         } else {
                             listContent(mirror)
@@ -72,18 +78,27 @@ struct TeamView: View {
                     team.bootstrap()
                 }
                 team.startPolling()
+                feed.start()
             }
-            .onDisappear { team.stopPolling() }
+            .onDisappear {
+                team.stopPolling()
+                feed.stop()
+            }
             .onChange(of: scenePhase) { phase in
                 // iOS 16 单参旧 API：前台继续轮询，后台停掉省电。
                 if phase == .active {
                     team.startPolling()
+                    feed.start()
                 } else {
                     team.stopPolling()
+                    feed.stop()
                 }
             }
             .sheet(item: $detail) { row in
                 detailView(row)
+            }
+            .sheet(item: $feedDetail) { row in
+                feedDetailView(row)
             }
             .sheet(isPresented: $showsDevices) {
                 devicesView
@@ -92,6 +107,177 @@ struct TeamView: View {
                 BridgeConversationView(title: target.row.name, engine: target.engine)
             }
         }
+    }
+
+    // MARK: - 网关团队帧渲染（需求 1-4）
+
+    /// 网关团队帧可用时用它渲染团队段；未配对/空数据时回落到 bridge 旧渲染（旧宿主兼容）。
+    private var usesGatewayFeed: Bool {
+        switch feed.phase {
+        case .live: return true
+        case .connecting: return !feed.rows.isEmpty
+        case .offline: return !feed.rows.isEmpty
+        case .needsPairing, .idle: return false
+        }
+    }
+
+    private var botNames: [String: String] {
+        var names: [String: String] = [:]
+        for row in feed.rows where row.kind == .bot { names[row.id] = row.name }
+        return names
+    }
+
+    /// 需求 1（主 Bot 最上、Bots 与群聊混排）+ 需求 3（群聊行带成员与实时状态）+ 需求 4（名字下挂状态）。
+    private var gatewayTeamContent: some View {
+        VStack(spacing: 12) {
+        // 「会话」段按用户要求先保留：切过去仍由 bridge 的会话行承载，团队段才走网关帧。
+        Picker("分段", selection: $segment) {
+            ForEach(Segment.allCases, id: \.self) { item in
+                Text(item.rawValue).tag(item)
+            }
+        }
+        .pickerStyle(.segmented)
+        .padding(.horizontal, 16)
+        .padding(.top, 12)
+        List {
+            if feed.degraded {
+                Section {
+                    // 红线：降级态必须显式，绝不能渲染成「全部空闲」。
+                    Text("实时状态暂不可用：网关目前只拿到名册（名字/角色/成员）。干活中、等你回答、等你审批要等桌面端发布团队服务后才显示。")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            if case .offline(let reason) = feed.phase {
+                Section {
+                    HStack(spacing: 8) {
+                        Image(systemName: "wifi.exclamationmark").foregroundStyle(.orange)
+                        Text("团队连接中断：\(reason)").font(.footnote).foregroundStyle(.secondary)
+                    }
+                }
+            }
+            Section {
+                if feed.sortedRows.isEmpty {
+                    emptyRow("暂无 Bot 或群聊")
+                } else {
+                    ForEach(feed.sortedRows) { row in
+                        gatewayRow(row)
+                    }
+                }
+            }
+        }
+        .listStyle(.insetGrouped)
+        }
+    }
+
+    private func gatewayRow(_ row: GatewayTeamFeed.Row) -> some View {
+        HStack(spacing: 12) {
+            gatewayAvatar(row, size: 42)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text(row.name)
+                        .font(.body)
+                        .lineLimit(1)
+                    if row.main { badge("主") }
+                    if row.pinned {
+                        Image(systemName: "pin.fill")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+                if let status = feed.statusText(for: row, botNames: botNames) {
+                    Text(status)
+                        .font(.caption)
+                        .foregroundStyle(statusColor(row))
+                        .lineLimit(1)
+                } else if row.kind == .room {
+                    Text(feed.roomSubtitle(for: row, botNames: botNames))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                } else if let role = row.role, !role.isEmpty {
+                    Text(role)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                if row.kind == .room, let preview = row.preview, !preview.isEmpty {
+                    Text(preview)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                }
+            }
+            Spacer(minLength: 8)
+            if row.kind == .room {
+                Image(systemName: "person.2.fill")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+            // 需求 2：点整行进对话，详情退到右侧信息入口。
+            Button {
+                detail = bridgeRow(for: row)
+                if detail == nil { feedDetail = row }
+            } label: {
+                Image(systemName: "info.circle")
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+                    .padding(.vertical, 6)
+                    .padding(.leading, 6)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel("详情")
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { openGateway(row) }
+        .contextMenu {
+            Button {
+                detail = bridgeRow(for: row)
+                if detail == nil { feedDetail = row }
+            } label: {
+                Label("查看详情", systemImage: "info.circle")
+            }
+        }
+    }
+
+    private func gatewayAvatar(_ row: GatewayTeamFeed.Row, size: CGFloat) -> some View {
+        let color: Color = row.kind == .room ? Color.accentColor.opacity(0.18) : avatarColor(row.name)
+        return Circle()
+            .fill(color)
+            .frame(width: size, height: size)
+            .overlay {
+                Text(String(row.name.prefix(1)))
+                    .font(.system(size: size * 0.42, weight: .semibold))
+                    .foregroundStyle(.white)
+            }
+    }
+
+    private func statusColor(_ row: GatewayTeamFeed.Row) -> Color {
+        if !row.pending.isEmpty || row.placeholderCards > 0 || !row.approvals.isEmpty { return .orange }
+        if feed.isLive(row) { return .green }
+        if feed.degraded, row.activity == nil { return .secondary }
+        return .secondary
+    }
+
+    /// 网关行 → bridge 行（聊天仍走 bridge，本轮只迁名册）。
+    private func bridgeRow(for row: GatewayTeamFeed.Row) -> BridgeTeamRow? {
+        guard let mirror = team.mirror else { return nil }
+        let pool = row.kind == .room ? mirror.rooms : mirror.bots
+        return pool.first { $0.id == row.id }
+    }
+
+    private func openGateway(_ row: GatewayTeamFeed.Row) {
+        if let bridgeRow = bridgeRow(for: row) {
+            open(bridgeRow)
+            return
+        }
+        // bridge 名册还没同步到这一行：先按 sessionId 试网关会话，再提示刷新。
+        if onOpenConversation(row.sessionId) {
+            dismiss()
+            return
+        }
+        openFailure = "这条对话还没同步到会话列表，稍后重试或下拉刷新团队页。"
     }
 
     // MARK: - 内容
@@ -335,6 +521,14 @@ struct TeamView: View {
             }
     }
 
+    /// 网关帧的头像暂不渲染（data URL 体积大、降级态也拿不到），先按名字稳定取色。
+    private func avatarColor(_ name: String) -> Color {
+        let palette: [Color] = [.blue, .green, .orange, .purple, .pink, .teal, .indigo]
+        var hash = 5381
+        for scalar in name.unicodeScalars { hash = (hash &* 33) &+ Int(scalar.value) }
+        return palette[abs(hash) % palette.count].opacity(0.75)
+    }
+
     private func avatarColor(_ row: BridgeTeamRow) -> Color {
         if let hex = row.avatar?.color, let color = Color(bridgeHex: hex) {
             return color
@@ -413,6 +607,67 @@ struct TeamView: View {
     }
 
     // MARK: - 详情（P2：写操作）
+
+    /// 网关行的只读详情：名册信息 + 实时状态。写操作（改模型/思考等级等）仍走 bridge 详情页。
+    private func feedDetailView(_ row: GatewayTeamFeed.Row) -> some View {
+        NavigationStack {
+            Form {
+                Section("基本信息") {
+                    LabeledContent("名称", value: row.name)
+                    if let role = row.role, !role.isEmpty {
+                        LabeledContent("角色", value: role)
+                    }
+                    LabeledContent("类型", value: row.kind == .room ? "群聊" : "Bot")
+                    if row.main { LabeledContent("身份", value: "主 Bot") }
+                    if row.pinned { LabeledContent("置顶", value: "是") }
+                    if row.kind == .room {
+                        LabeledContent("成员", value: feed.roomSubtitle(for: row, botNames: botNames))
+                        if let mode = row.mode {
+                            LabeledContent("发言模式", value: mode == "everyone" ? "所有人轮流" : "管理员指派")
+                        }
+                    }
+                }
+                Section("实时状态") {
+                    if let status = feed.statusText(for: row, botNames: botNames) {
+                        Text(status).font(.subheadline)
+                    } else if feed.degraded {
+                        Text("实时状态暂不可用（网关降级：只拿到名册）")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("当前没有进行中的动作").font(.subheadline).foregroundStyle(.secondary)
+                    }
+                    if let work = row.work, let note = work.note ?? work.target ?? work.tool {
+                        LabeledContent("在做", value: note)
+                    }
+                    if let since = row.work?.since {
+                        LabeledContent("开始于", value: Self.relativeTime(since))
+                    }
+                    ForEach(row.approvals) { approval in
+                        LabeledContent("待审批", value: approval.reason ?? approval.tool ?? "工具调用")
+                    }
+                    if let updated = row.updatedAt {
+                        LabeledContent("最近活动", value: Self.relativeTime(updated))
+                    }
+                }
+                Section("会话") {
+                    LabeledContent("sessionId", value: row.sessionId)
+                    Button {
+                        openGateway(row)
+                    } label: {
+                        Label("进入对话", systemImage: "bubble.left.and.bubble.right")
+                    }
+                }
+            }
+            .navigationTitle(row.name)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("关闭") { feedDetail = nil }
+                }
+            }
+        }
+    }
 
     private func detailView(_ row: BridgeTeamRow) -> some View {
         NavigationStack {
