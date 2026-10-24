@@ -112,6 +112,31 @@ final class LocalizationCatalogTests: XCTestCase {
         XCTAssertNil(defaults.persistentDomain(forName: suiteName)?["AppleLanguages"])
     }
 
+    /// B5：界面主题选完必须落盘（以前是纯内存状态，杀进程就回默认）。
+    /// 与 `testAppLanguagePersistsSystemAndExplicitLanguageChoices` 同口径：默认 .system、写入后读回、
+    /// 非法值 fail-safe 回 .system。
+    func testInterfaceStylePersistsAcrossLaunches() throws {
+        let suiteName = "InterfaceStyleTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        XCTAssertEqual(InterfaceStyle.load(from: defaults), .system, "没有存过 → 跟随系统")
+
+        InterfaceStyle.dark.apply(to: defaults)
+        XCTAssertEqual(InterfaceStyle.load(from: defaults), .dark)
+        XCTAssertEqual(defaults.string(forKey: InterfaceStyle.preferenceKey), "dark")
+
+        InterfaceStyle.light.apply(to: defaults)
+        XCTAssertEqual(InterfaceStyle.load(from: defaults), .light)
+
+        // 非法/历史脏值不能让启动崩或回落到意外形态。
+        defaults.set("midnight", forKey: InterfaceStyle.preferenceKey)
+        XCTAssertEqual(InterfaceStyle.load(from: defaults), .system)
+
+        InterfaceStyle.system.apply(to: defaults)
+        XCTAssertEqual(InterfaceStyle.load(from: defaults), .system)
+    }
+
     func testFormatSpecifiersSurviveTranslation() {
         let table = try! englishTable("Localizable")
         XCTAssertEqual(table["session.remote.title"], "Remote session %@")

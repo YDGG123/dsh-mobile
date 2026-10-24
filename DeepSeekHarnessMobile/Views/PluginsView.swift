@@ -235,6 +235,8 @@ private struct PluginDetailView: View {
             }
         }
         .navigationTitle("插件详情").navigationBarTitleDisplayMode(.inline)
+        // B4：推入页覆盖背景期间暂停背景动画。
+        .pausesBackgroundAnimation()
         .sheet(item: $selectedEntry) { entry in
             PluginComponentSheet(entry: entry)
         }
@@ -315,6 +317,8 @@ private struct OfficialPluginDetailView: View {
                 .readableContentWidth()
         }
         .navigationTitle("插件详情").navigationBarTitleDisplayMode(.inline)
+        // B4：推入页覆盖背景期间暂停背景动画。
+        .pausesBackgroundAnimation()
     }
 }
 

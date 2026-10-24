@@ -365,6 +365,8 @@ struct FontSizeSettingsView: View {
             }
         }
         .background(Color(uiColor: .systemGroupedBackground))
+        // B4：推入页覆盖背景期间暂停背景动画（卡死根因见 BackgroundAnimationPause）。
+        .pausesBackgroundAnimation()
         .navigationTitle("字体大小")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { fontScale = AppFontScale.normalized(fontScale) }
@@ -690,6 +692,7 @@ private struct AgentPresetSelectionView: View {
         }
         .background(Color(uiColor: .systemGroupedBackground))
         .navigationTitle("Agent 预设")
+        .pausesBackgroundAnimation()
         .navigationBarTitleDisplayMode(.inline)
         .refreshable {
             store.refreshDefaultConfiguration()
@@ -845,6 +848,7 @@ private struct DefaultModelSelectionView: View {
         }
         .background(Color(uiColor: .systemGroupedBackground))
         .navigationTitle("默认模型")
+        .pausesBackgroundAnimation()
         .navigationBarTitleDisplayMode(.inline)
         .refreshable {
             store.ensureModelCatalogForDefaults()
