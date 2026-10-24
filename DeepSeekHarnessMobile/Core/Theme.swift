@@ -138,6 +138,28 @@ enum DSHColor {
     static let purple = Color(red: 0.48, green: 0.33, blue: 0.78)
     static let orange = Color(red: 0.94, green: 0.49, blue: 0.08)
     static let amber = Color(red: 1.0, green: 0.68, blue: 0.12)
+
+    // MARK: 主题自适应状态色（渲染层没有 colorScheme 时用这一组）
+    // UIKit 动态色按 traitCollection 解析，SwiftUI 的 preferredColorScheme 会改到 window 的
+    // overrideUserInterfaceStyle，所以这套色在任何视图里都能自动跟随主题，不必逐层加
+    // `@Environment(\.colorScheme)`。深色档 = 原品牌色（观感不变），浅色档 = 压暗版（达标 AA/≥3:1）。
+    private static func dynamic(dark: (CGFloat, CGFloat, CGFloat), light: (CGFloat, CGFloat, CGFloat)) -> Color {
+        Color(uiColor: UIColor { traits in
+            let (r, g, b) = traits.userInterfaceStyle == .dark ? dark : light
+            return UIColor(red: r, green: g, blue: b, alpha: 1)
+        })
+    }
+
+    static let successAA = dynamic(dark: (0.18, 0.72, 0.36), light: (0.07, 0.42, 0.18))
+    static let warningAA = dynamic(dark: (1.0, 0.68, 0.12), light: (0.55, 0.32, 0.0))
+    static let cautionAA = dynamic(dark: (0.94, 0.49, 0.08), light: (0.62, 0.30, 0.0))
+    /// danger 深色档必须与原来的 `Color.red.opacity(0.9)` 等价（带 0.9 透明度的纯红），
+    /// 所以这里单独构造带 alpha 的动态色，而不是套用 dynamic(...) 的不透明默认。
+    static let dangerAA = Color(uiColor: UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(red: 1.0, green: 0.0, blue: 0.0, alpha: 0.9)
+            : UIColor(red: 0.72, green: 0.12, blue: 0.10, alpha: 1)
+    })
     static let success = Color(red: 0.18, green: 0.72, blue: 0.36)
 }
 
@@ -173,12 +195,23 @@ struct DSHPalette {
             : Color.white.opacity(opacity)
     }
 
+    /// **填充/描边专用档**。不要拿 `ink()` 当底色：浅色档 `ink` 有 0.55 的透明度地板
+    /// （那是为文字对比度设的），`ink(0.07)` 当填充会变成 58% 的近黑——用户看到的
+    /// 「分段控件灰底比周围白卡片重」就是这个。veil 在浅色下最多 0.16，深色沿用白色叠加。
+    func veil(_ opacity: Double) -> Color {
+        isLight ? DSHColor.ink.opacity(min(0.16, opacity * 0.9)) : Color.white.opacity(opacity)
+    }
+
     // 状态色（文字/图标用）。深色沿用品牌色；浅色必须压暗，否则在浅底上达不到 4.5:1：
     // 绿 2.59:1 / 琥珀 1.86:1 / 橙 2.75:1（原值），压暗后 6.6 / 6.3 / 4.9。
-    var success: Color { isLight ? Color(red: 0.07, green: 0.42, blue: 0.18) : DSHColor.success }
-    var warning: Color { isLight ? Color(red: 0.55, green: 0.32, blue: 0.0) : DSHColor.amber }
-    var caution: Color { isLight ? Color(red: 0.70, green: 0.34, blue: 0.0) : DSHColor.orange }
-    var danger: Color { isLight ? Color(red: 0.72, green: 0.12, blue: 0.10) : Color.red.opacity(0.9) }
+    // 单一来源：直接复用 DSHColor 的动态色（深色档与品牌色逐位一致、浅色档压暗），
+    // 避免「palette.* 与 DSHColor.*AA 两套并存」以后分叉。
+    var success: Color { DSHColor.successAA }
+    var warning: Color { DSHColor.warningAA }
+    // 橙单独再压一档：浅海渐变最深处（#E0F0FF）上 0.70/0.34/0 只有 4.25:1，不到 AA；
+    // 0.62/0.30/0 在 #FFFFFF / #F5FAFF / #E0F0FF 上分别是 5.99 / 5.71 / 5.16。
+    var caution: Color { DSHColor.cautionAA }
+    var danger: Color { DSHColor.dangerAA }
 
     static func resolve(_ scheme: ColorScheme) -> DSHPalette { DSHPalette(scheme: scheme) }
 }

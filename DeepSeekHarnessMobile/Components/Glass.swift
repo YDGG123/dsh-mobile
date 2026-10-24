@@ -66,17 +66,20 @@ extension View {
 
 struct ConnectionDot: View {
     let state: ConnectionState
+    @Environment(\.colorScheme) private var colorScheme
 
     private var color: Color {
+        // 图形判据 ≥3:1：品牌绿/琥珀在浅底只有 2.47/1.77，浅色走压暗档。
+        let palette = DSHPalette.resolve(colorScheme)
         switch state {
         case .connected:
-            DSHColor.success
+            return palette.success
         case .failed:
-            .red
+            return palette.danger
         case .connecting:
-            DSHColor.amber
+            return palette.warning
         case .disconnected:
-            .gray
+            return .gray
         }
     }
 

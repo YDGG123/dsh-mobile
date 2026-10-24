@@ -206,7 +206,7 @@ private struct TimelineOverviewCanvas: View {
                     )
                     context.fill(
                         Path(roundedRect: rect, cornerRadius: 1),
-                        with: .color(node.kind.color)
+                        with: .color(node.kind.color(in: colorScheme))
                     )
                 }
             }
@@ -290,15 +290,19 @@ struct TrajectoryNode: Identifiable, Sendable {
     enum Kind: Hashable, Sendable {
         case input, context, request, assistant, tool, subtool
 
-        var color: Color {
+        /// 主题感知版本：图形判据 ≥3:1，浅色下绿/橙要用压暗档（品牌绿 2.47、橙 2.75 不达标）。
+        func color(in scheme: ColorScheme) -> Color {
+            let palette = DSHPalette(scheme: scheme)
             switch self {
-            case .input: DSHColor.ocean
-            case .context: .green
-            case .request: Color(uiColor: .secondaryLabel)
-            case .assistant: DSHColor.purple
-            case .tool, .subtool: DSHColor.orange
+            case .input: return DSHColor.ocean
+            case .context: return palette.success
+            case .request: return Color(uiColor: .secondaryLabel)
+            case .assistant: return DSHColor.purple
+            case .tool, .subtool: return palette.caution
             }
         }
+
+        var color: Color { color(in: .dark) }
         var laneY: CGFloat {
             switch self { case .input: 6; case .context, .request, .assistant: 25; case .tool, .subtool: 44 }
         }
@@ -378,7 +382,7 @@ private struct TrajectoryRow: View {
                         .accessibilityLabel(String(localized: "a11y.open.request", defaultValue: "打开 Request #\(requestNode.request?.number ?? 0)"))
                 } else {
                     Circle()
-                        .fill(node.kind.color)
+                        .fill(node.kind.color(in: colorScheme))
                         .frame(width: 7, height: 7)
                         .frame(width: 10, height: 20)
                 }
@@ -389,7 +393,7 @@ private struct TrajectoryRow: View {
             HStack(spacing: 8) {
                 Text(node.kind.label)
                     .appFont(.caption2.weight(.semibold))
-                    .foregroundStyle(node.kind.color)
+                    .foregroundStyle(node.kind.color(in: colorScheme))
                     .padding(.horizontal, 6).padding(.vertical, 3)
                     .background(tagFill, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
                     .overlay {
@@ -424,11 +428,11 @@ private struct TrajectoryRow: View {
     }
 
     private var tagFill: Color {
-        node.kind.color.opacity(colorScheme == .dark ? 0.24 : 0.10)
+        node.kind.color(in: colorScheme).opacity(colorScheme == .dark ? 0.24 : 0.10)
     }
 
     private var tagEdge: Color {
-        node.kind.color.opacity(colorScheme == .dark ? 0.38 : 0.14)
+        node.kind.color(in: colorScheme).opacity(colorScheme == .dark ? 0.38 : 0.14)
     }
 
     private var timelineLineColor: Color {

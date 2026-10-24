@@ -53,6 +53,8 @@ struct PluginsView: View {
         } action: { containerWidth = $0 }
         .background(Color(uiColor: .systemBackground))
         .navigationTitle("插件")
+        // B4：容器级推入页同样整屏盖住背景，推入期间暂停动画（与设置子页同一策略）。
+        .pausesBackgroundAnimation()
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {

@@ -17,11 +17,17 @@ struct HarnessAnimatedBackground: View {
     @Environment(\.colorScheme) private var colorScheme
     /// B4：被子页覆盖时暂停逐帧重绘（卡死根因见 `BackgroundAnimationPause`）。
     @ObservedObject private var pause = BackgroundAnimationPause.shared
+    /// 诊断开关必须被**观察**，否则拨动后背景不重算，用户点完看不到变化（QA 实测指出）。
+    @AppStorage(SettingsDiagnostics.backgroundKey) private var layersOverride = ""
+
 
     private var isLight: Bool { colorScheme == .light }
 
     private var pausesAnimation: Bool {
-        reduceMotion || scenePhase != .active || pause.shouldPause || HarnessBackgroundLayers.enabled.isEmpty
+        // 读一次 @AppStorage：在 body 求值期间访问才会建立观察依赖，
+        // 否则拨动「关闭背景动画图层」开关后背景不重算（QA 实测指出）。
+        _ = layersOverride
+        return reduceMotion || scenePhase != .active || pause.shouldPause || HarnessBackgroundLayers.enabled.isEmpty
     }
 
     var body: some View {

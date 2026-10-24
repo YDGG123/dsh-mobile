@@ -26,6 +26,10 @@ struct WorkspaceView: View {
     @State private var showsManualPairing = false
     @State private var showsTeam = false
     @State private var bridgeChat: BridgeChatTarget?
+    /// Bot tab 的新数据源：网关团队帧（WS `/mobile/v1/team`）。拿不到数据时回退旧 bridge 渲染。
+    /// 团队页（TeamView）走同一个 feed 类型；这次把用户真正会看的 Bot tab 也接上，
+    /// 否则「名册混排 / 实时状态」只在没人能打开的团队页里。
+    @StateObject private var gatewayTeam = GatewayTeamFeed()
     @State private var drawerOffset: CGFloat = 0
     @State private var drawerDragStart: CGFloat?
     @State private var drawerFeedback = WorkspaceDrawerFeedback()
@@ -61,20 +65,10 @@ struct WorkspaceView: View {
                         Color.black.opacity(dimOpacity)
                             .allowsHitTesting(false)
                     }
-                    .clipShape(RoundedRectangle(cornerRadius: 48 * progress, style: .continuous))
-                    .compositingGroup()
-                    .shadow(
-                        color: .black.opacity(0.12 * progress),
-                        radius: 9 * progress,
-                        x: -2 * progress,
-                        y: 0
-                    )
-                    .shadow(
-                        color: .black.opacity(0.30 * progress),
-                        radius: 26 * progress,
-                        x: -4 * progress,
-                        y: 0
-                    )
+                    // B4 候选 2：这组「剪裁 + 离屏合成 + 双层实时阴影」会在呈现（push/Menu）
+                    // 强制对来源做快照时把主线程拖住；sheet 呈现不走这条快照路径，正好解释
+                    // 「sheet 不卡、push 与 Menu 都卡」。诊断开关可整体关掉（进度为 0 时视觉等价）。
+                    .modifier(WorkspaceCardComposition(progress: progress))
                     .overlay(alignment: .leading) {
                         if progress > 0.98 || drawerDragStart != nil {
                             Color.clear
@@ -111,7 +105,9 @@ struct WorkspaceView: View {
         .foregroundStyle(palette.ink(1))
         .onAppear {
             store.refreshRemoteState()
+            gatewayTeam.start()
         }
+        .onDisappear { gatewayTeam.stop() }
         .onDisappear {
             drawerFeedback.endDrag(cancelled: true)
             drawerDragStart = nil
@@ -298,7 +294,7 @@ struct WorkspaceView: View {
                                     .fill(palette.surface(0.18))
                                     .overlay(
                                         RoundedRectangle(cornerRadius: 9, style: .continuous)
-                                            .stroke(palette.ink(0.18), lineWidth: 0.5)
+                                            .stroke(palette.stroke(0.18), lineWidth: 0.5)
                                     )
                             }
                         }
@@ -310,7 +306,8 @@ struct WorkspaceView: View {
             }
         }
         .padding(4)
-        .background(palette.ink(0.07), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        // 用户反馈「灰底比周围白卡片重」：ink() 的浅色地板是给文字用的，填充改走 veil()。
+        .background(palette.veil(0.07), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .accessibilityElement(children: .contain)
         .accessibilityLabel("首页分组")
     }
@@ -323,8 +320,10 @@ struct WorkspaceView: View {
                 bridgeOfflineBanner
             }
             if primaryTab == .bots {
-                // U5：「Bot」tab 用 bridge 的团队结构（bots + 群聊）；点入优先原版聊天窗口。
-                if bridgeListReady {
+                // 数据源优先级：网关团队帧（新）→ bridge 镜像（旧宿主兼容）→ 诊断卡。
+                if gatewayTeamReady {
+                    gatewayTeamSection
+                } else if bridgeListReady {
                     bridgeSessionsSection
                 } else {
                     botDiagnosticsCard
@@ -379,6 +378,152 @@ struct WorkspaceView: View {
         .overlay(RoundedRectangle(cornerRadius: 14).stroke(.orange.opacity(0.25)))
     }
 
+    // MARK: - Bot tab（网关团队帧）
+
+    private var gatewayTeamReady: Bool {
+        switch gatewayTeam.phase {
+        case .live: return true
+        case .connecting, .offline: return !gatewayTeam.rows.isEmpty
+        case .idle, .needsPairing: return false
+        }
+    }
+
+    private var gatewayBotNames: [String: String] {
+        var names: [String: String] = [:]
+        for row in gatewayTeam.rows where row.kind == .bot { names[row.id] = row.name }
+        return names
+    }
+
+    /// 需求 1/3/4：主 Bot 最上 → 置顶 → 网关 `order` 倒序；Bots 与群聊混排；
+    /// 名字下挂实时状态；`degraded` 时显式说明「实时状态暂不可用」，绝不显示成「全部空闲」。
+    private var gatewayTeamSection: some View {
+        LazyVStack(spacing: 0) {
+            if gatewayTeam.degraded {
+                Text("实时状态暂不可用：网关目前只拿到名册（名字/角色/成员）。干活中、等你回答、等你审批要等桌面端发布团队服务后才显示。")
+                    .appFont(.caption)
+                    .foregroundStyle(palette.ink(0.6))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(12)
+                    .background(palette.surface(0.05), in: RoundedRectangle(cornerRadius: 12))
+                    .padding(.bottom, 6)
+            }
+            if case .offline(let reason) = gatewayTeam.phase {
+                Text("团队连接中断：\(reason)")
+                    .appFont(.caption).foregroundStyle(palette.caution)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 4).padding(.bottom, 6)
+            }
+            let rows = gatewayTeam.sortedRows.filter { row in
+                let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+                return query.isEmpty || row.name.localizedCaseInsensitiveContains(query)
+            }
+            if rows.isEmpty {
+                Text("暂无 Bot 或群聊。桌面端有 Bot 团队后这里会出现。")
+                    .appFont(.subheadline).foregroundStyle(palette.ink(0.5))
+                    .frame(maxWidth: .infinity, alignment: .leading).padding(18)
+                    .background(palette.surface(0.04), in: RoundedRectangle(cornerRadius: 15))
+            } else {
+                ForEach(rows) { row in
+                    Button {
+                        sessionSearchIsFocused = false
+                        openGatewayTeamRow(row)
+                    } label: {
+                        gatewayTeamRow(row)
+                    }
+                    .buttonStyle(.plain)
+                    .id("gateway-team-\(row.id)")
+                    Divider().overlay(palette.stroke(0.1)).padding(.leading, 18)
+                }
+            }
+        }
+    }
+
+    private func gatewayTeamRow(_ row: GatewayTeamFeed.Row) -> some View {
+        HStack(spacing: 11) {
+            Circle()
+                .fill(statusTint(for: row))
+                .frame(width: 7, height: 7)
+                .shadow(color: gatewayTeam.isLive(row) ? palette.success : .clear, radius: 5)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text(row.name).lineLimit(1).appFont(.subheadline.weight(.medium))
+                    if row.main { Text("主").appFont(.caption2).foregroundStyle(palette.ink(0.55)) }
+                    if row.pinned { Image(systemName: "pin.fill").appFont(.caption2).foregroundStyle(palette.ink(0.4)) }
+                }
+                if let status = gatewayTeam.statusText(for: row, botNames: gatewayBotNames) {
+                    Text(status).appFont(.caption).foregroundStyle(statusForeground(for: row)).lineLimit(1)
+                } else {
+                    Text(row.kind == .room
+                         ? gatewayTeam.roomSubtitle(for: row, botNames: gatewayBotNames)
+                         : (row.role ?? "Bot"))
+                        .appFont(.caption2).foregroundStyle(palette.ink(0.42)).lineLimit(1)
+                }
+                if row.kind == .room, let preview = row.preview, !preview.isEmpty {
+                    Text(preview).appFont(.caption2).foregroundStyle(palette.ink(0.35)).lineLimit(1)
+                }
+            }
+            Spacer()
+        }
+        .padding(.horizontal, 4)
+        .padding(.vertical, 10)
+        .contentShape(Rectangle())
+    }
+
+    private func statusTint(for row: GatewayTeamFeed.Row) -> Color {
+        if !row.pending.isEmpty || row.placeholderCards > 0 || !row.approvals.isEmpty { return palette.caution }
+        if gatewayTeam.isLive(row) { return palette.success }
+        return palette.veil(0.35)
+    }
+
+    private func statusForeground(for row: GatewayTeamFeed.Row) -> Color {
+        if !row.pending.isEmpty || row.placeholderCards > 0 || !row.approvals.isEmpty { return palette.caution }
+        if gatewayTeam.isLive(row) { return palette.success }
+        return palette.ink(0.5)
+    }
+
+    /// 点行直接进对话：先按 id 找 bridge 行（聊天仍走 bridge），找不到就用 sessionId 试网关会话。
+    private func openGatewayTeamRow(_ row: GatewayTeamFeed.Row) {
+        if let bridgeRow = bridgeTeam.mirror.map({ mirror in
+            (row.kind == .room ? mirror.rooms : mirror.bots).first { $0.id == row.id }
+        }) ?? nil {
+            openBridgeConversation(bridgeRow)
+            return
+        }
+        if let session = store.sessions.first(where: { $0.id == row.sessionId }) {
+            onOpenSession(session)
+            return
+        }
+        store.lastError = "这条对话还没同步到会话列表，稍后重试。"
+    }
+
+    /// 诊断可关闭的工作区包裹样式（见 `SettingsDiagnostics.compositingKey`）。
+    private struct WorkspaceCardComposition: ViewModifier {
+        let progress: CGFloat
+        @AppStorage(SettingsDiagnostics.compositingKey) private var disabled = false
+
+        func body(content: Content) -> some View {
+            if disabled {
+                content
+            } else {
+                content
+                    .clipShape(RoundedRectangle(cornerRadius: 48 * progress, style: .continuous))
+                    .compositingGroup()
+                    .shadow(
+                        color: .black.opacity(0.12 * progress),
+                        radius: 9 * progress,
+                        x: -2 * progress,
+                        y: 0
+                    )
+                    .shadow(
+                        color: .black.opacity(0.30 * progress),
+                        radius: 26 * progress,
+                        x: -4 * progress,
+                        y: 0
+                    )
+            }
+        }
+    }
+
     private var bridgeListReady: Bool {
         guard let mirror = bridgeTeam.mirror else { return false }
         return !mirror.needsPairing
@@ -420,9 +565,10 @@ struct WorkspaceView: View {
     private func bridgeSessionRow(_ row: BridgeTeamRow) -> some View {
         HStack(spacing: 11) {
             Circle()
-                .fill(row.waiting == true ? DSHColor.success : palette.ink(0.35))
+                // 图形判据 ≥3:1：等待用压暗绿，未等待用 stroke 档（原来 ink(0.35) 在浅色下是 0.71 的近黑点）。
+                .fill(row.waiting == true ? palette.success : palette.veil(0.35))
                 .frame(width: 7, height: 7)
-                .shadow(color: row.waiting == true ? DSHColor.success : .clear, radius: 5)
+                .shadow(color: row.waiting == true ? palette.success : .clear, radius: 5)
             VStack(alignment: .leading, spacing: 3) {
                 Text(row.name).lineLimit(1).appFont(.subheadline.weight(.medium))
                 Text(bridgeRowSubtitle(row)).appFont(.caption2).foregroundStyle(palette.ink(0.42)).lineLimit(1)
@@ -915,7 +1061,7 @@ struct WorkspaceView: View {
     private func sessionRow(_ session: SessionSummary) -> some View {
         HStack(spacing: 11) {
             Circle()
-                .fill(session.isRunning ? palette.success : (session.hasUnread ? DSHColor.ocean : palette.ink(0.35)))
+                .fill(session.isRunning ? palette.success : (session.hasUnread ? DSHColor.ocean : palette.veil(0.35)))
                 .frame(width: 7, height: 7)
                 .shadow(color: session.isRunning ? palette.success : .clear, radius: 5)
             VStack(alignment: .leading, spacing: 3) {
@@ -945,7 +1091,7 @@ struct WorkspaceView: View {
                 newSessionButtonLabel
             }
             .buttonStyle(.plain)
-            .glassSurface(radius: 18, dark: true, tint: palette.ink(0.08))
+            .glassSurface(radius: 18, dark: colorScheme == .dark, tint: palette.veil(0.08))
         }
     }
 
@@ -1293,7 +1439,8 @@ private struct DirectoryBrowserSheet: View {
                 }
                 .overlay {
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .stroke(palette.ink(0.18), lineWidth: 0.8)
+                        // 这是纯黑按钮上的一圈高光，与主题无关（原来用 ink 在浅色下变成深色描边，看不见）。
+                        .stroke(Color.white.opacity(0.22), lineWidth: 0.8)
                 }
                 .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
@@ -1484,7 +1631,7 @@ private struct ManualGatewayPairingSheet: View {
             resultCard(
                 title: String(localized: "配对信息无效"),
                 detail: validationError,
-                color: .red,
+                color: DSHColor.dangerAA,
                 symbol: "exclamationmark.triangle.fill"
             )
         } else if didAttemptConnection {
@@ -1493,21 +1640,21 @@ private struct ManualGatewayPairingSheet: View {
                 resultCard(
                     title: String(localized: "正在连接"),
                     detail: String(localized: "pairing.submitting.detail", defaultValue: "正在提交一次性配对码并等待 Mobile Gateway 完成设备鉴权…"),
-                    color: DSHColor.amber,
+                    color: DSHColor.warningAA,
                     symbol: "arrow.triangle.2.circlepath"
                 )
             case .connected:
                 resultCard(
                     title: String(localized: "连接成功"),
                     detail: String(localized: "设备鉴权已完成，长期 token 已安全保存到 Keychain。"),
-                    color: DSHColor.success,
+                    color: DSHColor.successAA,
                     symbol: "checkmark.circle.fill"
                 )
             case .failed(let reason):
                 resultCard(
                     title: String(localized: "连接失败"),
                     detail: reason,
-                    color: .red,
+                    color: DSHColor.dangerAA,
                     symbol: "xmark.octagon.fill"
                 )
             case .disconnected:
