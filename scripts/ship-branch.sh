@@ -92,11 +92,14 @@ files = [f for f in subprocess.run(['git', 'diff', '--name-only', base_local, lo
 
 entries = []
 for path in files:
-    with open(path, 'rb') as handle:
-        content = handle.read()
-    blob = gh([f'repos/{repo}/git/blobs'],
-              {'content': base64.b64encode(content).decode(), 'encoding': 'base64'})
-    entries.append({'path': path, 'mode': '100644', 'type': 'blob', 'sha': blob['sha']})
+    # 一律取**已提交**内容（HEAD），不读工作区：否则未提交的改动会让内容校验必然失败。
+    blob = subprocess.run(['git', 'show', f'HEAD:{path}'], capture_output=True)
+    if blob.returncode != 0:
+        sys.exit(f'读取 {path} 的 HEAD 内容失败: {blob.stderr.decode(errors="ignore")}')
+    content = blob.stdout
+    created = gh([f'repos/{repo}/git/blobs'],
+                 {'content': base64.b64encode(content).decode(), 'encoding': 'base64'})
+    entries.append({'path': path, 'mode': '100644', 'type': 'blob', 'sha': created['sha']})
 
 tree = gh([f'repos/{repo}/git/trees'], {'base_tree': base_tree, 'tree': entries}) if entries else {'sha': base_tree}
 message = subprocess.run(['git', 'log', '-1', '--pretty=%s'], text=True, capture_output=True).stdout.strip()
@@ -111,13 +114,38 @@ PY
 
 echo "→ 新提交 ${NEW_SHA:0:7}"
 
-echo "→ 校验内容：远端 tree 应等于本地 HEAD 的 tree"
+echo "→ 校验内容：按文件逐个比对（跳过 .github/workflows/，它沿用 base 版本）"
 REMOTE_TREE=$(gh api "repos/$REPO/git/commits/$NEW_SHA" --jq '.tree.sha')
-if [ "$REMOTE_TREE" != "$LOCAL_TREE" ]; then
-  echo "❌ tree 不一致：远端 $REMOTE_TREE ≠ 本地 $LOCAL_TREE"
+if ! REPO="$REPO" REMOTE_TREE="$REMOTE_TREE" python3 - <<'PYCHECK'
+import json, os, subprocess, sys
+repo = os.environ['REPO']; remote_tree = os.environ['REMOTE_TREE']
+remote = subprocess.run(['gh', 'api', f'repos/{repo}/git/trees/{remote_tree}?recursive=1'],
+                        text=True, capture_output=True)
+if remote.returncode != 0:
+    sys.exit('读取远端 tree 失败: ' + remote.stderr.strip())
+remote_map = {item['path']: item['sha'] for item in json.loads(remote.stdout).get('tree', [])
+              if item.get('type') == 'blob' and not item['path'].startswith('.github/workflows/')}
+local = subprocess.run(['git', 'ls-tree', '-r', 'HEAD'], text=True, capture_output=True).stdout
+local_map = {}
+for line in local.splitlines():
+    meta, path = line.split('\t', 1)
+    local_map[path] = meta.split()[2]
+local_map = {p_: s_ for p_, s_ in local_map.items() if not p_.startswith('.github/workflows/')}
+missing = [p_ for p_ in local_map if p_ not in remote_map]
+differs = [p_ for p_ in local_map if p_ in remote_map and remote_map[p_] != local_map[p_]]
+extra = [p_ for p_ in remote_map if p_ not in local_map]
+if missing or differs or extra:
+    print('❌ 内容不一致：')
+    if missing: print('  远端缺:', missing[:5])
+    if differs: print('  内容不同:', differs[:5])
+    if extra: print('  远端多:', extra[:5])
+    sys.exit(1)
+print('  ✓ 逐文件一致（%d 个文件；workflow 按约定跳过）' % len(local_map))
+PYCHECK
+then
+  echo "❌ 校验失败，未推送分支指针"
   exit 1
 fi
-echo "  ✓ tree 一致（$REMOTE_TREE）"
 
 gh api --input - -X PATCH "repos/$REPO/git/refs/heads/$BRANCH" \
   <<< "{\"sha\":\"$NEW_SHA\",\"force\":true}" >/dev/null || { echo "❌ 更新分支失败"; exit 1; }
