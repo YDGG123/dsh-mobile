@@ -48,13 +48,13 @@ echo "→ 本地 HEAD ${LOCAL_SHA:0:7}  tree ${LOCAL_TREE:0:7}"
 
 # ── 闸门：构建的 head 必须是被 QA 验过的那个 head ───────────────────────────
 # 教训（2026-10-24）：曾在「差三项未验」的情况下先出包、事后补验，靠运气没出事。
-# 口径固化成文件：QA 验完后由维护者把 SHA 写进 build-output/verified-heads.txt，
+# 口径固化成**版本化**文件：QA 验完后由维护者把 SHA 写进 scripts/verified-heads.txt，
 # 一行一个（可带 # 备注）。脚本接受两种通过方式：
 #   A. 本地 HEAD 就在清单里；
 #   B. App 代码与清单里某个 SHA **逐文件相同**（仅脚本/文档差异）
 #      —— 这样"只改了出包脚本"的提交不必让 QA 重验整个 App。
 # 其余情况拒绝构建，退出码 5；`--allow-unverified` 可越过但会留痕（不可作正式交付）。
-VERIFIED_FILE="${VERIFIED_HEAD_FILE:-$OUT_DIR/verified-heads.txt}"
+VERIFIED_FILE="${VERIFIED_HEAD_FILE:-scripts/verified-heads.txt}"
 APP_PATHS=(DeepSeekHarnessMobile AgentLiveActivityWidget DeepSeekHarnessMobileTests \
            DeepSeekHarnessMobileUITests shared gradle gradle.properties \
            settings.gradle.kts build.gradle.kts DeepSeekHarnessMobile.xcodeproj)
