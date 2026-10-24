@@ -1146,7 +1146,12 @@ struct WorkspaceView: View {
                 newSessionButtonLabel
             }
             .buttonStyle(.plain)
-            .glassSurface(radius: 18, dark: colorScheme == .dark, tint: palette.veil(0.08))
+            // 用户反馈「新建会话」灰底偏深：浅色下原来是 thinMaterial + veil(0.08) 双叠，
+            // 现在浅色改用与卡片一致的实色浅面（surface(0.12) ≈ 92% 白），不再叠 tint；
+            // 文字仍是 ink(1) 近黑，压在 92% 白上 ≈17:1，对比度不受影响。深色档一个字没动。
+            .glassSurface(radius: 18, dark: colorScheme == .dark,
+                          tint: colorScheme == .dark ? palette.veil(0.08) : nil,
+                          lightFill: colorScheme == .dark ? nil : palette.surface(0.12))
         }
     }
 
