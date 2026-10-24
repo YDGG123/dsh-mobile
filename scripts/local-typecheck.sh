@@ -198,47 +198,10 @@ WIDGET_ERRORS=${WIDGET_ERRORS:-0}
 
 # ---- 工程收录守卫（2026-10-25 教训）----
 # 本工程是**显式 fileRef**（不是 Xcode 16 的同步组）：新加的 .swift 如果没登记进 pbxproj，
-# `swiftc -typecheck` 仍然全绿（它用 find 收文件、不经过工程），但 xcodebuild 会直接
-# `cannot find 'X' in scope`，CI 才炸。所以这里把「必须被工程收录」变成硬闸门。
-if ! python3 - <<'PYCHK'
-import pathlib, re, sys
-root = pathlib.Path('.')
-pbx_path = root / 'DeepSeekHarnessMobile.xcodeproj/project.pbxproj'
-pbx = pbx_path.read_text(encoding='utf-8')
-
-# 1) 所有 PBXBuildFile（"X.swift in Sources" → id）
-build_ids = {}
-# 工程里同时存在 tab 与空格缩进（历史导致），两者都要认
-for m in re.finditer(r'^[ \t]+([0-9A-F]{24}) /\* ([^*]+?) in Sources \*/ = \{isa = PBXBuildFile;', pbx, re.M):
-    build_ids.setdefault(m.group(2).strip(), set()).add(m.group(1))
-
-# 2) 所有 Sources phase 里实际挂着的 id
-phase_ids = set()
-for block in re.finditer(r'isa = PBXSourcesBuildPhase;.*?files = \((.*?)\);', pbx, re.S):
-    phase_ids.update(re.findall(r'([0-9A-F]{24}) /\*', block.group(1)))
-
-# 3) 每个 .swift 必须有 "in Sources" 的 BuildFile，且该 id 真的挂在某个 Sources phase 里
-targets = ['DeepSeekHarnessMobile', 'AgentLiveActivityWidget', 'DeepSeekHarnessMobileTests', 'DeepSeekHarnessMobileUITests']
-missing = []
-for base in targets:
-    d = root / base
-    if not d.is_dir():
-        continue
-    for path in sorted(d.rglob('*.swift')):
-        ids = build_ids.get(path.name) or set()
-        if not ids:
-            missing.append(f'{path}（没有 PBXBuildFile）')
-        elif not (ids & phase_ids):
-            missing.append(f'{path}（BuildFile 没挂进 Sources phase）')
-if missing:
-    print('❌ 以下 Swift 文件没有被 Xcode 工程真正编译（xcodebuild 会报 cannot find in scope）：')
-    for m in missing:
-        print('   ', m)
-    print('   修法：fileRef + BuildFile + 分组 + 对应 target 的 Sources phase，四处缺一不可。')
-    sys.exit(1)
-print('  ✓ 工程收录：所有 .swift 都挂在某个 Sources phase 上')
-PYCHK
-then
+# find 式的类型检查照样绿，CI 才炸。守卫已升级为**按 target 归属**核对
+# （QA 建议：挂在错的 target 也要红）。注意：并发编辑时工作树在变，本守卫可能抖动，
+# 验证提交版请用 `git archive` 快照运行。
+if ! python3 "$(dirname "${BASH_SOURCE[0]}")/check-project-membership.py"; then
   exit 1
 fi
 
