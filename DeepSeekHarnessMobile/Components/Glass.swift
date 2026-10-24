@@ -5,6 +5,12 @@ struct GlassSurface: ViewModifier {
     let dark: Bool
     let tint: Color?
     /// 浅色专用实色面：传了就不再走 `thinMaterial + tint` 的双叠（那组合在浅色下偏深）。
+    ///
+    /// **仅在 iOS 16–25 生效。** iOS 26 走系统 `glassEffect` 分支，该分支**完全忽略**
+    /// `lightFill`：浅色在 26 上是「去掉 tint 的 `.glassEffect(.regular)`」，不是实色面；
+    /// 而深色在 26 上仍然 `.tint(...)`。也就是说 **26 的浅/深从此不对称，这是有意的**——
+    /// 26 的原生玻璃是平台该有的观感，我们不在 glassEffect 里伪造一层实色填充。
+    /// 读代码时不要把这当成"漏改"。
     let lightFill: Color?
     let clear: Bool
     let shadowOpacity: Double
@@ -47,38 +53,66 @@ struct GlassSurface: ViewModifier {
     }
 }
 
-/// 主题感知的玻璃面：深色走原样（material + tint），浅色改成**实色浅面**，
-/// 不再「thinMaterial + tint」双叠（那组合在白页上偏灰、还叠一层阴影）。
-/// 用它就不用在每个调用点手写 `colorScheme == .dark ? … : nil`。
+/// 主题感知的玻璃面：深色按各调用点的原样（material + tint），浅色改成**实色浅面**，
+/// 不再「thinMaterial + tint」双叠。用它就不用在每个调用点手写 `colorScheme == .dark ? … : nil`。
+///
+/// 参数语义：
+/// - `tint`：**深色档**的 tint（浅色一律不叠 tint，否则白底上又变灰）
+/// - `lightFill`：浅色档的实色面，默认系统 `secondarySystemBackground`（#F2F2F7）
+/// - `darkMaterial`：深色是否走 `dark: true` 的 `ultraThinMaterial` 形态。
+///   7 处历史调用点**不传**（＝false），保持深色逐字不变；「新建会话」按钮传 true。
+/// - `lightShadowOpacity`：浅色档阴影上限，默认 0.06（实色面不需要重阴影）
+///
+/// **边界线不在这里画**：7 个调用点都在本修饰符之后自己描边（`glassEdge` /
+/// `panelGlassEdge` / 问题卡的 white）。曾经在这里补过一圈 `ink(0.06)`，但同半径、
+/// 被外层 0.6–0.7pt 的白线整条压住，浅色下等于没画（QA 实测指出）。
+/// 所以边界的归属是**最后描边的调用点**：浅色必须用墨色（`DSHColor.ink`），
+/// 白色只用于深色档高光。
 struct ThemedGlassSurface: ViewModifier {
     let radius: CGFloat
     let tint: Color?
+    let lightFill: Color
+    let darkMaterial: Bool
     let shadowOpacity: Double
+    let lightShadowOpacity: Double
     @Environment(\.colorScheme) private var colorScheme
 
     func body(content: Content) -> some View {
         content
-            // 注意：这 7 个调用点原本都没传 `dark`（默认 false → 一直用 thinMaterial）。
-            // 为了让**深色逐字不变**，这里也保持 `dark: false`，只按主题切换 tint/实色面。
+            // 注意：7 个历史调用点原本都没传 `dark`（默认 false → 一直用 thinMaterial）。
+            // 为了让**深色逐字不变**，`darkMaterial: false` 时这里也保持 `dark: false`，
+            // 只按主题切换 tint/实色面。
             .glassSurface(radius: radius,
-                          dark: false,
+                          dark: colorScheme == .dark && darkMaterial,
                           tint: colorScheme == .dark ? tint : nil,
-                          lightFill: colorScheme == .dark ? nil : Color(uiColor: .secondarySystemBackground),
-                          shadowOpacity: colorScheme == .dark ? shadowOpacity : min(shadowOpacity, 0.06))
-            .overlay {
-                // 浅色下原来的白色高光描边在白底上不可见，补一圈极淡墨色边界。
-                if colorScheme == .light {
-                    RoundedRectangle(cornerRadius: radius, style: .continuous)
-                        .stroke(DSHColor.ink.opacity(0.06), lineWidth: 0.8)
-                }
-            }
+                          lightFill: colorScheme == .dark ? nil : lightFill,
+                          // 浅色实色面不需要 material 那套重阴影，压到一档。
+                          shadowOpacity: colorScheme == .dark ? shadowOpacity : lightShadowOpacity)
     }
 }
 
 extension View {
     /// 浅色实色面 / 深色材质面 的统一入口（见 `ThemedGlassSurface`）。
-    func themedGlassSurface(radius: CGFloat = 22, tint: Color? = nil, shadowOpacity: Double = 0.18) -> some View {
-        modifier(ThemedGlassSurface(radius: radius, tint: tint, shadowOpacity: shadowOpacity))
+    /// 新增调用点一律用它，不要再手写 `glassSurface(dark: colorScheme == .dark, …)` 三元组。
+    ///
+    /// 完整口径（含 iOS 26 分支语义、边界归属、实测 ΔL\*、系统语义色裁定）见
+    /// `Docs/glass-surface-guidelines.md`。**不要引用"亮度比 1.09–1.15"**——仓库里没有这个定义。
+    func themedGlassSurface(
+        radius: CGFloat = 22,
+        tint: Color? = nil,
+        lightFill: Color = Color(uiColor: .secondarySystemBackground),
+        darkMaterial: Bool = false,
+        shadowOpacity: Double = 0.18,
+        lightShadowOpacity: Double = 0.06
+    ) -> some View {
+        modifier(ThemedGlassSurface(
+            radius: radius,
+            tint: tint,
+            lightFill: lightFill,
+            darkMaterial: darkMaterial,
+            shadowOpacity: shadowOpacity,
+            lightShadowOpacity: lightShadowOpacity
+        ))
     }
 
     func glassSurface(radius: CGFloat = 22, dark: Bool = false, tint: Color? = nil,

@@ -464,10 +464,13 @@ struct ConversationView: View {
             .opacity(colorScheme == .dark ? 0.52 : 0.48)
     }
 
+    /// 玻璃边界归属**最后描边的一方**（`ThemedGlassSurface` 内部不再画线，见其注释）。
+    /// 浅色现在是实色面 #F2F2F7，白线压上去几乎不可见 → 浅色改用墨色；
+    /// 深色仍是材质面上的白色高光，逐字不变。
     private var glassEdge: Color {
         colorScheme == .dark
             ? .white.opacity(0.13)
-            : .white.opacity(0.56)
+            : DSHColor.ink.opacity(0.10)
     }
 
     private var glassShadow: Color {

@@ -47,7 +47,8 @@ struct HumanQuestionView: View {
         .themedGlassSurface(radius: 24, tint: cardTint)
         .overlay {
             RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .stroke(colorScheme == .dark ? .white.opacity(0.14) : .white.opacity(0.72), lineWidth: 0.8)
+                // 浅色实色面上一律用墨色边界（白色只在深色材质面上当高光）。
+                .stroke(colorScheme == .dark ? .white.opacity(0.14) : DSHColor.ink.opacity(0.10), lineWidth: 0.8)
         }
         .shadow(color: .black.opacity(colorScheme == .dark ? 0.30 : 0.12), radius: 20, y: 9)
         .padding(.horizontal, 14)

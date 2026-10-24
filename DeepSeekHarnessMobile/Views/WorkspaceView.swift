@@ -1148,11 +1148,14 @@ struct WorkspaceView: View {
             }
             .buttonStyle(.plain)
             // 用户反馈「新建会话」灰底偏深：浅色下原来是 thinMaterial + veil(0.08) 双叠，
-            // 现在浅色改用与卡片一致的实色浅面（surface(0.12) ≈ 92% 白），不再叠 tint；
-            // 文字仍是 ink(1) 近黑，压在 92% 白上 ≈17:1，对比度不受影响。深色档一个字没动。
-            .glassSurface(radius: 18, dark: colorScheme == .dark,
-                          tint: colorScheme == .dark ? palette.veil(0.08) : nil,
-                          lightFill: colorScheme == .dark ? nil : palette.surface(0.12))
+            // 现在走统一入口 `themedGlassSurface`（浅色实色面 surface(0.12) ≈92% 白、
+            // 不叠 tint；深色仍是 ultraThinMaterial + veil(0.08)，逐字不变）。
+            // 文字继承外层 ink(1)=#0E131A，压在 92% 白上 ≈18.6:1。
+            .themedGlassSurface(radius: 18,
+                                tint: palette.veil(0.08),
+                                lightFill: palette.surface(0.12),
+                                darkMaterial: true,
+                                lightShadowOpacity: 0.18)
         }
     }
 
