@@ -12,3 +12,4 @@ acca9c4a178bf40cc6f770a30e8454263d2e8639  # chore(ship)：出包闸门实现（C
 d08785a128d8299ea2bac299ea24a4493c22a917  # chore(ship)：闸门改读版本化清单（同上，chore 随构建验证）
 a33bd264294f01d7c9f834049c9e2a0068b62554  # chore(ship)：清单只保留一份（同上，chore 随构建验证）
 a36f65a17b8b6cc1b164f98ee06d0f3e26eefd05  # merge 后 Debug 配置 iOS17+ 降级（App 14 处 + widget 10 个 #Preview）+ local-typecheck 四路闸门（QA 增量复核通过，反向测试两条）
+c1cdf4529be6e34b81ff2307b42b5eaaa95327da  # 攒批出包：头像二期+DEBUG兼容+上游合并ec916e1（QA增量复核通过）
