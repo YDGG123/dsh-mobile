@@ -59,6 +59,7 @@ struct SettingsView: View {
     /// 外观两项改为「点行 → 弹出选项层」，避免 .navigationLink Picker 的推入卡死。
     @State private var showsInterfaceOptions = false
     @State private var showsLanguageOptions = false
+    @State private var showsLanguageRestartAlert = false
     @State private var showsReleaseNotes = false
     /// 新会话默认配置三项 + 字体大小：用户裁决一律不走推入，改用紧凑弹层。
     @State private var showsPresetOptions = false
@@ -264,7 +265,9 @@ struct SettingsView: View {
                 Button {
                     showsLanguageOptions = true
                 } label: {
-                    settingsValueRow(title: "语言", value: store.appLanguage.title)
+                    // 切换后进程内仍是旧语言（iOS 只在启动时读 AppleLanguages），
+                    // 所以就在值后面标出来，不用用户猜。
+                    settingsValueRow(title: "语言", value: store.appLanguage.title + languageRestartSuffix)
                 }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("appearance-language-row")
@@ -362,7 +365,11 @@ struct SettingsView: View {
                 options: AppLanguage.allCases.map { OptionListSheet.Option(id: $0.rawValue, title: $0.title) },
                 selectedID: store.appLanguage.rawValue
             ) { id in
-                if let language = AppLanguage(rawValue: id) { store.appLanguage = language }
+                guard let language = AppLanguage(rawValue: id) else { return }
+                let changed = language != store.appLanguage
+                store.appLanguage = language
+                // 用户明确要求：改完必须立刻告诉他为什么没变，而不是让他猜。
+                if changed { showsLanguageRestartAlert = true }
             }
         }
         .sheet(isPresented: $showsPrivacyPolicy) {
@@ -380,6 +387,18 @@ struct SettingsView: View {
         .sheet(isPresented: $showsFontSizePanel) {
             FontSizePanel()
         }
+        .alert("语言已切换", isPresented: $showsLanguageRestartAlert) {
+            Button("退出 App") { exit(0) }
+            Button("稍后重启", role: .cancel) {}
+        } message: {
+            Text("界面语言只在 App 启动时读取系统语言设置，因此需要重启一次才会切换：请从后台把 App 彻底划掉再打开。\n\n如果重启后仍是中文，请检查 iOS「设置 → App → 语言」是否被单独设置过。")
+        }
+    }
+
+    /// 值后面那句「需重启」：只在用户选择与进程实际生效语言不一致时出现。
+    private var languageRestartSuffix: String {
+        guard store.appLanguage != .system else { return "" }
+        return store.appLanguage == AppLanguage.effective ? "" : " · 需重启后生效"
     }
 
     /// 「标题 + 当前值 + 右侧箭头」的设置行（点开弹出选项层用）。

@@ -262,6 +262,13 @@ enum InterfaceStyle: String, CaseIterable, Identifiable {
         return style
     }
 
+    /// 当前**进程内实际生效**的语言。iOS 只在启动时读 `AppleLanguages`，
+    /// 所以切换后进程里仍是旧值——用它和用户选择对比，就能给出「需重启」提示。
+    static var effective: AppLanguage {
+        let preferred = (Locale.preferredLanguages.first ?? "zh-Hans").lowercased()
+        return preferred.hasPrefix("en") ? .english : .simplifiedChinese
+    }
+
     func apply(to defaults: UserDefaults = .standard) {
         defaults.set(rawValue, forKey: Self.preferenceKey)
     }
@@ -291,6 +298,13 @@ enum AppLanguage: String, CaseIterable, Identifiable {
             return .system
         }
         return language
+    }
+
+    /// 当前**进程内实际生效**的语言。iOS 只在启动时读 `AppleLanguages`，
+    /// 所以切换后进程里仍是旧值——用它和用户选择对比，就能给出「需重启」提示。
+    static var effective: AppLanguage {
+        let preferred = (Locale.preferredLanguages.first ?? "zh-Hans").lowercased()
+        return preferred.hasPrefix("en") ? .english : .simplifiedChinese
     }
 
     func apply(to defaults: UserDefaults = .standard) {
