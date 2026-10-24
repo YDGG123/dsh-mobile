@@ -11,6 +11,7 @@
 #   ./scripts/ship-branch.sh                 # 建提交 + 触发 + 等构建 + 下载 + 报 sha256
 #   ./scripts/ship-branch.sh --no-wait       # 只建提交并触发
 #   ./scripts/ship-branch.sh --dry-run       # 只打印将要提交的文件，不写远端
+#   ./scripts/ship-branch.sh --allow-unverified  # 越过「head 必须已被 QA 验过」闸门（会留痕）
 #
 # 约定：`.github/workflows/` 下的文件一律不写进出包提交（沿用 base 的版本），
 # 这样既不触发 scope 限制，也不改变 CI 行为（我们是手动 dispatch）。
@@ -23,11 +24,15 @@ WORKFLOW="${WORKFLOW:-build-ipa.yml}"
 OUT_DIR="${OUT_DIR:-build-output}"
 WAIT=1
 DRY=0
+ALLOW_UNVERIFIED=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --no-wait) WAIT=0; shift;;
     --dry-run) DRY=1; shift;;
+    --allow-unverified)
+      # 逃生口：明确绕过「head 必须已被 QA 验过」的闸门。会在输出里留痕。
+      ALLOW_UNVERIFIED=1; shift;;
     -h|--help) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit 0;;
     *) echo "未知参数: $1"; exit 2;;
   esac
@@ -40,6 +45,54 @@ gh auth status >/dev/null 2>&1 || { echo "❌ gh 未登录"; exit 1; }
 LOCAL_SHA=$(git rev-parse HEAD)
 LOCAL_TREE=$(git rev-parse HEAD^{tree})
 echo "→ 本地 HEAD ${LOCAL_SHA:0:7}  tree ${LOCAL_TREE:0:7}"
+
+# ── 闸门：构建的 head 必须是被 QA 验过的那个 head ───────────────────────────
+# 教训（2026-10-24）：曾在「差三项未验」的情况下先出包、事后补验，靠运气没出事。
+# 口径固化成文件：QA 验完后由维护者把 SHA 写进 build-output/verified-heads.txt，
+# 一行一个（可带 # 备注）。脚本接受两种通过方式：
+#   A. 本地 HEAD 就在清单里；
+#   B. App 代码与清单里某个 SHA **逐文件相同**（仅脚本/文档差异）
+#      —— 这样"只改了出包脚本"的提交不必让 QA 重验整个 App。
+# 其余情况拒绝构建，退出码 5；`--allow-unverified` 可越过但会留痕（不可作正式交付）。
+VERIFIED_FILE="${VERIFIED_HEAD_FILE:-$OUT_DIR/verified-heads.txt}"
+APP_PATHS=(DeepSeekHarnessMobile AgentLiveActivityWidget DeepSeekHarnessMobileTests \
+           DeepSeekHarnessMobileUITests shared gradle gradle.properties \
+           settings.gradle.kts build.gradle.kts DeepSeekHarnessMobile.xcodeproj)
+
+head_is_verified() {
+  [ -f "$VERIFIED_FILE" ] || return 1
+  # A. 精确命中
+  if grep -qE "^[[:space:]]*${LOCAL_SHA}([[:space:]]|$)" "$VERIFIED_FILE"; then
+    echo "  ✓ head 在已验证清单里（$(grep -cE '^[[:space:]]*[0-9a-f]{7,40}' "$VERIFIED_FILE") 条记录）"
+    return 0
+  fi
+  # B. App 代码等价（仅脚本/文档差异）
+  local sha
+  while IFS= read -r line; do
+    sha="$(printf '%s' "$line" | sed -E 's/#.*$//' | tr -d '[:space:]')"
+    [ -n "$sha" ] || continue
+    case "$sha" in *[!0-9a-f]*) continue;; esac
+    git cat-file -e "${sha}^{commit}" 2>/dev/null || continue
+    if git diff --quiet "$sha" "$LOCAL_SHA" -- "${APP_PATHS[@]}" 2>/dev/null; then
+      echo "  ✓ App 代码与已验证 ${sha:0:7} **逐文件相同**（本 head 只多了脚本/文档改动）"
+      return 0
+    fi
+  done < "$VERIFIED_FILE"
+  return 1
+}
+
+if head_is_verified; then
+  :
+elif [ "$ALLOW_UNVERIFIED" -eq 1 ]; then
+  echo "  ⚠️  head **不在**已验证清单里（或 App 代码有未验差异），但带了 --allow-unverified，继续"
+  echo "     这次构建只能作内部验证包，**不可作正式交付**。"
+else
+  echo "❌ 这个 head 还没有被 QA 验过，拒绝出包（退出码 5）。"
+  echo "   QA 验完后把 SHA 写进：$VERIFIED_FILE"
+  echo "   若只是脚本/文档改动，App 代码与清单里的某个 SHA 相同也会放行。"
+  echo "   确实要先出包（内部验证包）：加 --allow-unverified。"
+  exit 5
+fi
 
 echo "→ 读取远端 ${BRANCH} 的 base"
 BASE_SHA=$(gh api "repos/$REPO/git/ref/heads/$BRANCH" --jq '.object.sha') || { echo "❌ 读不到分支 $BRANCH"; exit 1; }

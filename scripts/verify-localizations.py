@@ -163,13 +163,23 @@ def main() -> int:
         keys = check_catalog("Localizable", errors)
         check_catalog("InfoPlist", errors)
         check_swift_calls(keys, errors)
-    android_count = check_android(errors)
-    android_ui_count = check_android_ui(errors)
+    # 裁剪副本（只拷 iOS 相关目录）里没有 androidApp：跳过 Android 两项并明确提示，
+    # 而不是抛 FileNotFoundError 的 traceback。
+    if ANDROID_RESOURCES.is_dir() and ANDROID_SOURCES.is_dir():
+        android_count = check_android(errors)
+        android_ui_count = check_android_ui(errors)
+    else:
+        missing = [str(p.relative_to(ROOT)) for p in (ANDROID_RESOURCES, ANDROID_SOURCES) if not p.is_dir()]
+        print(f"ℹ️  跳过 Android 本地化检查（副本里缺少 {', '.join(missing)}）")
+        android_count = android_ui_count = 0
     if errors:
         print("\n".join(errors), file=sys.stderr)
         return 1
-    print(f"本地化检查通过：{len(keys)} 条 iOS 文案，{android_count} 条 Android 系统文案，"
-          f"{android_ui_count} 条 Android 界面文案。")
+    if android_count or android_ui_count:
+        print(f"本地化检查通过：{len(keys)} 条 iOS 文案，{android_count} 条 Android 系统文案，"
+              f"{android_ui_count} 条 Android 界面文案。")
+    else:
+        print(f"本地化检查通过：{len(keys)} 条 iOS 文案（Android 部分已跳过）。")
     return 0
 
 

@@ -1,0 +1,12 @@
+# 出包闸门清单：只有在「QA 已复核」的 head 上才允许触发云端构建。
+# 由 scripts/ship-branch.sh 读取（路径可用 VERIFIED_HEAD_FILE 覆盖）。
+#
+# 规则（脚本实现）：
+#   A. 本地 HEAD 在本清单里 → 放行；
+#   B. App 代码与清单中某个 SHA 逐文件相同（只有 scripts/ docs/ 等非 App 差异）→ 放行并注明；
+#   其余 → 退出码 5 拒绝；`--allow-unverified` 可越过但打警告（只能作内部验证包）。
+#
+# 一行一个 SHA，可带 # 备注。
+
+# i18n 第①期 + 头像/玻璃面/语言提示等 UI 修复批；iOSTester 逐键复核通过
+f271c3d
