@@ -78,6 +78,8 @@ final class GatewayTeamFeed: ObservableObject {
         /// shape 是角色形状 id（whale/star/…，缺省时电脑端按 bot id 推导），image 是可选图片。
         var avatarShape: String?
         var avatarImage: String?
+        /// 方案 C：矢量定义（与电脑端 SHAPES 同源）。有它就用 Path 画，回落顺序见 TeamAvatarView。
+        var glyph: TeamGlyph?
         /// ds-bot 调色板 key（契约明写「手机端需同名映射」），默认块颜色优先用它。
         var colorKey: String?
         var placeholderCards: Int = 0
@@ -455,6 +457,7 @@ final class GatewayTeamFeed: ObservableObject {
         if let avatar = raw["avatar"] as? [String: Any] {
             row.avatarShape = (avatar["shape"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             row.avatarImage = (avatar["image"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            row.glyph = avatar["glyph"].flatMap(TeamGlyph.init(json:))
         } else if let single = raw["avatar"] as? String, !single.isEmpty {
             row.avatarShape = nil
             row.avatarImage = single

@@ -506,25 +506,8 @@ struct WorkspaceView: View {
     /// 单个头像块：有 data URL 就画图，否则「深色不透明底 + 白色首字母」（白字 ≥4.6:1，方案 A）。
     @ViewBuilder
     private func avatarBlock(_ row: GatewayTeamFeed.Row, size: CGFloat) -> some View {
-        if let image = GatewayTeamFeed.avatarImage(row) {
-            Image(uiImage: image)
-                .resizable()
-                .scaledToFill()
-                .frame(width: size, height: size)
-                .clipShape(Circle())
-        } else {
-            Circle()
-                .fill(GatewayTeamFeed.avatarColor(row))
-                .frame(width: size, height: size)
-                .overlay {
-                    // 电脑端规则：图片优先；没有图片按 shape + color 出同款图形。
-                    // 手机端用同语义的系统符号（形状对齐、颜色对齐），不再一律首字母。
-                    Image(systemName: GatewayTeamFeed.avatarSymbol(row))
-                        .appFont(.system(size: size * 0.44, weight: .semibold))
-                        // 电脑端同款规则：白 / 近黑二选一，符号压在真彩底上也看得见。
-                        .foregroundStyle(GatewayTeamFeed.avatarInk(row))
-                }
-        }
+        // 三层兜底（glyph → image → shape 符号）统一在 TeamAvatarView 里，别再分叉。
+        TeamAvatarView(row: row, size: size)
     }
 
     private func statusTint(for row: GatewayTeamFeed.Row) -> Color {

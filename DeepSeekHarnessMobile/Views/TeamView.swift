@@ -246,21 +246,7 @@ struct TeamView: View {
     /// （原来的「系统色 0.75 透明 + 白字 / room 的 accentColor 0.18 + 白字」在浅色下只有 1.33–3.49:1）。
     @ViewBuilder
     private func gatewayAvatar(_ row: GatewayTeamFeed.Row, size: CGFloat) -> some View {
-        if let image = GatewayTeamFeed.avatarImage(row) {
-            Image(uiImage: image)
-                .resizable().scaledToFill()
-                .frame(width: size, height: size)
-                .clipShape(Circle())
-        } else {
-            Circle()
-                .fill(GatewayTeamFeed.avatarColor(row))
-                .frame(width: size, height: size)
-                .overlay {
-                    Image(systemName: GatewayTeamFeed.avatarSymbol(row))
-                        .font(.system(size: size * 0.44, weight: .semibold))
-                        .foregroundStyle(GatewayTeamFeed.avatarInk(row))
-                }
-        }
+        TeamAvatarView(row: row, size: size)
     }
 
     private func statusColor(_ row: GatewayTeamFeed.Row) -> Color {
