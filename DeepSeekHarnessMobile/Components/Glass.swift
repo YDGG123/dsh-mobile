@@ -47,7 +47,40 @@ struct GlassSurface: ViewModifier {
     }
 }
 
+/// 主题感知的玻璃面：深色走原样（material + tint），浅色改成**实色浅面**，
+/// 不再「thinMaterial + tint」双叠（那组合在白页上偏灰、还叠一层阴影）。
+/// 用它就不用在每个调用点手写 `colorScheme == .dark ? … : nil`。
+struct ThemedGlassSurface: ViewModifier {
+    let radius: CGFloat
+    let tint: Color?
+    let shadowOpacity: Double
+    @Environment(\.colorScheme) private var colorScheme
+
+    func body(content: Content) -> some View {
+        content
+            // 注意：这 7 个调用点原本都没传 `dark`（默认 false → 一直用 thinMaterial）。
+            // 为了让**深色逐字不变**，这里也保持 `dark: false`，只按主题切换 tint/实色面。
+            .glassSurface(radius: radius,
+                          dark: false,
+                          tint: colorScheme == .dark ? tint : nil,
+                          lightFill: colorScheme == .dark ? nil : Color(uiColor: .secondarySystemBackground),
+                          shadowOpacity: colorScheme == .dark ? shadowOpacity : min(shadowOpacity, 0.06))
+            .overlay {
+                // 浅色下原来的白色高光描边在白底上不可见，补一圈极淡墨色边界。
+                if colorScheme == .light {
+                    RoundedRectangle(cornerRadius: radius, style: .continuous)
+                        .stroke(DSHColor.ink.opacity(0.06), lineWidth: 0.8)
+                }
+            }
+    }
+}
+
 extension View {
+    /// 浅色实色面 / 深色材质面 的统一入口（见 `ThemedGlassSurface`）。
+    func themedGlassSurface(radius: CGFloat = 22, tint: Color? = nil, shadowOpacity: Double = 0.18) -> some View {
+        modifier(ThemedGlassSurface(radius: radius, tint: tint, shadowOpacity: shadowOpacity))
+    }
+
     func glassSurface(radius: CGFloat = 22, dark: Bool = false, tint: Color? = nil,
                       lightFill: Color? = nil, clear: Bool = false, shadowOpacity: Double = 0.18) -> some View {
         modifier(GlassSurface(radius: radius, dark: dark, tint: tint, lightFill: lightFill,

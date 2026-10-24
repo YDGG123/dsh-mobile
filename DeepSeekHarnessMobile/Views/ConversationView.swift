@@ -1185,7 +1185,7 @@ struct ConversationView: View {
         .padding(.horizontal, 14)
         .padding(.top, 14)
         .padding(.bottom, 12)
-        .glassSurface(radius: 24, tint: glassTint, shadowOpacity: 0)
+        .themedGlassSurface(radius: 24, tint: glassTint, shadowOpacity: 0)
         // 先收住玻璃自带的向下投影，再单独控制输入框阴影。
         .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
         .overlay {
@@ -1321,7 +1321,7 @@ struct ConversationView: View {
                     }
                 }
             }
-            .glassSurface(radius: 22, tint: glassTint)
+            .themedGlassSurface(radius: 22, tint: glassTint)
             .overlay {
                 RoundedRectangle(cornerRadius: 22, style: .continuous)
                     .stroke(glassEdge, lineWidth: 0.7)
@@ -1605,7 +1605,7 @@ struct ConversationView: View {
                 .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             }
             .buttonStyle(.plain)
-            .glassSurface(radius: 16, tint: glassTint.opacity(0.88))
+            .themedGlassSurface(radius: 16, tint: glassTint.opacity(0.88))
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -1691,7 +1691,7 @@ struct ConversationView: View {
                 .frame(height: composerCapsuleHeight)
             }
             .buttonStyle(.plain)
-            .glassSurface(radius: 16, tint: glassTint.opacity(0.88))
+            .themedGlassSurface(radius: 16, tint: glassTint.opacity(0.88))
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -2333,7 +2333,7 @@ private struct TaskGoalPanels: View {
             }
         }
         .padding(15)
-        .glassSurface(radius: 18, tint: panelGlassTint)
+        .themedGlassSurface(radius: 18, tint: panelGlassTint)
         .overlay {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .strokeBorder(panelGlassEdge, lineWidth: 1)
@@ -2370,7 +2370,7 @@ private struct TaskGoalPanels: View {
             }
         }
         .padding(15)
-        .glassSurface(radius: 18, tint: panelGlassTint)
+        .themedGlassSurface(radius: 18, tint: panelGlassTint)
         .overlay {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .strokeBorder(panelGlassEdge, lineWidth: 1)

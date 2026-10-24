@@ -44,7 +44,7 @@ struct HumanQuestionView: View {
             else if let plan = planReview { planReviewCard(plan) }
             else { questionCard }
         }
-        .glassSurface(radius: 24, tint: cardTint)
+        .themedGlassSurface(radius: 24, tint: cardTint)
         .overlay {
             RoundedRectangle(cornerRadius: 24, style: .continuous)
                 .stroke(colorScheme == .dark ? .white.opacity(0.14) : .white.opacity(0.72), lineWidth: 0.8)
