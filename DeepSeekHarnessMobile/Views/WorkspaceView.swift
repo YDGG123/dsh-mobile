@@ -462,7 +462,10 @@ struct WorkspaceView: View {
     private func header(openDrawer: @escaping () -> Void) -> some View {
         HStack {
             Button(action: openDrawer) {
-                HarnessMark(width: dynamicTypeSize.isAccessibilitySize ? 150 : 216)
+                // B6：品牌字标以前默认 onDarkBackground=true（白字 + 白色反相字标），
+                // 浅色主题下白底白字整块看不见。改为跟随当前主题。
+                HarnessMark(onDarkBackground: colorScheme == .dark,
+                            width: dynamicTypeSize.isAccessibilitySize ? 150 : 216)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
                 .layoutPriority(-1)
@@ -912,16 +915,16 @@ struct WorkspaceView: View {
     private func sessionRow(_ session: SessionSummary) -> some View {
         HStack(spacing: 11) {
             Circle()
-                .fill(session.isRunning ? DSHColor.success : (session.hasUnread ? DSHColor.ocean : palette.ink(0.35)))
+                .fill(session.isRunning ? palette.success : (session.hasUnread ? DSHColor.ocean : palette.ink(0.35)))
                 .frame(width: 7, height: 7)
-                .shadow(color: session.isRunning ? DSHColor.success : .clear, radius: 5)
+                .shadow(color: session.isRunning ? palette.success : .clear, radius: 5)
             VStack(alignment: .leading, spacing: 3) {
                 Text(session.title).lineLimit(1).appFont(.subheadline.weight(.medium))
                 Text(String(session.id.prefix(16))).appFont(.caption2.monospaced()).foregroundStyle(palette.ink(0.42))
             }
             Spacer()
             Text(session.isRunning ? String(localized: "运行中") : session.lastActivity.formatted(.relative(presentation: .named)))
-                .appFont(.caption).foregroundStyle(session.isRunning ? .blue : palette.ink(0.48))
+                .appFont(.caption).foregroundStyle(session.isRunning ? palette.success : palette.ink(0.48))
         }
         .padding(.horizontal, 4)
         .padding(.vertical, 10)
@@ -1379,10 +1382,11 @@ private struct GatewayConnectionStatusText: View {
     }
 
     private var color: Color {
+        // B6：浅色下用压暗过的状态色（品牌绿/琥珀在浅底只有 2.6/1.9:1，做文字会糊）。
         switch gateway.state {
-        case .connected: DSHColor.success
-        case .connecting: DSHColor.amber
-        case .failed: .red.opacity(0.9)
+        case .connected: palette.success
+        case .connecting: palette.warning
+        case .failed: palette.danger
         case .disconnected: palette.ink(0.5)
         }
     }

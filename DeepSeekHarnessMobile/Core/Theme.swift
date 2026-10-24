@@ -173,6 +173,13 @@ struct DSHPalette {
             : Color.white.opacity(opacity)
     }
 
+    // 状态色（文字/图标用）。深色沿用品牌色；浅色必须压暗，否则在浅底上达不到 4.5:1：
+    // 绿 2.59:1 / 琥珀 1.86:1 / 橙 2.75:1（原值），压暗后 6.6 / 6.3 / 4.9。
+    var success: Color { isLight ? Color(red: 0.07, green: 0.42, blue: 0.18) : DSHColor.success }
+    var warning: Color { isLight ? Color(red: 0.55, green: 0.32, blue: 0.0) : DSHColor.amber }
+    var caution: Color { isLight ? Color(red: 0.70, green: 0.34, blue: 0.0) : DSHColor.orange }
+    var danger: Color { isLight ? Color(red: 0.72, green: 0.12, blue: 0.10) : Color.red.opacity(0.9) }
+
     static func resolve(_ scheme: ColorScheme) -> DSHPalette { DSHPalette(scheme: scheme) }
 }
 

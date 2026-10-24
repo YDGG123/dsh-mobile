@@ -8,6 +8,7 @@ struct TeamView: View {
     /// 返回 true 表示已在现有 gateway 会话列表中找到并进入聊天。
     var onOpenConversation: (String) -> Bool
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.scenePhase) private var scenePhase
     @State private var segment: Segment = .team
     @State private var detail: BridgeTeamRow?
@@ -254,9 +255,10 @@ struct TeamView: View {
     }
 
     private func statusColor(_ row: GatewayTeamFeed.Row) -> Color {
-        if !row.pending.isEmpty || row.placeholderCards > 0 || !row.approvals.isEmpty { return .orange }
-        if feed.isLive(row) { return .green }
-        if feed.degraded, row.activity == nil { return .secondary }
+        // B6：系统橙/绿在浅底做文字只有 2~3:1，浅色主题下换压暗版本（见 DSHPalette）。
+        let palette = DSHPalette.resolve(colorScheme)
+        if !row.pending.isEmpty || row.placeholderCards > 0 || !row.approvals.isEmpty { return palette.caution }
+        if feed.isLive(row) { return palette.success }
         return .secondary
     }
 
