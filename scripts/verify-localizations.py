@@ -39,6 +39,23 @@ KOTLIN_UI_LITERAL = re.compile(
 )
 
 
+SWIFT_ESCAPES = {"n": "\n", "t": "\t", "r": "\r", "0": "\0", '"': '"', "'": "'", "\\": "\\"}
+
+
+def decode_swift_escapes(text: str) -> str:
+    """把 Swift 字面量里的常见转义解码成实际字符（与目录键的口径对齐）。"""
+    out, i = [], 0
+    while i < len(text):
+        ch = text[i]
+        if ch == "\\" and i + 1 < len(text):
+            out.append(SWIFT_ESCAPES.get(text[i + 1], text[i + 1]))
+            i += 2
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
 def arguments(value: str, pattern: re.Pattern[str]) -> list[str]:
     return sorted(re.sub(r"^%\d+\$", "%", match) for match in pattern.findall(value))
 
@@ -75,8 +92,14 @@ def check_swift_calls(keys: set[str], errors: list[str]) -> None:
         source = path.read_text()
         for pattern in (LOCALIZED_CALL, UI_CALL):
             for match in pattern.finditer(source):
-                key = match.group(1)
-                if key and "\\(" not in key and key not in keys:
+                raw = match.group(1)
+                # 先按**原始字面量**判断是不是插值（`\(…)` 那种由类型决定 specifier，
+                # 不在这里管）；再解码转义后与目录键比对——目录里存的是实际字符
+                # （多行文案在 JSON 里是真实换行，拿源码里的 `\n` 直接比会永远不匹配）。
+                if not raw or "\\(" in raw:
+                    continue
+                key = decode_swift_escapes(raw)
+                if key and key not in keys:
                     errors.append(f"{path.relative_to(ROOT)}: {key!r} 未收录到 Localizable.xcstrings")
 
 

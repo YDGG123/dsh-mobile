@@ -53,7 +53,68 @@ WIDGET_DIR = "AgentLiveActivityWidget"
 PBXPROJ = ROOT / "DeepSeekHarnessMobile.xcodeproj" / "project.pbxproj"
 
 CJK = re.compile(r"[\u3000-\u303f\u3400-\u9fff\uff00-\uffef]")
-STRING_LITERAL = re.compile(r'"((?:\\.|[^"\\])*)"')
+
+
+def iter_swift_literals(text: str):
+    """按 Swift 语法逐个吐出普通字符串字面量：`(起始下标, 原始内容)`。
+
+    必须自己扫，不能用正则：插值 `\(…)` 里还可能嵌字符串
+    （`"本机会话：\(flag ? "有" : "无")"`），正则会把内层引号当成结尾，
+    于是产出 `))，切换主机` 这种碎片（旧实现就踩了这个坑）。
+    规则：字面量内 `\` 转义跳过下一个字符；`\(` 进入插值、按括号深度跳过，
+    插值里的嵌套字面量整体跳过；三引号多行字面量整体跳过（不进清单）。
+    """
+    i, n = 0, len(text)
+    while i < n:
+        ch = text[i]
+        if ch != '"':
+            i += 1
+            continue
+        # 多行字面量 """…"""
+        if text.startswith('"""', i):
+            end = text.find('"""', i + 3)
+            i = n if end < 0 else end + 3
+            continue
+        start = i
+        i += 1
+        buf = []
+        while i < n:
+            c = text[i]
+            if c == "\\" and i + 1 < n:
+                nxt = text[i + 1]
+                if nxt == "(":
+                    depth, i = 1, i + 2
+                    while i < n and depth > 0:
+                        d = text[i]
+                        if d == '"':
+                            # 插值里的嵌套字面量：整段跳过
+                            i += 1
+                            while i < n:
+                                if text[i] == "\\":
+                                    i += 2
+                                    continue
+                                if text[i] == '"':
+                                    i += 1
+                                    break
+                                i += 1
+                            continue
+                        if d == "(":
+                            depth += 1
+                        elif d == ")":
+                            depth -= 1
+                        i += 1
+                    buf.append("\\(…)")
+                    continue
+                buf.append({"n": "\n", "t": "\t", "r": "\r", "0": "\0",
+                            '"': '"', "'": "'", "\\": "\\"}.get(nxt, nxt))
+                i += 2
+                continue
+            if c == '"':
+                yield start, "".join(buf)
+                i += 1
+                break
+            buf.append(c)
+            i += 1
 
 # 会把第一个字面量当本地化键的调用（SwiftUI / Foundation）。
 LOCALIZING_CALLS = {
@@ -279,20 +340,20 @@ def classify() -> dict:
         clean = strip_comments(path.read_text(encoding="utf-8"))
         rel = str(path.relative_to(ROOT))
         bundle = "Widget/LiveActivity" if rel.startswith(WIDGET_DIR) or "/LiveActivity/" in rel else "App"
-        for m in STRING_LITERAL.finditer(clean):
-            raw = m.group(1)
+        for start, raw in iter_swift_literals(clean):
+            m_start = start
             if not CJK.search(raw):
                 continue
             text = raw.replace('\\"', '"')
             record = {
                 "file": rel,
-                "line": clean[:m.start()].count("\n") + 1,
+                "line": clean[:m_start].count("\n") + 1,
                 "text": text,
                 "bundle": bundle,
                 "context": "",
                 "label": "",
             }
-            if (path, m.start()) in default_spans:
+            if (path, m_start) in default_spans:
                 record["context"] = "String(localized:…defaultValue:)"
                 buckets["localized_default"].append(record)
                 continue
@@ -305,7 +366,7 @@ def classify() -> dict:
                 record["context"] = "(目录键命中)"
                 buckets["registered"].append(record)
                 continue
-            call, label = enclosing_call(clean, m.start())
+            call, label = enclosing_call(clean, m_start)
             record["context"], record["label"] = call, label
             localizing = call in LOCALIZING_CALLS and label not in NON_LOCALIZING_LABELS
             buckets["unregistered" if localizing else "hardcoded"].append(record)
@@ -321,6 +382,18 @@ def classify() -> dict:
 
 def interpolated(entries: list[dict], bucket: str) -> int:
     return sum(1 for e in entries if "\\(" in e["text"]) if bucket != "i" else 0
+
+
+def split_unregistered(entries: list[dict]) -> tuple[list[dict], list[dict]]:
+    """漏登记拆两类：可直接补目录键的 / 带插值的。
+
+    带插值的键在 Swift 提取时会变成 `%@` / `%lld`，**specifier 需要类型信息**，
+    静态推断不出来；硬造一个 specifier 万一类型不符，英文下会崩或错位。
+    所以闸门只卡「可直接补」的那类，插值类单独报数并注明要人工/Xcode 导出确认。
+    """
+    plain = [e for e in entries if "\\(" not in e["text"]]
+    with_interp = [e for e in entries if "\\(" in e["text"]]
+    return plain, with_interp
 
 
 def by_file(entries: list[dict]) -> list[tuple[str, int]]:
@@ -421,11 +494,14 @@ def main() -> int:
     result = classify()
     b = result["buckets"]
     hard, unreg = b["hardcoded"], b["unregistered"]
+    unreg_plain, unreg_interp = split_unregistered(unreg)
     print(f"Swift 文件 {result['files']} 个；含中文字面量 {sum(len(v) for v in b.values())} 条")
     print(f"  registered        {len(b['registered'])}")
     print(f"  localized_default {len(b['localized_default'])}")
     print(f"  (c) unregistered  {len(unreg)}   App {sum(1 for e in unreg if e['bundle'] == 'App')}"
           f" / Widget {sum(1 for e in unreg if e['bundle'] != 'App')}")
+    print(f"      其中可直接补目录 {len(unreg_plain)} 条；带插值 {len(unreg_interp)} 条"
+          f"（specifier 需类型信息，闸门不卡，见报告）")
     print(f"  (a) hardcoded     {len(hard)}   App {sum(1 for e in hard if e['bundle'] == 'App')}"
           f" / Widget {sum(1 for e in hard if e['bundle'] != 'App')}")
     print(f"  目录缺 en {len(result['gaps']['missing_en'])} / en 未翻译 {len(result['gaps']['untranslated_en'])}"
@@ -441,12 +517,13 @@ def main() -> int:
         problems = []
         if result["gaps"]["missing_en"]:
             problems.append(f"目录缺 en {len(result['gaps']['missing_en'])} 条")
-        if unreg:
-            problems.append(f"漏登记 {len(unreg)} 条")
+        if unreg_plain:
+            problems.append(f"漏登记（可直接补目录）{len(unreg_plain)} 条")
         if problems:
             print("i18n-inventory: 不通过 — " + "；".join(problems), file=sys.stderr)
             return 1
-        print("i18n-inventory: 通过（目录缺 en 0、漏登记 0）")
+        print(f"i18n-inventory: 通过（目录缺 en 0、可直接补的漏登记 0；"
+              f"带插值的 {len(unreg_interp)} 条待人工确认 specifier）")
     return 0
 
 
