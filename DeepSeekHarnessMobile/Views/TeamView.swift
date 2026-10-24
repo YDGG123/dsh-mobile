@@ -256,8 +256,8 @@ struct TeamView: View {
                 .fill(GatewayTeamFeed.avatarColor(row))
                 .frame(width: size, height: size)
                 .overlay {
-                    Text(String(row.name.prefix(1)))
-                        .font(.system(size: size * 0.42, weight: .semibold))
+                    Image(systemName: GatewayTeamFeed.avatarSymbol(row))
+                        .font(.system(size: size * 0.44, weight: .semibold))
                         .foregroundStyle(.white)
                 }
         }

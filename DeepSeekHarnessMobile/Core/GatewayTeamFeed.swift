@@ -74,8 +74,10 @@ final class GatewayTeamFeed: ObservableObject {
         var waiting: Waiting?
         var preview: String?
         var updatedAt: Int64?
-        /// 静态字段：data URL（或本地路径）。只在快照/结构帧出现，patch 不带（契约 §4）。
-        var avatar: String?
+        /// 静态字段：电脑端 rosters 的 `avatar` 是 `{ shape, image }` 对象（不是单个 data URL）。
+        /// shape 是角色形状 id（whale/star/…，缺省时电脑端按 bot id 推导），image 是可选图片。
+        var avatarShape: String?
+        var avatarImage: String?
         /// ds-bot 调色板 key（契约明写「手机端需同名映射」），默认块颜色优先用它。
         var colorKey: String?
         var placeholderCards: Int = 0
@@ -433,7 +435,14 @@ final class GatewayTeamFeed: ObservableObject {
         if let waiting = raw["waiting"] as? [String: Any] { row.waiting = waitingValue(waiting) }
         row.preview = raw["preview"] as? String
         row.updatedAt = (raw["updatedAt"] as? NSNumber)?.int64Value
-        row.avatar = (raw["avatar"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        // avatar 可能是 `{ shape, image }`（当前契约实际形态），也可能是旧式单个 data URL 字符串。
+        if let avatar = raw["avatar"] as? [String: Any] {
+            row.avatarShape = (avatar["shape"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            row.avatarImage = (avatar["image"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        } else if let single = raw["avatar"] as? String, !single.isEmpty {
+            row.avatarShape = nil
+            row.avatarImage = single
+        }
         row.colorKey = raw["color"] as? String
         return row
     }
@@ -517,28 +526,54 @@ final class GatewayTeamFeed: ObservableObject {
 
     // MARK: - 头像（静态字段，缺失时回落默认块）
 
-    /// ds-bot 调色板 key → 合规色块。QA 复核（方案 A）：**不透明压深色 + 白字**，
-    /// 白字对比度全部 ≥4.6:1（原来的 `opacity(0.75)` 系统色只有 1.86–3.49:1，浅色下看不见）。
-    static func blockColor(forKey key: String?) -> Color? {
-        switch (key ?? "").lowercased() {
-        case "deepseek": return Color(red: 0.06, green: 0.27, blue: 0.66)
-        case "blue": return Color(red: 0.00, green: 0.44, blue: 0.92)
-        case "violet", "purple": return Color(red: 0.64, green: 0.30, blue: 0.81)
-        case "orange": return Color(red: 0.67, green: 0.39, blue: 0.00)
-        case "green": return Color(red: 0.14, green: 0.52, blue: 0.24)
-        case "magenta": return Color(red: 0.77, green: 0.17, blue: 0.46)
-        case "cyan", "teal": return Color(red: 0.14, green: 0.50, blue: 0.56)
-        case "red": return Color(red: 0.70, green: 0.15, blue: 0.13)
-        case "yellow": return Color(red: 0.54, green: 0.42, blue: 0.00)
-        case "brown": return Color(red: 0.48, green: 0.29, blue: 0.14)
-        case "gray", "graphite": return Color(red: 0.29, green: 0.31, blue: 0.33)
-        case "black", "charcoal": return Color(red: 0.12, green: 0.14, blue: 0.16)
-        case "aurora", "cobalt": return Color(red: 0.07, green: 0.36, blue: 0.62)
-        case "rose": return Color(red: 0.76, green: 0.15, blue: 0.29)
-        case "sky": return Color(red: 0.09, green: 0.43, blue: 0.62)
-        case "tangerine": return Color(red: 0.66, green: 0.35, blue: 0.00)
-        case "indigo": return Color(red: 0.35, green: 0.34, blue: 0.84)
-        default: return nil
+    /// ds-bot 的 ink 调色板（`ds-bot/src/client/inks.js` 的 `INKS[k][0]`）。
+    /// 电脑端角色就是这个色；手机端照抄同一份，颜色才对得上。
+    private static let inks: [String: String] = [
+        "deepseek": "#4D6BFE", "charcoal": "#141416", "graphite": "#2D2D2D",
+        "rose": "#EC2F6B", "sky": "#0AA8D6", "tangerine": "#FF6900", "cobalt": "#082DFF",
+        "black": "#000000", "brown": "#A27952", "red": "#FF3E51", "orange": "#FF781C",
+        "yellow": "#FFAF38", "green": "#00C972", "cyan": "#1CC3B0", "blue": "#2A92FE",
+        "violet": "#A97EFE", "magenta": "#FF5EB1", "gray": "#959595", "aurora": "#00B8D4",
+    ]
+
+    static func color(fromInk key: String?) -> Color? {
+        guard let key, !key.isEmpty else { return nil }
+        if key.hasPrefix("#"), key.count == 7, let value = UInt32(key.dropFirst(), radix: 16) {
+            return Color(red: Double((value >> 16) & 0xFF) / 255,
+                         green: Double((value >> 8) & 0xFF) / 255,
+                         blue: Double(value & 0xFF) / 255)
+        }
+        guard let hex = inks[key.lowercased()], let value = UInt32(hex.dropFirst(), radix: 16) else { return nil }
+        return Color(red: Double((value >> 16) & 0xFF) / 255,
+                     green: Double((value >> 8) & 0xFF) / 255,
+                     blue: Double(value & 0xFF) / 255)
+    }
+
+    /// 角色形状 → 近似符号（电脑端是矢量角色；手机端用同一形状语义的符号 + 同色底，
+    /// 不再一律首字母）。符号一律走系统可用名，iOS 16 全都有。
+    static func shapeSymbol(_ shape: String?) -> String {
+        switch (shape ?? "").lowercased() {
+        case "whale": return "fish.fill"
+        case "star": return "star.fill"
+        case "moon": return "moon.fill"
+        case "wave": return "water.waves"
+        case "squircle": return "square.fill"
+        case "zed": return "hare.fill"
+        case "hex": return "camera.macro"
+        case "gumdrop": return "drop.fill"
+        case "peanut": return "circle.hexagongrid.fill"
+        case "saucer": return "airplane"
+        case "bunny": return "hare.fill"
+        case "kitty": return "pawprint.fill"
+        case "beacon": return "lightbulb.fill"
+        case "plus": return "plus"
+        case "magnet": return "magnet"
+        case "acorn": return "leaf.fill"
+        case "pebbles": return "circle.grid.3x3.fill"
+        case "cushion": return "square.stack.3d.up.fill"
+        case "ring": return "circle.dashed"
+        case "gem": return "diamond.fill"
+        default: return "circle.fill"
         }
     }
 
@@ -562,12 +597,18 @@ final class GatewayTeamFeed: ObservableObject {
     }
 
     static func avatarColor(_ row: Row) -> Color {
-        blockColor(forKey: row.colorKey) ?? fallbackBlockColor(for: row.name)
+        // 电脑端规则：颜色优先取 `color`（ink key 或 hex），没有才按 id/名字兜底。
+        color(fromInk: row.colorKey) ?? fallbackBlockColor(for: row.name)
+    }
+
+    /// 电脑端规则：shape 缺省时按 bot id 推导；这里没有 id 推导表，用名字兜底成一个稳定形状。
+    static func avatarSymbol(_ row: Row) -> String {
+        shapeSymbol(row.avatarShape)
     }
 
     /// data URL → UIImage。非 data URL（本地路径）这里不解，交给默认块。
     static func avatarImage(_ row: Row) -> UIImage? {
-        guard let raw = row.avatar, raw.hasPrefix("data:"),
+        guard let raw = row.avatarImage, raw.hasPrefix("data:"),
               let comma = raw.firstIndex(of: ","),
               raw[raw.startIndex..<comma].contains("base64"),
               let data = Data(base64Encoded: String(raw[raw.index(after: comma)...])),

@@ -517,8 +517,10 @@ struct WorkspaceView: View {
                 .fill(GatewayTeamFeed.avatarColor(row))
                 .frame(width: size, height: size)
                 .overlay {
-                    Text(String(row.name.prefix(1)))
-                        .appFont(.system(size: size * 0.42, weight: .semibold))
+                    // 电脑端规则：图片优先；没有图片按 shape + color 出同款图形。
+                    // 手机端用同语义的系统符号（形状对齐、颜色对齐），不再一律首字母。
+                    Image(systemName: GatewayTeamFeed.avatarSymbol(row))
+                        .appFont(.system(size: size * 0.44, weight: .semibold))
                         .foregroundStyle(.white)
                 }
         }
@@ -578,6 +580,12 @@ struct WorkspaceView: View {
                     )
             }
         }
+    }
+
+    /// 凹槽类浅色底：**不透明**「白 + ink 5%」= #F3F3F4。
+    /// 与白卡片亮度比 1.11:1（目标 1.09–1.15；`surface()` 在白底上会到 1.00–1.01，方向反了）。
+    enum WorkspaceCardFill {
+        static let sunken = Color(red: 243.0 / 255, green: 243.0 / 255, blue: 244.0 / 255)
     }
 
     private var bridgeListReady: Bool {
