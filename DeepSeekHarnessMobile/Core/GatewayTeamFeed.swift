@@ -601,8 +601,7 @@ final class GatewayTeamFeed: ObservableObject {
 
     /// 角色符号的墨色（压在真彩底上）：按当前主题的实际底色二选一。
     static func avatarInk(_ row: Row) -> Color {
-        let accent = inkHex(row.colorKey, scheme: .light) ?? "#959595"
-        return Color(uiColor: UIColor { traits in
+        Color(uiColor: UIColor { traits in
             let scheme: ColorScheme = traits.userInterfaceStyle == .dark ? .dark : .light
             let resolved = inkHex(row.colorKey, scheme: scheme) ?? "#959595"
             return UIColor(color(hex: symbolInkHex(forAccentHex: resolved)) ?? .white)

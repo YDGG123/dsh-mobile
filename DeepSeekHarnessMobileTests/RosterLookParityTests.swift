@@ -151,6 +151,30 @@ final class RosterLookParityTests: XCTestCase {
         }
     }
 
+    // MARK: - 20 个内置形状全覆盖（防止删分支/撞符号不被发现）
+
+    /// ds-bot 电脑端的 20 个内置角色（`CHARACTERS` 的 key）。夹具只用到其中 7 个，
+    /// 所以这里单独锁住映射表：每条都有专属符号、互不重复、未知 id 落默认。
+    private static let builtinShapes = [
+        "whale", "star", "moon", "wave", "squircle", "zed", "hex", "gumdrop", "peanut", "saucer",
+        "bunny", "kitty", "beacon", "plus", "magnet", "acorn", "pebbles", "cushion", "ring", "gem",
+    ]
+
+    func testEveryBuiltInShapeHasItsOwnSymbol() {
+        let fallback = GatewayTeamFeed.shapeSymbol(nil)
+        var symbols: [String: String] = [:]
+        for shape in Self.builtinShapes {
+            let symbol = GatewayTeamFeed.shapeSymbol(shape)
+            XCTAssertNotEqual(symbol, fallback, "\(shape) 落到了默认符号")
+            XCTAssertFalse(symbol.isEmpty)
+            symbols[symbol] = shape
+        }
+        XCTAssertEqual(symbols.count, Self.builtinShapes.count, "存在两个形状共用同一符号：\(symbols)")
+        // 未知形状必须是中性默认，不许猜
+        XCTAssertEqual(GatewayTeamFeed.shapeSymbol("unknown-shape"), fallback)
+        XCTAssertEqual(GatewayTeamFeed.shapeSymbol(nil), fallback)
+    }
+
     // MARK: - 缺失字段不得按名字推导（最初 bug）
 
     func testMissingLookFallsBackNeutralNotByName() {

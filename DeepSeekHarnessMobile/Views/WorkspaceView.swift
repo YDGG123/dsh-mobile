@@ -1157,9 +1157,10 @@ struct WorkspaceView: View {
             }
             .buttonStyle(.plain)
             // 用户反馈「新建会话」灰底偏深：浅色下原来是 thinMaterial + veil(0.08) 双叠，
-            // 现在走统一入口 `themedGlassSurface`（浅色实色面 surface(0.12) ≈92% 白、
-            // 不叠 tint；深色仍是 ultraThinMaterial + veil(0.08)，逐字不变）。
-            // 文字继承外层 ink(1)=#0E131A，压在 92% 白上 ≈18.6:1。
+            // 现在走统一入口 `themedGlassSurface`：浅色实色面 #F3F3F4（WorkspaceCardFill.sunken，
+            // 与白卡片 1.11:1、比分段轨道浅一档），不叠 tint；深色仍是
+            // ultraThinMaterial + veil(0.08)，逐字不变。
+            // 文字继承外层 ink(1)=#0E131A，压在 #F3F3F4 上 16.80:1。
             .themedGlassSurface(radius: 18,
                                 tint: palette.veil(0.08),
                                 // 凹槽用**不透明** #F3F3F4（与白卡片 1.11:1）；
