@@ -2768,7 +2768,7 @@ final class HostedConversationCell: StableSelfSizingCollectionViewCell {
         host.view.frame = contentView.bounds
         host.view.bounds.origin = .zero
         contentView.addSubview(host.view)
-        host.updateTraitsIfNeeded()
+        debugUpdateTraitsIfNeeded(host)
         guard host.traitCollection == prepared.renderTraits else {
             return reject(.postMoveTraitsMismatch, actualTraits: host.traitCollection)
         }
@@ -3859,6 +3859,20 @@ final class DebugHistoryCommitDiagnostics {
 #endif
 
 #if DEBUG
+/// `updateTraitsIfNeeded()` 是 iOS 17+ API（上游 deployment target 17.0，合并进
+/// 我们的 iOS 16 目标后 Debug 配置会编不过）。iOS 16 上退化为一次强制布局：
+/// UIKit 在布局过程中把父级 trait 推给子控制器，随后读到的 `traitCollection` 等价。
+/// 实验代码走空实现即可，不删上游实验、不改其语义。
+@MainActor
+private func debugUpdateTraitsIfNeeded(_ host: UIHostingController<AnyView>) {
+    if #available(iOS 17.0, *) {
+        host.updateTraitsIfNeeded()
+    } else {
+        host.view.setNeedsLayout()
+        host.view.layoutIfNeeded()
+    }
+}
+
 /// 有界、一次性、仅显式 DEBUG 实验。绝不按业务 ID 猜测 AnyView 等价。
 enum DebugConversationWarmHostExperiment {
     static let enabled = ProcessInfo.processInfo.environment["DSH_HISTORY_WARM_HOST_TRANSFER"] == "1"
@@ -3867,6 +3881,10 @@ final class DebugConversationWarmHostToken {}
 enum DebugWarmHostInstallFailure: String {
     case stateMismatch, tokenMismatch, ownerMismatch, parentContextMismatch, fontMismatch, postMoveTraitsMismatch
     func publicTraitDifferences(actual: UITraitCollection, expected: UITraitCollection) -> [String] {
+        // `UITrait` / `traitCollection.changedTraits(from:)` 都是 iOS 17+ API。
+        // iOS 16 上不猜类型名、也不输出任何 trait 内容，直接报「未记录差异」：
+        // 诊断退化只影响调试信息的细粒度，不影响 warm-host 实验本身。
+        guard #available(iOS 17.0, *) else { return [] }
         let allowed: [UITrait] = [UITraitUserInterfaceStyle.self, UITraitPreferredContentSizeCategory.self,
             UITraitHorizontalSizeClass.self, UITraitVerticalSizeClass.self, UITraitDisplayScale.self,
             UITraitLayoutDirection.self, UITraitAccessibilityContrast.self, UITraitLegibilityWeight.self]
@@ -3926,7 +3944,10 @@ final class DebugPreparedConversationHost {
         host = UIHostingController(rootView: AnyView(TopPinnedConversationContent(id: entry.id,
             revision: entry.revision, content: entry.content,
             onHeightChange: { [weak relay] in relay?.report($0) })))
-        host.safeAreaRegions = []
+        // `safeAreaRegions` 是 iOS 16.4+ API；16.0–16.3 无等价属性可关掉安全区传播，
+        // 保留 UIKit 默认值（实验在旧系统上量到的高度可能含安全区，诊断里会体现为
+        // trait/target 不一致的 fallback，不影响主链路）。
+        if #available(iOS 16.4, *) { host.safeAreaRegions = [] }
         host.view.backgroundColor = .clear
         host.view.clipsToBounds = true
         host.view.frame = carrier.contentView.bounds
@@ -3935,12 +3956,12 @@ final class DebugPreparedConversationHost {
         collection.addSubview(carrier)
         carrier.contentView.addSubview(host.view)
         host.didMove(toParent: parent)
-        host.updateTraitsIfNeeded()
+        debugUpdateTraitsIfNeeded(host)
     }
     func measureHeight() -> CGFloat {
         if let measuredHeight { return measuredHeight }
         let height = host.sizeThatFits(in: CGSize(width: context.width, height: CGFloat.greatestFiniteMagnitude)).height
-        host.updateTraitsIfNeeded()
+        debugUpdateTraitsIfNeeded(host)
         measuredHeight = height
         renderTraits = host.traitCollection
         return height

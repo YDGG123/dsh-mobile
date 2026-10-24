@@ -773,6 +773,10 @@ private enum AgentActivityLink {
 }
 
 #if DEBUG
+// Live Activity 的 `#Preview(as:using:contentStates:)` 是 iOS 17+ API；本扩展
+// deployment target 是 16.2，不给它加可用性守卫时 **Debug 配置编不过**（Release 把
+// 整段 DEBUG 剔除，所以这个缺口一直没暴露）。下面每个预览都用 `@available` 标注，
+// iOS 16 上不参与编译、Xcode 画布在 17+ 环境照常可用。
 private let previewAttributes = AgentActivityAttributes(
     gatewayID: "preview-gateway",
     sessionID: "preview-session",
@@ -804,6 +808,7 @@ private func previewState(
     )
 }
 
+@available(iOS 17.0, *)
 #Preview("运行中 · 紧凑", as: .dynamicIsland(.compact), using: previewAttributes) {
     AgentLiveActivityWidget()
 } contentStates: {
@@ -815,6 +820,7 @@ private func previewState(
     )
 }
 
+@available(iOS 17.0, *)
 #Preview("运行中 · 展开", as: .dynamicIsland(.expanded), using: previewAttributes) {
     AgentLiveActivityWidget()
 } contentStates: {
@@ -826,6 +832,7 @@ private func previewState(
     )
 }
 
+@available(iOS 17.0, *)
 #Preview("等待审批 · 展开", as: .dynamicIsland(.expanded), using: previewAttributes) {
     AgentLiveActivityWidget()
 } contentStates: {
@@ -837,6 +844,7 @@ private func previewState(
     )
 }
 
+@available(iOS 17.0, *)
 #Preview("等待选择 · 展开", as: .dynamicIsland(.expanded), using: previewAttributes) {
     AgentLiveActivityWidget()
 } contentStates: {
@@ -848,6 +856,7 @@ private func previewState(
     )
 }
 
+@available(iOS 17.0, *)
 #Preview("等待选择 · 锁屏", as: .content, using: previewAttributes) {
     AgentLiveActivityWidget()
 } contentStates: {
@@ -859,18 +868,21 @@ private func previewState(
     )
 }
 
+@available(iOS 17.0, *)
 #Preview("已允许 · 展开", as: .dynamicIsland(.expanded), using: previewAttributes) {
     AgentLiveActivityWidget()
 } contentStates: {
     previewState(phase: .approved, status: "已允许本次操作", detail: "批准已送达")
 }
 
+@available(iOS 17.0, *)
 #Preview("已拒绝 · 展开", as: .dynamicIsland(.expanded), using: previewAttributes) {
     AgentLiveActivityWidget()
 } contentStates: {
     previewState(phase: .rejected, status: "已拒绝本次操作", detail: "本次命令未执行")
 }
 
+@available(iOS 17.0, *)
 #Preview("提交失败 · 展开", as: .dynamicIsland(.expanded), using: previewAttributes) {
     AgentLiveActivityWidget()
 } contentStates: {
@@ -882,6 +894,7 @@ private func previewState(
     )
 }
 
+@available(iOS 17.0, *)
 #Preview("运行中 · 锁屏", as: .content, using: previewAttributes) {
     AgentLiveActivityWidget()
 } contentStates: {
@@ -893,6 +906,7 @@ private func previewState(
     )
 }
 
+@available(iOS 17.0, *)
 #Preview("等待审批 · 锁屏", as: .content, using: previewAttributes) {
     AgentLiveActivityWidget()
 } contentStates: {

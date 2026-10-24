@@ -184,6 +184,21 @@ LOG=$(mktemp)
 APP_ERRORS=$(grep -c "error:" "$LOG" 2>/dev/null | head -1)
 APP_ERRORS=${APP_ERRORS:-0}
 
+# ---- 类型检查:App(iOS 16.0, Debug 配置)----
+# 第三个结构性盲区（2026-10-25）：xcodebuild 的 **Debug 配置会定义 DEBUG 宏**，
+# 而上面那一路不带 -D DEBUG，整个 `#if DEBUG` 块被剔除 —— 于是块内的 iOS 17+ API
+# （上游 deployment target 是 17.0，合并进我们的 16.0 后遗留）在本地全绿，
+# 但任何 Debug 构建 / 跑 XCTest 都会编译失败。这里再跑一路带 -D DEBUG 的，
+# 把「Debug 配置能编」变成硬闸门。只多几秒。
+echo "→ 类型检查 App 源码 (iOS 16.0, -D DEBUG)..."
+DLOG=$(mktemp)
+"$TC/swiftc" -typecheck -D DEBUG \
+  -sdk "$SDK" -target x86_64-apple-ios16.0-simulator -swift-version 5 \
+  -F "$FW" -F "$DEPS" -I "$DEPS" -module-cache-path "$CACHE" \
+  $(find DeepSeekHarnessMobile -name "*.swift") > "$DLOG" 2>&1
+DEBUG_ERRORS=$(grep -c "error:" "$DLOG" 2>/dev/null | head -1)
+DEBUG_ERRORS=${DEBUG_ERRORS:-0}
+
 # ---- 类型检查:Live Activity 扩展(iOS 16.2) ----
 echo "→ 类型检查 Widget 扩展 (iOS 16.2)..."
 WLOG=$(mktemp)
@@ -195,6 +210,21 @@ WLOG=$(mktemp)
   DeepSeekHarnessMobile/LiveActivity/AgentApprovalIntents.swift > "$WLOG" 2>&1
 WIDGET_ERRORS=$(grep -c "error:" "$WLOG" 2>/dev/null | head -1)
 WIDGET_ERRORS=${WIDGET_ERRORS:-0}
+
+# ---- 类型检查:Live Activity 扩展(iOS 16.2, Debug 配置)----
+# 扩展同样有 `#if DEBUG` 块（Live Activity 的 `#Preview(as:using:contentStates:)`
+# 是 iOS 17+ API，16.2 target 下不加可用性守卫就编不过）。Release 剔除 DEBUG 宏，
+# 所以只有 Debug 构建 / XCTest 会撞上——与 App 那一路同型，一起当硬闸门。
+echo "→ 类型检查 Widget 扩展 (iOS 16.2, -D DEBUG)..."
+WDLOG=$(mktemp)
+"$TC/swiftc" -typecheck -D DEBUG \
+  -sdk "$SDK" -target x86_64-apple-ios16.2-simulator -swift-version 5 \
+  -F "$DEPS" -I "$DEPS" -module-cache-path "$CACHE" \
+  AgentLiveActivityWidget/*.swift \
+  DeepSeekHarnessMobile/LiveActivity/AgentActivityAttributes.swift \
+  DeepSeekHarnessMobile/LiveActivity/AgentApprovalIntents.swift > "$WDLOG" 2>&1
+WIDGET_DEBUG_ERRORS=$(grep -c "error:" "$WDLOG" 2>/dev/null | head -1)
+WIDGET_DEBUG_ERRORS=${WIDGET_DEBUG_ERRORS:-0}
 
 # ---- 工程收录守卫（2026-10-25 教训）----
 # 本工程是**显式 fileRef**（不是 Xcode 16 的同步组）：新加的 .swift 如果没登记进 pbxproj，
@@ -217,16 +247,19 @@ if [ -n "$RETIRED_UI" ]; then
 fi
 
 echo
-if [ "$APP_ERRORS" -eq 0 ] && [ "$WIDGET_ERRORS" -eq 0 ]; then
-  echo "✅ 类型检查通过 (App 0 错误, Widget 0 错误)"
-  rm -f "$LOG" "$WLOG"
+if [ "$APP_ERRORS" -eq 0 ] && [ "$DEBUG_ERRORS" -eq 0 ] \
+   && [ "$WIDGET_ERRORS" -eq 0 ] && [ "$WIDGET_DEBUG_ERRORS" -eq 0 ]; then
+  echo "✅ 类型检查通过 (App 0 错误, App(Debug) 0 错误, Widget 0 错误, Widget(Debug) 0 错误)"
+  rm -f "$LOG" "$DLOG" "$WLOG" "$WDLOG"
   exit 0
 fi
 
-echo "❌ 类型检查失败: App $APP_ERRORS 个错误, Widget $WIDGET_ERRORS 个错误"
+echo "❌ 类型检查失败: App $APP_ERRORS 个错误, App(Debug) $DEBUG_ERRORS 个错误, Widget $WIDGET_ERRORS 个错误, Widget(Debug) $WIDGET_DEBUG_ERRORS 个错误"
 echo
 [ "$APP_ERRORS" -gt 0 ] && { echo "--- App ---"; grep -A2 "error:" "$LOG" | head -40; }
+[ "$DEBUG_ERRORS" -gt 0 ] && { echo "--- App (Debug, -D DEBUG) ---"; grep -A2 "error:" "$DLOG" | head -40; }
 [ "$WIDGET_ERRORS" -gt 0 ] && { echo "--- Widget ---"; grep -A2 "error:" "$WLOG" | head -20; }
+[ "$WIDGET_DEBUG_ERRORS" -gt 0 ] && { echo "--- Widget (Debug, -D DEBUG) ---"; grep -A2 "error:" "$WDLOG" | head -20; }
 echo
-echo "完整日志: $LOG  $WLOG"
+echo "完整日志: $LOG  $DLOG  $WLOG  $WDLOG"
 exit 1
