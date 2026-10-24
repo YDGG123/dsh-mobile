@@ -526,27 +526,87 @@ final class GatewayTeamFeed: ObservableObject {
 
     // MARK: - 头像（静态字段，缺失时回落默认块）
 
-    /// ds-bot 的 ink 调色板（`ds-bot/src/client/inks.js` 的 `INKS[k][0]`）。
-    /// 电脑端角色就是这个色；手机端照抄同一份，颜色才对得上。
-    private static let inks: [String: String] = [
-        "deepseek": "#4D6BFE", "charcoal": "#141416", "graphite": "#2D2D2D",
-        "rose": "#EC2F6B", "sky": "#0AA8D6", "tangerine": "#FF6900", "cobalt": "#082DFF",
-        "black": "#000000", "brown": "#A27952", "red": "#FF3E51", "orange": "#FF781C",
-        "yellow": "#FFAF38", "green": "#00C972", "cyan": "#1CC3B0", "blue": "#2A92FE",
-        "violet": "#A97EFE", "magenta": "#FF5EB1", "gray": "#959595", "aurora": "#00B8D4",
+    /// ds-bot 的 ink 调色板（`src/client/inks.js` 的 `INKS[k] = [light, dark]`）。
+    /// **深浅两档都要抄**：电脑端 `styles.js` 深色走 `INKS[k][1]`，只抄浅色会让
+    /// 深色下 19/19 与电脑端不同（QA 实测指出）。
+    private static let inkPairs: [String: (light: String, dark: String)] = [
+        "deepseek": ("#4D6BFE", "#6A84FF"), "charcoal": ("#141416", "#F1F2F4"),
+        "graphite": ("#2D2D2D", "#D6D6DA"), "rose": ("#EC2F6B", "#FF5A7A"),
+        "sky": ("#0AA8D6", "#2EE6E0"), "tangerine": ("#FF6900", "#FF8A2E"),
+        "cobalt": ("#082DFF", "#5C78FF"), "black": ("#000000", "#FFFFFF"),
+        "brown": ("#A27952", "#855C36"), "red": ("#FF3E51", "#E02135"),
+        "orange": ("#FF781C", "#FF6700"), "yellow": ("#FFAF38", "#FF9800"),
+        "green": ("#00C972", "#009957"), "cyan": ("#1CC3B0", "#00A592"),
+        "blue": ("#2A92FE", "#0E74E0"), "violet": ("#A97EFE", "#804EE0"),
+        "magenta": ("#FF5EB1", "#E02A88"), "gray": ("#959595", "#777777"),
+        "aurora": ("#00B8D4", "#2EE6E0"),
     ]
 
-    static func color(fromInk key: String?) -> Color? {
-        guard let key, !key.isEmpty else { return nil }
-        if key.hasPrefix("#"), key.count == 7, let value = UInt32(key.dropFirst(), radix: 16) {
-            return Color(red: Double((value >> 16) & 0xFF) / 255,
-                         green: Double((value >> 8) & 0xFF) / 255,
-                         blue: Double(value & 0xFF) / 255)
+    /// 电脑端符号墨色（`themes.js` 的 `DARK_INK`）。
+    private static let accentDarkInk = "#141414"
+
+    private static func rgb(_ hex: String) -> (Double, Double, Double)? {
+        let body = hex.hasPrefix("#") ? String(hex.dropFirst()) : hex
+        guard body.count == 6, let value = UInt32(body, radix: 16) else { return nil }
+        return (Double((value >> 16) & 0xFF) / 255,
+                Double((value >> 8) & 0xFF) / 255,
+                Double(value & 0xFF) / 255)
+    }
+
+    private static func color(hex: String) -> Color? {
+        guard let (red, green, blue) = rgb(hex) else { return nil }
+        return Color(red: red, green: green, blue: blue)
+    }
+
+    /// WCAG 相对亮度（与 `inks.js` 的 `luminance` 同式）。
+    static func luminance(hex: String) -> Double {
+        guard let (red, green, blue) = rgb(hex) else { return 0 }
+        func linear(_ channel: Double) -> Double {
+            channel <= 0.04045 ? channel / 12.92 : pow((channel + 0.055) / 1.055, 2.4)
         }
-        guard let hex = inks[key.lowercased()], let value = UInt32(hex.dropFirst(), radix: 16) else { return nil }
-        return Color(red: Double((value >> 16) & 0xFF) / 255,
-                     green: Double((value >> 8) & 0xFF) / 255,
-                     blue: Double(value & 0xFF) / 255)
+        return 0.2126 * linear(red) + 0.7152 * linear(green) + 0.0722 * linear(blue)
+    }
+
+    /// 指定主题下 ink 的实际 hex（自定义 hex 两档同色）。
+    static func inkHex(_ key: String?, scheme: ColorScheme) -> String? {
+        guard let key, !key.isEmpty else { return nil }
+        if key.hasPrefix("#") { return key.count == 7 ? key : nil }
+        guard let pair = inkPairs[key.lowercased()] else { return nil }
+        return scheme == .dark ? pair.dark : pair.light
+    }
+
+    /// 指定主题下的 ink 颜色（对拍测试用；视图用 `dynamicInk`）。
+    static func inkColor(_ key: String?, scheme: ColorScheme) -> Color? {
+        inkHex(key, scheme: scheme).flatMap(color(hex:))
+    }
+
+    /// 视图用：随主题自动解析的动态色（渲染层不用逐层加 env）。
+    static func dynamicInk(_ key: String?) -> Color? {
+        guard let key, !key.isEmpty else { return nil }
+        if key.hasPrefix("#") { return color(hex: key) }
+        guard inkPairs[key.lowercased()] != nil else { return nil }
+        return Color(uiColor: UIColor { traits in
+            let scheme: ColorScheme = traits.userInterfaceStyle == .dark ? .dark : .light
+            return UIColor(inkColor(key, scheme: scheme) ?? neutralBlockColor)
+        })
+    }
+
+    /// 电脑端 `accentInk()`：在白与近黑之间选对比度更高的那个。
+    /// 规则逐字取自 `themes.js:35-36`，不要自己另发明一套。
+    static func symbolInkHex(forAccentHex accent: String) -> String {
+        let accentLum = luminance(hex: accent)
+        let darkLum = luminance(hex: accentDarkInk)
+        return pow(accentLum + 0.05, 2) > 1.05 * (darkLum + 0.05) ? accentDarkInk : "#FFFFFF"
+    }
+
+    /// 角色符号的墨色（压在真彩底上）：按当前主题的实际底色二选一。
+    static func avatarInk(_ row: Row) -> Color {
+        let accent = inkHex(row.colorKey, scheme: .light) ?? "#959595"
+        return Color(uiColor: UIColor { traits in
+            let scheme: ColorScheme = traits.userInterfaceStyle == .dark ? .dark : .light
+            let resolved = inkHex(row.colorKey, scheme: scheme) ?? "#959595"
+            return UIColor(color(hex: symbolInkHex(forAccentHex: resolved)) ?? .white)
+        })
     }
 
     /// 角色形状 → 近似符号（电脑端是矢量角色；手机端用同一形状语义的符号 + 同色底，
@@ -558,7 +618,8 @@ final class GatewayTeamFeed: ObservableObject {
         case "moon": return "moon.fill"
         case "wave": return "water.waves"
         case "squircle": return "square.fill"
-        case "zed": return "hare.fill"
+        // `zed` 在电脑端是 Bull（不是兔子）；SF Symbols 没有牛，取最接近且不撞符号的四足剪影。
+        case "zed": return "tortoise.fill"
         case "hex": return "camera.macro"
         case "gumdrop": return "drop.fill"
         case "peanut": return "circle.hexagongrid.fill"
@@ -589,13 +650,14 @@ final class GatewayTeamFeed: ObservableObject {
     }
 
     /// 契约 v2 起 host 已在 roster 里解析好 `color`（ink key 或 hex），手机端**只映射**。
-    /// 真拿不到（旧宿主）时用中性色块，不按名字猜——猜测必然和电脑端不一致。
+    /// 深浅两档都按 `colorScheme` 取（电脑端深色走 INKS[k][1]）；
+    /// 真拿不到（旧宿主）时用中性色块，**不按名字猜**——猜测必然和电脑端不一致。
     static func avatarColor(_ row: Row) -> Color {
-        color(fromInk: row.colorKey) ?? neutralBlockColor
+        dynamicInk(row.colorKey) ?? neutralBlockColor
     }
 
     /// 契约 v2 起 host 已解析好 `avatar.shape`（缺省按 bot id 推导），手机端**只映射符号**。
-    /// 旧宿主缺 shape 时落到中性圆点，同样不做名字推导。
+    /// 旧宿主缺 shape（或形状未知）时落到中性圆点 `circle.fill`，**不做名字/首字母推导**。
     static func avatarSymbol(_ row: Row) -> String {
         shapeSymbol(row.avatarShape)
     }

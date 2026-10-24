@@ -521,7 +521,8 @@ struct WorkspaceView: View {
                     // 手机端用同语义的系统符号（形状对齐、颜色对齐），不再一律首字母。
                     Image(systemName: GatewayTeamFeed.avatarSymbol(row))
                         .appFont(.system(size: size * 0.44, weight: .semibold))
-                        .foregroundStyle(.white)
+                        // 电脑端同款规则：白 / 近黑二选一，符号压在真彩底上也看得见。
+                        .foregroundStyle(GatewayTeamFeed.avatarInk(row))
                 }
         }
     }
@@ -1161,7 +1162,9 @@ struct WorkspaceView: View {
             // 文字继承外层 ink(1)=#0E131A，压在 92% 白上 ≈18.6:1。
             .themedGlassSurface(radius: 18,
                                 tint: palette.veil(0.08),
-                                lightFill: palette.surface(0.12),
+                                // 凹槽用**不透明** #F3F3F4（与白卡片 1.11:1）；
+                                // surface(0.12) 压在白卡片上只有 1.00:1，等于看不见。
+                                lightFill: WorkspaceCardFill.sunken,
                                 darkMaterial: true,
                                 lightShadowOpacity: 0.18)
         }

@@ -60,6 +60,8 @@ struct SettingsView: View {
     @State private var showsInterfaceOptions = false
     @State private var showsLanguageOptions = false
     @State private var showsLanguageRestartAlert = false
+    /// sheet 关闭后再弹「需重启」提示（iOS 16 时序保险）。
+    @State private var pendingLanguageRestart = false
     @State private var showsReleaseNotes = false
     /// 新会话默认配置三项 + 字体大小：用户裁决一律不走推入，改用紧凑弹层。
     @State private var showsPresetOptions = false
@@ -359,7 +361,14 @@ struct SettingsView: View {
                 if let style = InterfaceStyle(rawValue: id) { store.interfaceStyle = style }
             }
         }
-        .sheet(isPresented: $showsLanguageOptions) {
+        .sheet(isPresented: $showsLanguageOptions, onDismiss: {
+            // iOS 16 上「sheet 还在关闭过程中就弹 alert」容易被系统吞掉，
+            // 所以先记下待提示，等 sheet 真正 dismiss 之后再弹（onDismiss 时机稳定）。
+            if pendingLanguageRestart {
+                pendingLanguageRestart = false
+                showsLanguageRestartAlert = true
+            }
+        }) {
             OptionListSheet(
                 title: "语言",
                 options: AppLanguage.allCases.map { OptionListSheet.Option(id: $0.rawValue, title: $0.title) },
@@ -369,7 +378,7 @@ struct SettingsView: View {
                 let changed = language != store.appLanguage
                 store.appLanguage = language
                 // 用户明确要求：改完必须立刻告诉他为什么没变，而不是让他猜。
-                if changed { showsLanguageRestartAlert = true }
+                if changed { pendingLanguageRestart = true }
             }
         }
         .sheet(isPresented: $showsPrivacyPolicy) {
@@ -388,6 +397,9 @@ struct SettingsView: View {
             FontSizePanel()
         }
         .alert("语言已切换", isPresented: $showsLanguageRestartAlert) {
+            // 程序化退出（exit(0)）App Review 不推荐，但这里**只有用户点了这个按钮**才会执行：
+            // iOS 没有公开的「重启本 App」API，而语言只在启动时读取 AppleLanguages，
+            // 与其让用户手动去多任务里找，不如提供一键退出；不点则完全不发生。
             Button("退出 App") { exit(0) }
             Button("稍后重启", role: .cancel) {}
         } message: {
