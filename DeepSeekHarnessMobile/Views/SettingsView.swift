@@ -414,7 +414,7 @@ struct SettingsView: View {
     }
 
     /// 「标题 + 当前值 + 右侧箭头」的设置行（点开弹出选项层用）。
-    private func settingsValueRow(title: String, value: String) -> some View {
+    private func settingsValueRow(title: LocalizedStringKey, value: String) -> some View {
         HStack {
             Text(title)
             Spacer()
