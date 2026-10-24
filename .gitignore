@@ -11,6 +11,7 @@ xcuserdata/
 DerivedData/
 build/
 *.ipa
+*.ipa.superseded
 *.dSYM
 *.dSYM.zip
 
