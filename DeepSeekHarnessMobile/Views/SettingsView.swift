@@ -2,6 +2,58 @@ import SwiftUI
 import WebKit
 import MarkdownUI
 
+/// B4 诊断开关（下一版随包提供给用户点两下，用来把「呈现方式 / 页面内容 / 背景」三者分开）。
+/// - `settingsSheet`：设置里的子页改用 sheet 呈现（卡不卡跟着呈现方式走还是跟着内容走）
+/// - `backgroundOff`：写 UserDefaults 让 `HarnessBackgroundLayers` 关掉全部背景图层
+enum SettingsDiagnostics {
+    static let sheetKey = "dsh.diag.settingsSheet"
+    static let backgroundKey = "dsh.background.layers"
+
+    static func backgroundDisabled(_ defaults: UserDefaults = .standard) -> Bool {
+        (defaults.string(forKey: backgroundKey) ?? "").contains("none")
+    }
+    static func setBackgroundDisabled(_ disabled: Bool, defaults: UserDefaults = .standard) {
+        if disabled { defaults.set("none", forKey: backgroundKey) }
+        else { defaults.removeObject(forKey: backgroundKey) }
+    }
+}
+
+
+/// B4 诊断用：设置子页在「推入」与「sheet」之间切换，用来把「呈现方式」与「页面内容」分开。
+/// 默认（诊断关闭）仍是原来的 NavigationLink，行为不变。
+private struct SettingsSubpageRow<Label: View, Destination: View>: View {
+    @AppStorage(SettingsDiagnostics.sheetKey) private var usesSheet = false
+    @ViewBuilder let label: () -> Label
+    @ViewBuilder let destination: () -> Destination
+    @State private var showsSheet = false
+
+    var body: some View {
+        if usesSheet {
+            Button {
+                showsSheet = true
+            } label: {
+                label()
+            }
+            .sheet(isPresented: $showsSheet) {
+                NavigationStack {
+                    destination()
+                        .toolbar {
+                            ToolbarItem(placement: .topBarTrailing) {
+                                Button("关闭") { showsSheet = false }
+                            }
+                        }
+                }
+            }
+        } else {
+            NavigationLink {
+                destination()
+            } label: {
+                label()
+            }
+        }
+    }
+}
+
 struct SettingsView: View {
     @Environment(\.openURL) private var openURL
     @EnvironmentObject private var store: AppStore
@@ -12,6 +64,10 @@ struct SettingsView: View {
     @State private var showsInterfaceOptions = false
     @State private var showsLanguageOptions = false
     @State private var showsReleaseNotes = false
+    // B4 诊断开关（见 SettingsDiagnostics）
+    @AppStorage(SettingsDiagnostics.sheetKey) private var diagnosticSheet = false
+    @AppStorage("dsh.diag.backgroundOff") private var diagnosticNoBackground = false
+    @State private var showsPermissionSheet = false
     @AppStorage(AppFontScale.key) private var fontScale = 1.0
     @AppStorage(AppFontScale.followsSystemKey) private var fontFollowsSystem = false
     private let releaseInfo = BundledAppReleaseInfo.load()
@@ -108,50 +164,70 @@ struct SettingsView: View {
     var body: some View {
         Form {
             Section {
-                NavigationLink {
-                    AgentPresetSelectionView()
-                } label: {
+                SettingsSubpageRow {
                     DefaultConfigurationRow(
                         title: String(localized: "Agent 预设"),
                         value: selectedPresetName,
                         isLoading: defaultsAreLoading
                     )
+                } destination: {
+                    AgentPresetSelectionView()
                 }
                 .disabled(!gatewayState.isConnected)
 
-                NavigationLink {
-                    DefaultModelSelectionView()
-                } label: {
+                SettingsSubpageRow {
                     DefaultConfigurationRow(
                         title: String(localized: "默认模型"),
                         value: defaultModelValueText,
                         isLoading: defaultModelIsLoading
                     )
+                } destination: {
+                    DefaultModelSelectionView()
                 }
                 .disabled(!gatewayState.isConnected)
 
-                Menu {
-                    ForEach(store.permissionDefaultOptions.map(DefaultPermissionChoice.init)) { option in
-                        Button {
-                            pendingPermission = option
-                        } label: {
-                            if option.id == store.permissionDefault {
-                                Label(option.title, systemImage: "checkmark")
-                            } else {
-                                Text(option.title)
+                // 权限本来就不是推入页（Menu 弹出），所以诊断开关打开时改成 sheet，
+                // 这才是判断「卡死跟呈现方式走还是跟内容走」的正确对照。
+                if diagnosticSheet {
+                    Button {
+                        showsPermissionSheet = true
+                    } label: {
+                        DefaultConfigurationRow(
+                            title: String(localized: "权限"),
+                            value: selectedPermissionName,
+                            isLoading: defaultsAreLoading
+                        )
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .sheet(isPresented: $showsPermissionSheet) {
+                        permissionOptionsSheet
+                    }
+                    .disabled(!gatewayState.isConnected || store.defaultConfigurationLoadingKinds.contains("set-default"))
+                } else {
+                    Menu {
+                        ForEach(store.permissionDefaultOptions.map(DefaultPermissionChoice.init)) { option in
+                            Button {
+                                pendingPermission = option
+                            } label: {
+                                if option.id == store.permissionDefault {
+                                    Label(option.title, systemImage: "checkmark")
+                                } else {
+                                    Text(option.title)
+                                }
                             }
                         }
+                    } label: {
+                        DefaultConfigurationRow(
+                            title: String(localized: "权限"),
+                            value: selectedPermissionName,
+                            isLoading: defaultsAreLoading
+                        )
+                        .contentShape(Rectangle())
                     }
-                } label: {
-                    DefaultConfigurationRow(
-                        title: String(localized: "权限"),
-                        value: selectedPermissionName,
-                        isLoading: defaultsAreLoading
-                    )
-                    .contentShape(Rectangle())
+                    .tint(.primary)
+                    .disabled(!gatewayState.isConnected || store.defaultConfigurationLoadingKinds.contains("set-default"))
                 }
-                .tint(.primary)
-                .disabled(!gatewayState.isConnected || store.defaultConfigurationLoadingKinds.contains("set-default"))
             } header: {
                 Text("新会话默认配置")
             } footer: {
@@ -219,9 +295,7 @@ struct SettingsView: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("appearance-language-row")
-                NavigationLink {
-                    FontSizeSettingsView()
-                } label: {
+                SettingsSubpageRow {
                     HStack {
                         Text("字体大小")
                         Spacer()
@@ -229,6 +303,8 @@ struct SettingsView: View {
                             : "\(Int((AppFontScale.normalized(fontScale) * 100).rounded()))%")
                             .foregroundStyle(.secondary)
                     }
+                } destination: {
+                    FontSizeSettingsView()
                 }
                 .accessibilityIdentifier("font-size-settings-row")
             } header: {
@@ -247,10 +323,29 @@ struct SettingsView: View {
                 Button("本版本新功能") { showsReleaseNotes = true }
                 Button("隐私政策") { showsPrivacyPolicy = true }
             }
+
+            Section {
+                Toggle("设置子页改用 sheet 呈现", isOn: $diagnosticSheet)
+                    .accessibilityIdentifier("diag-settings-sheet")
+                Toggle("关闭背景动画图层", isOn: $diagnosticNoBackground)
+                    .accessibilityIdentifier("diag-background-off")
+            } header: {
+                Text("诊断（临时）")
+            } footer: {
+                Text("用于排查「点进设置子页卡死」：① 子页改成 sheet 后如果不再卡，问题在导航推入机制；② 关掉背景图层后如果不再卡，问题在逐帧动画。两项都退回关闭即为正常状态。")
+            }
         }
         .navigationTitle("设置")
         // B4：容器级推入页同样整屏盖住背景，推入期间暂停动画（与设置子页同一策略）。
         .pausesBackgroundAnimation()
+        .onChange(of: diagnosticNoBackground) { disabled in
+            // HarnessBackgroundLayers 读的是 dsh.background.layers，这里把开关映射成 none/清除。
+            SettingsDiagnostics.setBackgroundDisabled(disabled)
+        }
+        .onAppear {
+            // 启动时把开关状态与底层键对齐（避免上次被环境变量/手工改键后不一致）。
+            diagnosticNoBackground = SettingsDiagnostics.backgroundDisabled()
+        }
         .task {
             store.refreshDefaultConfiguration()
             if gatewayState.isConnected { store.refreshPlugins() }
@@ -315,6 +410,41 @@ struct SettingsView: View {
     }
 
     /// 「标题 + 当前值 + 右侧箭头」的设置行（点开弹出选项层用）。
+    /// 诊断用：把「权限」的选项从 Menu 挪到 sheet，内容与原菜单完全一致。
+    private var permissionOptionsSheet: some View {
+        NavigationStack {
+            List {
+                Section {
+                    ForEach(store.permissionDefaultOptions.map(DefaultPermissionChoice.init)) { option in
+                        Button {
+                            showsPermissionSheet = false
+                            pendingPermission = option
+                        } label: {
+                            HStack {
+                                Text(option.title)
+                                Spacer()
+                                if option.id == store.permissionDefault {
+                                    Image(systemName: "checkmark")
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                } footer: {
+                    Text("诊断模式：与「权限」菜单内容一致，只是改用 sheet 呈现。")
+                }
+            }
+            .navigationTitle("权限")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("关闭") { showsPermissionSheet = false }
+                }
+            }
+        }
+    }
+
     private func settingsValueRow(title: String, value: String) -> some View {
         HStack {
             Text(title)
@@ -371,7 +501,12 @@ struct FontSizeSettingsView: View {
         .pausesBackgroundAnimation()
         .navigationTitle("字体大小")
         .navigationBarTitleDisplayMode(.inline)
-        .onAppear { fontScale = AppFontScale.normalized(fontScale) }
+        .onAppear {
+            // 只在真的越界时才写（写 @AppStorage 会让根部的 AppFontScope 重设 dynamicTypeSize，
+            // 推入过渡中触发全树重排）。正常值 1.0 不写。
+            let normalized = AppFontScale.normalized(fontScale)
+            if normalized != fontScale { fontScale = normalized }
+        }
     }
 
     private func fontSizeContent(previewHeight: CGFloat) -> some View {
@@ -431,18 +566,18 @@ struct FontSizeSettingsView: View {
                         .accessibilityLabel("字体大小")
                         .accessibilityValue("\(Int((AppFontScale.normalized(fontScale) * 100).rounded()))%")
                         .background {
-                            GeometryReader { geometry in
-                                Canvas { context, size in
-                                    var ticks = Path()
-                                    let width = max(0, geometry.size.width - 28)
-                                    for index in 0...14 {
-                                        let x = 14 + width * CGFloat(index) / 14
-                                        ticks.move(to: CGPoint(x: x, y: size.height / 2 - 4))
-                                        ticks.addLine(to: CGPoint(x: x, y: size.height / 2 + 4))
-                                    }
-                                    context.stroke(ticks, with: .color(Color(uiColor: .systemGray3)), lineWidth: 1.5)
+                            // B4 线索：这里原来是「Slider 背景里挂 GeometryReader{Canvas}」，
+                            // 与已删掉的内层 ScrollView 属同一类构造（在尺寸不确定的上下文里读几何）。
+                            // 刻度是固定 15 格的等分装饰，用普通 HStack 就够，不需要测量容器。
+                            HStack(spacing: 0) {
+                                ForEach(0...14, id: \.self) { _ in
+                                    Rectangle()
+                                        .fill(Color(uiColor: .systemGray3))
+                                        .frame(width: 1.5, height: 8)
+                                    if true { Spacer(minLength: 0) }
                                 }
                             }
+                            .padding(.horizontal, 14)
                         }
                     Button("恢复默认") { fontScale = 1 }
                         .appFont(.system(size: 13))

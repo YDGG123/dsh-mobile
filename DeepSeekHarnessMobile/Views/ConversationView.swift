@@ -3920,12 +3920,14 @@ private struct ConversationToolBundleHeaderRow: View {
     let tools: [ConversationProcessTool]
     let expanded: Bool
     let onToggle: () -> Void
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         Button(action: onToggle) {
             HStack(spacing: 8) {
                 Image(systemName: "wrench.and.screwdriver")
-                    .foregroundStyle(DSHColor.orange)
+                    // 图形判据 ≥3:1：浅色下品牌橙只有 2.75，用压暗档。
+                    .foregroundStyle(DSHPalette(scheme: colorScheme).caution)
                     .frame(width: 18)
                 Text(bundleTitle)
                     .appFont(.subheadline)

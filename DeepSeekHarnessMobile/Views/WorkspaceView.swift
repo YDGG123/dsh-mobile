@@ -298,7 +298,7 @@ struct WorkspaceView: View {
                                     .fill(palette.surface(0.18))
                                     .overlay(
                                         RoundedRectangle(cornerRadius: 9, style: .continuous)
-                                            .stroke(palette.ink(0.18), lineWidth: 0.5)
+                                            .stroke(palette.stroke(0.18), lineWidth: 0.5)
                                     )
                             }
                         }
@@ -310,7 +310,8 @@ struct WorkspaceView: View {
             }
         }
         .padding(4)
-        .background(palette.ink(0.07), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        // 用户反馈「灰底比周围白卡片重」：ink() 的浅色地板是给文字用的，填充改走 veil()。
+        .background(palette.veil(0.07), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .accessibilityElement(children: .contain)
         .accessibilityLabel("首页分组")
     }
@@ -420,9 +421,10 @@ struct WorkspaceView: View {
     private func bridgeSessionRow(_ row: BridgeTeamRow) -> some View {
         HStack(spacing: 11) {
             Circle()
-                .fill(row.waiting == true ? DSHColor.success : palette.ink(0.35))
+                // 图形判据 ≥3:1：等待用压暗绿，未等待用 stroke 档（原来 ink(0.35) 在浅色下是 0.71 的近黑点）。
+                .fill(row.waiting == true ? palette.success : palette.stroke(0.45))
                 .frame(width: 7, height: 7)
-                .shadow(color: row.waiting == true ? DSHColor.success : .clear, radius: 5)
+                .shadow(color: row.waiting == true ? palette.success : .clear, radius: 5)
             VStack(alignment: .leading, spacing: 3) {
                 Text(row.name).lineLimit(1).appFont(.subheadline.weight(.medium))
                 Text(bridgeRowSubtitle(row)).appFont(.caption2).foregroundStyle(palette.ink(0.42)).lineLimit(1)
@@ -915,7 +917,7 @@ struct WorkspaceView: View {
     private func sessionRow(_ session: SessionSummary) -> some View {
         HStack(spacing: 11) {
             Circle()
-                .fill(session.isRunning ? palette.success : (session.hasUnread ? DSHColor.ocean : palette.ink(0.35)))
+                .fill(session.isRunning ? palette.success : (session.hasUnread ? DSHColor.ocean : palette.stroke(0.45)))
                 .frame(width: 7, height: 7)
                 .shadow(color: session.isRunning ? palette.success : .clear, radius: 5)
             VStack(alignment: .leading, spacing: 3) {
@@ -945,7 +947,7 @@ struct WorkspaceView: View {
                 newSessionButtonLabel
             }
             .buttonStyle(.plain)
-            .glassSurface(radius: 18, dark: true, tint: palette.ink(0.08))
+            .glassSurface(radius: 18, dark: colorScheme == .dark, tint: palette.veil(0.08))
         }
     }
 
@@ -1293,7 +1295,8 @@ private struct DirectoryBrowserSheet: View {
                 }
                 .overlay {
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .stroke(palette.ink(0.18), lineWidth: 0.8)
+                        // 这是纯黑按钮上的一圈高光，与主题无关（原来用 ink 在浅色下变成深色描边，看不见）。
+                        .stroke(Color.white.opacity(0.22), lineWidth: 0.8)
                 }
                 .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             }

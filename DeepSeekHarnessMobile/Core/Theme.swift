@@ -173,6 +173,13 @@ struct DSHPalette {
             : Color.white.opacity(opacity)
     }
 
+    /// **填充/描边专用档**。不要拿 `ink()` 当底色：浅色档 `ink` 有 0.55 的透明度地板
+    /// （那是为文字对比度设的），`ink(0.07)` 当填充会变成 58% 的近黑——用户看到的
+    /// 「分段控件灰底比周围白卡片重」就是这个。veil 在浅色下最多 0.16，深色沿用白色叠加。
+    func veil(_ opacity: Double) -> Color {
+        isLight ? DSHColor.ink.opacity(min(0.16, opacity * 0.9)) : Color.white.opacity(opacity)
+    }
+
     // 状态色（文字/图标用）。深色沿用品牌色；浅色必须压暗，否则在浅底上达不到 4.5:1：
     // 绿 2.59:1 / 琥珀 1.86:1 / 橙 2.75:1（原值），压暗后 6.6 / 6.3 / 4.9。
     var success: Color { isLight ? Color(red: 0.07, green: 0.42, blue: 0.18) : DSHColor.success }

@@ -1086,6 +1086,7 @@ private struct WorkspaceFileRow: View {
     @ObservedObject var store: AppStore
     let item: GatewayDirectoryItem
     let isDownloaded: Bool
+    @Environment(\.colorScheme) private var colorScheme
 
     private var isDownloading: Bool {
         store.workspaceFileDownloadPurpose == "download" &&
@@ -1152,7 +1153,7 @@ private struct WorkspaceFileRow: View {
         } else {
             Image(systemName: isDownloaded ? "checkmark.circle" : "arrow.down.circle")
                 .appFont(.title3)
-                .foregroundStyle(isDownloaded ? DSHColor.success : Color.primary)
+                .foregroundStyle(isDownloaded ? DSHPalette(scheme: colorScheme).success : Color.primary)
         }
     }
 
