@@ -249,6 +249,8 @@ struct SettingsView: View {
             }
         }
         .navigationTitle("设置")
+        // B4：容器级推入页同样整屏盖住背景，推入期间暂停动画（与设置子页同一策略）。
+        .pausesBackgroundAnimation()
         .task {
             store.refreshDefaultConfiguration()
             if gatewayState.isConnected { store.refreshPlugins() }
@@ -374,8 +376,11 @@ struct FontSizeSettingsView: View {
 
     private func fontSizeContent(previewHeight: CGFloat) -> some View {
         VStack(spacing: 24) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 28) {
+            // B4 候选根因：这里原来是「外层 ScrollView 里再套一个 ScrollView」，
+            // 内层高度又由 GeometryReader 算出来的 previewHeight 固定——
+            // 纵向嵌套滚动 + 依赖容器高度 = 布局回路/手势争抢的经典组合。
+            // 预览内容本来就只有三段，改成普通 VStack + minHeight，外层统一滚动。
+            VStack(alignment: .leading, spacing: 28) {
                     HStack {
                         Spacer(minLength: 0)
                         Text("预览文字大小")
@@ -396,9 +401,8 @@ struct FontSizeSettingsView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 20)
                 .padding(.vertical, 32)
-            }
-            .frame(height: previewHeight)
-            .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 20))
+                .frame(minHeight: previewHeight, alignment: .topLeading)
+                .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 20))
 
             VStack(spacing: 16) {
                 Toggle("跟随系统", isOn: $fontFollowsSystem)

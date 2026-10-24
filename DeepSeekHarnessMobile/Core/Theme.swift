@@ -177,7 +177,9 @@ struct DSHPalette {
     // 绿 2.59:1 / 琥珀 1.86:1 / 橙 2.75:1（原值），压暗后 6.6 / 6.3 / 4.9。
     var success: Color { isLight ? Color(red: 0.07, green: 0.42, blue: 0.18) : DSHColor.success }
     var warning: Color { isLight ? Color(red: 0.55, green: 0.32, blue: 0.0) : DSHColor.amber }
-    var caution: Color { isLight ? Color(red: 0.70, green: 0.34, blue: 0.0) : DSHColor.orange }
+    // 橙单独再压一档：浅海渐变最深处（#E0F0FF）上 0.70/0.34/0 只有 4.25:1，不到 AA；
+    // 0.62/0.30/0 在 #FFFFFF / #F5FAFF / #E0F0FF 上分别是 5.99 / 5.71 / 5.16。
+    var caution: Color { isLight ? Color(red: 0.62, green: 0.30, blue: 0.0) : DSHColor.orange }
     var danger: Color { isLight ? Color(red: 0.72, green: 0.12, blue: 0.10) : Color.red.opacity(0.9) }
 
     static func resolve(_ scheme: ColorScheme) -> DSHPalette { DSHPalette(scheme: scheme) }

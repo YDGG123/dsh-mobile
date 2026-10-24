@@ -367,6 +367,8 @@ private struct ScheduledTasksView: View {
         .refreshable { store.refreshScheduledTasks() }
         .background(Color(uiColor: .systemBackground))
         .navigationTitle(isSearching ? "" : String(localized: "定时任务"))
+        // B4：容器级推入页同样整屏盖住背景，推入期间暂停动画（与设置子页同一策略）。
+        .pausesBackgroundAnimation()
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -865,6 +867,8 @@ private struct ConversationNavigationShell<Content: View>: View {
 
     var body: some View {
         content()
+            // B4：会话页是最重的一页（ChatLayout），推入/转场期间先停背景动画。
+            .pausesBackgroundAnimation()
             .navigationTitle(liveTitle ?? header.title)
             .onReceive(store.$sessions) { sessions in
                 let sessionID = header.sessionID ?? store.selectedSessionId
