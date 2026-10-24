@@ -2,24 +2,52 @@ import SwiftUI
 import WebKit
 import MarkdownUI
 
-/// 诊断键（UI 已不再提供开关；仅保留键与读取逻辑，供排查时用环境变量/UserDefaults 覆盖）。
-/// - `backgroundKey`：`none` 关掉全部背景图层
-/// - `compositingKey`：关掉工作区的离屏合成 + 双层实时阴影
-/// - `rootIdentityKey`：关掉根视图的 `.id(ObjectIdentifier(activeStore))`
+/// 诊断「逃逸口」键：**有意保留，不是死码**。
+///
+/// U6 按用户要求把设置里的四个诊断 Toggle 撤掉了（用户诉求是"别在设置里添乱"），
+/// 但底层的三个读取点仍然在职：`RootIdentityBinding`、`WorkspaceCardComposition`、
+/// `HarnessAnimatedBackground`。保留它们的原因只有一个——将来再遇到"呈现/转场/背景"
+/// 类问题，维护者还能用一条命令做二分，不必重新加 UI、重新出包：
+///
+/// ```
+/// defaults write com.lichaofan.dshmobile dsh.diag.noCompositing -bool YES   # 关离屏合成+阴影
+/// defaults write com.lichaofan.dshmobile dsh.diag.noRootIdentity -bool YES  # 关根 identity 绑定
+/// defaults write com.lichaofan.dshmobile dsh.background.layers -string none # 关全部背景图层
+/// defaults delete com.lichaofan.dshmobile dsh.diag.noCompositing             # 复位
+/// ```
+///
+/// 默认值全部是「关闭诊断 = 正常形态」；没有 UI 入口，普通用户不会误触。
+/// **请勿把这些键当作无引用死码清掉**——删了就只能改代码、重新出包才能二分。
+/// `resetLegacyTogglesIfNeeded()` 负责在升级后首次启动时清掉旧版本 Toggle 留下的值。
 enum SettingsDiagnostics {
-    static let sheetKey = "dsh.diag.settingsSheet"
+    /// `none` 关掉全部背景图层（也读同名环境变量 `DSH_BACKGROUND_LAYERS`）。
     static let backgroundKey = "dsh.background.layers"
     /// 关掉工作区的「离屏合成 + 双层实时阴影」（B4 候选 2：呈现时快照撞上离屏合成）。
     static let compositingKey = "dsh.diag.noCompositing"
     /// 关掉根视图的 `.id(ObjectIdentifier(activeStore))`（B4 候选 1：整棵树身份绑在实例指针上）。
     static let rootIdentityKey = "dsh.diag.noRootIdentity"
 
-    static func backgroundDisabled(_ defaults: UserDefaults = .standard) -> Bool {
-        (defaults.string(forKey: backgroundKey) ?? "").contains("none")
-    }
-    static func setBackgroundDisabled(_ disabled: Bool, defaults: UserDefaults = .standard) {
-        if disabled { defaults.set("none", forKey: backgroundKey) }
-        else { defaults.removeObject(forKey: backgroundKey) }
+    /// 一次性清理标记：清理过就不再重复，保证 `defaults write` 设进去的值不会被下次启动抹掉。
+    private static let legacyResetKey = "dsh.diag.legacyReset.v1"
+
+    /// U6 升级清理（幂等）。
+    ///
+    /// 上个版本设置里有四个 Toggle，用户做过二分实验，键可能已被拨成「开」。
+    /// 新版本没有 UI 能关回去 → App 会永远带着「关离屏合成 / 关根 identity 绑定 /
+    /// 关背景图层」跑，且用户无从察觉。所以升级后**首次**启动把这些键复位一次。
+    /// 复位之后仍可用上面的 `defaults write` 手动设，逃逸口不受影响。
+    static func resetLegacyTogglesIfNeeded(_ defaults: UserDefaults = .standard) {
+        guard !defaults.bool(forKey: legacyResetKey) else { return }
+        // 前三个是当前键；后两个是旧 Toggle 自己的存储键，一并清掉免得残留。
+        let keys = [
+            compositingKey,
+            rootIdentityKey,
+            backgroundKey,
+            "dsh.diag.backgroundOff",
+            "dsh.diag.settingsSheet",
+        ]
+        for key in keys { defaults.removeObject(forKey: key) }
+        defaults.set(true, forKey: legacyResetKey)
     }
 }
 

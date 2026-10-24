@@ -17,7 +17,9 @@ struct HarnessAnimatedBackground: View {
     @Environment(\.colorScheme) private var colorScheme
     /// B4：被子页覆盖时暂停逐帧重绘（卡死根因见 `BackgroundAnimationPause`）。
     @ObservedObject private var pause = BackgroundAnimationPause.shared
-    /// 诊断开关必须被**观察**，否则拨动后背景不重算，用户点完看不到变化（QA 实测指出）。
+    /// 诊断逃逸口：`dsh.background.layers`（或同名环境变量）可只渲染指定图层 / 全关。
+    /// **有意保留**（UI 已无开关，见 `SettingsDiagnostics` 注释）。
+    /// 必须被**观察**，否则改值后背景不重算（QA 实测指出）。
     @AppStorage(SettingsDiagnostics.backgroundKey) private var layersOverride = ""
 
 

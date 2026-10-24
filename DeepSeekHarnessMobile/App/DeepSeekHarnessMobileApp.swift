@@ -25,6 +25,13 @@ struct DeepSeekHarnessMobileApp: App {
     @UIApplicationDelegateAdaptor(AgentNotificationAppDelegate.self) private var notificationAppDelegate
     @StateObject private var hosts = MultiGatewayStore()
 
+    init() {
+        // U6：旧版本设置里有四个诊断 Toggle，用户做二分实验时可能把它们拨成「开」；
+        // 新版本已无对应 UI，不清的话 App 会一直跑在降级形态（关离屏合成 / 关根 identity 等）。
+        // 幂等：只在升级后首次执行，之后用 `defaults write` 设的逃逸值不会被抹掉。
+        SettingsDiagnostics.resetLegacyTogglesIfNeeded()
+    }
+
     var body: some Scene {
         WindowGroup {
             RootView()
@@ -73,7 +80,8 @@ private enum AppExecutionHeartbeat {
 }
 #endif
 
-/// 诊断可关闭的根 identity 绑定（见 `SettingsDiagnostics.rootIdentityKey`）。
+/// 诊断逃逸口：`dsh.diag.noRootIdentity` 可关掉根 identity 绑定。
+/// **有意保留**（UI 已无开关，见 `SettingsDiagnostics` 注释）；默认 false = 正常形态。
 private struct RootIdentityBinding: ViewModifier {
     let store: AppStore
     @AppStorage(SettingsDiagnostics.rootIdentityKey) private var disabled = false

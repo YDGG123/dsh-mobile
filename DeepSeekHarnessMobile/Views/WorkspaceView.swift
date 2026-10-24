@@ -551,7 +551,8 @@ struct WorkspaceView: View {
         store.lastError = "这条对话还没同步到会话列表，稍后重试。"
     }
 
-    /// 诊断可关闭的工作区包裹样式（见 `SettingsDiagnostics.compositingKey`）。
+    /// 诊断逃逸口：`dsh.diag.noCompositing` 可关掉离屏合成 + 双层阴影。
+    /// **有意保留**（UI 已无开关，见 `SettingsDiagnostics` 注释）；默认 false = 正常形态。
     private struct WorkspaceCardComposition: ViewModifier {
         let progress: CGFloat
         @AppStorage(SettingsDiagnostics.compositingKey) private var disabled = false
