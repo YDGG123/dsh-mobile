@@ -11,3 +11,4 @@ f271c3da5852348c8e9ebe0071673fad41746582  # i18n 第①期收尾：11 条插值�
 acca9c4a178bf40cc6f770a30e8454263d2e8639  # chore(ship)：出包闸门实现（Chief 批：chore 随构建验证，QA 无需专项复核）
 d08785a128d8299ea2bac299ea24a4493c22a917  # chore(ship)：闸门改读版本化清单（同上，chore 随构建验证）
 a33bd264294f01d7c9f834049c9e2a0068b62554  # chore(ship)：清单只保留一份（同上，chore 随构建验证）
+a36f65a17b8b6cc1b164f98ee06d0f3e26eefd05  # merge 后 Debug 配置 iOS17+ 降级（App 14 处 + widget 10 个 #Preview）+ local-typecheck 四路闸门（QA 增量复核通过，反向测试两条）
