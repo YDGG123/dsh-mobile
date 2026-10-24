@@ -8,6 +8,10 @@ import MarkdownUI
 enum SettingsDiagnostics {
     static let sheetKey = "dsh.diag.settingsSheet"
     static let backgroundKey = "dsh.background.layers"
+    /// 关掉工作区的「离屏合成 + 双层实时阴影」（B4 候选 2：呈现时快照撞上离屏合成）。
+    static let compositingKey = "dsh.diag.noCompositing"
+    /// 关掉根视图的 `.id(ObjectIdentifier(activeStore))`（B4 候选 1：整棵树身份绑在实例指针上）。
+    static let rootIdentityKey = "dsh.diag.noRootIdentity"
 
     static func backgroundDisabled(_ defaults: UserDefaults = .standard) -> Bool {
         (defaults.string(forKey: backgroundKey) ?? "").contains("none")
@@ -67,6 +71,8 @@ struct SettingsView: View {
     // B4 诊断开关（见 SettingsDiagnostics）
     @AppStorage(SettingsDiagnostics.sheetKey) private var diagnosticSheet = false
     @AppStorage("dsh.diag.backgroundOff") private var diagnosticNoBackground = false
+    @AppStorage(SettingsDiagnostics.compositingKey) private var diagnosticNoCompositing = false
+    @AppStorage(SettingsDiagnostics.rootIdentityKey) private var diagnosticNoRootIdentity = false
     @State private var showsPermissionSheet = false
     @AppStorage(AppFontScale.key) private var fontScale = 1.0
     @AppStorage(AppFontScale.followsSystemKey) private var fontFollowsSystem = false
@@ -329,10 +335,14 @@ struct SettingsView: View {
                     .accessibilityIdentifier("diag-settings-sheet")
                 Toggle("关闭背景动画图层", isOn: $diagnosticNoBackground)
                     .accessibilityIdentifier("diag-background-off")
+                Toggle("关闭工作区离屏合成与阴影", isOn: $diagnosticNoCompositing)
+                    .accessibilityIdentifier("diag-no-compositing")
+                Toggle("关闭根视图 identity 绑定", isOn: $diagnosticNoRootIdentity)
+                    .accessibilityIdentifier("diag-no-root-identity")
             } header: {
                 Text("诊断（临时）")
             } footer: {
-                Text("用于排查「点进设置子页卡死」：① 子页改成 sheet 后如果不再卡，问题在导航推入机制；② 关掉背景图层后如果不再卡，问题在逐帧动画。两项都退回关闭即为正常状态。")
+                Text("用于排查「点进设置子页卡死」：① 子页改成 sheet 后不再卡 → 问题在导航推入/呈现机制；② 关掉背景图层后不再卡 → 逐帧动画；③ 关掉离屏合成与阴影后不再卡 → 呈现时的来源快照；④ 关掉根视图 identity 绑定后不再卡 → 呈现中途整棵树被重建。全部退回关闭即为正常状态。")
             }
         }
         .navigationTitle("设置")

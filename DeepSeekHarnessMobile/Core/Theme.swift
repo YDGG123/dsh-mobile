@@ -153,7 +153,13 @@ enum DSHColor {
     static let successAA = dynamic(dark: (0.18, 0.72, 0.36), light: (0.07, 0.42, 0.18))
     static let warningAA = dynamic(dark: (1.0, 0.68, 0.12), light: (0.55, 0.32, 0.0))
     static let cautionAA = dynamic(dark: (0.94, 0.49, 0.08), light: (0.62, 0.30, 0.0))
-    static let dangerAA = dynamic(dark: (1.0, 0.23, 0.19), light: (0.72, 0.12, 0.10))
+    /// danger 深色档必须与原来的 `Color.red.opacity(0.9)` 等价（带 0.9 透明度的纯红），
+    /// 所以这里单独构造带 alpha 的动态色，而不是套用 dynamic(...) 的不透明默认。
+    static let dangerAA = Color(uiColor: UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(red: 1.0, green: 0.0, blue: 0.0, alpha: 0.9)
+            : UIColor(red: 0.72, green: 0.12, blue: 0.10, alpha: 1)
+    })
     static let success = Color(red: 0.18, green: 0.72, blue: 0.36)
 }
 
@@ -198,12 +204,14 @@ struct DSHPalette {
 
     // 状态色（文字/图标用）。深色沿用品牌色；浅色必须压暗，否则在浅底上达不到 4.5:1：
     // 绿 2.59:1 / 琥珀 1.86:1 / 橙 2.75:1（原值），压暗后 6.6 / 6.3 / 4.9。
-    var success: Color { isLight ? Color(red: 0.07, green: 0.42, blue: 0.18) : DSHColor.success }
-    var warning: Color { isLight ? Color(red: 0.55, green: 0.32, blue: 0.0) : DSHColor.amber }
+    // 单一来源：直接复用 DSHColor 的动态色（深色档与品牌色逐位一致、浅色档压暗），
+    // 避免「palette.* 与 DSHColor.*AA 两套并存」以后分叉。
+    var success: Color { DSHColor.successAA }
+    var warning: Color { DSHColor.warningAA }
     // 橙单独再压一档：浅海渐变最深处（#E0F0FF）上 0.70/0.34/0 只有 4.25:1，不到 AA；
     // 0.62/0.30/0 在 #FFFFFF / #F5FAFF / #E0F0FF 上分别是 5.99 / 5.71 / 5.16。
-    var caution: Color { isLight ? Color(red: 0.62, green: 0.30, blue: 0.0) : DSHColor.orange }
-    var danger: Color { isLight ? Color(red: 0.72, green: 0.12, blue: 0.10) : Color.red.opacity(0.9) }
+    var caution: Color { DSHColor.cautionAA }
+    var danger: Color { DSHColor.dangerAA }
 
     static func resolve(_ scheme: ColorScheme) -> DSHPalette { DSHPalette(scheme: scheme) }
 }

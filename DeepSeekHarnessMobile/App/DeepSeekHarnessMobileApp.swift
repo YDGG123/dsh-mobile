@@ -28,7 +28,10 @@ struct DeepSeekHarnessMobileApp: App {
     var body: some Scene {
         WindowGroup {
             RootView()
-                .id(ObjectIdentifier(hosts.activeStore))
+                // B4 候选 1：整棵树身份挂在 AppStore 实例指针上——任何路径在呈现中途替换
+                // activeStore，SwiftUI 会拆掉正在呈现的 UIKit 层级（「退不出来只能杀 App」的形态）。
+                // 诊断开关可关掉这个绑定（关掉后切网关不再重置整棵树，属可控副作用）。
+                .modifier(RootIdentityBinding(store: hosts.activeStore))
                 .environmentObject(hosts.activeStore)
                 .environmentObject(hosts)
                 .modifier(AppFontScope())
@@ -69,3 +72,17 @@ private enum AppExecutionHeartbeat {
     }
 }
 #endif
+
+/// 诊断可关闭的根 identity 绑定（见 `SettingsDiagnostics.rootIdentityKey`）。
+private struct RootIdentityBinding: ViewModifier {
+    let store: AppStore
+    @AppStorage(SettingsDiagnostics.rootIdentityKey) private var disabled = false
+
+    func body(content: Content) -> some View {
+        if disabled {
+            content
+        } else {
+            content.id(ObjectIdentifier(store))
+        }
+    }
+}

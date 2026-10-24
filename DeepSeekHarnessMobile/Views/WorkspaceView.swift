@@ -65,20 +65,10 @@ struct WorkspaceView: View {
                         Color.black.opacity(dimOpacity)
                             .allowsHitTesting(false)
                     }
-                    .clipShape(RoundedRectangle(cornerRadius: 48 * progress, style: .continuous))
-                    .compositingGroup()
-                    .shadow(
-                        color: .black.opacity(0.12 * progress),
-                        radius: 9 * progress,
-                        x: -2 * progress,
-                        y: 0
-                    )
-                    .shadow(
-                        color: .black.opacity(0.30 * progress),
-                        radius: 26 * progress,
-                        x: -4 * progress,
-                        y: 0
-                    )
+                    // B4 候选 2：这组「剪裁 + 离屏合成 + 双层实时阴影」会在呈现（push/Menu）
+                    // 强制对来源做快照时把主线程拖住；sheet 呈现不走这条快照路径，正好解释
+                    // 「sheet 不卡、push 与 Menu 都卡」。诊断开关可整体关掉（进度为 0 时视觉等价）。
+                    .modifier(WorkspaceCardComposition(progress: progress))
                     .overlay(alignment: .leading) {
                         if progress > 0.98 || drawerDragStart != nil {
                             Color.clear
@@ -504,6 +494,34 @@ struct WorkspaceView: View {
             return
         }
         store.lastError = "这条对话还没同步到会话列表，稍后重试。"
+    }
+
+    /// 诊断可关闭的工作区包裹样式（见 `SettingsDiagnostics.compositingKey`）。
+    private struct WorkspaceCardComposition: ViewModifier {
+        let progress: CGFloat
+        @AppStorage(SettingsDiagnostics.compositingKey) private var disabled = false
+
+        func body(content: Content) -> some View {
+            if disabled {
+                content
+            } else {
+                content
+                    .clipShape(RoundedRectangle(cornerRadius: 48 * progress, style: .continuous))
+                    .compositingGroup()
+                    .shadow(
+                        color: .black.opacity(0.12 * progress),
+                        radius: 9 * progress,
+                        x: -2 * progress,
+                        y: 0
+                    )
+                    .shadow(
+                        color: .black.opacity(0.30 * progress),
+                        radius: 26 * progress,
+                        x: -4 * progress,
+                        y: 0
+                    )
+            }
+        }
     }
 
     private var bridgeListReady: Bool {
