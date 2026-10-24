@@ -106,6 +106,11 @@ final class GatewayTeamFeed: ObservableObject {
 
     init(log: @escaping (String) -> Void = { _ in }) {
         self.log = log
+        // 头像解码失败要能被看见：写进最近错误（界面会显示）+ 日志，但不含 data URL 原文。
+        Self.onAvatarDiagnostic = { [weak self] message in
+            self?.log(message)
+            self?.lastError = message
+        }
     }
 
     // MARK: - 生命周期
@@ -684,6 +689,11 @@ final class GatewayTeamFeed: ObservableObject {
     /// 解码结果缓存：SwiftUI 每次 body 求值都会问一次头像，base64 解码 + UIImage 构造
     /// 放在列表里是明显的每帧成本。键用 **data URL 的内容哈希**（同一 bot 换图会自动失效），
     /// 上限 64 张，够覆盖 20 个 Bot 的两份快照。
+    /// 解码失败**不许静默**（上次「头像全是首字母」查了几轮就是因为静默）。
+    /// 只报前缀与长度，绝不把 data URL 原文写进日志/界面（脱敏要求）。
+    static var onAvatarDiagnostic: ((String) -> Void)?
+    private static var reportedAvatarFailures = Set<String>()
+
     private static let avatarCache: NSCache<NSString, UIImage> = {
         let cache = NSCache<NSString, UIImage>()
         cache.countLimit = 64
@@ -700,7 +710,15 @@ final class GatewayTeamFeed: ObservableObject {
         let key = NSString(string: String(hash, radix: 36))
         if let cached = avatarCache.object(forKey: key) { return cached }
         let base64 = String(raw[raw.index(after: comma)...])
-        guard let data = Data(base64Encoded: base64), let image = UIImage(data: data) else { return nil }
+        guard let data = Data(base64Encoded: base64), let image = UIImage(data: data) else {
+            let prefix = String(raw.prefix(28))
+            if !reportedAvatarFailures.contains(key as String) {
+                reportedAvatarFailures.insert(key as String)
+                // 例：avatar undecodable: prefix=data:image/svg+xml;base64, bytes=1234
+                onAvatarDiagnostic?("avatar undecodable: prefix=\(prefix) bytes=\(raw.count)")
+            }
+            return nil
+        }
         // 渲染尺寸压到 ≤256pt（头像最大 46pt），避免为小图解码整张原图占内存
         let scaled = image.preparingThumbnail(of: CGSize(width: 128, height: 128)) ?? image
         avatarCache.setObject(scaled, forKey: key)
