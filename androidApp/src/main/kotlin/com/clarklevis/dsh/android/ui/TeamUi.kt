@@ -81,6 +81,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.clarklevis.dsh.android.AndroidSharedStateHolder
 import com.clarklevis.dsh.android.R
+import com.clarklevis.dsh.android.localization.appText
 import com.clarklevis.dsh.shared.facade.TeamMemberView
 import com.clarklevis.dsh.shared.facade.TeamTaskView
 
@@ -93,7 +94,7 @@ internal fun TeamEntryButton(holder: AndroidSharedStateHolder) {
     LaunchedEffect(selected) { menu = false }
     Box {
         TopBarCircleButton(
-            description = "查看智能体团队",
+            description = appText("查看智能体团队"),
             onClick = { menu = !menu },
             modifier = Modifier.testTag("team-entry").semantics { role = Role.Button },
         ) {
@@ -134,7 +135,7 @@ internal fun TeamEntryButton(holder: AndroidSharedStateHolder) {
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                "成员 ${holder.teamSnapshot.members.size}",
+                appText("成员 %1\$s", holder.teamSnapshot.members.size),
                 Modifier.padding(horizontal = 24.dp, vertical = 2.dp),
                 fontSize = 17.sp,
                 lineHeight = 22.sp,
@@ -159,7 +160,7 @@ internal fun TeamEntryButton(holder: AndroidSharedStateHolder) {
                     }.padding(horizontal = 24.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text("查看完整团队内容", Modifier.weight(1f), fontSize = 15.sp, lineHeight = 20.sp, fontWeight = FontWeight.Medium)
+                Text(appText("查看完整团队内容"), Modifier.weight(1f), fontSize = 15.sp, lineHeight = 20.sp, fontWeight = FontWeight.Medium)
                 Icon(painterResource(R.drawable.ic_chevron_right), contentDescription = null, modifier = Modifier.size(16.dp))
             }
         }
@@ -207,7 +208,7 @@ internal fun TeamEntryButton(holder: AndroidSharedStateHolder) {
                             color = MaterialTheme.colorScheme.surface,
                             shadowElevation = 2.dp,
                         ) {
-                            Text("完成", Modifier.padding(horizontal = 16.dp, vertical = 10.dp), fontSize = 16.sp)
+                            Text(appText("完成"), Modifier.padding(horizontal = 16.dp, vertical = 10.dp), fontSize = 16.sp)
                         }
                     }
                     TeamSheetContent(holder, Modifier.weight(1f)) { member ->
@@ -266,7 +267,7 @@ internal fun TeamMemberItem(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                if (selected) Text("当前会话", fontSize = 10.sp, lineHeight = 14.sp, color = blue, maxLines = 1)
+                if (selected) Text(appText("当前会话"), fontSize = 10.sp, lineHeight = 14.sp, color = blue, maxLines = 1)
             }
             Text(
                 listOfNotNull(member.model, status).joinToString(" · "),
@@ -341,13 +342,13 @@ private fun TeamSheetContent(
                         Modifier.weight(1f),
                         style = MaterialTheme.typography.bodySmall,
                     )
-                    TextButton(onClick = holder::refreshTeam) { Text("重试") }
+                    TextButton(onClick = holder::refreshTeam) { Text(appText("重试")) }
                 }
             }
         }
         item {
             Column {
-                Text("成员 ${team.members.size}", fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                Text(appText("成员 %1\$s", team.members.size), fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(8.dp))
                 team.members.forEach { member ->
                     TeamMemberItem(member, member.id == holder.snapshot.selectedSessionId, horizontalInset = 0.dp) { select(member) }
@@ -498,12 +499,12 @@ internal fun TeamTaskCard(
                 Row(
                     Modifier
                         .testTag("team-task-toggle-${task.id}")
-                        .clickable(role = Role.Button, onClickLabel = if (expanded) "收起任务详情" else "展开任务详情") { expanded = !expanded }
+                        .clickable(role = Role.Button, onClickLabel = if (expanded) appText("收起任务详情") else appText("展开任务详情")) { expanded = !expanded }
                         .padding(vertical = 6.dp),
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(if (expanded) "收起" else "展开", fontSize = 12.sp, lineHeight = 16.sp, color = secondary)
+                    Text(if (expanded) appText("收起") else appText("展开"), fontSize = 12.sp, lineHeight = 16.sp, color = secondary)
                     Icon(
                         painterResource(R.drawable.ic_question_chevron_down),
                         contentDescription = null,
@@ -521,7 +522,7 @@ internal fun TeamTaskCard(
             ) {
                 owner?.let { AgentAvatar(it.avatarIndex, Modifier.size(20.dp)) }
                 Text(
-                    "负责人：${task.ownerName ?: "未分配"}",
+                    appText("负责人：%1\$s", task.ownerName ?: appText("未分配")),
                     fontSize = 12.sp,
                     lineHeight = 16.sp,
                     color = if (owner?.canOpen == true) Color(0xFF007AFF) else secondary,
@@ -529,7 +530,7 @@ internal fun TeamTaskCard(
             }
             if (task.writeScopes.isNotEmpty()) {
                 Text(
-                    "写入范围：${task.writeScopes.joinToString("、")}",
+                    appText("写入范围：%1\$s", task.writeScopes.joinToString("、")),
                     fontSize = 12.sp,
                     lineHeight = 16.sp,
                     color = secondary,
@@ -543,10 +544,10 @@ internal fun TeamTaskCard(
         ) {
             // 顶部间距也参与收起，避免最后一帧突然跳动。
             Column(Modifier.padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("版本：${task.revision}", fontSize = 12.sp, lineHeight = 16.sp, color = secondary)
+                Text(appText("版本：%1\$s", task.revision), fontSize = 12.sp, lineHeight = 16.sp, color = secondary)
                 if (dependencies.isNotEmpty()) {
                     Text(
-                        "依赖：${dependencies.joinToString("、")}",
+                        appText("依赖：%1\$s", dependencies.joinToString("、")),
                         fontSize = 12.sp,
                         lineHeight = 16.sp,
                         color = secondary,
@@ -555,7 +556,7 @@ internal fun TeamTaskCard(
                 if (task.status ==
                     "pending"
                 ) {
-                    Text(if (task.ready) "可领取" else "等待前置任务完成", fontSize = 12.sp, lineHeight = 16.sp, color = secondary)
+                    Text(if (task.ready) appText("可领取") else appText("等待前置任务完成"), fontSize = 12.sp, lineHeight = 16.sp, color = secondary)
                 }
                 task.writeScopeWarnings.forEach { Text(it, fontSize = 12.sp, lineHeight = 16.sp, color = MaterialTheme.colorScheme.error) }
             }

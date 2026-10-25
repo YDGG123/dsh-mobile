@@ -580,16 +580,16 @@ private fun ConversationPage(
             ) {
                 Text(
                     if (stateHolder.localSearchIsOpening) {
-                        "正在定位搜索结果"
+                        appText("正在定位搜索结果")
                     } else if (stateHolder.localSearchIsFragment) {
-                        "只读本地搜索片段"
+                        appText("只读本地搜索片段")
                     } else {
-                        "已定位搜索结果"
+                        appText("已定位搜索结果")
                     },
                     fontSize = 12.sp,
                     modifier = Modifier.weight(1f)
                 )
-                TextButton(onClick = stateHolder::returnToLatestCached) { Text("返回最新消息") }
+                TextButton(onClick = stateHolder::returnToLatestCached) { Text(appText("返回最新消息")) }
             }
         }
         val showInitialHistoryOverlay = shouldShowInitialHistoryOverlay(
@@ -1842,7 +1842,7 @@ private fun Composer(
                         Spacer(Modifier.weight(1f))
                     } else {
                         Text(
-                            "只读成员会话",
+                            appText("只读成员会话"),
                             Modifier.weight(1f),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
