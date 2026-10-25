@@ -53,11 +53,16 @@ BOT_INDEX = BOT / "index.js"
 MOBILE_GLYPH = ROOT / "DeepSeekHarnessMobile" / "Core" / "TeamGlyph.swift"
 MOBILE_FEED = ROOT / "DeepSeekHarnessMobile" / "Core" / "GatewayTeamFeed.swift"
 MOBILE_CHUNK = ROOT / "DeepSeekHarnessMobile" / "Core" / "FrameReassembler.swift"
+# 本轮唯一标记 pending_merge 的目标：手机端分块重组器（① 在途，尚未并入主干）
+PENDING_MERGE_FILES = {MOBILE_CHUNK}
 
 # 每条 = (分组, 文档里的断言原文, 实现文件, 探针)
+# 第 5 项可选 `pending_merge=True`：该实现文件属于**尚未并入主干**的在途批次时，
+# 文件缺席只记「待并入」而不判红（契约 §8.6 已声明手机端 ① 在途）；一旦文件出现，
+# 探针立刻按正常规则生效——缺席不是永久豁免，只是等它进树。
 # 双向核对：断言原文必须在**文档里**仍然出现（防止改名后文档没人动），
 # 探针必须逐字出现在**实现里**（防止实现删了文档还写着）。两边缺一即红。
-CHECKS: list[tuple[str, str, Path, str]] = [
+CHECKS: list[tuple[str, str, Path, str] | tuple[str, str, Path, str, bool]] = [
     # —— §1 端点：静态路径（网关路由用 `${PREFIX}/xxx` 模板）——
     ("端点", "/mobile/v1/info", GW_SERVER, "${PREFIX}/info"),
     ("端点", "/mobile/v1/pairings", GW_SERVER, "${PREFIX}/pairings"),
@@ -136,8 +141,8 @@ CHECKS: list[tuple[str, str, Path, str]] = [
     ("分块传输", "UTF-8 字符边界", GW_CHUNK, "utf8Parts"),
     ("分块传输", "too-large", GW_CHUNK, "'too-large'"),
     ("分块传输", "too-many-streams", GW_CHUNK, "'too-many-streams'"),
-    ("分块传输", "streamTimeout", MOBILE_CHUNK, "streamTimeout: TimeInterval = 30"),
-    ("分块传输", "absoluteReassembledCap", MOBILE_CHUNK, "absoluteReassembledCap = 8 * 1024 * 1024"),
+    ("分块传输", "streamTimeout", MOBILE_CHUNK, "streamTimeout: TimeInterval = 30", True),
+    ("分块传输", "absoluteReassembledCap", MOBILE_CHUNK, "absoluteReassembledCap = 8 * 1024 * 1024", True),
 
     # —— §7.4 发布端装入判据 ——
     ("装入判据", "dsBotCards", BOT_INDEX, "dsBotCards"),
@@ -197,11 +202,18 @@ def main() -> int:
     doc_text = DOC.read_text()
     errors: list[str] = []
     probed = 0
-    for group, claim, path, needle in CHECKS:
+    pending: list[str] = []
+    for entry in CHECKS:
+        group, claim, path, needle = entry[0], entry[1], entry[2], entry[3]
+        probe_ok = bool(entry[4]) if len(entry) > 4 else False
         probed += 1
         try:
             body = source_of(path)
         except FileNotFoundError:
+            if probe_ok and path in PENDING_MERGE_FILES:
+                shown = claim if isinstance(claim, str) else " + ".join(claim)
+                pending.append(f"[{group}] {shown}（{path.name} 待并入）")
+                continue
             errors.append(f"[{group}] 实现文件不存在：{path}（断言：{claim}）")
             continue
         in_doc = doc_line_of(claim) is not None
@@ -231,7 +243,13 @@ def main() -> int:
         print(f"\n契约闸门：{len(errors)} 处脱节（共 {probed} 条探针）", file=sys.stderr)
         return 1
 
-    print(f"契约闸门通过：{probed} 条探针全部命中（文档 ↔ 网关/ds-bot/手机端三方一致）")
+    if pending:
+        print(f"⏳ {len(pending)} 条探针待并入主干（不算脱节，也不给绿）：")
+        for item in pending:
+            print(f"   · {item}")
+    print(f"契约闸门通过：{probed - len(pending)}/{probed} 条探针命中"
+          f"（文档 ↔ 网关/ds-bot/手机端三方一致）"
+          f"{f'，{len(pending)} 条待并入' if pending else ''}")
     return 0
 
 

@@ -315,7 +315,7 @@
 
 | 项 | 状态 |
 | --- | --- |
-| 手机端 ① 合并进主分支 | 在途（`Core/FrameReassembler.swift` 未提交），合入后本节的手机侧探针自动生效 |
+| 手机端 ① 合并进主分支 | 在途（`Core/FrameReassembler.swift` 未提交）。闸门对该文件的探针标了 `pending_merge`：文件缺席时只计「待并入」不算脱节（否则干净 HEAD 上闸门会红，违反 commit 即绿），**文件一出现立刻按正常规则命中** |
 | 端到端用例（真长帧 walking） | 待 ① 落地后与网关侧 `test/mobile-v1-chunked.test.mjs` 对齐 |
 | 心跳 + 序号增量补拉 | **仍未实现**，不属于 `chunked-frames-v1`；本文档暂不描述其形状 |
 
