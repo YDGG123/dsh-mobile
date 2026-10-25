@@ -54,7 +54,6 @@ struct TeamAvatarView: View {
     var motion: TeamAvatarMotion = .still
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.scenePhase) private var scenePhase
     @Environment(\.colorScheme) private var colorScheme
     /// 眼睛竖向压扁系数：1 = 正常，~0.1 = 眨眼成缝，~0.7 = 眯眼；>1 是电脑端的回弹过冲。
     @State private var eyeSquash: CGFloat = 1
@@ -123,55 +122,70 @@ struct TeamAvatarView: View {
             .accessibilityHidden(true)
     }
 
-    /// 眨眼驱动。时序照抄电脑端 CSS（`styles.js`），不用随机间隔：
-    /// - 干活中 `bt-blink` **2.4s**：46% 压到 `scaleY(.03)`、48% 回弹 `1.06`、50% 回正
-    /// - 空闲 `bt-blink-idle` **5s** 眨两次：32.2% / 71.8% 压到 `.03`，33.8% / 73.4% 回弹 `1.06`
-    /// - 相位按 bot id 固定错开（对应电脑端 `--bt-delay: -(fnv1a(botID) % 5000)/1000 s`），
-    ///   所以同一屏里各头像不会同时闭眼，但每个头像自己的节奏是稳定的（可对拍）。
+    /// 一次眨眼周期里的档位序列：`hold` 是该档位保持的秒数（等价电脑端 keyframe 的百分比）。
+    /// 数据照抄 `styles.js`，纯值便于单测（不依赖 View）。
+    static func blinkSteps(working: Bool) -> [(squash: CGFloat, hold: Double)] {
+        if working {
+            // bt-blink 2.4s：42%(1.008s) 睁 → 46%(1.104s) 闭 → 48%(1.152s) 过冲 → 50%(1.2s) 回正
+            return [(1, 1.008), (0.03, 0.096), (1.06, 0.048), (1, 1.248)]
+        }
+        // bt-blink-idle 5s 眨两次：32.2%(1.61s) 闭 → 33.8%(1.69s) 过冲 → 35%(1.75s) 回正
+        //                         → 71.8%(3.59s) 闭 → 73.4%(3.67s) 过冲 → 74.6%(3.73s) 回正
+        return [(1, 1.61), (0.03, 0.08), (1.06, 0.06), (1, 1.84),
+                (0.03, 0.08), (1.06, 0.06), (1, 1.27)]
+    }
+
+    /// 是否驱动动效。**`.still` 不动**（工作区头像不给列表挂定时器），
+    /// 但 `.live(working: false)` 的空闲头像**必须动** —— 电脑端空闲也走 `bt-blink-idle`，
+    /// 这条断言就是「头像不会动」那个回归的守卫点（别再把它从入口条件里排除掉）。
+    static func shouldAnimate(_ motion: TeamAvatarMotion, reduceMotion: Bool) -> Bool {
+        motion.isLive && !reduceMotion
+    }
+
+    /// 眨眼驱动。相位按 bot id 固定错开（电脑端 `--bt-delay: -(fnv1a(botID) % 5000)/1000 s`）。
     /// 不引 TimelineView：列表里每个头像持续重绘不划算，离散档位已经等于 CSS 的瞬时压扁。
+    ///
+    /// 三个曾经让它「看着不动」的坑，这里都堵掉：
+    /// 1. **@MainActor**：`.task` 的闭包是 `@Sendable`，不标主线程时 `@State` 写入可能不触发布局；
+    /// 2. **相位语义**：电脑端是**负**延迟（从周期中途开始），不是先空等一个相位长度；
+    /// 3. **前台判断**：读实时的 `applicationState`，不是 `.task` 启动时捕获的环境快照。
+    @MainActor
     private func driveEyes() async {
-        guard motion.isLive, !reduceMotion else {
+        guard Self.shouldAnimate(motion, reduceMotion: reduceMotion) else {
             eyeSquash = 1
             return
         }
         defer { eyeSquash = 1 }
-        // 相位错开：先睡 bot 专属偏移，再进入固定周期。
-        let delay = Self.blinkPhaseDelay(botID: row.id, period: motion.isWorking ? 2.4 : 5)
-        if delay > 0.01 {
-            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-            guard !Task.isCancelled else { return }
-        }
+        let steps = Self.blinkSteps(working: motion.isWorking)
+        let period = steps.reduce(0) { $0 + $1.hold }
+        // 从周期的第 phase 秒开始（对应负延迟）：跳过被相位覆盖的整段档位，只等最后一个的剩余。
+        var phase = Self.blinkPhaseDelay(botID: row.id, period: period)
         while !Task.isCancelled {
-            // 后台/被打断时停手：动画不该在不可见时跑（用户做过减弱动效实验，这条他会撞上）。
-            if scenePhase != .active {
-                eyeSquash = 1
-                try? await Task.sleep(nanoseconds: 500_000_000)
-                continue
+            for step in steps {
+                if phase > 0 {
+                    if phase >= step.hold { phase -= step.hold; continue }
+                    let wait = step.hold - phase
+                    phase = 0
+                    guard await holdEye(step.squash, for: wait) else { return }
+                } else {
+                    guard await holdEye(step.squash, for: step.hold) else { return }
+                }
             }
-            if motion.isWorking {
-                // 2.4s 周期：0–42%(1.008s) 睁 → 46%(1.104s) 闭 → 48%(1.152s) 过冲 → 50%(1.2s) 回正
-                guard await blinkStep(to: 1, after: 1.008),
-                      await blinkStep(to: 0.03, after: 0.096),
-                      await blinkStep(to: 1.06, after: 0.048),
-                      await blinkStep(to: 1, after: 1.248) else { return }
-            } else {
-                // 5s 周期两次：1.61s 闭 → 1.69s 过冲 → 1.75s 回正 → 3.59s 闭 → 3.67s 过冲
-                //             → 3.73s 回正 → 5s 循环
-                guard await blinkStep(to: 1, after: 1.61),
-                      await blinkStep(to: 0.03, after: 0.08),
-                      await blinkStep(to: 1.06, after: 0.06),
-                      await blinkStep(to: 1, after: 1.84),
-                      await blinkStep(to: 0.03, after: 0.08),
-                      await blinkStep(to: 1.06, after: 0.06),
-                      await blinkStep(to: 1, after: 1.27) else { return }
-            }
+            phase = 0
         }
     }
 
-    /// 设一个档位并睡 `after` 秒；返回 false 表示任务已取消（调用方立刻退出）。
-    private func blinkStep(to value: CGFloat, after seconds: Double) async -> Bool {
-        eyeSquash = value
-        try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+    /// 设一个档位并保持 `seconds`；返回 false 表示任务已取消（调用方立刻退出）。
+    /// 进后台时停手并回正（每 0.5s 复查一次实时状态）。
+    @MainActor
+    private func holdEye(_ squash: CGFloat, for seconds: Double) async -> Bool {
+        guard UIApplication.shared.applicationState == .active else {
+            eyeSquash = 1
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            return !Task.isCancelled
+        }
+        eyeSquash = squash
+        try? await Task.sleep(nanoseconds: UInt64(max(seconds, 0) * 1_000_000_000))
         return !Task.isCancelled
     }
 

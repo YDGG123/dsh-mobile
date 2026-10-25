@@ -269,4 +269,61 @@ final class TeamGlyphTests: XCTestCase {
         })
         XCTAssertGreaterThan(phases.count, 1, "多个 bot 不应同相位（同时闭眼）")
     }
+
+    // MARK: - 「头像不会动」回归守卫：入口条件 + 眨眼计划
+
+    /// 用户真机反馈「头像不会动」的根因分类：
+    /// - `.still`（工作区）本来就不该动 → 必须 false
+    /// - `.live(working: false)`（团队页空闲）**电脑端 bt-blink-idle 会眨** → 必须 true
+    /// - 减弱动态效果优先 → 必须 false
+    func testShouldAnimateKeepsIdleAvatarsAlive() {
+        XCTAssertFalse(TeamAvatarView.shouldAnimate(.still, reduceMotion: false),
+                       "工作区头像不该挂定时器")
+        XCTAssertTrue(TeamAvatarView.shouldAnimate(.live(working: false), reduceMotion: false),
+                      "空闲头像必须动：电脑端空闲也走 bt-blink-idle")
+        XCTAssertTrue(TeamAvatarView.shouldAnimate(.live(working: true), reduceMotion: false))
+        XCTAssertFalse(TeamAvatarView.shouldAnimate(.live(working: false), reduceMotion: true),
+                       "减弱动态效果优先于团队页")
+        XCTAssertFalse(TeamAvatarView.shouldAnimate(.live(working: true), reduceMotion: true))
+    }
+
+    /// 眨眼计划必须与电脑端 keyframe 的百分比一致（直接由 CSS 换算，不是凭感觉）。
+    func testBlinkStepsMatchDesktopKeyframes() {
+        let idle = TeamAvatarView.blinkSteps(working: false)
+        XCTAssertEqual(idle.reduce(0) { $0 + $1.hold }, 5.0, accuracy: 0.0001, "空闲周期 5s")
+
+        var start = 0.0
+        var closedAt: [Double] = []
+        for step in idle {
+            if step.squash == 0.03 { closedAt.append(start) }
+            start += step.hold
+        }
+        XCTAssertEqual(closedAt.count, 2, "空闲周期眨两次")
+        XCTAssertEqual(closedAt[0], 1.61, accuracy: 0.0001, "32.2% × 5s")
+        XCTAssertEqual(closedAt[1], 3.59, accuracy: 0.0001, "71.8% × 5s")
+
+        let working = TeamAvatarView.blinkSteps(working: true)
+        XCTAssertEqual(working.reduce(0) { $0 + $1.hold }, 2.4, accuracy: 0.0001, "干活周期 2.4s")
+        XCTAssertEqual(working.count, 4)
+        XCTAssertEqual(working[1].squash, 0.03, "46% 压成一条缝")
+        XCTAssertEqual(working[1].hold, 0.096, accuracy: 0.0001, "闭眼窗口 4% × 2.4s")
+        XCTAssertEqual(working[2].squash, 1.06, "48% 回弹过冲不能丢")
+    }
+
+    /// 负延迟语义：相位落在最后一个档位中途时，应立即进入该档位而不是先空等一个相位长度。
+    /// 这里用纯计算复核「跳段」逻辑的边界（View 里的循环与该算法同构）。
+    func testBlinkPhaseSkipsWholeStepsAndKeepsRemainder() {
+        let steps = TeamAvatarView.blinkSteps(working: false)
+        // 取一个落在第三次眨眼闭眼窗口内的相位：3.59 + 0.02
+        var phase = 3.61
+        var consumed = 0.0
+        var firstHold: Double?
+        for step in steps {
+            if phase >= step.hold { phase -= step.hold; consumed += step.hold; continue }
+            firstHold = step.hold - phase
+            break
+        }
+        XCTAssertEqual(consumed, 1.61 + 0.08 + 0.06 + 1.84, accuracy: 0.0001, "整段被跳过")
+        XCTAssertEqual(firstHold ?? -1, 0.08 - 0.02, accuracy: 0.0001, "只等当前档位的剩余部分")
+    }
 }
