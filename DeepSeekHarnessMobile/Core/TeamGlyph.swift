@@ -420,26 +420,40 @@ struct RGBColor: Equatable {
     func scaled(by factor: Double) -> RGBColor {
         RGBColor(red: red * factor, green: green * factor, blue: blue * factor)
     }
+
+    /// 朝 `other` 线性混色（amount 0 = 自己，1 = other）。
+    func mixed(with other: RGBColor, amount: Double) -> RGBColor {
+        let t = min(max(amount, 0), 1)
+        return RGBColor(red: red + (other.red - red) * t,
+                        green: green + (other.green - green) * t,
+                        blue: blue + (other.blue - blue) * t)
+    }
 }
 
 /// 电脑端的眼睛是 **mask 挖空**（`client.js` 里 `fill="#000"` 只是遮罩的裁剪色），洞透出的是
-/// 容器底色；手机端等效做法就是把洞填成容器底色。但浅色模式下 10/19 个车身本身很亮
-/// （实测：yellow 1.75:1、green 2.08:1、cyan 2.11:1、aurora 2.27:1…），透底色后低于 3:1
-/// 就等于「没有眼睛」。所以这里加一条下限：不够就把洞色往黑压（只压亮度、不动色相）。
+/// 容器底色；手机端等效做法就是把洞填成容器底色。但透底本身不保证看得见，两头的失败案例都实测过：
+/// - 浅色底 + 亮车身：yellow 1.75:1、green 2.08:1、cyan 2.11:1（10/19 个不合格）
+/// - 深色底 + 暗车身：charcoal 1.02–1.08:1（近黑车身在深底上同样等于没有眼睛）
+/// 所以这里加一条下限，且**方向按车身亮度选**：车身暗就把洞往白提，车身亮就往黑压，
+/// 直到与车身达到 minimum（只动亮度/明暗方向，不做换色）。
 enum TeamAvatarEyeColor {
     /// 目标对比度下限。取 3:1（图形元素的可辨识下限），与列表里其他头像符号一致。
     static let minimumContrast: Double = 3
+    /// 车身亮度低于此值视为「暗车身」，洞色应往白推而不是往黑压。
+    static let darkBodyLuminance: Double = 0.18
 
     static func resolve(backdrop: RGBColor, body: RGBColor,
                         minimum: Double = minimumContrast) -> RGBColor {
         if backdrop.contrast(with: body) >= minimum { return backdrop }
-        var factor = 0.9
-        while factor > 0 {
-            let candidate = backdrop.scaled(by: factor)
+        let white = RGBColor(red: 1, green: 1, blue: 1)
+        // 暗车身 → 往白；亮车身 → 往黑。两个方向各自单调提升对比度。
+        let target = body.luminance < darkBodyLuminance ? white : .black
+        var amount = 0.1
+        while amount <= 1.0 {
+            let candidate = backdrop.mixed(with: target, amount: amount)
             if candidate.contrast(with: body) >= minimum { return candidate }
-            factor -= 0.1
+            amount += 0.1
         }
-        // 退到纯黑：对任何中高明度车身都 ≥4.5:1；对极暗车身压根走不到这里（原本就够）。
-        return .black
+        return target
     }
 }

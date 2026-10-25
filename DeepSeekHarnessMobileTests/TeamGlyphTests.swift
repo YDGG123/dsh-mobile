@@ -220,27 +220,40 @@ final class TeamGlyphTests: XCTestCase {
         XCTAssertEqual(resolved.blue / backdrop.blue, scale, accuracy: 0.001, "蓝通道同比缩放")
     }
 
-    /// 整张电脑端色板逐一过：任何车身取到的眼睛色都必须 ≥3:1（这就是「看得见」的定义）。
+    /// 深色底 + 近黑车身（charcoal 1.02:1）方向必须反过来：往白提，不能继续压暗。
+    /// 这条是 QA 提「至少三种底」时暴露的：只会压暗的规则在深色主题下对暗车身无效。
+    func testEyeColorLightensDarkBodyOnDarkBackdrop() {
+        let darkRow = RGBColor(red: 0.110, green: 0.110, blue: 0.118)   // 深色 List 行底
+        let charcoal = RGBColor(red: 0.078, green: 0.078, blue: 0.086)  // #141416
+        XCTAssertLessThan(darkRow.contrast(with: charcoal), 3, "前提：近黑车身在深底上确实不合格")
+        let resolved = TeamAvatarEyeColor.resolve(backdrop: darkRow, body: charcoal)
+        XCTAssertGreaterThanOrEqual(resolved.contrast(with: charcoal), 3, "提亮后必须 ≥3:1")
+        XCTAssertGreaterThan(resolved.luminance, darkRow.luminance, "方向是提亮，不是压暗")
+    }
+
+    /// 整张电脑端色板 × 浅/深两种容器底：任何组合取到的眼睛色都必须 ≥3:1（「看得见」的定义）。
     func testEyeColorMeetsContrastForEveryDesktopInk() {
-        let backdrop = RGBColor(red: 0.961, green: 0.980, blue: 1.0)
-        let inks: [(String, RGBColor)] = [
-            ("deepseek", RGBColor(red: 0.302, green: 0.420, blue: 0.996)),
-            ("charcoal", RGBColor(red: 0.078, green: 0.078, blue: 0.086)),
-            ("rose", RGBColor(red: 0.925, green: 0.184, blue: 0.420)),
-            ("sky", RGBColor(red: 0.039, green: 0.659, blue: 0.839)),
-            ("tangerine", RGBColor(red: 1.0, green: 0.412, blue: 0.0)),
-            ("black", RGBColor(red: 0, green: 0, blue: 0)),
-            ("yellow", RGBColor(red: 1.0, green: 0.686, blue: 0.220)),
-            ("green", RGBColor(red: 0.0, green: 0.788, blue: 0.447)),
-            ("cyan", RGBColor(red: 0.110, green: 0.765, blue: 0.690)),
-            ("violet", RGBColor(red: 0.663, green: 0.494, blue: 0.996)),
-            ("gray", RGBColor(red: 0.584, green: 0.584, blue: 0.584)),
-            ("aurora", RGBColor(red: 0.0, green: 0.722, blue: 0.831)),
-        ]
-        for (name, ink) in inks {
-            let resolved = TeamAvatarEyeColor.resolve(backdrop: backdrop, body: ink)
-            XCTAssertGreaterThanOrEqual(resolved.contrast(with: ink), 3,
-                                        "\(name) 的眼睛对比不足 3:1")
+        for backdrop in [RGBColor(red: 0.961, green: 0.980, blue: 1.0),
+                         RGBColor(red: 0.110, green: 0.110, blue: 0.118)] {
+            let inks: [(String, RGBColor)] = [
+                ("deepseek", RGBColor(red: 0.302, green: 0.420, blue: 0.996)),
+                ("charcoal", RGBColor(red: 0.078, green: 0.078, blue: 0.086)),
+                ("rose", RGBColor(red: 0.925, green: 0.184, blue: 0.420)),
+                ("sky", RGBColor(red: 0.039, green: 0.659, blue: 0.839)),
+                ("tangerine", RGBColor(red: 1.0, green: 0.412, blue: 0.0)),
+                ("black", RGBColor(red: 0, green: 0, blue: 0)),
+                ("yellow", RGBColor(red: 1.0, green: 0.686, blue: 0.220)),
+                ("green", RGBColor(red: 0.0, green: 0.788, blue: 0.447)),
+                ("cyan", RGBColor(red: 0.110, green: 0.765, blue: 0.690)),
+                ("violet", RGBColor(red: 0.663, green: 0.494, blue: 0.996)),
+                ("gray", RGBColor(red: 0.584, green: 0.584, blue: 0.584)),
+                ("aurora", RGBColor(red: 0.0, green: 0.722, blue: 0.831)),
+            ]
+            for (name, ink) in inks {
+                let resolved = TeamAvatarEyeColor.resolve(backdrop: backdrop, body: ink)
+                XCTAssertGreaterThanOrEqual(resolved.contrast(with: ink), 3,
+                                            "\(name) 的眼睛对比不足 3:1（底 \(backdrop)）")
+            }
         }
     }
 
