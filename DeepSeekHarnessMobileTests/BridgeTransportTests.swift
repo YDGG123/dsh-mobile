@@ -296,4 +296,36 @@ final class BridgeConnectionIssueTests: XCTestCase {
         XCTAssertLessThan(interval, 15 * 60, "必须早于 15 分钟凭证过期，否则又变成每 15 分钟被踢一次")
         XCTAssertGreaterThanOrEqual(interval, 60, "间隔不能退化成高频轮询")
     }
+
+    // MARK: - 凭证 TTL 协商（网关 /info 公布 → 手机按 90% 排主动刷新）
+
+    /// 有字段：按 90% 换算（900s → 810s = 13.5 分钟，比硬编码的 14 分钟更早）。
+    func testTokenTTLFromGatewayInfo() throws {
+        let info = """
+        {"protocolVersion":1,"serverId":"pc-1","name":"DS Bot",
+         "capabilities":{"team":true,"accessTokenTtlSeconds":900}}
+        """
+        let interval = try XCTUnwrap(BridgeTokenTTL.proactiveInterval(infoJSON: info))
+        XCTAssertEqual(interval, 810, accuracy: 0.001, "900s × 90% = 810s（13.5 分钟，比硬编码 14 分钟更早）")
+    }
+
+    /// 字段缺失 / capabilities 缺失 / 类型不对 / 非正数 → 一律当作"没给"，
+    /// 由调用方回落到 14 分钟兜底（老网关必须能连）。
+    func testTokenTTLFallsBackWhenGatewayDoesNotPublishIt() {
+        XCTAssertNil(BridgeTokenTTL.proactiveInterval(infoJSON: #"{"protocolVersion":1,"serverId":"pc-1"}"#))
+        XCTAssertNil(BridgeTokenTTL.proactiveInterval(infoJSON: #"{"capabilities":{"team":true}}"#))
+        XCTAssertNil(BridgeTokenTTL.proactiveInterval(infoJSON: #"{"capabilities":{"accessTokenTtlSeconds":"900"}}"#),
+                     "字符串不猜，按没给处理")
+        XCTAssertNil(BridgeTokenTTL.proactiveInterval(infoJSON: #"{"capabilities":{"accessTokenTtlSeconds":0}}"#))
+        XCTAssertNil(BridgeTokenTTL.proactiveInterval(infoJSON: "not-json"))
+    }
+
+    /// 上下限：太短不狂刷、太长不逼近过期。
+    func testTokenTTLIntervalIsClamped() throws {
+        XCTAssertEqual(try XCTUnwrap(BridgeTokenTTL.proactiveInterval(ttlSeconds: 30)), 60, accuracy: 0.001,
+                       "太短的下限 60s")
+        XCTAssertEqual(try XCTUnwrap(BridgeTokenTTL.proactiveInterval(ttlSeconds: 6 * 3600)), 3600, accuracy: 0.001,
+                       "太长的上限 60min")
+        XCTAssertNil(BridgeTokenTTL.proactiveInterval(ttlSeconds: -5), "非正数当作没给")
+    }
 }

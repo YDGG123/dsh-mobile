@@ -270,10 +270,12 @@ final class BridgeTeamAdapter: ObservableObject {
     private var failureAttempt = 0
     private var lastSequence: Int64 = -1
 
-    /// 主动换凭证的节奏：网关访问凭证 **15 分钟**过期，提前 1 分钟换新，
-    /// 避免每 15 分钟被 401 踢一次（用户真机看到的「反复断连又连接」）。
-    /// 必须 < 15 分钟；改大等于回到「被踢才刷」。
+    /// 主动换凭证的**兜底**节奏：老网关不公布 TTL 时按 14 分钟（凭证 15 分钟过期，提前 1 分钟）。
+    /// 新网关会在 `/info` 的 `capabilities.accessTokenTtlSeconds` 里公布真实 TTL，
+    /// 手机按 TTL 的 90% 排（见 `BridgeTokenTTL`），网关改 TTL 不用发版。
     static let proactiveRefreshInterval: TimeInterval = 14 * 60
+    /// 当前生效的主动刷新间隔（`/info` 公布 TTL 后会被覆盖）。
+    private var proactiveInterval: TimeInterval = BridgeTeamAdapter.proactiveRefreshInterval
     /// 主动刷新的诊断（非静默）：失败原因要能在设备日志里看到。
     private static let refreshLog = Logger(subsystem: "ai.dsh.mobile.ios", category: "bridge-token")
     /// 上次主动/被动刷新成功的时间（诊断与单测用；不参与鉴权判定）。
@@ -826,7 +828,7 @@ final class BridgeTeamAdapter: ObservableObject {
             // 无论怎么退出（成功/失败/无 token/被取消）都清句柄，保证还能重新排上。
             defer { self?.tokenRefreshTask = nil }
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: UInt64(Self.proactiveRefreshInterval * 1_000_000_000))
+                try? await Task.sleep(nanoseconds: UInt64(proactiveInterval * 1_000_000_000))
                 guard !Task.isCancelled, let self else { return }
                 guard self.store.currentAccessToken() != nil else { return }
                 let refreshed = await self.refreshAccessTokenOnce()
@@ -867,6 +869,15 @@ final class BridgeTeamAdapter: ObservableObject {
             lastTransportError = nil
             failureAttempt = 0
             connectionIssue = nil
+            // 凭证 TTL 由网关在 /info 里公布（capabilities.accessTokenTtlSeconds），
+            // 手机按 90% 排主动刷新；老网关没有这个字段 → 保持 14 分钟兜底。
+            if let interval = BridgeTokenTTL.proactiveInterval(infoJSON: infoBody),
+               interval != proactiveInterval {
+                proactiveInterval = interval
+                Self.refreshLog.notice("token ttl from /info → proactive interval \(Int(interval), privacy: .public)s")
+                // 间隔变了，按新节奏重排（不必等旧窗口走完）。
+                restartTokenRefreshLoop()
+            }
             store.refreshTeam(
                 infoJson: infoBody,
                 stateJson: stateBody,
@@ -1021,5 +1032,36 @@ final class BridgeTeamAdapter: ObservableObject {
             let code = (error as? URLError)?.code == .timedOut ? "timeout" : "network_error"
             store.acceptBridgeTransportFailure(effectId: effectId, code: code)
         }
+    }
+}
+
+// MARK: - 凭证 TTL 协商（网关公布，手机按比例排主动刷新）
+
+/// 网关可以在 `/info` 的 `capabilities` 里公布访问凭证的有效期（秒）：
+/// `{"capabilities": {"accessTokenTtlSeconds": 900, ...}}`。
+/// 手机按 TTL 的 90% 排主动刷新，所以网关以后把 15 分钟改成 30 分钟 / 5 分钟都不用发版。
+///
+/// 前向兼容红线：**字段缺失、类型不对、非正数一律当作"没给"**，调用方回落到
+/// `BridgeTeamAdapter.proactiveRefreshInterval`（14 分钟）——老网关不发这个字段也得能连。
+enum BridgeTokenTTL {
+    /// 占 TTL 的比例：留 10% 余量吸收网络抖动与请求耗时。
+    static let refreshRatio: Double = 0.9
+    /// 间隔下限/上限（秒）：太小会频繁换证（网关侧也是负担），太大就逼近过期。
+    static let minimumInterval: TimeInterval = 60
+    static let maximumInterval: TimeInterval = 60 * 60
+
+    /// 从 `/info` 的原始 JSON 里取 TTL 并换算成刷新间隔；拿不到返回 nil。
+    static func proactiveInterval(infoJSON: String) -> TimeInterval? {
+        guard let data = infoJSON.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let capabilities = object["capabilities"] as? [String: Any],
+              let raw = capabilities["accessTokenTtlSeconds"] as? NSNumber else { return nil }
+        return proactiveInterval(ttlSeconds: raw.doubleValue)
+    }
+
+    /// 纯换算（便于单测）：非有限/非正 → nil；否则 90% 并夹在 [60s, 60min]。
+    static func proactiveInterval(ttlSeconds: Double) -> TimeInterval? {
+        guard ttlSeconds.isFinite, ttlSeconds > 0 else { return nil }
+        return min(max(ttlSeconds * refreshRatio, minimumInterval), maximumInterval)
     }
 }
