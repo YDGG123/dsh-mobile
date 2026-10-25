@@ -16,6 +16,8 @@ CI 照常出包、只有 QA 在包里实测才发现 —— 白费一次云端�
 2. Widget plist 必须使用变量（`$(CURRENT_PROJECT_VERSION)` / `$(MARKETING_VERSION)`），
    且 pbxproj 里 `CURRENT_PROJECT_VERSION` / `MARKETING_VERSION` **各恰好两处且相等**（Debug/Release）
 3. 主 App 与 Widget 的 build 号相等、short version 相等
+4. **比本地已出过的包新**：`build-output/*.ipa` 里同 short version 的最大 build 号必须**小于**
+   当前 build 号（0620 与 0621 都是 (32) 这种"装完分不出新旧"的坑，闸门能一致但不保证更新）
 
 退出码：0 = 一致；1 = 不一致；2 = 输入缺失/无法解析（文件不存在、键缺失、变量没生效）。
 可用 `VERSION_GATE_ROOT` 指定仓库根（反向测试用）。
@@ -106,6 +108,37 @@ if app_build and pbx_build and app_build != pbx_build:
 if app_short and pbx_short and app_short != pbx_short:
     failures.append(f"short version 不一致：主 App={app_short}，Widget(pbxproj)={pbx_short}")
 
+# ---- 4. 必须比本地已出过的包新（只比同 short version 的包；版本号跨档时 build 可以回小） ----
+import glob  # noqa: E402 - 只在需要时用
+import zipfile  # noqa: E402
+
+released: list[tuple[str, str, str]] = []  # (name, short, build)
+for ipa in sorted(glob.glob(os.path.join(ROOT, "build-output", "*.ipa"))):
+    try:
+        with zipfile.ZipFile(ipa) as handle:
+            entry = next(
+                (name for name in handle.namelist()
+                 if name.startswith("Payload/") and name.endswith(".app/Info.plist")),
+                None,
+            )
+            if entry is None:
+                continue
+            info = plistlib.loads(handle.read(entry))
+        released.append((os.path.basename(ipa),
+                         str(info.get("CFBundleShortVersionString", "")),
+                         str(info.get("CFBundleVersion", ""))))
+    except Exception as error:  # noqa: BLE001 - 坏包不该让版本闸门自己崩
+        print(f"   ⚠️  跳过无法解析的包 {os.path.basename(ipa)}：{error}")
+
+same_version = [(name, build) for name, short, build in released if short and short == app_short]
+if same_version and app_build.isdigit():
+    newest_name, newest_build = max(same_version, key=lambda item: int(item[1]) if item[1].isdigit() else -1)
+    if newest_build.isdigit() and int(app_build) <= int(newest_build):
+        failures.append(
+            f"build 号没有递增：当前 {app_short} ({app_build})，本地已有 {newest_name} 是 "
+            f"{app_short} ({newest_build}) —— 装完在设置里分不出新旧"
+        )
+
 if input_errors:
     print("❌ 版本一致性闸门：输入不完整")
     for item in input_errors:
@@ -117,8 +150,14 @@ if failures:
         print(f"   - {item}")
     sys.exit(1)
 
+released_note = ""
+if same_version:
+    newest_build = max((build for _, build in same_version), key=lambda value: int(value) if value.isdigit() else -1)
+    released_note = f" | 本地已出包最大 build={newest_build}（当前 {app_build} 更新）"
+elif not released:
+    released_note = ' | 本地无 build-output 包可对比（跳过「必须更新」检查）'
 print(
     "✅ 版本一致："
     f"主 App {app_short} ({app_build}) ↔ Widget $(MARKETING_VERSION) ({pbx_short}) / "
-    f"$(CURRENT_PROJECT_VERSION) ({pbx_build})"
+    f"$(CURRENT_PROJECT_VERSION) ({pbx_build}){released_note}"
 )
