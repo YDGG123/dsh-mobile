@@ -228,6 +228,14 @@ WDLOG=$(mktemp)
 WIDGET_DEBUG_ERRORS=$(grep -c "error:" "$WDLOG" 2>/dev/null | head -1)
 WIDGET_DEBUG_ERRORS=${WIDGET_DEBUG_ERRORS:-0}
 
+# ---- 版本一致性闸门（2026-10-26 教训：0548 包主 App 31 / widget 32）----
+# 主 App 的 build/version 取自硬编码的 Resources/Info.plist（该 target 无 CURRENT_PROJECT_VERSION），
+# Widget 走 pbxproj 变量。只改一侧会出"主 App 停在旧 build 号"的包，云端照常构建成功。
+if ! python3 "$(dirname "${BASH_SOURCE[0]}")/verify-version-consistency.py"; then
+  echo "   版本号必须同时改：Resources/Info.plist 的 CFBundleVersion + pbxproj 两处 CURRENT_PROJECT_VERSION"
+  exit 1
+fi
+
 # ---- 工程收录守卫（2026-10-25 教训）----
 # 本工程是**显式 fileRef**（不是 Xcode 16 的同步组）：新加的 .swift 如果没登记进 pbxproj，
 # find 式的类型检查照样绿，CI 才炸。守卫已升级为**按 target 归属**核对

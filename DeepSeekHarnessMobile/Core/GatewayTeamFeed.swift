@@ -101,6 +101,9 @@ final class GatewayTeamFeed: ObservableObject {
     private var lastFrameAt = Date()
     /// 本连接的 resume 存储键（建连时算一次，避免每帧读 Keychain）。
     private var resumeKey = ""
+    /// 上次落盘的 resume 值：只有 `{instanceId, seq}` 真的变了才写 UserDefaults。
+    /// 合流后 delta 约 2.5 次/秒，不节流等于每秒写 2~3 次（QA 提的节流项）。
+    private var lastPersistedResume: TeamFeedResumeStore.Resume?
     @Published private(set) var rows: [Row] = []
     @Published private(set) var degraded = false
     @Published private(set) var lastError: String?
@@ -388,7 +391,11 @@ final class GatewayTeamFeed: ObservableObject {
     /// 落盘 `{instanceId, seq}`；失败也不影响功能（下次退化成整帧快照）。
     private func persistResume() {
         guard !resumeKey.isEmpty, !instanceId.isEmpty, seq > 0 else { return }
-        Self.resumeStore.save(serverKey: resumeKey, instanceId: instanceId, seq: seq)
+        let next = TeamFeedResumeStore.Resume(instanceId: instanceId, seq: seq)
+        // 值没变就不写：delta 合流后约 2.5 次/秒，节流掉重复写入。
+        guard next != lastPersistedResume else { return }
+        Self.resumeStore.save(serverKey: resumeKey, instanceId: next.instanceId, seq: next.seq)
+        lastPersistedResume = next
     }
 
     /// 心跳：每 interval 发一次 `{type:"ping"}`；静默超过 timeout 判死并重连。
