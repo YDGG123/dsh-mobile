@@ -3,6 +3,9 @@
 > 状态：**底稿（现状快照）**，2026-10-26 由 iOSDev 整理。等「分块传输 + 心跳/序号增量」落地后收口为 v1 正式版。
 > 目的：把现在**散在三个仓库、四种载体**里的手机端协议收成一份可核对的表，避免「文档说 A、代码是 B」。
 > 每个字段都带证据源（`文件:行号`），行号是本次整理时的真实位置；改动代码后行号会漂，以字段名为准重新定位。
+> **行号是快照，不是契约**：网关 ①（分块传输）与手机端 ① 正在并行开发，`lib/mobile-v1/server.mjs` 会持续位移
+> （整理期间就已漂过一轮：8MB/2MB 两处从 :362/:311 移到 :412/:353）。所以契约的正确性由
+> `scripts/verify-mobile-contract.py` 的**内容探针**担保，而不是行号。
 
 三处仓库与简称：
 
@@ -181,10 +184,10 @@
 | --- | --- | --- | --- |
 | patch 合并窗口 | 400 ms | 窗口内同实体只留一份，绝对值语义 | gw `lib/mobile-v1/team-feed.mjs:129`；bot `docs/roster-publish-v1.md:196-200` |
 | 低频 reconcile | 3 s（仅订阅者存在时） | 补发漏打点的派生字段 | bot `:204`；gw 同款 `docs/mobile-v1-integration.md:178` |
-| 单头像上限 | 解码后 ≤ **32KB**（base64 字符串 ≤ 44KB） | 超限只裁 `image`，保留 `shape`/`color` | gw `lib/mobile-v1/team-feed.mjs:104-113`；产品口径 gw `docs/mobile-v1-integration.md:190-200` |
+| 单头像上限 | 解码后 ≤ **32KB**（base64 字符串 ≤ 44KB） | 超限只裁 `image`，保留 `shape`/`color` | gw `lib/mobile-v1/team-feed.mjs:110-116`（常量 `maxAvatarBytes = 44 * 1024` 在 :116）；产品口径 gw `docs/mobile-v1-integration.md:190-200` |
 | 头像格式白名单 | `data:image/png`、`data:image/jpeg` | **SVG 在 iOS 上解不了**，会静默回落成形状块 | gw `lib/mobile-v1/team-feed.mjs:233-239`；踩坑 gw `docs/mobile-v1-integration.md:202-205` |
 | 大快照分帧 | 快照 > **1MB** 时先发去 image 主帧（`avatarDeferred:true`），再按 ≤ **256KB** 分批补 `avatar` 帧 | 手机先有内容、头像随后 | gw `lib/mobile-v1/team-feed.mjs:198-232`；明细 gw `docs/mobile-v1-integration.md:200` |
-| 团队流 WS 背压 | **8MB**，超限 close `4408` | 与按会话的 `/events`（2MB）分开 | gw `lib/mobile-v1/server.mjs:362-365`；`/events` gw `:311` |
+| 团队流 WS 背压 | **8MB**，超限 close `4408` | 与按会话的 `/events`（2MB）分开 | gw `lib/mobile-v1/server.mjs:412`（`TEAM_BUFFER_LIMIT`）；`/events` gw `:353` |
 | 连接数 | 全局 100、单设备 5 | 超限 429 `CONNECTION_LIMIT` | gw `lib/mobile-v1/server.mjs:297`、`:329`、`:390` |
 
 ---
@@ -261,7 +264,7 @@
 
 | 将变项 | 影响面 | 现状基线（证据） |
 | --- | --- | --- |
-| 分块传输 + 上限写进 `/info` | §5 体积红线整节、§1 的 actions 载荷上限 | 现状上限散在代码：头像 32KB（gw `team-feed.mjs:104-113`）、快照 1MB/256KB（`:198`）、团队流 8MB（`server.mjs:362`） |
+| 分块传输 + 上限写进 `/info` | §5 体积红线整节、§1 的 actions 载荷上限 | 现状上限散在代码：头像 32KB（gw `team-feed.mjs:110-116`）、快照 1MB/256KB（`:198`）、团队流 8MB（`server.mjs:412`） |
 | 心跳 + 序号增量补拉 | §3.4 同步规则（现在是「重连=重取快照、不复用增量」） | 现状：无回放缓冲，`sync.from(afterSeq)` 尚不存在；`order` 帧不占 seq（`team-feed.mjs:187`） |
 | 契约测试闸门 | §7 新增一节（跑契约测试防脱节） | 现状只有单侧单测：gw `test/mobile-v1-*.test.mjs`、bot `test/team-feed.test.js` |
 
