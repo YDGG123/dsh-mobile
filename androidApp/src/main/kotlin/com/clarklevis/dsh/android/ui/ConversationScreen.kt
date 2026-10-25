@@ -206,7 +206,7 @@ internal fun ConversationScreen(
     onPickFile: () -> Unit = {}
 ) {
     val session = stateHolder.snapshot.sessions.firstOrNull { it.id == stateHolder.snapshot.selectedSessionId }
-    val title = stateHolder.teamSnapshot.members.firstOrNull { it.id == stateHolder.snapshot.selectedSessionId && it.role != "lead" }?.name ?: session?.title ?: if (stateHolder.snapshot.selectedSessionId != null) "已缓存会话" else appText("新建 DeepSeek Harness")
+    val title = stateHolder.teamSnapshot.members.firstOrNull { it.id == stateHolder.snapshot.selectedSessionId && it.role != "lead" }?.name ?: session?.title ?: if (stateHolder.snapshot.selectedSessionId != null) appText("已缓存会话") else appText("新建 DeepSeek Harness")
     val agentPresetId = stateHolder.sessionAgentPreset.agentPreset
         .takeIf { stateHolder.sessionAgentPreset.sessionId == stateHolder.snapshot.selectedSessionId }
         ?: session?.agentPreset ?: stateHolder.snapshot.agentPresetDefault
@@ -1333,7 +1333,7 @@ private fun DeepSearchProgressRow(
     val phrase = remember(startMilliseconds, bucket) {
         val cutoff = startMilliseconds / 1_000.0 + bucket * DEEP_SEARCH_PHRASE_INTERVAL_SECONDS
         val activity = deepSearchActivityAt(cues, cutoff)
-        val options = DEEP_SEARCH_PHRASES.getValue(activity)
+        val options = deepSearchPhrases().getValue(activity)
         options[((startMilliseconds / 1_000L + bucket) % options.size).toInt()]
     }
 
@@ -1441,14 +1441,16 @@ private fun deepSearchActivityAt(cues: List<DeepSearchProgressCue>, cutoff: Doub
     return activity
 }
 
-private val DEEP_SEARCH_PHRASES = mapOf(
-    DeepSearchActivity.THINKING to listOf("梳理脉络中", "推敲细节中", "酝酿下一步中", "沿着思路前行中"),
-    DeepSearchActivity.GATHERING to listOf("翻阅已有线索中", "收拢相关信息中", "寻找切入点中", "铺开问题脉络中"),
-    DeepSearchActivity.EXPLORING to listOf("向外寻找线索中", "打捞新线索中", "沿途探查中", "搜集更多拼图中"),
-    DeepSearchActivity.REVIEWING to listOf("对照新发现中", "拼合新线索中", "检视所得中", "把发现串起来中"),
-    DeepSearchActivity.REVISITING to listOf("回看已有线索中", "重新校准方向中", "再推敲一遍中", "换个角度审视中"),
-    DeepSearchActivity.COMPOSING to listOf("组织回应中", "整理表达中", "将思路落成文字中", "勾勒答案中"),
-    DeepSearchActivity.WORKING to listOf("继续推进中", "稳步探索中", "梳理当前进展中", "逐步展开中")
+// 每次取用都重新解析译文：顶层 val 会在类初始化时把 appText 的结果定死，
+// 应用内切语言后就再也变不回来（remember 会随 Activity 重建重新求值）。
+private fun deepSearchPhrases(): Map<DeepSearchActivity, List<String>> = mapOf(
+    DeepSearchActivity.THINKING to listOf(appText("梳理脉络中"), appText("推敲细节中"), appText("酝酿下一步中"), appText("沿着思路前行中")),
+    DeepSearchActivity.GATHERING to listOf(appText("翻阅已有线索中"), appText("收拢相关信息中"), appText("寻找切入点中"), appText("铺开问题脉络中")),
+    DeepSearchActivity.EXPLORING to listOf(appText("向外寻找线索中"), appText("打捞新线索中"), appText("沿途探查中"), appText("搜集更多拼图中")),
+    DeepSearchActivity.REVIEWING to listOf(appText("对照新发现中"), appText("拼合新线索中"), appText("检视所得中"), appText("把发现串起来中")),
+    DeepSearchActivity.REVISITING to listOf(appText("回看已有线索中"), appText("重新校准方向中"), appText("再推敲一遍中"), appText("换个角度审视中")),
+    DeepSearchActivity.COMPOSING to listOf(appText("组织回应中"), appText("整理表达中"), appText("将思路落成文字中"), appText("勾勒答案中")),
+    DeepSearchActivity.WORKING to listOf(appText("继续推进中"), appText("稳步探索中"), appText("梳理当前进展中"), appText("逐步展开中"))
 )
 
 private const val TIMELINE_STREAM_RESUME_DELAY_MILLISECONDS = 120L

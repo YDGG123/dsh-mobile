@@ -841,6 +841,7 @@ private fun FooterIconButton(
 private data class OptionMetadata(val title: String, val isRecommended: Boolean)
 
 private fun optionMetadata(label: String): OptionMetadata {
+    // i18n-skip: 解析入站标签的后缀表（判断"推荐"标记），不是展示文案
     val suffixes = listOf(" (recommended)", "（recommended）", " (推荐)", "（推荐）")
     val suffix = suffixes.firstOrNull { label.lowercase().endsWith(it.lowercase()) }
     return OptionMetadata(

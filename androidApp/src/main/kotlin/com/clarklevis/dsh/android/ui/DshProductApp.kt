@@ -623,9 +623,9 @@ internal fun LocalChatSearchContent(
     if (searchQuery.isBlank()) return
     Text(
         text = if (stateHolder.localSearchHasMore) {
-            "本地聊天内容（仅已缓存部分，显示前 50 条）。打开结果可定位对应消息。"
+            appText("本地聊天内容（仅已缓存部分，显示前 50 条）。打开结果可定位对应消息。")
         } else {
-            "本地聊天内容（仅已缓存部分）；联网时同时补充网关搜索。"
+            appText("本地聊天内容（仅已缓存部分）；联网时同时补充网关搜索。")
         },
         color = Color.White.copy(alpha = 0.7f),
         fontSize = 12.sp,
@@ -645,7 +645,7 @@ internal fun LocalChatSearchContent(
             }.padding(vertical = 10.dp)
         ) {
             Text(
-                stateHolder.snapshot.sessions.firstOrNull { it.id == match.sessionId }?.title ?: "已缓存会话",
+                stateHolder.snapshot.sessions.firstOrNull { it.id == match.sessionId }?.title ?: appText("已缓存会话"),
                 color = Color.White,
                 fontWeight = FontWeight.Medium
             )

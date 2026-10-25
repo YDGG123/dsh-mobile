@@ -855,6 +855,27 @@ internal object AndroidStrings {
         "未分配" to "Unassigned",
         "写入范围：%1\$s" to "Write scopes: %1\$s",
         "版本：%1\$s" to "Revision: %1\$s",
-        "依赖：%1\$s" to "Dependencies: %1\$s"
+        "依赖：%1\$s" to "Dependencies: %1\$s",
+        "已缓存会话" to "Cached conversation",
+        "本地聊天内容（仅已缓存部分，显示前 50 条）。打开结果可定位对应消息。" to "Local chat content (cached part only, first 50 results). Open a result to jump to the message.",
+        "本地聊天内容（仅已缓存部分）；联网时同时补充网关搜索。" to "Local chat content (cached part only). Gateway search is added when online.",
+        "智能体团队" to "Agent team",
+        "团队数据待刷新，请在桌面端确认会话格式" to "Team data needs refreshing. Check the session format on your desktop.",
+        "团队数据暂不可用" to "Team data is unavailable",
+        "共享任务 %1\$s" to "Shared tasks: %1\$s",
+        "共享任务 · 待同步" to "Shared tasks · Pending sync",
+        "共享任务尚未同步，请重试" to "Shared tasks are not synced yet. Try again.",
+        "当前筛选下暂无共享任务" to "No shared tasks match this filter",
+        "当前团队尚未创建共享任务" to "This team has no shared tasks yet",
+        "此会话尚无团队共享任务；普通子智能体的内部待办显示在各自会话中。" to "This conversation has no team shared tasks. Regular agent todos appear in their own conversations.",
+        "正在创建" to "Creating",
+        "创建失败" to "Creation failed",
+        "外部智能体" to "External agent",
+        "只读 · 单次执行" to "Read-only · One-shot",
+        "只读 · 身份待确认" to "Read-only · Verifying identity",
+        "未运行" to "Not running",
+        "状态同步中" to "Syncing status",
+        "进行中" to "In progress",
+        "受阻" to "Blocked"
     )
 }

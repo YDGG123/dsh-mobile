@@ -196,7 +196,7 @@ internal fun TeamEntryButton(holder: AndroidSharedStateHolder) {
                 ) {
                     Box(Modifier.fillMaxWidth().height(52.dp).padding(horizontal = 16.dp), contentAlignment = Alignment.Center) {
                         Text(
-                            if (holder.teamSnapshot.isTeam) "智能体团队" else "子智能体",
+                            if (holder.teamSnapshot.isTeam) appText("智能体团队") else appText("子智能体"),
                             Modifier.padding(horizontal = 70.dp),
                             fontSize = 17.sp,
                             fontWeight = FontWeight.SemiBold,
@@ -233,14 +233,14 @@ internal fun TeamMemberItem(
     val secondary = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
     val status =
         when {
-            member.phase == "provisioning" -> "正在创建"
-            member.phase == "failed" -> "创建失败"
-            member.mode == "external" -> "外部智能体"
-            member.mode == "one-shot" -> "只读 · 单次执行"
-            member.mode == "unknown" -> "只读 · 身份待确认"
-            member.running == true -> "运行中"
-            member.running == false -> "未运行"
-            else -> "状态同步中"
+            member.phase == "provisioning" -> appText("正在创建")
+            member.phase == "failed" -> appText("创建失败")
+            member.mode == "external" -> appText("外部智能体")
+            member.mode == "one-shot" -> appText("只读 · 单次执行")
+            member.mode == "unknown" -> appText("只读 · 身份待确认")
+            member.running == true -> appText("运行中")
+            member.running == false -> appText("未运行")
+            else -> appText("状态同步中")
         }
     Row(
         Modifier
@@ -335,9 +335,9 @@ private fun TeamSheetContent(
                         if (team.state ==
                             "migration-required"
                         ) {
-                            "团队数据待刷新，请在桌面端确认会话格式"
+                            appText("团队数据待刷新，请在桌面端确认会话格式")
                         } else {
-                            "团队数据暂不可用"
+                            appText("团队数据暂不可用")
                         },
                         Modifier.weight(1f),
                         style = MaterialTheme.typography.bodySmall,
@@ -360,9 +360,9 @@ private fun TeamSheetContent(
                 if (team.state == "ready" ||
                     team.tasks.isNotEmpty()
                 ) {
-                    "共享任务 ${team.tasks.size}"
+                    appText("共享任务 %1\$s", team.tasks.size)
                 } else {
-                    "共享任务 · 待同步"
+                    appText("共享任务 · 待同步")
                 },
                 fontSize = 17.sp,
                 fontWeight = FontWeight.SemiBold,
@@ -373,10 +373,10 @@ private fun TeamSheetContent(
             item {
                 Text(
                     when {
-                        team.state != "ready" -> "共享任务尚未同步，请重试"
-                        team.tasks.isNotEmpty() -> "当前筛选下暂无共享任务"
-                        team.isTeam -> "当前团队尚未创建共享任务"
-                        else -> "此会话尚无团队共享任务；普通子智能体的内部待办显示在各自会话中。"
+                        team.state != "ready" -> appText("共享任务尚未同步，请重试")
+                        team.tasks.isNotEmpty() -> appText("当前筛选下暂无共享任务")
+                        team.isTeam -> appText("当前团队尚未创建共享任务")
+                        else -> appText("此会话尚无团队共享任务；普通子智能体的内部待办显示在各自会话中。")
                     },
                     fontSize = 14.sp,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
@@ -441,9 +441,9 @@ internal fun TeamTaskCard(
     val secondary = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
     val status =
         when (task.status) {
-            "completed" -> "已完成"
-            "in_progress" -> "进行中"
-            "pending" -> if (task.ready) "待处理" else "受阻"
+            "completed" -> appText("已完成")
+            "in_progress" -> appText("进行中")
+            "pending" -> if (task.ready) appText("待处理") else appText("受阻")
             else -> task.status
         }
     val color =
@@ -458,7 +458,7 @@ internal fun TeamTaskCard(
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(18.dp))
             .border(0.6.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f), RoundedCornerShape(18.dp))
-            .clickable(role = Role.Button, onClickLabel = if (expanded) "收起任务详情" else "展开任务详情") { expanded = !expanded }
+            .clickable(role = Role.Button, onClickLabel = if (expanded) appText("收起任务详情") else appText("展开任务详情")) { expanded = !expanded }
             .padding(16.dp)
             .testTag("team-task-${task.id}"),
     ) {
