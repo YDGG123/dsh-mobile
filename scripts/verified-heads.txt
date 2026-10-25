@@ -20,3 +20,4 @@ c61cd2a65fddc919c674eb5cb653ac51e61678d9  # 「头像不会动」修复（@MainA
 a5bd4c095e4d1ac012a9a87aa9e40cd2086c1618  # 主动换凭证（14 分钟）修「每 15 分钟断连重连」；QA 增量复核通过（生命周期闭环/单飞/失败退化三路重排）
 72181987481acafbb03e150dd96844b990997b84  # ① 分块传输手机侧（FrameReassembler + chunked-frames-v1 能力协商 + 团队 WS 接线 + 16 条用例；QA 增量通过，四件套同笔）
 2ca90cb45b77d4dc2f2da790a7291c19ecfcf4de  # ① 分块传输全绿（7218198 重组器+能力协商 & 2ca90cb 超时清扫+夹取必经；QA 增量复核通过）
+e7aaa9941a2eadee0edfef050e0c485b094094e1  # ② 增量续连（resume/sync.from/sync.done + SYNC_* 映射）+ 应用层心跳（/info 协商 25/75）；QA 增量复核通过
