@@ -13097,3 +13097,97 @@ final class ChunkGuardEffectivenessTests: XCTestCase {
         XCTAssertEqual(clamped.streamTimeout, 1)
     }
 }
+
+// MARK: - ② 增量续连与心跳
+
+final class FeedResumeAndHeartbeatTests: XCTestCase {
+
+    // MARK: resume 载荷
+
+    func testResumePayloadOnlyWhenStateIsUsable() {
+        XCTAssertNil(GatewayTeamFeed.resumePayload(instanceId: "", seq: 42), "没有 instanceId 就别发 resume")
+        XCTAssertNil(GatewayTeamFeed.resumePayload(instanceId: "pc-1", seq: 0), "seq=0 等于没有进度")
+        let payload = GatewayTeamFeed.resumePayload(instanceId: "pc-1", seq: 42)
+        XCTAssertEqual(payload?["instanceId"] as? String, "pc-1")
+        XCTAssertEqual(payload?["afterSeq"] as? Int, 42)
+        XCTAssertEqual(payload?["maxDeltas"] as? Int, 200)
+    }
+
+    /// maxDeltas 不能由客户端随便放大（网关上限 1000）。
+    func testResumePayloadClampsMaxDeltas() {
+        XCTAssertEqual(GatewayTeamFeed.resumePayload(instanceId: "pc", seq: 1, maxDeltas: 0)?["maxDeltas"] as? Int, 1)
+        XCTAssertEqual(GatewayTeamFeed.resumePayload(instanceId: "pc", seq: 1, maxDeltas: 99_999)?["maxDeltas"] as? Int, 1000)
+    }
+
+    // MARK: SYNC_* 错误码 → 动作
+
+    /// GAP / UNKNOWN_INSTANCE 之后网关会紧跟新快照，客户端**不能断开重连**（否则白白多一跳）。
+    func testSyncErrorMapping() {
+        XCTAssertEqual(GatewayTeamFeed.syncErrorAction(code: "SYNC_GAP"), .waitForSnapshot)
+        XCTAssertEqual(GatewayTeamFeed.syncErrorAction(code: "SYNC_UNKNOWN_INSTANCE"), .waitForSnapshot)
+        XCTAssertEqual(GatewayTeamFeed.syncErrorAction(code: "SYNC_UNAVAILABLE"), .clearResume)
+        XCTAssertEqual(GatewayTeamFeed.syncErrorAction(code: "SYNC_BAD_REQUEST"), .clearResume)
+        XCTAssertEqual(GatewayTeamFeed.syncErrorAction(code: "SYNC_RATE_LIMITED"), .ignore)
+        XCTAssertEqual(GatewayTeamFeed.syncErrorAction(code: nil), .report)
+        XCTAssertEqual(GatewayTeamFeed.syncErrorAction(code: "UNAUTHORIZED"), .report)
+    }
+
+    // MARK: resume 落盘
+
+    private func makeStore() throws -> (TeamFeedResumeStore, UserDefaults, String) {
+        let suite = "team-feed-resume-tests-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defaults.removePersistentDomain(forName: suite)
+        return (TeamFeedResumeStore(defaults: defaults), defaults, suite)
+    }
+
+    func testResumeStoreRoundTripAndIsolation() throws {
+        let (store, defaults, suite) = try makeStore()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let keyA = "team-feed-resume.wss://a.example/mobile/v1"
+        let keyB = "team-feed-resume.wss://b.example/mobile/v1"
+
+        XCTAssertNil(store.load(serverKey: keyA), "空存储应返回 nil")
+        store.save(serverKey: keyA, instanceId: "pc-1", seq: 42)
+        XCTAssertEqual(store.load(serverKey: keyA), .init(instanceId: "pc-1", seq: 42))
+        // 不同服务器互不污染
+        XCTAssertNil(store.load(serverKey: keyB))
+        store.save(serverKey: keyB, instanceId: "pc-2", seq: 7)
+        XCTAssertEqual(store.load(serverKey: keyA), .init(instanceId: "pc-1", seq: 42))
+        XCTAssertEqual(store.load(serverKey: keyB), .init(instanceId: "pc-2", seq: 7))
+        // 清理只影响自己
+        store.clear(serverKey: keyA)
+        XCTAssertNil(store.load(serverKey: keyA))
+        XCTAssertEqual(store.load(serverKey: keyB), .init(instanceId: "pc-2", seq: 7))
+        // 非法值不写
+        store.save(serverKey: keyA, instanceId: "", seq: 5)
+        store.save(serverKey: keyA, instanceId: "pc-1", seq: 0)
+        XCTAssertNil(store.load(serverKey: keyA))
+    }
+
+    // MARK: 心跳参数协商
+
+    @MainActor
+    func testHeartbeatTuningFromInfoAndDefaults() {
+        BridgeSessionTuning.update(fromInfo: #"{"capabilities":{"heartbeatIntervalSeconds":25,"heartbeatTimeoutSeconds":75}}"#)
+        XCTAssertEqual(BridgeSessionTuning.shared.heartbeatInterval, 25)
+        XCTAssertEqual(BridgeSessionTuning.shared.heartbeatTimeout, 75)
+        // 字符串/缺字段按"没给"处理，保持上一次可用值（这里再断言不崩、不小于下限）
+        BridgeSessionTuning.update(fromInfo: #"{"capabilities":{"heartbeatIntervalSeconds":"25"}}"#)
+        XCTAssertGreaterThanOrEqual(BridgeSessionTuning.shared.heartbeatInterval, 5)
+    }
+
+    @MainActor
+    func testHeartbeatTuningIsClamped() {
+        BridgeSessionTuning.update(fromInfo: #"{"capabilities":{"heartbeatIntervalSeconds":1,"heartbeatTimeoutSeconds":1}}"#)
+        XCTAssertEqual(BridgeSessionTuning.shared.heartbeatInterval, 5, "下限 5s，别把网关打爆")
+        XCTAssertGreaterThanOrEqual(BridgeSessionTuning.shared.heartbeatTimeout,
+                                    BridgeSessionTuning.shared.heartbeatInterval * 2,
+                                    "判死窗口至少两个心跳周期")
+        BridgeSessionTuning.update(fromInfo: #"{"capabilities":{"heartbeatIntervalSeconds":9999,"heartbeatTimeoutSeconds":99999}}"#)
+        XCTAssertEqual(BridgeSessionTuning.shared.heartbeatInterval, 300, "上限 300s")
+        XCTAssertEqual(BridgeSessionTuning.shared.heartbeatTimeout, 600, "判死上限 2×300s")
+        // 复原默认，避免影响其它用例
+        BridgeSessionTuning.update(fromInfo: #"{"capabilities":{"heartbeatIntervalSeconds":25,"heartbeatTimeoutSeconds":75}}"#)
+    }
+}

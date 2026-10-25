@@ -872,6 +872,8 @@ final class BridgeTeamAdapter: ObservableObject {
             // 分块上限同样由 /info 公布（capabilities.maxFrameBytes / maxReassembledBytes /
             // maxStreamsPerConnection）；团队 WS 下次建连时读 BridgeChunkLimits.shared。
             BridgeChunkLimits.update(fromInfo: infoBody)
+            // ② 应用层心跳参数同样来自 /info（不公布则用 25/75 兜底）。
+            BridgeSessionTuning.update(fromInfo: infoBody)
             // 凭证 TTL 由网关在 /info 里公布（capabilities.accessTokenTtlSeconds），
             // 手机按 90% 排主动刷新；老网关没有这个字段 → 保持 14 分钟兜底。
             if let interval = BridgeTokenTTL.proactiveInterval(infoJSON: infoBody),
@@ -1039,6 +1041,40 @@ final class BridgeTeamAdapter: ObservableObject {
 }
 
 // MARK: - 凭证 TTL 协商（网关公布，手机按比例排主动刷新）
+
+/// 应用层心跳参数（② 心跳 + 增量）。网关在 `/info` 的 `capabilities` 里公布：
+/// `heartbeatIntervalSeconds`（默认 25）、`heartbeatTimeoutSeconds`（默认 75）。
+/// 未公布就用默认值——与凭证 TTL / 分块上限同一套"公布则用、不公布则兜底"的协商风格。
+@MainActor
+enum BridgeSessionTuning {
+    struct Tuning: Equatable {
+        var heartbeatInterval: TimeInterval = 25
+        var heartbeatTimeout: TimeInterval = 75
+    }
+
+    private(set) static var shared = Tuning()
+    static let minimumInterval: TimeInterval = 5
+    static let maximumInterval: TimeInterval = 300
+
+    /// 只在**公布值可用**时更新；不公布保持默认，不猜。
+    static func update(fromInfo infoJSON: String) {
+        guard let data = infoJSON.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let caps = object["capabilities"] as? [String: Any] else { return }
+        var next = Tuning()
+        var found = false
+        if let interval = (caps["heartbeatIntervalSeconds"] as? NSNumber)?.doubleValue, interval > 0 {
+            next.heartbeatInterval = interval; found = true
+        }
+        if let timeout = (caps["heartbeatTimeoutSeconds"] as? NSNumber)?.doubleValue, timeout > 0 {
+            next.heartbeatTimeout = timeout; found = true
+        }
+        guard found else { return }
+        next.heartbeatInterval = min(max(next.heartbeatInterval, minimumInterval), maximumInterval)
+        next.heartbeatTimeout = min(max(next.heartbeatTimeout, next.heartbeatInterval * 2), maximumInterval * 2)
+        if next != shared { shared = next }
+    }
+}
 
 /// 网关可以在 `/info` 的 `capabilities` 里公布访问凭证的有效期（秒）：
 /// `{"capabilities": {"accessTokenTtlSeconds": 900, ...}}`。

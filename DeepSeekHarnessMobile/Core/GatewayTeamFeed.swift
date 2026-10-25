@@ -93,6 +93,14 @@ final class GatewayTeamFeed: ObservableObject {
     private static let chunkLog = Logger(subsystem: "ai.dsh.mobile.ios", category: "team-chunk")
     /// 分块超时清扫：网关发一半停住时没有任何新块，必须靠"只推进时钟"的清扫触发超时。
     private var chunkSweeper: ChunkStreamSweeper?
+    // MARK: ② 增量续连与心跳（网关 719b360）
+    /// `{instanceId, seq}` 落盘：重连时用零往返 `resume` 直接补增量，不用整帧快照。
+    private static let resumeStore = TeamFeedResumeStore()
+    private var heartbeatTask: Task<Void, Never>?
+    /// 最近一次收到任何帧的时间（心跳超时判定的唯一依据）。
+    private var lastFrameAt = Date()
+    /// 本连接的 resume 存储键（建连时算一次，避免每帧读 Keychain）。
+    private var resumeKey = ""
     @Published private(set) var rows: [Row] = []
     @Published private(set) var degraded = false
     @Published private(set) var lastError: String?
@@ -204,12 +212,20 @@ final class GatewayTeamFeed: ObservableObject {
         phase = rows.isEmpty ? .connecting : phase
         task.resume()
         // ① 分块传输：只有声明了能力，网关才会把超大帧切成 chunk 发（不声明 = 永远收整帧）。
-        let authFrame: [String: Any] = ["type": "auth", "token": resource.token,
+        resumeKey = Self.resumeKey(for: resource)
+        var authFrame: [String: Any] = ["type": "auth", "token": resource.token,
                                         "capabilities": [FrameReassembler.capabilityName]]
+        // ② 零往返续连：带上 {instanceId, afterSeq}，网关命中留窗就直接回 delta（不发整帧快照）。
+        if let resume = Self.resumeStore.load(serverKey: resumeKey),
+           let payload = Self.resumePayload(instanceId: resume.instanceId, seq: resume.seq) {
+            authFrame["resume"] = payload
+        }
         let authText = (try? JSONSerialization.data(withJSONObject: authFrame))
             .flatMap { String(data: $0, encoding: .utf8) }
             ?? "{\"type\":\"auth\",\"token\":\"\(resource.token)\"}"
         reassembler = FrameReassembler(limits: BridgeChunkLimits.shared)
+        lastFrameAt = Date()
+        startHeartbeat()
         task.send(.string(authText)) { [weak self] error in
             guard let self, let error else { return }
             Task { @MainActor in self.handleDisconnect(mine, reason: error.localizedDescription) }
@@ -227,6 +243,7 @@ final class GatewayTeamFeed: ObservableObject {
                 case .failure(let error):
                     self.handleDisconnect(mine, reason: error.localizedDescription)
                 case .success(let message):
+                    self.lastFrameAt = Date()
                     switch message {
                     case .string(let text): self.handleFrame(text)
                     case .data(let data): self.handleFrame(String(data: data, encoding: .utf8) ?? "")
@@ -241,6 +258,7 @@ final class GatewayTeamFeed: ObservableObject {
     private func handleDisconnect(_ mine: Int, reason: String) {
         guard mine == generation else { return }
         // 断开即放弃半截流：不让它跨连接存活（否则新连接会收到同 streamId 的块拼错）。
+        stopHeartbeat()
         stopChunkSweeper()
         reassembler.reset()
         socket?.cancel(with: .goingAway, reason: nil)
@@ -281,17 +299,48 @@ final class GatewayTeamFeed: ObservableObject {
                 lastError = nil
                 return
             }
+            if type == "pong" {
+                if let at = (object["at"] as? NSNumber)?.doubleValue {
+                    // 网关时间戳只作校时诊断，不参与调度。
+                    Self.chunkLog.debug("heartbeat pong skew=\(Int(Date().timeIntervalSince1970 * 1000 - at), privacy: .public)ms")
+                }
+                return
+            }
+            if type == "sync.done" {
+                // 回放界标：reason ∈ resume|sync.from|caught-up|gap|unknown-instance|snapshot。
+                let reason = object["reason"] as? String ?? "-"
+                let doneSeq = (object["seq"] as? NSNumber)?.intValue ?? -1
+                Self.chunkLog.notice("sync.done reason=\(reason, privacy: .public) seq=\(doneSeq, privacy: .public)")
+                return
+            }
             if type == "error" {
-                let message = (object["error"] as? [String: Any])?["message"] as? String ?? "团队流被拒绝"
-                lastError = message
+                let error = object["error"] as? [String: Any]
+                let code = error?["code"] as? String
+                let message = error?["message"] as? String ?? "团队流被拒绝"
+                switch Self.syncErrorAction(code: code) {
+                case .waitForSnapshot:
+                    // GAP / UNKNOWN_INSTANCE：同连接通常已紧跟新快照，**不要断开重连**。
+                    Self.chunkLog.notice("sync error \(code ?? "-", privacy: .public): waiting for the snapshot that follows")
+                case .clearResume:
+                    Self.resumeStore.clear(serverKey: resumeKey)
+                    Self.chunkLog.notice("sync error \(code ?? "-", privacy: .public): cleared resume state")
+                case .ignore:
+                    Self.chunkLog.notice("sync error \(code ?? "-", privacy: .public): ignored")
+                case .report:
+                    lastError = message
+                }
                 return
             }
             return
         }
         guard let kind = object["kind"] as? String else { return }
         switch kind {
-        case "snapshot": applySnapshot(object)
-        case "delta": applyDelta(object)
+        case "snapshot":
+            applySnapshot(object)
+            persistResume()
+        case "delta":
+            applyDelta(object)
+            persistResume()
         case "order": applyOrder(object)
         case "card", "card-snapshot": applyCards(object)
         case "avatar": applyAvatarBatches(object)
@@ -299,6 +348,68 @@ final class GatewayTeamFeed: ObservableObject {
         default: break
         }
         if phase == .live || phase == .connecting { phase = .live }
+    }
+
+    // MARK: - ② 增量续连与心跳
+
+    /// `{instanceId, seq}` → 零往返 resume 载荷；没有可用状态时返回 nil（回落整帧快照）。
+    nonisolated static func resumePayload(instanceId: String, seq: Int, maxDeltas: Int = 200) -> [String: Any]? {
+        guard !instanceId.isEmpty, seq > 0 else { return nil }
+        return ["instanceId": instanceId, "afterSeq": seq, "maxDeltas": min(max(maxDeltas, 1), 1000)]
+    }
+
+    /// 网关 SYNC_* 错误码 → 客户端动作。GAP/UNKNOWN 之后紧跟新快照，所以**不断开**。
+    enum SyncErrorAction: Equatable {
+        case waitForSnapshot   // gap / unknown-instance：同连接自愈
+        case clearResume       // 状态不可用 / 请求非法：清掉落盘状态，下次走整帧
+        case ignore            // 限速等可忽略
+        case report            // 其它错误：报给界面
+    }
+
+    nonisolated static func syncErrorAction(code: String?) -> SyncErrorAction {
+        switch code {
+        case "SYNC_GAP", "SYNC_UNKNOWN_INSTANCE": return .waitForSnapshot
+        case "SYNC_UNAVAILABLE", "SYNC_BAD_REQUEST": return .clearResume
+        case "SYNC_RATE_LIMITED": return .ignore
+        default: return .report
+        }
+    }
+
+    /// resume 存储键：按服务器地址区分（一台手机可能连过多个宿主）。
+    /// `private`：`Resource` 是类的私有嵌套类型。
+    private static func resumeKey(for resource: Resource) -> String {
+        "team-feed-resume." + resource.baseURL.absoluteString
+    }
+
+    /// 落盘 `{instanceId, seq}`；失败也不影响功能（下次退化成整帧快照）。
+    private func persistResume() {
+        guard !resumeKey.isEmpty, !instanceId.isEmpty, seq > 0 else { return }
+        Self.resumeStore.save(serverKey: resumeKey, instanceId: instanceId, seq: seq)
+    }
+
+    /// 心跳：每 interval 发一次 `{type:"ping"}`；静默超过 timeout 判死并重连。
+    /// 与网关自带的 WS 层 ping 互补——这条是**本端**发现「TCP 半开、以为还连着」。
+    private func startHeartbeat() {
+        stopHeartbeat()
+        let tuning = BridgeSessionTuning.shared
+        heartbeatTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: UInt64(tuning.heartbeatInterval * 1_000_000_000))
+                guard !Task.isCancelled, let self else { return }
+                let silence = Date().timeIntervalSince(self.lastFrameAt)
+                if silence > tuning.heartbeatTimeout {
+                    Self.chunkLog.error("heartbeat timeout silence=\(Int(silence), privacy: .public)s; reconnecting")
+                    self.handleDisconnect(self.generation, reason: "心跳超时，正在重连")
+                    return
+                }
+                self.socket?.send(.string("{\"type\":\"ping\"}")) { _ in }
+            }
+        }
+    }
+
+    private func stopHeartbeat() {
+        heartbeatTask?.cancel()
+        heartbeatTask = nil
     }
 
     /// 分块帧：拼齐后把原文按 `finalKind` 回放进同一条处理链。
@@ -808,4 +919,43 @@ final class GatewayTeamFeed: ObservableObject {
     }
 
     func isLive(_ row: Row) -> Bool { row.activity == "working" || row.activity == "thinking" }
+}
+
+// MARK: - ② 续连状态落盘
+
+/// `{instanceId, seq}` 的本地持久化：重连时零往返补增量。
+///
+/// 只存两个值（网关明确说过：网关重启不重置 seq，ds-bot 重启才换 instanceId），
+/// 所以这里不需要存事件缓冲。`UserDefaults` 按服务器地址分键——一台手机可能连过多个宿主。
+struct TeamFeedResumeStore {
+    struct Resume: Equatable {
+        let instanceId: String
+        let seq: Int
+    }
+
+    private let defaults: UserDefaults
+    init(defaults: UserDefaults = .standard) { self.defaults = defaults }
+
+    private func instanceKey(_ serverKey: String) -> String { serverKey + ".instanceId" }
+    private func seqKey(_ serverKey: String) -> String { serverKey + ".seq" }
+
+    func load(serverKey: String) -> Resume? {
+        guard !serverKey.isEmpty else { return nil }
+        let instanceId = defaults.string(forKey: instanceKey(serverKey)) ?? ""
+        let seq = defaults.integer(forKey: seqKey(serverKey))
+        guard !instanceId.isEmpty, seq > 0 else { return nil }
+        return Resume(instanceId: instanceId, seq: seq)
+    }
+
+    func save(serverKey: String, instanceId: String, seq: Int) {
+        guard !serverKey.isEmpty, !instanceId.isEmpty, seq > 0 else { return }
+        defaults.set(instanceId, forKey: instanceKey(serverKey))
+        defaults.set(seq, forKey: seqKey(serverKey))
+    }
+
+    func clear(serverKey: String) {
+        guard !serverKey.isEmpty else { return }
+        defaults.removeObject(forKey: instanceKey(serverKey))
+        defaults.removeObject(forKey: seqKey(serverKey))
+    }
 }
