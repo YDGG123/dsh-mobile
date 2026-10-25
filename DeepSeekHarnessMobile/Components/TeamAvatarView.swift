@@ -149,6 +149,21 @@ struct TeamAvatarView: View {
     /// 1. **@MainActor**：`.task` 的闭包是 `@Sendable`，不标主线程时 `@State` 写入可能不触发布局；
     /// 2. **相位语义**：电脑端是**负**延迟（从周期中途开始），不是先空等一个相位长度；
     /// 3. **前台判断**：读实时的 `applicationState`，不是 `.task` 启动时捕获的环境快照。
+    /// 负延迟的等价计算：从周期的第 `phase` 秒开始时，应先跳过哪些档位、第一个要显示的档位还剩多久。
+    /// 返回 `(首个要显示的档位下标, 该档位需保持的秒数)`。
+    /// 抽成静态纯函数是为了让用例**直接调实现**，而不是在测试里重写一遍算法（否则实现漂移测试仍绿）。
+    static func blinkResume(steps: [(squash: CGFloat, hold: Double)],
+                            phase: Double) -> (index: Int, hold: Double) {
+        guard let last = steps.last else { return (0, 0) }
+        var remaining = max(phase, 0)
+        for (index, step) in steps.enumerated() {
+            if remaining >= step.hold { remaining -= step.hold; continue }
+            return (index, step.hold - remaining)
+        }
+        // 相位越过整个周期（调用方保证不会）：退化成最后一档的完整时长。
+        return (steps.count - 1, last.hold)
+    }
+
     @MainActor
     private func driveEyes() async {
         guard Self.shouldAnimate(motion, reduceMotion: reduceMotion) else {
@@ -158,20 +173,15 @@ struct TeamAvatarView: View {
         defer { eyeSquash = 1 }
         let steps = Self.blinkSteps(working: motion.isWorking)
         let period = steps.reduce(0) { $0 + $1.hold }
-        // 从周期的第 phase 秒开始（对应负延迟）：跳过被相位覆盖的整段档位，只等最后一个的剩余。
-        var phase = Self.blinkPhaseDelay(botID: row.id, period: period)
+        // 首次从周期中途开始（对应负延迟），之后每轮都从第 0 档走完整个周期。
+        var resume = Self.blinkResume(steps: steps,
+                                      phase: Self.blinkPhaseDelay(botID: row.id, period: period))
         while !Task.isCancelled {
-            for step in steps {
-                if phase > 0 {
-                    if phase >= step.hold { phase -= step.hold; continue }
-                    let wait = step.hold - phase
-                    phase = 0
-                    guard await holdEye(step.squash, for: wait) else { return }
-                } else {
-                    guard await holdEye(step.squash, for: step.hold) else { return }
-                }
+            for index in resume.index..<steps.count {
+                let hold = index == resume.index ? resume.hold : steps[index].hold
+                guard await holdEye(steps[index].squash, for: hold) else { return }
             }
-            phase = 0
+            resume = (index: 0, hold: steps[0].hold)
         }
     }
 

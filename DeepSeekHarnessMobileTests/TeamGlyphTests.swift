@@ -314,16 +314,13 @@ final class TeamGlyphTests: XCTestCase {
     /// 这里用纯计算复核「跳段」逻辑的边界（View 里的循环与该算法同构）。
     func testBlinkPhaseSkipsWholeStepsAndKeepsRemainder() {
         let steps = TeamAvatarView.blinkSteps(working: false)
-        // 取一个落在第三次眨眼闭眼窗口内的相位：3.59 + 0.02
-        var phase = 3.61
-        var consumed = 0.0
-        var firstHold: Double?
-        for step in steps {
-            if phase >= step.hold { phase -= step.hold; consumed += step.hold; continue }
-            firstHold = step.hold - phase
-            break
-        }
-        XCTAssertEqual(consumed, 1.61 + 0.08 + 0.06 + 1.84, accuracy: 0.0001, "整段被跳过")
-        XCTAssertEqual(firstHold ?? -1, 0.08 - 0.02, accuracy: 0.0001, "只等当前档位的剩余部分")
+        // 落在第二次眨眼闭眼窗口内的相位：3.59 + 0.02
+        let resume = TeamAvatarView.blinkResume(steps: steps, phase: 3.61)
+        XCTAssertEqual(resume.index, 4, "整段跳过前 4 档（1.61 + 0.08 + 0.06 + 1.84）")
+        XCTAssertEqual(resume.hold, 0.06, accuracy: 0.0001, "只等当前档位的剩余部分")
+
+        let fromStart = TeamAvatarView.blinkResume(steps: steps, phase: 0)
+        XCTAssertEqual(fromStart.index, 0, "相位 0 从第一档开始")
+        XCTAssertEqual(fromStart.hold, 1.61, accuracy: 0.0001)
     }
 }
