@@ -34,10 +34,27 @@ struct FrameReassembler {
         var maxReassembledBytes: Int = 4 * 1024 * 1024
         /// 同一条连接上允许同时存在的流数。
         var maxStreams: Int = 2
-        /// 首块到达后多久还没收齐就丢弃。
+        /// 首块到达后多久还没收齐就丢弃（客户端内部资源保护，网关不公布）。
         var streamTimeout: TimeInterval = 30
 
         static let `default` = Limits()
+
+        /// 单块上限的绝对天花板：再大也不接受（防止网关公布一个离谱值把内存吃掉）。
+        static let absoluteChunkCap = 2 * 1024 * 1024
+        /// 重组总量下限：小于这个值连一条普通快照都装不下，说明公布值不可信。
+        static let minimumReassembled = 64 * 1024
+
+        /// **唯一的夹取入口**。任何来自外部的 Limits（`/info`、测试、将来的新字段）
+        /// 都必须走这里，否则 8MiB 硬帽会被生产路径绕过（P2 的根因就是 `update` 直接赋值）。
+        var clamped: Limits {
+            var result = self
+            result.maxChunkBytes = min(max(maxChunkBytes, 1024), Limits.absoluteChunkCap)
+            result.maxReassembledBytes = min(max(maxReassembledBytes, Limits.minimumReassembled),
+                                             FrameReassembler.absoluteReassembledCap)
+            result.maxStreams = min(max(maxStreams, 1), 4)
+            result.streamTimeout = min(max(streamTimeout, 1), 300)
+            return result
+        }
     }
 
     /// 握手能力名：手机在 WS auth 帧里声明它，网关才发 chunk 帧（不声明 = 永远收整帧）。
@@ -95,18 +112,16 @@ struct FrameReassembler {
     private let now: () -> Date
 
     init(limits: Limits = .default, now: @escaping () -> Date = Date.init) {
-        self.limits = limits
+        // 任何构造路径都夹取一遍：将来加新入口也绕不开。
+        self.limits = limits.clamped
         self.now = now
     }
 
-    /// 更新上限（来自网关 `/info`；只在不小于本地兜底时才生效，避免被一个坏值把内存吹爆）。
+    /// 更新上限（来自网关 `/info`）。**必须经过 `Limits.clamped`**，别在别处再写一遍夹取。
     mutating func apply(limits new: Limits) {
-        var merged = limits
-        merged.maxChunkBytes = max(new.maxChunkBytes, 0)
-        merged.maxReassembledBytes = min(new.maxReassembledBytes, Self.absoluteReassembledCap)
-        merged.maxStreams = max(1, min(new.maxStreams, 4))
-        merged.streamTimeout = max(1, min(new.streamTimeout, 300))
-        if merged != limits {
+        let merged = new.clamped
+        let current = limits
+        if merged != current {
             limits = merged
             log.notice("limits updated chunk=\(merged.maxChunkBytes, privacy: .public) reassembled=\(merged.maxReassembledBytes, privacy: .public) streams=\(merged.maxStreams, privacy: .public)")
         }
@@ -230,12 +245,73 @@ struct FrameReassembler {
 enum BridgeChunkLimits {
     private(set) static var shared: FrameReassembler.Limits = .default
     /// 更新上限。传 nil（网关不公布）时保持现状，不做"猜一个"。
+    ///
+    /// **必须走 `Limits.clamped`**：生产路径 `网关 /info → 这里 → 直接赋值` 曾绕过夹取，
+    /// 网关公布 64MiB 手机就真吃 64MiB（P2）。现在夹取只在 `Limits.clamped` 一处，
+    /// 将来新增字段只要走 `clamped` 就绕不开。
     static func update(fromInfo infoJSON: String) {
-        guard let limits = FrameReassembler.limits(fromInfo: infoJSON) else { return }
+        guard let parsed = FrameReassembler.limits(fromInfo: infoJSON) else { return }
+        // 保留本地兜底里的非协议项（streamTimeout 等），只覆盖网关公布的三项。
         var merged = FrameReassembler.Limits.default
-        merged.maxChunkBytes = limits.maxChunkBytes
-        merged.maxReassembledBytes = limits.maxReassembledBytes
-        merged.maxStreams = limits.maxStreams
-        if merged != shared { shared = merged }
+        merged.maxChunkBytes = parsed.maxChunkBytes
+        merged.maxReassembledBytes = parsed.maxReassembledBytes
+        merged.maxStreams = parsed.maxStreams
+        let clamped = merged.clamped
+        if clamped != shared { shared = clamped }
     }
+}
+
+/// 分块流的超时清扫（P1 修复：`expire()` 不能只在"收到新块"时调用）。
+///
+/// 故障形态：网关发到一半停住 —— 恰恰是做分块要防的场景 —— 此时不会再有 chunk 到达，
+/// 纯靠"收块时顺带 expire"就永远不触发，半截流会一直占内存。
+/// 所以流一开就挂一个按固定节奏的清扫任务，**只推进时钟、不依赖新块**。
+///
+/// `sleep` 可注入：测试里换成"记账 + 立即返回"的假实现，就能同步驱动多轮清扫，
+/// 不用真的等 30 秒。
+@MainActor
+final class ChunkStreamSweeper {
+    /// 清扫节奏：取超时的 1/6（30s → 5s），既不会太迟也不会太频繁。
+    /// `nonisolated`：纯计算，测试/非主线程都能直接调。
+    nonisolated static func interval(forTimeout timeout: TimeInterval) -> TimeInterval {
+        max(0.5, timeout / 6)
+    }
+
+    private let interval: TimeInterval
+    private let sleep: @MainActor (TimeInterval) async -> Void
+    private let onTick: @MainActor () -> Void
+    private var task: Task<Void, Never>?
+    private(set) var ticks = 0
+
+    init(interval: TimeInterval,
+         sleep: @escaping @MainActor (TimeInterval) async -> Void = { seconds in
+             try? await Task.sleep(nanoseconds: UInt64(max(seconds, 0.05) * 1_000_000_000))
+         },
+         onTick: @escaping @MainActor () -> Void) {
+        self.interval = max(interval, 0.05)
+        self.sleep = sleep
+        self.onTick = onTick
+    }
+
+    var isRunning: Bool { task != nil }
+
+    func start() {
+        guard task == nil else { return }
+        task = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                await self.sleep(self.interval)
+                guard !Task.isCancelled else { return }
+                self.ticks += 1
+                self.onTick()
+            }
+        }
+    }
+
+    func stop() {
+        task?.cancel()
+        task = nil
+    }
+
+    deinit { task?.cancel() }
 }

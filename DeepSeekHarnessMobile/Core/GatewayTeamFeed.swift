@@ -91,6 +91,8 @@ final class GatewayTeamFeed: ObservableObject {
     private var reassembler = FrameReassembler()
     /// 非静默诊断：分块相关的异常必须能在设备日志里看到。
     private static let chunkLog = Logger(subsystem: "ai.dsh.mobile.ios", category: "team-chunk")
+    /// 分块超时清扫：网关发一半停住时没有任何新块，必须靠"只推进时钟"的清扫触发超时。
+    private var chunkSweeper: ChunkStreamSweeper?
     @Published private(set) var rows: [Row] = []
     @Published private(set) var degraded = false
     @Published private(set) var lastError: String?
@@ -238,6 +240,9 @@ final class GatewayTeamFeed: ObservableObject {
 
     private func handleDisconnect(_ mine: Int, reason: String) {
         guard mine == generation else { return }
+        // 断开即放弃半截流：不让它跨连接存活（否则新连接会收到同 streamId 的块拼错）。
+        stopChunkSweeper()
+        reassembler.reset()
         socket?.cancel(with: .goingAway, reason: nil)
         socket = nil
         session?.invalidateAndCancel()
@@ -299,23 +304,53 @@ final class GatewayTeamFeed: ObservableObject {
     /// 分块帧：拼齐后把原文按 `finalKind` 回放进同一条处理链。
     /// 任何异常都**不静默**：记日志并断开重连（重连会拿到完整快照），绝不拼半个 JSON 交给上层。
     private func handleChunkFrame(_ object: [String: Any]) {
+        // 收到新块顺带清一次（便宜），但**不能只靠它**：网关停发时没有新块可触发（P1）。
         _ = reassembler.expire()
         guard let chunk = FrameReassembler.chunk(from: object) else {
             Self.chunkLog.error("chunk frame malformed: \(object.keys.sorted(), privacy: .public)")
+            stopChunkSweeper()
             handleDisconnect(generation, reason: "分块帧字段缺失")
             return
         }
         switch reassembler.accept(chunk) {
         case .success(nil):
-            return
+            // 流还在拼：确保有清扫任务在跑（只在首块时会真正创建）。
+            startChunkSweeperIfNeeded()
         case .success(.some(let payload)):
+            if reassembler.activeStreamCount == 0 { stopChunkSweeper() }
             Self.chunkLog.debug("chunk stream complete kind=\(chunk.finalKind, privacy: .public) bytes=\(payload.utf8.count, privacy: .public)")
             // payload 是原帧全文：重新解析后按 kind 走原有分发（snapshot/delta/cards/order 都复用）。
             handleFrame(payload)
         case .failure(let error):
+            stopChunkSweeper()
             Self.chunkLog.error("chunk reassembly failed: \(String(describing: error), privacy: .public); resyncing")
             handleDisconnect(generation, reason: "分块重组失败，正在重取快照")
         }
+    }
+
+    /// 流一开就挂清扫任务；`expire()` 由它按节奏推进，**与是否还有新块无关**。
+    /// 超时后走与重组失败同一条恢复路径（记日志 + 断连重取快照）。
+    private func startChunkSweeperIfNeeded() {
+        guard chunkSweeper == nil else { return }
+        let timeout = reassembler.limits.streamTimeout
+        let sweeper = ChunkStreamSweeper(interval: ChunkStreamSweeper.interval(forTimeout: timeout)) { [weak self] in
+            guard let self else { return }
+            let dropped = self.reassembler.expire()
+            guard !dropped.isEmpty else {
+                if self.reassembler.activeStreamCount == 0 { self.stopChunkSweeper() }
+                return
+            }
+            Self.chunkLog.error("chunk stream timed out: \(dropped, privacy: .public) after \(Int(timeout), privacy: .public)s; resyncing")
+            self.stopChunkSweeper()
+            self.handleDisconnect(self.generation, reason: "分块超时，正在重取快照")
+        }
+        chunkSweeper = sweeper
+        sweeper.start()
+    }
+
+    private func stopChunkSweeper() {
+        chunkSweeper?.stop()
+        chunkSweeper = nil
     }
 
     /// 大快照分帧的补充帧：`{kind:"avatar", items:[{id, avatar:{shape,image}}]}`。

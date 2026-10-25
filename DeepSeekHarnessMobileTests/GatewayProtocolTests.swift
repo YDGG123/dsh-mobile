@@ -12977,3 +12977,123 @@ final class FrameReassemblerTests: XCTestCase {
         XCTAssertNil(FrameReassembler.chunk(from: wrongType), "类型不对按没给处理，不猜")
     }
 }
+
+// MARK: - P1/P2：防护真正生效（超时清扫 + 夹取必经）
+
+/// 持有可变重组器（测试里既喂块又拨钟，需要引用语义）。
+@MainActor
+private final class ReassemblerBox {
+    var value: FrameReassembler
+    init(_ value: FrameReassembler) { self.value = value }
+}
+
+final class ChunkGuardEffectivenessTests: XCTestCase {
+
+    private func chunk(_ stream: String, _ index: Int, _ total: Int, _ part: String) -> FrameReassembler.Chunk {
+        FrameReassembler.Chunk(streamId: stream, index: index, total: total, finalKind: "snapshot", part: part)
+    }
+
+    // MARK: P1 - 没有新块、只推进时钟也必须超时
+
+    /// 生产形态：开一条流 → 网关停住不再发块 → 清扫任务按节奏推进 → 流被丢弃并报错。
+    /// 旧实现只在"收到块"时调 expire()，这条路径根本不会触发（这是 QA 抓的 P1）。
+    @MainActor
+    func testStalledStreamExpiresWithClockOnly() async {
+        var clock = Date(timeIntervalSince1970: 1_000)
+        let box = ReassemblerBox(FrameReassembler(now: { clock }))
+        XCTAssertNoThrow(try box.value.accept(chunk("s1", 0, 3, "a")).get())
+        XCTAssertEqual(box.value.activeStreamCount, 1)
+
+        var droppedBatches: [[String]] = []
+        let sweeper = ChunkStreamSweeper(interval: 5,
+                                         sleep: { _ in clock = clock.addingTimeInterval(5) }) {
+            // 与 GatewayTeamFeed.startChunkSweeperIfNeeded 的 onTick 同构
+            droppedBatches.append(box.value.expire())
+        }
+        sweeper.start()
+        for _ in 0..<2_000 where sweeper.ticks < 7 { await Task.yield() }
+        sweeper.stop()
+
+        XCTAssertGreaterThanOrEqual(sweeper.ticks, 7, "清扫必须真的跑起来")
+        XCTAssertEqual(droppedBatches.flatMap { $0 }, ["s1"], "35s 后（超时 30s）该流必须被丢弃")
+        XCTAssertEqual(box.value.activeStreamCount, 0)
+        XCTAssertEqual(droppedBatches.filter { !$0.isEmpty }.count, 1, "只报一次，不能重复报")
+    }
+
+    /// 收齐后清扫任务即使还在跑，也不该再报超时。
+    @MainActor
+    func testCompletedStreamIsNotReportedAsTimeout() async {
+        var clock = Date(timeIntervalSince1970: 2_000)
+        let box = ReassemblerBox(FrameReassembler(now: { clock }))
+        XCTAssertNoThrow(try box.value.accept(chunk("s1", 0, 1, "{}")).get())
+        XCTAssertEqual(box.value.activeStreamCount, 0, "单块流立即完成")
+
+        var droppedBatches: [[String]] = []
+        let sweeper = ChunkStreamSweeper(interval: 5,
+                                         sleep: { _ in clock = clock.addingTimeInterval(60) }) {
+            droppedBatches.append(box.value.expire())
+        }
+        sweeper.start()
+        for _ in 0..<2_000 where sweeper.ticks < 3 { await Task.yield() }
+        sweeper.stop()
+        XCTAssertEqual(droppedBatches.flatMap { $0 }, [], "没有活跃流时不该报超时")
+    }
+
+    /// 清扫间隔 = 超时/6，且有下限（防止超时配得很小时疯狂扫）。
+    func testSweeperIntervalDerivesFromTimeout() {
+        XCTAssertEqual(ChunkStreamSweeper.interval(forTimeout: 30), 5, accuracy: 0.001)
+        XCTAssertEqual(ChunkStreamSweeper.interval(forTimeout: 300), 50, accuracy: 0.001)
+        XCTAssertEqual(ChunkStreamSweeper.interval(forTimeout: 0.3), 0.5, accuracy: 0.001)
+    }
+
+    // MARK: P2 - 生产路径必须经过夹取
+
+    /// 网关公布 64MiB：手机必须只吃 8MiB（生产路径 `/info → BridgeChunkLimits.update`）。
+    @MainActor
+    func testPublishedLimitsAreClampedOnProductionPath() {
+        let info = #"{"capabilities":{"maxFrameBytes":10485760,"maxReassembledBytes":67108864,"maxStreamsPerConnection":99}}"#
+        BridgeChunkLimits.update(fromInfo: info)
+        XCTAssertEqual(BridgeChunkLimits.shared.maxReassembledBytes, FrameReassembler.absoluteReassembledCap,
+                       "64MiB 公布值必须被夹到 8MiB 硬帽")
+        XCTAssertEqual(BridgeChunkLimits.shared.maxChunkBytes, FrameReassembler.Limits.absoluteChunkCap,
+                       "10MiB 单块必须被夹到 2MiB 天花板")
+        XCTAssertEqual(BridgeChunkLimits.shared.maxStreams, 4, "99 条并发必须被夹到 4")
+        // 复原，避免影响其它用例
+        BridgeChunkLimits.update(fromInfo: #"{"capabilities":{"maxFrameBytes":524288,"maxReassembledBytes":4194304,"maxStreamsPerConnection":2}}"#)
+        XCTAssertEqual(BridgeChunkLimits.shared.maxReassembledBytes, 4 * 1024 * 1024)
+    }
+
+    /// 非协议项（streamTimeout）不被网关公布值覆盖。
+    @MainActor
+    func testClientOnlyTimeoutSurvivesInfoUpdate() {
+        BridgeChunkLimits.update(fromInfo: #"{"capabilities":{"maxFrameBytes":524288}}"#)
+        XCTAssertEqual(BridgeChunkLimits.shared.streamTimeout, FrameReassembler.Limits.default.streamTimeout)
+    }
+
+    /// 构造路径也必须夹取：将来新增入口只要用 `Limits` 就绕不开。
+    func testConstructorAndApplyClampToo() {
+        let huge = FrameReassembler.Limits(maxChunkBytes: 99 * 1024 * 1024,
+                                           maxReassembledBytes: 128 * 1024 * 1024,
+                                           maxStreams: 42,
+                                           streamTimeout: 9_999)
+        let viaInit = FrameReassembler(limits: huge)
+        XCTAssertEqual(viaInit.limits.maxReassembledBytes, FrameReassembler.absoluteReassembledCap)
+        XCTAssertEqual(viaInit.limits.maxStreams, 4)
+        XCTAssertEqual(viaInit.limits.streamTimeout, 300)
+
+        var viaApply = FrameReassembler()
+        viaApply.apply(limits: huge)
+        XCTAssertEqual(viaApply.limits.maxReassembledBytes, FrameReassembler.absoluteReassembledCap)
+        XCTAssertEqual(viaApply.limits.maxChunkBytes, FrameReassembler.Limits.absoluteChunkCap)
+    }
+
+    /// 公布的非法值不能把上限压低到不可用。
+    func testNonPositiveOrTinyValuesFallBackToSaneMinimums() {
+        let tiny = FrameReassembler.Limits(maxChunkBytes: -1, maxReassembledBytes: 1, maxStreams: 0, streamTimeout: 0)
+        let clamped = tiny.clamped
+        XCTAssertEqual(clamped.maxChunkBytes, 1024)
+        XCTAssertEqual(clamped.maxReassembledBytes, FrameReassembler.Limits.minimumReassembled)
+        XCTAssertEqual(clamped.maxStreams, 1)
+        XCTAssertEqual(clamped.streamTimeout, 1)
+    }
+}
