@@ -31,11 +31,16 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-DOC = ROOT / "Docs" / "mobile-contract-v1.md"
+DOCS_DIR = ROOT / "Docs"
+# 受本闸门看守的契约文档（两份都要钉，各钉各的实现面）
+DOC = DOCS_DIR / "mobile-contract-v1.md"          # 主契约：端点/帧/字段/红线/glyph/出包
+DOC_RESUME = DOCS_DIR / "team-feed-resume-v1.md"  # 续连与心跳：resume/sync.from/sync.done/ping
+CARE_DOCS = (DOC, DOC_RESUME)
 
 GATEWAY = Path(os.environ.get("MOBILE_GATEWAY_DIR", str(ROOT.parent / "dsh-plugin-mobile-gateway")))
 BOT_REPO = Path(os.environ.get("DS_BOT_DIR", str(ROOT.parent / "ds-bot")))
@@ -144,20 +149,139 @@ CHECKS: list[tuple[str, str, Path, str] | tuple[str, str, Path, str, bool]] = [
     ("分块传输", "streamTimeout", MOBILE_CHUNK, "streamTimeout: TimeInterval = 30", True),
     ("分块传输", "absoluteReassembledCap", MOBILE_CHUNK, "absoluteReassembledCap = 8 * 1024 * 1024", True),
 
+    # —— §8.6 分块（主契约）：心跳与续连不在 chunked-frames-v1 内 ——
+    ("分块传输", "heartbeatIntervalSeconds", GW_SERVER, "heartbeatIntervalSeconds: HEARTBEAT_INTERVAL_SECONDS"),
+    ("分块传输", "syncResume", GW_SERVER, "syncResume: typeof team?.history === 'function'"),
+
+    # ======== 续连与心跳契约（team-feed-resume-v1.md，doc = DOC_RESUME） ========
+    # —— 2/3 续连载荷：resume 与 sync.from 的字段必须真被网关读 ——
+    ("续连", "resume", GW_SERVER, "typeof frame.resume === 'object'", False, DOC_RESUME),
+    ("续连", "afterSeq", GW_SERVER, "const afterSeq = resume.afterSeq", False, DOC_RESUME),
+    ("续连", "maxDeltas", GW_SERVER, "clampDeltas(resume.maxDeltas)", False, DOC_RESUME),
+    ("续连", "sync.from", GW_SERVER, "frame?.type === 'sync.from'", False, DOC_RESUME),
+    # 手机端确实构造了这三键（不是文档自证）
+    ("续连", "afterSeq", MOBILE_FEED, '"afterSeq": seq', False, DOC_RESUME),
+    ("续连", "maxDeltas", MOBILE_FEED, '"maxDeltas"', False, DOC_RESUME),
+    # —— 4 sync.done 六个 reason：每个值都必须真被发出 ——
+    ("续连", "sync.done", GW_SERVER, "type: 'sync.done'", False, DOC_RESUME),
+    ("续连", "resume", GW_SERVER, "'resume' : 'caught-up'", False, DOC_RESUME),
+    ("续连", "caught-up", GW_SERVER, "'caught-up'", False, DOC_RESUME),
+    ("续连", "snapshot", GW_SERVER, "reason: 'snapshot'", False, DOC_RESUME),
+    ("续连", "gap", GW_SERVER, "resnapshot('gap')", False, DOC_RESUME),
+    ("续连", "unknown-instance", GW_SERVER, "resnapshot('unknown-instance')", False, DOC_RESUME),
+    ("续连", "sync.from", GW_SERVER, "'sync.from'", False, DOC_RESUME),
+    # 「没有第七种」也要有探针守着：网关侧 reason 字面量集合必须恰好是这六个
+    ("续连", "没有第七种", GW_SERVER, "reason: 'snapshot'", False, DOC_RESUME),
+    # —— 5 五个错误码 ——
+    ("续连", "SYNC_GAP", GW_SERVER, "'SYNC_GAP'", False, DOC_RESUME),
+    ("续连", "SYNC_UNKNOWN_INSTANCE", GW_SERVER, "'SYNC_UNKNOWN_INSTANCE'", False, DOC_RESUME),
+    ("续连", "SYNC_UNAVAILABLE", GW_SERVER, "'SYNC_UNAVAILABLE'", False, DOC_RESUME),
+    ("续连", "SYNC_BAD_REQUEST", GW_SERVER, "'SYNC_BAD_REQUEST'", False, DOC_RESUME),
+    ("续连", "SYNC_RATE_LIMITED", GW_SERVER, "'SYNC_RATE_LIMITED'", False, DOC_RESUME),
+    # —— 7 心跳两常量：名字+数值同行（MAX_OPS = 200 那种双锚形态） ——
+    ("续连", ("heartbeatIntervalSeconds", "25"), GW_SERVER, "HEARTBEAT_INTERVAL_SECONDS = 25", False, DOC_RESUME),
+    ("续连", ("heartbeatTimeoutSeconds", "75"), GW_SERVER, "HEARTBEAT_TIMEOUT_SECONDS = 75", False, DOC_RESUME),
+    ("续连", ("heartbeatIntervalSeconds", "25"), GW_SERVER, "heartbeatIntervalSeconds: HEARTBEAT_INTERVAL_SECONDS", False, DOC_RESUME),
+    # —— 8 保留窗三帽：10,000 帧 / 15 分钟 / 8MB，名字+数值同行 ——
+    ("续连", ("10,000 帧", "15 分钟", "8MB"), GW_TEAM, "historyMaxFrames = 10_000", False, DOC_RESUME),
+    ("续连", ("10,000 帧", "15 分钟", "8MB"), GW_TEAM, "historyMaxBytes = 8 * 1024 * 1024", False, DOC_RESUME),
+    ("续连", ("10,000 帧", "15 分钟", "8MB"), GW_TEAM, "historyMaxAgeMs = 15 * 60_000", False, DOC_RESUME),
+    # —— 回放判定按 base 链（不按 +1） ——
+    ("续连", "base", GW_TEAM, "history[first].base !== afterSeq", False, DOC_RESUME),
+    ("续连", "sync.done", GW_TEAM, "mode: 'ok'", False, DOC_RESUME),
+    ("续连", "SYNC_GAP", GW_TEAM, "mode: 'gap'", False, DOC_RESUME),
+    # —— 手机端：心跳与 resume 载荷 ——
+    ("续连", "ping", MOBILE_FEED, r'{\"type\":\"ping\"}', False, DOC_RESUME),
+    ("续连", "pong", MOBILE_FEED, 'type == "pong"', False, DOC_RESUME),
+    ("续连", "heartbeatIntervalSeconds", MOBILE_FEED, "tuning.heartbeatInterval", False, DOC_RESUME),
+    ("续连", "heartbeatTimeoutSeconds", MOBILE_FEED, "tuning.heartbeatTimeout", False, DOC_RESUME),
+
     # —— §7.4 发布端装入判据 ——
     ("装入判据", "dsBotCards", BOT_INDEX, "dsBotCards"),
     ("装入判据", "card.shown", BOT_CARDS, "card.shown"),
 ]
 
 
-def doc_line_of(claim: "str | tuple[str, ...]") -> int | None:
-    """在文档里定位一条断言的行号，用于报错时指路。
+# 枚举类断言：不能只靠「关键字在不在」，要**集合精确相等**，否则网关悄悄加第七种 reason
+# 或去掉一种错误码，关键字探针全都照绿。这是「没有第七种」这句话唯一能被证明的方式。
+#
+# 每项 = (分组, 文档, 说明文字, 实现文件, 抓取正则, 期望集合)
+ENUM_CHECKS: list[tuple[str, Path, str, Path, "re.Pattern[str]", frozenset[str]]] = []
+
+
+REASON_PATTERNS = (
+    r"reason: '([a-z-]+)'",               # 字面 reason := 'snapshot'
+    r"\?\s*'([a-z.-]+)'\s*:\s*'caught-up'",  # 三元命中值（resume / sync.from）
+    r"resnapshot\('([a-z-]+)'\)",         # 重取快照原因（gap / unknown-instance）
+    r"replayFrom\(\{[^}]*\},\s*'([a-z.-]+)'\)",  # 连接中重试传入的 reason
+)
+# 三元 else 分支固定发 caught-up，单独计入（它没有捕获组）
+REASON_CONSTANTS = frozenset({"caught-up"})
+
+
+def collect_reasons(body: str) -> set[str]:
+    """把网关侧所有可能成为 sync.done.reason 的字面量抓成集合。"""
+    found: set[str] = set()
+    for pattern in REASON_PATTERNS:
+        found.update(re.findall(pattern, body))
+    # 只有确实存在三元/常量形态时才计入 caught-up，避免凭空添加
+    if "'caught-up'" in body:
+        found |= set(REASON_CONSTANTS)
+    return found
+
+
+SYNC_REASONS = frozenset({"resume", "sync.from", "caught-up", "gap", "unknown-instance", "snapshot"})
+SYNC_ERRORS = frozenset({
+    "SYNC_GAP", "SYNC_UNKNOWN_INSTANCE", "SYNC_UNAVAILABLE", "SYNC_BAD_REQUEST", "SYNC_RATE_LIMITED",
+})
+
+
+def check_enums(errors: list[str], list_only: bool) -> int:
+    """枚举集合精确比对：多一个少一个都红。返回比对的项数。"""
+    server = GW_SERVER.read_text()
+    checked = 0
+
+    # 1) sync.done 的 reason 必须恰好是六个
+    reasons = collect_reasons(server)
+    checked += 1
+    if list_only:
+        print(f"{'✓' if reasons == SYNC_REASONS else '✗'} [续连] sync.done reason 集合 = {sorted(reasons)}")
+    elif reasons != SYNC_REASONS:
+        extra, missing = reasons - SYNC_REASONS, SYNC_REASONS - reasons
+        detail = []
+        if extra:
+            detail.append(f"多出 {sorted(extra)}")
+        if missing:
+            detail.append(f"缺少 {sorted(missing)}")
+        line = doc_line_of("没有第七种", DOC_RESUME)
+        where = f"{DOC_RESUME.relative_to(ROOT)}:{line}" if line else str(DOC_RESUME.relative_to(ROOT))
+        errors.append(f"{where} 说 reason「没有第七种」，但网关实际集合对不上（{'；'.join(detail)}）")
+
+    # 2) 五个 SYNC_* 错误码必须恰好都存在（且不存在第六个 SYNC_ 错误码被 replyControl 发出）
+    emitted = set(re.findall(r"replyControl\('(SYNC_[A-Z_]+)'", server))
+    checked += 1
+    if list_only:
+        print(f"{'✓' if emitted == SYNC_ERRORS else '✗'} [续连] replyControl 错误码集合 = {sorted(emitted)}")
+    elif emitted != SYNC_ERRORS:
+        extra, missing = emitted - SYNC_ERRORS, SYNC_ERRORS - emitted
+        detail = []
+        if extra:
+            detail.append(f"多出 {sorted(extra)}")
+        if missing:
+            detail.append(f"缺少 {sorted(missing)}")
+        errors.append(f"网关 replyControl 的 SYNC_* 错误码与契约五码不一致（{'；'.join(detail)}）")
+
+    return checked
+
+
+def doc_line_of(claim: "str | tuple[str, ...]", doc: Path) -> int | None:
+    """在指定文档里定位一条断言的行号，用于报错时指路。
 
     claim 为元组时表示「同一行必须同时出现这些 token」——用于字段名与数值这类
     必须成对出现的断言（否则文档别处一句「4 MiB」就能把上限改错的事实盖住）。
     """
     try:
-        lines = DOC.read_text().splitlines()
+        lines = doc.read_text().splitlines()
     except FileNotFoundError:
         return None
     tokens = (claim,) if isinstance(claim, str) else claim
@@ -177,8 +301,10 @@ def main() -> int:
     )
     options = parser.parse_args()
 
-    if not DOC.is_file():
-        print(f"✗ 契约文档不存在：{DOC}", file=sys.stderr)
+    missing_docs = [path for path in CARE_DOCS if not path.is_file()]
+    if missing_docs:
+        for path in missing_docs:
+            print(f"✗ 契约文档不存在：{path}", file=sys.stderr)
         return 1
 
     missing_repos = [str(path) for path in (GATEWAY, BOT) if not path.is_dir()]
@@ -199,13 +325,15 @@ def main() -> int:
             text_cache[path] = path.read_text()
         return text_cache[path]
 
-    doc_text = DOC.read_text()
+    doc_texts = {path: path.read_text() for path in CARE_DOCS if path.is_file()}
     errors: list[str] = []
     probed = 0
     pending: list[str] = []
     for entry in CHECKS:
         group, claim, path, needle = entry[0], entry[1], entry[2], entry[3]
         probe_ok = bool(entry[4]) if len(entry) > 4 else False
+        # 第 6 项可指定这条断言属于哪份文档；缺省归主契约
+        doc = entry[5] if len(entry) > 5 else DOC
         probed += 1
         try:
             body = source_of(path)
@@ -216,7 +344,7 @@ def main() -> int:
                 continue
             errors.append(f"[{group}] 实现文件不存在：{path}（断言：{claim}）")
             continue
-        in_doc = doc_line_of(claim) is not None
+        in_doc = doc_line_of(claim, doc) is not None
         hit = needle in body
         if options.list:
             shown = claim if isinstance(claim, str) else " + ".join(claim)
@@ -225,17 +353,19 @@ def main() -> int:
             continue
         if not in_doc:
             shown = claim if isinstance(claim, str) else " + ".join(claim)
-            errors.append(f"{DOC.relative_to(ROOT)} 已不再写明「{shown}」，但实现里还有（探针 {path.name}: {needle!r}）——文档实现脱节")
+            errors.append(f"{doc.relative_to(ROOT)} 已不再写明「{shown}」，但实现里还有（探针 {path.name}: {needle!r}）——文档实现脱节")
         if not hit:
             shown = claim if isinstance(claim, str) else " + ".join(claim)
-            line = doc_line_of(claim)
-            where = f"{DOC.relative_to(ROOT)}:{line}" if line else str(DOC.relative_to(ROOT))
+            line = doc_line_of(claim, doc)
+            where = f"{doc.relative_to(ROOT)}:{line}" if line else str(doc.relative_to(ROOT))
             errors.append(
                 f"{where} 契约说的「{shown}」在实现里找不到（探针 {path.name}: {needle!r}）"
             )
 
+    enum_checked = check_enums(errors, options.list)
+
     if options.list:
-        print(f"\n探针 {probed} 条")
+        print(f"\n探针 {probed} 条 + 枚举比对 {enum_checked} 项")
         return 0
 
     if errors:
@@ -247,7 +377,7 @@ def main() -> int:
         print(f"⏳ {len(pending)} 条探针待并入主干（不算脱节，也不给绿）：")
         for item in pending:
             print(f"   · {item}")
-    print(f"契约闸门通过：{probed - len(pending)}/{probed} 条探针命中"
+    print(f"契约闸门通过：{probed - len(pending)}/{probed} 条探针命中、{enum_checked} 项枚举精确比对"
           f"（文档 ↔ 网关/ds-bot/手机端三方一致）"
           f"{f'，{len(pending)} 条待并入' if pending else ''}")
     return 0
