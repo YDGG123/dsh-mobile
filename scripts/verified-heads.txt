@@ -15,3 +15,4 @@ a36f65a17b8b6cc1b164f98ee06d0f3e26eefd05  # merge 后 Debug 配置 iOS17+ 降级
 c1cdf4529be6e34b81ff2307b42b5eaaa95327da  # 攒批出包：头像二期+DEBUG兼容+上游合并ec916e1（QA增量复核通过）
 e175b71534e14dff69fa6c63d472c6b7f5c16f92  # chore(ship)：非 ASCII 路径修复（App 代码与 c1cdf45 零差异，QA 核验通道 B 等价）
 ef569dfead9dc239578238c69d68ee44bc2c90be  # 头像三代修复（003cd1c→2ed5bc9→329fe21→ef569df）：眼睛挖洞透底 + 3:1 下限 + 取色方向按车身亮度 + 眨眼时序对齐 CSS（开发侧自验：四路闸门绿、20 色×5 底重算全部 ≥3.01:1）
+c61cd2a65fddc919c674eb5cb653ac51e61678d9  # 「头像不会动」修复（@MainActor 驱动 + 负延迟相位跳段 + 实时前台判断 + blinkResume 纯函数化；QA 增量复核通过）
