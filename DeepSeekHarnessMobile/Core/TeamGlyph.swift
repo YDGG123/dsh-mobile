@@ -242,8 +242,9 @@ struct TeamAvatarGlyph: Hashable {
         for layer in rendered.layers {
             context.fill(layer.path, with: .color(layer.color.opacity(layer.opacity)))
         }
-        // 眼睛：电脑端从所有图层挖空、透出页面背景；等效为用同一背景色填回该形状。
-        // 高光层（layers 里的 #fff 0.16）在眼睛之上不受影响 —— 与电脑端的层序一致。
+        // 眼睛：电脑端是 mask 挖洞，而 `<g mask>` 罩住的是 body + 全部 layers
+        // （`characters.js:95-97` 的 bodyOf 把 layers 一起包进去），所以 shade 与
+        // light 高光层同样会被挖掉 —— 这里「最后画眼」等价于同一效果。
         for eye in rendered.eyes {
             context.fill(Self.eyePath(eye, squash: eyeSquash), with: .color(eyeColor))
         }
