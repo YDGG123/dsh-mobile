@@ -258,17 +258,66 @@
 
 ---
 
-## 8. 将变：分块传输与心跳/增量（占位）
+## 8. 分块传输（`chunked-frames-v1`，正式版）
 
-> 本节**待 ①② 两批落地后补写**，现在只钉住「会变哪些行」，避免正式版收口时漏项。
+> 权威源：网关 `48adb20`（`lib/mobile-v1/chunked.mjs` + `server.mjs:234-238` 已把三个上限接进 `/info`）。
+> 手机端 ① 在 `Core/FrameReassembler.swift`（同期开发）。**未声明能力的客户端行为与旧版逐字节一致**，不存在灰度风险。
 
-| 将变项 | 影响面 | 现状基线（证据） |
+### 8.1 能力协商
+
+| 项 | 值 | 约束 | 证据 |
+| --- | --- | --- | --- |
+| 能力名 | `chunked-frames-v1` | 客户端在握手帧里声明；**不声明 = 永远收整帧**（不掉帧、不改协议版本） | gw `lib/mobile-v1/chunked.mjs:24`、`:86` |
+| `/info` 公布位置 | `capabilities.maxFrameBytes` / `maxReassembledBytes` / `maxStreamsPerConnection` | 单位：字节 / 条 | gw `lib/mobile-v1/server.mjs:234-238` |
+| `maxFrameBytes` | **512 KiB** | 切分后**每块**的 UTF-8 字节上限 | gw `chunked.mjs:21` |
+| `maxReassembledBytes` | **4 MiB** | 单条流重组后的上限；超过则不切不发 | gw `chunked.mjs:22`、`:70` |
+| `maxStreamsPerConnection` | **2** | 同一连接同时存在的流数；网关按帧串行发送，实际并发恒为 1，该值是防御性约束 | gw `chunked.mjs:23`、`:71` |
+
+### 8.2 `chunk` 帧字段
+
+| 字段 | 类型 | 语义 | 手机端 | 证据 |
+| --- | --- | --- | --- | --- |
+| `kind` | `"chunk"` | 帧类型 | 必须识别 | gw `chunked.mjs:74` |
+| `streamId` | string | 一条流的标识；同流各块共用 | 按它归组 | gw `chunked.mjs:74`；iOS `Core/FrameReassembler.swift:20` |
+| `index` | int | 从 0 起，**必 < `total`**；乱序到达按它归位，重复块幂等覆盖 | 越界判错 | gw `chunked.mjs:74`；iOS `FrameReassembler.swift:21`、`:105` |
+| `total` | int | 该流的块数，**≥ 1** | 收齐即重组 | gw `chunked.mjs:74`；iOS `:22` |
+| `finalKind` | string | 重组后要走回的**原处理链**（`snapshot` / `delta` / `cards` / `order` …） | 拼完按它分派，不猜 | gw `chunked.mjs:74`；iOS `:24` |
+| `part` | string | **按 UTF-8 字符边界**切开的原始 JSON 片段；**不做块级 JSON.parse** | 逐块拼接 | gw `chunked.mjs:12-14`、`:74` |
+| `at` | number | 网关发送时刻（时间戳） | **下传，手机忽略可选**（宽松解析未知字段，不得因多字段报错） | gw `chunked.mjs:74` |
+
+### 8.3 切分与重组规则
+
+| 规则 | 说明 | 证据 |
 | --- | --- | --- |
-| 分块传输 + 上限写进 `/info` | §5 体积红线整节、§1 的 actions 载荷上限 | 现状上限散在代码：头像 32KB（gw `team-feed.mjs:110-116`）、快照 1MB/256KB（`:198`）、团队流 8MB（`server.mjs:412`） |
-| 心跳 + 序号增量补拉 | §3.4 同步规则（现在是「重连=重取快照、不复用增量」） | 现状：无回放缓冲，网关也没有按序号补拉的入参；`order` 帧不占 seq（`team-feed.mjs:187`） |
+| 只切在字符边界 | 按码点迭代切分；按字节硬切会把中文/emoji 劈成两半，拼回来乱码且 `JSON.parse` 必挂 | gw `chunked.mjs:12-14`、`:29-53` |
+| 每块 ≤ `maxFrameBytes` | 单个码点本身超上限（只会在上限 ≤3 字节时发生）单独成块 | gw `chunked.mjs:47-49` |
+| 重组 = 拼回原文 | 手机把 `part` 顺序拼成完整 JSON 字符串，再走与整帧完全相同的处理链 | gw `chunked.mjs:4-6`；iOS `FrameReassembler.swift:16-28` |
+| 乱序/重复安全 | 块带 `index`，乱序按 `index` 归位；重复块幂等覆盖 | iOS `FrameReassembler.swift:14` |
 
-> 注：原先这里还列了「契约测试闸门」一项，已在 `6d207f1` 落地——`scripts/verify-mobile-contract.py`
-> 就是那道闸门（登记在 §7.2），不再是「将变」。
+### 8.4 超限、并发与超时行为
+
+| 场景 | 网关行为 | 手机行为 | 证据 |
+| --- | --- | --- | --- |
+| 整帧 ≤ `maxFrameBytes` | 直接发整帧（`mode: plain`），不分块 | 无需处理 | gw `chunked.mjs:69` |
+| 整帧 > `maxReassembledBytes` | **不切、不发**（`mode: refused`，理由 `too-large`），记日志；宁可让手机保持上一份状态 | — | gw `chunked.mjs:70`、`:55-58` |
+| 同时流数 > `maxStreams` | 拒绝（理由 `too-many-streams`），记日志 | — | gw `chunked.mjs:71` |
+| 单块超 `maxChunkBytes` | — | 判错 `chunkTooLarge`（说明网关与宣传值不一致） | iOS `FrameReassembler.swift:31-32`、`:50` |
+| 流 30 s 内没收齐 | — | 丢弃该流（`streamTimeout`）。**客户端实现细节，非协议字段，网关不公布** | iOS `FrameReassembler.swift:37` |
+| 客户端防护帽 8 MiB | 网关永远不会发 >4 MiB | 手机 `absoluteReassembledCap = 8 MiB`：**有意比服务端宽松**（弹性防护），只有网关不守规矩时才触及 | iOS `FrameReassembler.swift:92` |
+
+### 8.5 与既有红线的关系
+
+- §5 的既有上限**继续有效**（头像 32 KiB、快照 1 MiB 分帧 / 256 KiB 批、团队流 8 MiB、`/events` 2 MiB）——
+  分块解决的是「单帧过大撞内存/背压」的根因，不是替代这些产品红线。
+- 未声明 `chunked-frames-v1` 的旧客户端：收帧路径完全不变，`4408` 背压逻辑照旧。
+
+### 8.6 与本版尚未收口的部分
+
+| 项 | 状态 |
+| --- | --- |
+| 手机端 ① 合并进主分支 | 在途（`Core/FrameReassembler.swift` 未提交），合入后本节的手机侧探针自动生效 |
+| 端到端用例（真长帧 walking） | 待 ① 落地后与网关侧 `test/mobile-v1-chunked.test.mjs` 对齐 |
+| 心跳 + 序号增量补拉 | **仍未实现**，不属于 `chunked-frames-v1`；本文档暂不描述其形状 |
 
 ---
 

@@ -46,11 +46,13 @@ GW_SERVER = GATEWAY / "lib" / "mobile-v1" / "server.mjs"
 GW_TEAM = GATEWAY / "lib" / "mobile-v1" / "team-feed.mjs"
 GW_CARDS = GATEWAY / "lib" / "mobile-v1" / "card-frames.mjs"
 GW_ACTIONS = GATEWAY / "lib" / "mobile-v1" / "actions.mjs"
+GW_CHUNK = GATEWAY / "lib" / "mobile-v1" / "chunked.mjs"
 BOT_TEAM = BOT / "src" / "host" / "team-feed.js"
 BOT_CARDS = BOT / "src" / "host" / "card-feed.js"
 BOT_INDEX = BOT / "index.js"
 MOBILE_GLYPH = ROOT / "DeepSeekHarnessMobile" / "Core" / "TeamGlyph.swift"
 MOBILE_FEED = ROOT / "DeepSeekHarnessMobile" / "Core" / "GatewayTeamFeed.swift"
+MOBILE_CHUNK = ROOT / "DeepSeekHarnessMobile" / "Core" / "FrameReassembler.swift"
 
 # 每条 = (分组, 文档里的断言原文, 实现文件, 探针)
 # 双向核对：断言原文必须在**文档里**仍然出现（防止改名后文档没人动），
@@ -121,20 +123,41 @@ CHECKS: list[tuple[str, str, Path, str]] = [
     ("同步规则", "delta.base ≠ 本地 seq", MOBILE_FEED, "base"),
     ("同步规则", "instanceId", MOBILE_FEED, "instanceId"),
     ("同步规则", "order", MOBILE_FEED, 'case "order"'),
+    # —— §8 分块传输（chunked-frames-v1）——
+    ("分块传输", "chunked-frames-v1", GW_CHUNK, "CHUNK_CAPABILITY = 'chunked-frames-v1'"),
+    ("分块传输", ("`maxFrameBytes`", "512 KiB"), GW_CHUNK, "MAX_FRAME_BYTES = 512 * 1024"),
+    ("分块传输", ("`maxReassembledBytes`", "4 MiB"), GW_CHUNK, "MAX_REASSEMBLED_BYTES = 4 * 1024 * 1024"),
+    ("分块传输", ("`maxStreamsPerConnection`", "2"), GW_CHUNK, "MAX_STREAMS_PER_CONNECTION = 2"),
+    ("分块传输", "/info` 公布位置", GW_SERVER, "maxFrameBytes: MAX_FRAME_BYTES"),
+    ("分块传输", "`kind` | `\"chunk\"`", GW_CHUNK, "kind: 'chunk'"),
+    ("分块传输", "`finalKind`", GW_CHUNK, "finalKind,"),
+    ("分块传输", "`part` | string", GW_CHUNK, "part,"),
+    ("分块传输", "`at` | number", GW_CHUNK, "at,"),
+    ("分块传输", "UTF-8 字符边界", GW_CHUNK, "utf8Parts"),
+    ("分块传输", "too-large", GW_CHUNK, "'too-large'"),
+    ("分块传输", "too-many-streams", GW_CHUNK, "'too-many-streams'"),
+    ("分块传输", "streamTimeout", MOBILE_CHUNK, "streamTimeout: TimeInterval = 30"),
+    ("分块传输", "absoluteReassembledCap", MOBILE_CHUNK, "absoluteReassembledCap = 8 * 1024 * 1024"),
+
     # —— §7.4 发布端装入判据 ——
     ("装入判据", "dsBotCards", BOT_INDEX, "dsBotCards"),
     ("装入判据", "card.shown", BOT_CARDS, "card.shown"),
 ]
 
 
-def doc_line_of(token: str) -> int | None:
-    """在文档里定位一条断言的行号，用于报错时指路。"""
+def doc_line_of(claim: "str | tuple[str, ...]") -> int | None:
+    """在文档里定位一条断言的行号，用于报错时指路。
+
+    claim 为元组时表示「同一行必须同时出现这些 token」——用于字段名与数值这类
+    必须成对出现的断言（否则文档别处一句「4 MiB」就能把上限改错的事实盖住）。
+    """
     try:
         lines = DOC.read_text().splitlines()
     except FileNotFoundError:
         return None
+    tokens = (claim,) if isinstance(claim, str) else claim
     for number, line in enumerate(lines, 1):
-        if token in line:
+        if all(token in line for token in tokens):
             return number
     return None
 
@@ -181,19 +204,22 @@ def main() -> int:
         except FileNotFoundError:
             errors.append(f"[{group}] 实现文件不存在：{path}（断言：{claim}）")
             continue
-        in_doc = claim in doc_text
+        in_doc = doc_line_of(claim) is not None
         hit = needle in body
         if options.list:
-            print(f"{'✓' if hit else '✗'} [{group}] {claim} → {path.name}: {needle!r}"
+            shown = claim if isinstance(claim, str) else " + ".join(claim)
+            print(f"{'✓' if hit else '✗'} [{group}] {shown} → {path.name}: {needle!r}"
                   f"{'' if in_doc else '  ← 文档里已没有这条断言'}")
             continue
         if not in_doc:
-            errors.append(f"{DOC.relative_to(ROOT)} 已不再写明「{claim}」，但实现里还有（探针 {path.name}: {needle!r}）——文档实现脱节")
+            shown = claim if isinstance(claim, str) else " + ".join(claim)
+            errors.append(f"{DOC.relative_to(ROOT)} 已不再写明「{shown}」，但实现里还有（探针 {path.name}: {needle!r}）——文档实现脱节")
         if not hit:
+            shown = claim if isinstance(claim, str) else " + ".join(claim)
             line = doc_line_of(claim)
             where = f"{DOC.relative_to(ROOT)}:{line}" if line else str(DOC.relative_to(ROOT))
             errors.append(
-                f"{where} 契约说的「{claim}」在实现里找不到（探针 {path.name}: {needle!r}）"
+                f"{where} 契约说的「{shown}」在实现里找不到（探针 {path.name}: {needle!r}）"
             )
 
     if options.list:
