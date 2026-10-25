@@ -392,3 +392,53 @@ extension Color {
                   blue: Double(value & 0xFF) / 255)
     }
 }
+
+// MARK: - 眼睛取色（电脑端是「挖洞透底」，手机端要保证洞看得见）
+
+/// 0–1 的 sRGB 颜色，只用于眼睛取色计算（纯数据，便于单测）。
+struct RGBColor: Equatable {
+    var red: Double
+    var green: Double
+    var blue: Double
+
+    static let black = RGBColor(red: 0, green: 0, blue: 0)
+
+    /// WCAG 相对亮度。
+    var luminance: Double {
+        func channel(_ value: Double) -> Double {
+            value <= 0.03928 ? value / 12.92 : pow((value + 0.055) / 1.055, 2.4)
+        }
+        return 0.2126 * channel(red) + 0.7152 * channel(green) + 0.0722 * channel(blue)
+    }
+
+    func contrast(with other: RGBColor) -> Double {
+        let a = luminance, b = other.luminance
+        return (max(a, b) + 0.05) / (min(a, b) + 0.05)
+    }
+
+    func scaled(by factor: Double) -> RGBColor {
+        RGBColor(red: red * factor, green: green * factor, blue: blue * factor)
+    }
+}
+
+/// 电脑端的眼睛是 **mask 挖空**（`client.js` 里 `fill="#000"` 只是遮罩的裁剪色），洞透出的是
+/// 容器底色；手机端等效做法就是把洞填成容器底色。但浅色模式下 10/19 个车身本身很亮
+/// （实测：yellow 1.75:1、green 2.08:1、cyan 2.11:1、aurora 2.27:1…），透底色后低于 3:1
+/// 就等于「没有眼睛」。所以这里加一条下限：不够就把洞色往黑压（只压亮度、不动色相）。
+enum TeamAvatarEyeColor {
+    /// 目标对比度下限。取 3:1（图形元素的可辨识下限），与列表里其他头像符号一致。
+    static let minimumContrast: Double = 3
+
+    static func resolve(backdrop: RGBColor, body: RGBColor,
+                        minimum: Double = minimumContrast) -> RGBColor {
+        if backdrop.contrast(with: body) >= minimum { return backdrop }
+        var factor = 0.9
+        while factor > 0 {
+            let candidate = backdrop.scaled(by: factor)
+            if candidate.contrast(with: body) >= minimum { return candidate }
+            factor -= 0.1
+        }
+        // 退到纯黑：对任何中高明度车身都 ≥4.5:1；对极暗车身压根走不到这里（原本就够）。
+        return .black
+    }
+}

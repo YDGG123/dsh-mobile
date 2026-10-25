@@ -54,7 +54,9 @@ struct TeamAvatarView: View {
     var motion: TeamAvatarMotion = .still
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    /// 眼睛竖向压扁系数：1 = 正常，~0.1 = 眨眼成缝，~0.7 = 眯眼。
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.colorScheme) private var colorScheme
+    /// 眼睛竖向压扁系数：1 = 正常，~0.1 = 眨眼成缝，~0.7 = 眯眼；>1 是电脑端的回弹过冲。
     @State private var eyeSquash: CGFloat = 1
 
     private static let log = Logger(subsystem: "ai.dsh.mobile.ios", category: "team-avatar")
@@ -81,20 +83,39 @@ struct TeamAvatarView: View {
     }
 
     private var motionKey: String {
-        "\(motion.isLive)-\(motion.isWorking)-\(reduceMotion)"
+        "\(motion.isLive)-\(motion.isWorking)-\(reduceMotion)-\(row.id)"
+    }
+
+    /// 眼睛实际填色：容器底色（电脑端的洞透底），对比不足 3:1 时按 `TeamAvatarEyeColor` 压暗。
+    private var eyeFill: Color {
+        let resolved = TeamAvatarEyeColor.resolve(backdrop: Self.rgb(backdrop, colorScheme: colorScheme),
+                                                  body: Self.rgb(GatewayTeamFeed.avatarColor(row), colorScheme: colorScheme))
+        return Color(.sRGB, red: resolved.red, green: resolved.green, blue: resolved.blue, opacity: 1)
+    }
+
+    /// 把 SwiftUI 动态色解析成当前外观下的 sRGB 分量。
+    private static func rgb(_ color: Color, colorScheme: ColorScheme) -> RGBColor {
+        let traits = UITraitCollection(userInterfaceStyle: colorScheme == .dark ? .dark : .light)
+        let resolved = UIColor(color).resolvedColor(with: traits)
+        var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
+        guard resolved.getRed(&red, green: &green, blue: &blue, alpha: &alpha) else {
+            return RGBColor(red: 0, green: 0, blue: 0)
+        }
+        return RGBColor(red: Double(red), green: Double(green), blue: Double(blue))
     }
 
     /// 有 glyph：淡色圆底 + 矢量化角色（与电脑端同路径、同色、同挖空眼睛）。
     private func glyphAvatar(_ glyph: TeamAvatarGlyph) -> some View {
         let ink = GatewayTeamFeed.avatarColor(row)
         let disc = ink.opacity(0.16)
+        let eye = eyeFill
         return Circle()
             .fill(disc)
             .frame(width: size, height: size)
             .overlay {
                 Canvas { context, canvasSize in
                     glyph.draw(in: &context, canvasSize: canvasSize,
-                               bodyColor: ink, eyeColor: backdrop, eyeSquash: eyeSquash)
+                               bodyColor: ink, eyeColor: eye, eyeSquash: eyeSquash)
                 }
                 .frame(width: size, height: size)
             }
@@ -102,37 +123,65 @@ struct TeamAvatarView: View {
             .accessibilityHidden(true)
     }
 
-    /// 眨眼 / 眯眼驱动。不引 TimelineView：列表里每个头像持续重绘不划算；
-    /// 两个离散档位已足够表达「会动」，也和电脑端 blink 的瞬时压扁一致。
-    /// - 空闲：每 2–5 秒眨一次，0.45 → 0.1 → 1（压成一条缝，不是消失）
-    /// - 干活/思考：0.66 ↔ 0.80 缓慢呼吸（对应 bt-squint 的 scaleY(.7~.78)）
+    /// 眨眼驱动。时序照抄电脑端 CSS（`styles.js`），不用随机间隔：
+    /// - 干活中 `bt-blink` **2.4s**：46% 压到 `scaleY(.03)`、48% 回弹 `1.06`、50% 回正
+    /// - 空闲 `bt-blink-idle` **5s** 眨两次：32.2% / 71.8% 压到 `.03`，33.8% / 73.4% 回弹 `1.06`
+    /// - 相位按 bot id 固定错开（对应电脑端 `--bt-delay: -(fnv1a(botID) % 5000)/1000 s`），
+    ///   所以同一屏里各头像不会同时闭眼，但每个头像自己的节奏是稳定的（可对拍）。
+    /// 不引 TimelineView：列表里每个头像持续重绘不划算，离散档位已经等于 CSS 的瞬时压扁。
     private func driveEyes() async {
         guard motion.isLive, !reduceMotion else {
             eyeSquash = 1
             return
         }
         defer { eyeSquash = 1 }
-        if motion.isWorking {
-            while !Task.isCancelled {
-                eyeSquash = 0.66
-                try? await Task.sleep(nanoseconds: 1_100_000_000)
-                guard !Task.isCancelled else { return }
-                eyeSquash = 0.80
-                try? await Task.sleep(nanoseconds: 1_100_000_000)
-            }
-            return
+        // 相位错开：先睡 bot 专属偏移，再进入固定周期。
+        let delay = Self.blinkPhaseDelay(botID: row.id, period: motion.isWorking ? 2.4 : 5)
+        if delay > 0.01 {
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            guard !Task.isCancelled else { return }
         }
         while !Task.isCancelled {
-            let gap = UInt64(Double.random(in: 2...5) * 1_000_000_000)
-            try? await Task.sleep(nanoseconds: gap)
-            guard !Task.isCancelled else { return }
-            for step in [CGFloat(0.45), 0.1] {
-                eyeSquash = step
-                try? await Task.sleep(nanoseconds: 45_000_000)
-                guard !Task.isCancelled else { return }
+            // 后台/被打断时停手：动画不该在不可见时跑（用户做过减弱动效实验，这条他会撞上）。
+            if scenePhase != .active {
+                eyeSquash = 1
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                continue
             }
-            eyeSquash = 1
+            if motion.isWorking {
+                // 2.4s 周期：0–42%(1.008s) 睁 → 46%(1.104s) 闭 → 48%(1.152s) 过冲 → 50%(1.2s) 回正
+                guard await blinkStep(to: 1, after: 1.008),
+                      await blinkStep(to: 0.03, after: 0.096),
+                      await blinkStep(to: 1.06, after: 0.048),
+                      await blinkStep(to: 1, after: 1.248) else { return }
+            } else {
+                // 5s 周期两次：1.61s 闭 → 1.69s 过冲 → 1.75s 回正 → 3.59s 闭 → 3.67s 过冲
+                //             → 3.73s 回正 → 5s 循环
+                guard await blinkStep(to: 1, after: 1.61),
+                      await blinkStep(to: 0.03, after: 0.08),
+                      await blinkStep(to: 1.06, after: 0.06),
+                      await blinkStep(to: 1, after: 1.84),
+                      await blinkStep(to: 0.03, after: 0.08),
+                      await blinkStep(to: 1.06, after: 0.06),
+                      await blinkStep(to: 1, after: 1.27) else { return }
+            }
         }
+    }
+
+    /// 设一个档位并睡 `after` 秒；返回 false 表示任务已取消（调用方立刻退出）。
+    private func blinkStep(to value: CGFloat, after seconds: Double) async -> Bool {
+        eyeSquash = value
+        try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+        return !Task.isCancelled
+    }
+
+    /// 电脑端 `--bt-delay` 的等价物：FNV-1a(botID) 取模 5s，再折到一个周期内。
+    static func blinkPhaseDelay(botID: String, period: Double) -> Double {
+        guard period > 0 else { return 0 }
+        var hash: UInt64 = 0xcbf29ce484222325
+        for byte in botID.utf8 { hash = (hash ^ UInt64(byte)) &* 0x100000001b3 }
+        let offset = Double(hash % 5000) / 1000
+        return offset.truncatingRemainder(dividingBy: period)
     }
 
     private var symbolAvatar: some View {

@@ -195,4 +195,65 @@ final class TeamGlyphTests: XCTestCase {
         XCTAssertEqual(TeamAvatarMotion.live(working: false).isWorking, false)
         XCTAssertEqual(TeamAvatarMotion.live(working: false).isLive, true)
     }
+
+    // MARK: - 眼睛取色下限（浅色下 10/19 个车身透底后低于 3:1，必须压暗）
+
+    /// 车身深、透底够清楚时不改色：deepseek 蓝 + 浅色页面底 ≈ 4.12:1。
+    func testEyeColorKeepsBackdropWhenContrastIsEnough() {
+        let backdrop = RGBColor(red: 0.961, green: 0.980, blue: 1.0)   // 工作区浅色页面底
+        let deepseek = RGBColor(red: 0.302, green: 0.420, blue: 0.996) // #4D6BFE
+        let resolved = TeamAvatarEyeColor.resolve(backdrop: backdrop, body: deepseek)
+        XCTAssertEqual(resolved, backdrop, "对比 ≥3:1 时保持容器底色，不做任何偏移")
+    }
+
+    /// 亮车身（yellow #FFAF38）透浅底只有 1.75:1 —— 必须被压暗到 ≥3:1，且只能是变暗、不是换色相。
+    func testEyeColorDarkensBrightBodyUntilReadable() {
+        let backdrop = RGBColor(red: 0.961, green: 0.980, blue: 1.0)
+        let yellow = RGBColor(red: 1.0, green: 0.686, blue: 0.220)
+        XCTAssertLessThan(backdrop.contrast(with: yellow), 3, "前提：原始透底确实不合格")
+        let resolved = TeamAvatarEyeColor.resolve(backdrop: backdrop, body: yellow)
+        XCTAssertGreaterThanOrEqual(resolved.contrast(with: yellow), 3, "压暗后必须 ≥3:1")
+        XCTAssertLessThan(resolved.red, backdrop.red, "方向是压暗（红通道也要变暗）")
+        // 只压亮度、不改色相：三通道是同一个系数的等比缩放（洞仍保持容器底色的冷暖）。
+        let scale = resolved.red / backdrop.red
+        XCTAssertEqual(resolved.green / backdrop.green, scale, accuracy: 0.001, "绿通道同比缩放")
+        XCTAssertEqual(resolved.blue / backdrop.blue, scale, accuracy: 0.001, "蓝通道同比缩放")
+    }
+
+    /// 整张电脑端色板逐一过：任何车身取到的眼睛色都必须 ≥3:1（这就是「看得见」的定义）。
+    func testEyeColorMeetsContrastForEveryDesktopInk() {
+        let backdrop = RGBColor(red: 0.961, green: 0.980, blue: 1.0)
+        let inks: [(String, RGBColor)] = [
+            ("deepseek", RGBColor(red: 0.302, green: 0.420, blue: 0.996)),
+            ("charcoal", RGBColor(red: 0.078, green: 0.078, blue: 0.086)),
+            ("rose", RGBColor(red: 0.925, green: 0.184, blue: 0.420)),
+            ("sky", RGBColor(red: 0.039, green: 0.659, blue: 0.839)),
+            ("tangerine", RGBColor(red: 1.0, green: 0.412, blue: 0.0)),
+            ("black", RGBColor(red: 0, green: 0, blue: 0)),
+            ("yellow", RGBColor(red: 1.0, green: 0.686, blue: 0.220)),
+            ("green", RGBColor(red: 0.0, green: 0.788, blue: 0.447)),
+            ("cyan", RGBColor(red: 0.110, green: 0.765, blue: 0.690)),
+            ("violet", RGBColor(red: 0.663, green: 0.494, blue: 0.996)),
+            ("gray", RGBColor(red: 0.584, green: 0.584, blue: 0.584)),
+            ("aurora", RGBColor(red: 0.0, green: 0.722, blue: 0.831)),
+        ]
+        for (name, ink) in inks {
+            let resolved = TeamAvatarEyeColor.resolve(backdrop: backdrop, body: ink)
+            XCTAssertGreaterThanOrEqual(resolved.contrast(with: ink), 3,
+                                        "\(name) 的眼睛对比不足 3:1")
+        }
+    }
+
+    /// 相位错开：同一个 bot 永远拿到同一个偏移（可对拍），不同 bot 应错开，且落在 [0, period)。
+    func testBlinkPhaseDelayIsStableAndStaggered() {
+        let a = TeamAvatarView.blinkPhaseDelay(botID: "bot-alpha", period: 2.4)
+        let b = TeamAvatarView.blinkPhaseDelay(botID: "bot-alpha", period: 2.4)
+        XCTAssertEqual(a, b, "同一 bot 的相位必须稳定")
+        XCTAssertGreaterThanOrEqual(a, 0)
+        XCTAssertLessThan(a, 2.4)
+        let phases = Set(["b1", "bot-alpha", "bot-beta", "main", "whale"].map {
+            TeamAvatarView.blinkPhaseDelay(botID: $0, period: 2.4)
+        })
+        XCTAssertGreaterThan(phases.count, 1, "多个 bot 不应同相位（同时闭眼）")
+    }
 }
