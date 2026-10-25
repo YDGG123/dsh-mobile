@@ -1,6 +1,6 @@
 # 手机端契约 v1 · 现状篇
 
-> 状态：**底稿（现状快照）**，2026-10-26 由 iOSDev 整理。等「分块传输 + 心跳/序号增量」落地后收口为 v1 正式版。
+> 状态：**底稿（现状快照）**，2026-10-26 由 iOSDev 整理。分块传输（§8）与心跳/序号增量（`sync-resume-v1`，§8.6 注）均已落地；**sync-resume 的完整契约待单独章节收口**后才算 v1 正式版。
 > 目的：把现在**散在三个仓库、四种载体**里的手机端协议收成一份可核对的表，避免「文档说 A、代码是 B」。
 > 每个字段都带证据源（`文件:行号`），行号是本次整理时的真实位置；改动代码后行号会漂，以字段名为准重新定位。
 > **行号是快照，不是契约**：网关 ①（分块传输）与手机端 ① 正在并行开发，`lib/mobile-v1/server.mjs` 会持续位移
@@ -273,6 +273,26 @@
 | `maxReassembledBytes` | **4 MiB** | 单条流重组后的上限；超过则不切不发 | gw `chunked.mjs:22`、`:70` |
 | `maxStreamsPerConnection` | **2** | 同一连接同时存在的流数；网关按帧串行发送，实际并发恒为 1，该值是防御性约束 | gw `chunked.mjs:23`、`:71` |
 
+**能力声明的适用范围（重要，别按文档以为两条 WS 都开了）**：
+
+| WS | 网关是否接分块出口 | 手机端是否声明能力 | 结论 |
+| --- | --- | --- | --- |
+| `/mobile/v1/team` | 是（`emitFrame` 在 `server.mjs:451`） | **是**（auth 帧带 `capabilities`，`GatewayTeamFeed.swift:205-208`） | 团队大帧走分块 |
+| `/mobile/v1/events` | 是（`emitFrame` 在 `server.mjs:374`） | **否**（auth 帧由 `encodeBridgeAuthFrame` 生成，`BridgeWsAuthFrame` 只有 type/token/conversationId/after，`BridgeDtos.kt:240-245`） | **今天不会收到 chunk** |
+
+即：网关两条 WS 都能发 chunk，但手机端目前只在团队 WS 声明能力，`/events` 不声明 → 网关按「老客户端」处理、永远发整帧。
+`/events` 的 2 MiB 背压红线（§5）仍是它唯一的超限保护，见 §9 缺口 6。
+
+**命名映射（两名一概念，不是笔误）**：
+
+| 概念 | 网关 `/info` 字段名 | 手机端 `Limits` 字段名 | 映射位置 |
+| --- | --- | --- | --- |
+| 单块上限 | `maxFrameBytes` | `maxChunkBytes` | iOS `FrameReassembler.limits(fromInfo:)` |
+| 重组上限 | `maxReassembledBytes` | `maxReassembledBytes` | 同名 |
+| 并发流上限 | `maxStreamsPerConnection` | `maxStreams` | 同上 |
+
+网关侧叫 `FrameBytes` 是因为它的出口视角是「一条帧切多大」；手机侧叫 `ChunkBytes` 是因为它只关心「收到的一块多大」。**同一个值的两个视角，映射在解析时一次做完**，不要在别处再换算。
+
 ### 8.2 `chunk` 帧字段
 
 | 字段 | 类型 | 语义 | 手机端 | 证据 |
@@ -283,7 +303,7 @@
 | `total` | int | 该流的块数，**≥ 1** | 收齐即重组 | gw `chunked.mjs:74`；iOS `:22` |
 | `finalKind` | string | 重组后要走回的**原处理链**（`snapshot` / `delta` / `cards` / `order` …） | 拼完按它分派，不猜 | gw `chunked.mjs:74`；iOS `:24` |
 | `part` | string | **按 UTF-8 字符边界**切开的原始 JSON 片段；**不做块级 JSON.parse** | 逐块拼接 | gw `chunked.mjs:12-14`、`:74` |
-| `at` | number | 网关发送时刻（时间戳） | **下传，手机忽略可选**（宽松解析未知字段，不得因多字段报错） | gw `chunked.mjs:74` |
+| `at` | number | 网关发送时刻（时间戳），**仅作诊断**（网关日志/抓包对时序用） | **手机端当前实现选择忽略**：宽松解析、不因该字段报错，也不消费它（`FrameReassembler.chunk(from:)` 不读 `at`） | gw `chunked.mjs:74`；iOS `FrameReassembler.swift:215-222` |
 
 ### 8.3 切分与重组规则
 
@@ -315,9 +335,9 @@
 
 | 项 | 状态 |
 | --- | --- |
-| 手机端 ① 合并进主分支 | 在途（`Core/FrameReassembler.swift` 未提交）。闸门对该文件的探针标了 `pending_merge`：文件缺席时只计「待并入」不算脱节（否则干净 HEAD 上闸门会红，违反 commit 即绿），**文件一出现立刻按正常规则命中** |
-| 端到端用例（真长帧 walking） | 待 ① 落地后与网关侧 `test/mobile-v1-chunked.test.mjs` 对齐 |
-| 心跳 + 序号增量补拉 | **仍未实现**，不属于 `chunked-frames-v1`；本文档暂不描述其形状 |
+| 手机端 ① 已并入主干 | `7218198`（重组器+接线），P1/P2 防护由 `2ca90cb` 补生效（超时清扫时钟驱动、夹取唯一入口 `Limits.clamped`）。闸门对 `FrameReassembler.swift` 的探针原标 `pending_merge`，文件进树后已按正常规则命中 |
+| 端到端用例（真长帧 walking） | 两侧单测各自齐全（手机 18 条 / 网关 9 条），**真机端到端仍未跑**；随出包验证 |
+| 心跳 + 序号增量补拉（`sync-resume-v1`） | **已实现**（网关 `719b360`、手机 `afb64a2`），但它**不属于 `chunked-frames-v1`**，是控制面能力：网关 `/info` 公布 `heartbeatIntervalSeconds=25` / `heartbeatTimeoutSeconds=75` / `syncResume`（`server.mjs:58-59`、`:248-251`）；auth 可带 `resume{instanceId,afterSeq,maxDeltas}` 或连接中发 `sync.from`；`sync.done` 作回放界标；错误码 `SYNC_GAP`/`SYNC_UNKNOWN_INSTANCE`（→ 等新快照、不断开）与 `SYNC_UNAVAILABLE`/`SYNC_BAD_REQUEST`/`SYNC_RATE_LIMITED`（`server.mjs:463-510`）。**本文件 §8 只描述分块，sync-resume 的完整契约待单独章节收口** |
 
 ---
 
@@ -329,4 +349,5 @@
 | 2 | `/mobile/v1/state` 与团队帧字段重叠但未声明从属 | `state` 的 bot 行带 `color`，网关侧 redaction 行为与 bridge 不一致（gw `docs/mobile-v1-integration.md:313-317`） |
 | 3 | 卡片答复的 `scope` 默认值是安全陷阱 | 已在契约里写明必须显式传（bot `card-projection-v1.md:182-184`），但技术上仍是「不传=全团队」 |
 | 4 | `_manifest` 命名不存在 | 本文件按 `verified-heads.txt` / `latest.json` 实际名记录（§7） |
+| 6 | `/events` 的大帧暴露面待评估 | 网关两条 WS 都接分块出口（`server.mjs:374` events / `:451` team），但手机端只在团队 WS 声明能力（`GatewayTeamFeed.swift:205`），`/events` 的 auth 帧不含 `capabilities`（`BridgeDtos.kt:240-245`），`BridgeChatEngine` 也没有 chunk 分支。**今天**因此不会收到 chunk、行为与旧版一致，安全；**但**一旦 `/events` 出现 >2 MiB 单帧，只剩 §5 的 2 MiB 背压红线（超限 `4408` 断开）这一条路。待评估：是给 `/events` 也接上分块（需手机端补声明 + chunk 分支），还是把该流的大帧限制在 2 MiB 以内 |
 | 5 | 体积红线探针只钉**数字原文**，不钉语义 | 「阈值语义变了但数值没变」（等同值换用）时闸门不红。已知弱点：`1_000_000` / `256 * 1024` / `8 * 1024 * 1024` / `2 * 1024 * 1024` / `32768` 都是纯数字探针。**防法**：红线尽量写成命名常量再做探针（`MAX_OPS = 200` 已是「名字+数值」双锚，最稳）；改常量名时同步改探针。iOSTester 复核认可这条局限为已知边界 |
