@@ -48,7 +48,13 @@
 { "type": "sync.done", "instanceId": "…", "seq": 8293, "reason": "resume|sync.from|caught-up|gap|unknown-instance|snapshot" }
 ```
 
+reason 六个值以网关实际发出为准（没有第七种）：
+`resume`（auth 里的续连命中）| `sync.from`（连接中重试）| `caught-up`（本来就没落后）|
+`gap`（留窗有缺口）| `unknown-instance`（instanceId 变了）| `snapshot`（**尝试了 resume 但没命中**）。
+
 客户端拿它当「这段增量结束了」的界标，用于日志与界面状态，不需要再猜「还有没有」。
+注意 `reason=snapshot` **不是故障**，是自愈标记：前面必有一帧 `SYNC_GAP`/`SYNC_UNKNOWN_INSTANCE`，
+紧跟整帧快照，日志里见到它算通过。未知 reason 值只记日志、不分派分支（网关加值不会让手机走错路）。
 
 ## 5. 错误码
 
