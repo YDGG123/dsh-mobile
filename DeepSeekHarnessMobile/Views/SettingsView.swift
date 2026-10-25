@@ -320,21 +320,6 @@ struct SettingsView: View {
                 Button("本版本新功能") { showsReleaseNotes = true }
                 Button("隐私政策") { showsPrivacyPolicy = true }
             }
-
-            Section {
-                // 唯一保留的诊断入口：一次推入，页内只有一个 Text（无请求、无布局、无暂停修饰符）。
-                // 它卡 → 问题在导航推入本身；它正常 → 问题在原先那四个设置子页的内容。
-                NavigationLink {
-                    BlankPushTestView()
-                } label: {
-                    Label("推入空白测试页", systemImage: "rectangle.dashed")
-                }
-                .accessibilityIdentifier("diag-blank-push")
-            } header: {
-                Text("诊断")
-            } footer: {
-                Text("点进去只有一个文本，不发请求、不做布局。若这一页也卡死，说明问题在「推入」本身；若正常，说明原来的问题在那些设置子页的内容里。")
-            }
         }
         .navigationTitle("设置")
         // B4：容器级推入页同样整屏盖住背景，推入期间暂停动画（与设置子页同一策略）。
@@ -1063,20 +1048,6 @@ private struct PermissionOptionsSheet: View {
                 )
             }
         }
-    }
-}
-
-/// 诊断用：一次「纯推入」。没有请求、没有定时器、没有滚动容器、也没有暂停背景的修饰符——
-/// 页内唯一变量就是「推入」这件事本身。
-private struct BlankPushTestView: View {
-    var body: some View {
-        VStack {
-            Text("空白测试页")
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .navigationTitle("空白测试页")
-        .navigationBarTitleDisplayMode(.inline)
-        .accessibilityIdentifier("diag-blank-page")
     }
 }
 
