@@ -98,7 +98,7 @@ struct WorkspaceView: View {
         // B6：这里原来是 `.foregroundStyle(.white)`，浅色主题下会让所有「没显式指定颜色」的
         // 文字/图标（Bot 列表行、空态文案、抽屉标题等）变成白字白底，直接看不见。
         // 默认前景改走色板：深色仍是白色，浅色是近黑墨蓝。
-        .background((colorScheme == .dark ? DSHColor.navy : Color(red: 0.96, green: 0.98, blue: 1.0)).ignoresSafeArea())
+        .background(workspaceBackdrop.ignoresSafeArea())
         .onChange(of: drawerOffset) { value in
             if value > 0 { sessionSearchIsFocused = false }
         }
@@ -508,7 +508,14 @@ struct WorkspaceView: View {
     @ViewBuilder
     private func avatarBlock(_ row: GatewayTeamFeed.Row, size: CGFloat) -> some View {
         // 三层兜底（glyph → image → shape 符号）统一在 TeamAvatarView 里，别再分叉。
-        TeamAvatarView(row: row, size: size)
+        // 背景色 = 工作区页面底色（与 body 的 .background 同一表达式），眼睛「挖洞透底」靠它；
+        // 动效只在团队页开，这里保持静止。
+        TeamAvatarView(row: row, size: size, backdrop: workspaceBackdrop)
+    }
+
+    /// 工作区页面底色（与 `body` 里的 `.background(...)` 保持同一处定义，避免两处漂移）。
+    private var workspaceBackdrop: Color {
+        colorScheme == .dark ? DSHColor.navy : Color(red: 0.96, green: 0.98, blue: 1.0)
     }
 
     private func statusTint(for row: GatewayTeamFeed.Row) -> Color {

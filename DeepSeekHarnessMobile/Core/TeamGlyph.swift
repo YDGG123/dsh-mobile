@@ -154,7 +154,18 @@ struct TeamAvatarGlyph: Hashable {
     struct Rendered {
         let body: Path
         let layers: [(path: Path, color: Color, opacity: Double)]
-        let eyes: [Path]
+        let eyes: [RenderedEye]
+    }
+
+    /// 眼睛保留「自身坐标系」而不是预先烘焙成画布坐标的 Path：
+    /// 眨眼/眯眼要沿**胶囊自己**的短轴压扁（电脑端 `.bt-eye{scale:1 0}` 的语义），
+    /// 若先旋转再压画布 Y 轴，斜置的眼睛会被压歪。
+    struct RenderedEye {
+        /// 以眼睛中心为原点、未旋转的圆角胶囊。
+        let shape: Path
+        let cx: CGFloat
+        let cy: CGFloat
+        let tilt: CGFloat
     }
 
     private final class RenderedBox: NSObject {
@@ -196,20 +207,34 @@ struct TeamAvatarGlyph: Hashable {
                 layers.append((path, .black, layer.opacity))
             }
         }
-        let eyes = glyph.eyes.map { eye -> Path in
+        let eyes = glyph.eyes.map { eye -> RenderedEye in
             let rect = CGRect(x: -eye.width / 2, y: -eye.height / 2, width: eye.width, height: eye.height)
-            let rounded = Path(roundedRect: rect, cornerRadius: min(eye.width, eye.height) / 2)
-            return rounded.applying(CGAffineTransform(rotationAngle: eye.tilt * .pi / 180)
-                .concatenating(CGAffineTransform(translationX: eye.cx, y: eye.cy)))
+            return RenderedEye(shape: Path(roundedRect: rect, cornerRadius: min(eye.width, eye.height) / 2),
+                               cx: eye.cx, cy: eye.cy, tilt: eye.tilt)
         }
         let rendered = Rendered(body: body, layers: layers, eyes: eyes)
         renderCache.setObject(RenderedBox(rendered), forKey: key)
         return rendered
     }
 
+    /// 眼睛在画布里的最终形状：先在自身坐标系按 `squash` 压扁（眨眼/眯眼），再旋转、平移。
+    /// 纯函数，便于单测（不依赖 GraphicsContext）。
+    static func eyePath(_ eye: RenderedEye, squash: CGFloat) -> Path {
+        let clamped = min(max(squash, 0.01), 1)
+        let transform = CGAffineTransform(scaleX: 1, y: clamped)
+            .concatenating(CGAffineTransform(rotationAngle: eye.tilt * .pi / 180))
+            .concatenating(CGAffineTransform(translationX: eye.cx, y: eye.cy))
+        return eye.shape.applying(transform)
+    }
+
     /// 在 `size × size` 的框里画角色（调用方负责圆形裁剪）。
-    /// `bodyColor` 是主剪影色（roster 的 color）；`eyeColor` 是挖空后露出的底色（与底圆一致）。
-    func draw(in context: inout GraphicsContext, canvasSize: CGSize, bodyColor: Color, eyeColor: Color) {
+    /// - `bodyColor`：主剪影色（roster 的 `color`）
+    /// - `eyeColor`：眼睛露出的颜色。电脑端是 mask 挖洞，露的是**页面背景**，
+    ///   所以调用方必须传头像实际所在的背景色（团队页是 List 行底、工作区是页面底），
+    ///   不能传淡色圆底 —— 那会让眼睛和圆底同色，实测"看不见"。
+    /// - `eyeSquash`：1 = 正常；0.1 左右 = 眨眼压成一条缝；~0.7 = 思考眯眼。
+    func draw(in context: inout GraphicsContext, canvasSize: CGSize,
+              bodyColor: Color, eyeColor: Color, eyeSquash: CGFloat = 1) {
         guard let rendered = Self.rendered(for: self) else { return }
         let scale = min(canvasSize.width, canvasSize.height) / max(size, 1)
         context.scaleBy(x: scale, y: scale)
@@ -217,9 +242,10 @@ struct TeamAvatarGlyph: Hashable {
         for layer in rendered.layers {
             context.fill(layer.path, with: .color(layer.color.opacity(layer.opacity)))
         }
-        // 眼睛：电脑端从所有图层挖空；在圆形底上等效为「用底色填回同一形状」。
+        // 眼睛：电脑端从所有图层挖空、透出页面背景；等效为用同一背景色填回该形状。
+        // 高光层（layers 里的 #fff 0.16）在眼睛之上不受影响 —— 与电脑端的层序一致。
         for eye in rendered.eyes {
-            context.fill(eye, with: .color(eyeColor))
+            context.fill(Self.eyePath(eye, squash: eyeSquash), with: .color(eyeColor))
         }
     }
 }

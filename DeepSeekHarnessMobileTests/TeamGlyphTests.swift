@@ -135,4 +135,64 @@ final class TeamGlyphTests: XCTestCase {
         XCTAssertEqual(TeamAvatarSource.decide(hasImage: false, hasGlyph: true), .glyph)
         XCTAssertEqual(TeamAvatarSource.decide(hasImage: false, hasGlyph: false), .symbol)
     }
+
+    // MARK: - 眼睛：眨眼沿自身短轴压扁（电脑端 .bt-eye{scale:1 0}）
+
+    private func eye(tilt: CGFloat, cx: CGFloat = 50, cy: CGFloat = 50,
+                     width: CGFloat = 10, height: CGFloat = 20) -> TeamAvatarGlyph.RenderedEye {
+        let rect = CGRect(x: -width / 2, y: -height / 2, width: width, height: height)
+        return TeamAvatarGlyph.RenderedEye(
+            shape: Path(roundedRect: rect, cornerRadius: min(width, height) / 2),
+            cx: cx, cy: cy, tilt: tilt)
+    }
+
+    func testEyeSquashCompressesHeightAndKeepsCenter() {
+        let target = eye(tilt: 0)
+        let normal = TeamAvatarGlyph.eyePath(target, squash: 1).boundingRect
+        let blink = TeamAvatarGlyph.eyePath(target, squash: 0.1).boundingRect
+
+        XCTAssertEqual(normal.height, 20, accuracy: 0.001, "正常态就是胶囊高度")
+        XCTAssertEqual(blink.height, 2, accuracy: 0.05, "squash=0.1 应压成 1/10 高度（一条缝，不是消失）")
+        XCTAssertEqual(blink.width, normal.width, accuracy: 0.001, "只压竖轴，宽度不变")
+        XCTAssertEqual(blink.midX, normal.midX, accuracy: 0.001, "中心不动")
+        XCTAssertEqual(blink.midY, normal.midY, accuracy: 0.001)
+        XCTAssertGreaterThan(blink.height, 0, "眨眼不能退化成 0 高度")
+    }
+
+    func testEyeSquashUsesOwnAxisForTiltedEyes() {
+        // 斜置的眼睛：先压自身短轴再旋转，所以 90° 旋转后同一 squash 应体现在画布宽度上。
+        let tilted = eye(tilt: 90)
+        let normal = TeamAvatarGlyph.eyePath(tilted, squash: 1).boundingRect
+        let blink = TeamAvatarGlyph.eyePath(tilted, squash: 0.1).boundingRect
+        XCTAssertEqual(blink.width, 2, accuracy: 0.1, "旋转 90° 后压扁体现在横向")
+        XCTAssertEqual(blink.height, normal.height, accuracy: 0.01)
+    }
+
+    func testEyeSquashIsClampedAndKeepsPosition() {
+        let target = eye(tilt: -15.8, cx: 72.5, cy: 48.4)
+        let squashed = TeamAvatarGlyph.eyePath(target, squash: 0).boundingRect
+        XCTAssertGreaterThan(squashed.height, 0, "squash=0 被夹到下界，不产生退化图形")
+        XCTAssertEqual(squashed.midX, 72.5, accuracy: 0.5)
+        XCTAssertEqual(squashed.midY, 48.4, accuracy: 1.0)
+        // 越界（>1）按 1 处理：不会把眼睛拉长。
+        let over = TeamAvatarGlyph.eyePath(target, squash: 3).boundingRect
+        let normal = TeamAvatarGlyph.eyePath(target, squash: 1).boundingRect
+        XCTAssertEqual(over.height, normal.height, accuracy: 0.001)
+    }
+
+    /// 眼睛颜色由调用方按「所在容器背景色」给：电脑端是 mask 挖洞透底，不是黑色胶囊。
+    /// 同时钉住动效档位：默认静止，只有团队页显式 .live。
+    @MainActor
+    func testEyeColorComesFromCallSiteBackdrop() throws {
+        let feed = GatewayTeamFeed()
+        let raw: [String: Any] = [
+            "id": "bot-backdrop", "name": "Backdrop", "sessionId": "s-backdrop",
+            "glyph": Self.whaleJSON,
+        ]
+        _ = try XCTUnwrap(feed.row(from: raw, kind: .bot))
+        XCTAssertEqual(TeamAvatarMotion.still.isLive, false)
+        XCTAssertEqual(TeamAvatarMotion.live(working: true).isWorking, true)
+        XCTAssertEqual(TeamAvatarMotion.live(working: false).isWorking, false)
+        XCTAssertEqual(TeamAvatarMotion.live(working: false).isLive, true)
+    }
 }

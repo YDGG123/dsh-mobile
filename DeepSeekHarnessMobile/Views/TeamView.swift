@@ -244,9 +244,14 @@ struct TeamView: View {
 
     /// 头像与 Bot tab 同一套：有 data URL 画图，否则深色不透明底 + 白色首字母
     /// （原来的「系统色 0.75 透明 + 白字 / room 的 accentColor 0.18 + 白字」在浅色下只有 1.33–3.49:1）。
+    ///
+    /// `backdrop` 传 List 行的实际底色：glyph 的眼睛是「挖洞透底」，电脑端透出的是页面背景，
+    /// 所以这里必须给行底色（不是固定白、也不是淡色圆底）。动效只在团队页开。
     @ViewBuilder
     private func gatewayAvatar(_ row: GatewayTeamFeed.Row, size: CGFloat) -> some View {
-        TeamAvatarView(row: row, size: size)
+        TeamAvatarView(row: row, size: size,
+                       backdrop: Color(.secondarySystemGroupedBackground),
+                       motion: .live(working: feed.isLive(row)))
     }
 
     private func statusColor(_ row: GatewayTeamFeed.Row) -> Color {
