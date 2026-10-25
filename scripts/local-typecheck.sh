@@ -63,6 +63,8 @@ public struct MarkdownContent {
     public func linkingInlineCode(_ destinations: [String: String]) -> MarkdownContent { self }
     /// 上游 Vendor 新增：复制消息用纯文本 / 可选中富文本（全屏选择页）。
     public func renderPlainText() -> String { "" }
+    /// 文件引用链接（`dsh-file-reference:///`）的 HTML 输出，测试用它断言顺序/去重。
+    public func renderHTML() -> String { "" }
     public func renderSelectableText(font: UIFont, textColor: UIColor = .label) -> NSAttributedString {
         NSAttributedString(string: "")
     }

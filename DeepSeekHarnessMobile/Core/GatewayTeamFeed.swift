@@ -1,4 +1,5 @@
 import Foundation
+import os
 import SwiftUI
 import UIKit
 
@@ -86,6 +87,10 @@ final class GatewayTeamFeed: ObservableObject {
     }
 
     @Published private(set) var phase: Phase = .idle
+    /// 大帧重组（①分块传输）。网关只在握手声明 `chunked-frames-v1` 后才发 chunk 帧。
+    private var reassembler = FrameReassembler()
+    /// 非静默诊断：分块相关的异常必须能在设备日志里看到。
+    private static let chunkLog = Logger(subsystem: "ai.dsh.mobile.ios", category: "team-chunk")
     @Published private(set) var rows: [Row] = []
     @Published private(set) var degraded = false
     @Published private(set) var lastError: String?
@@ -196,7 +201,14 @@ final class GatewayTeamFeed: ObservableObject {
         socket = task
         phase = rows.isEmpty ? .connecting : phase
         task.resume()
-        task.send(.string("{\"type\":\"auth\",\"token\":\"\(resource.token)\"}")) { [weak self] error in
+        // ① 分块传输：只有声明了能力，网关才会把超大帧切成 chunk 发（不声明 = 永远收整帧）。
+        let authFrame: [String: Any] = ["type": "auth", "token": resource.token,
+                                        "capabilities": [FrameReassembler.capabilityName]]
+        let authText = (try? JSONSerialization.data(withJSONObject: authFrame))
+            .flatMap { String(data: $0, encoding: .utf8) }
+            ?? "{\"type\":\"auth\",\"token\":\"\(resource.token)\"}"
+        reassembler = FrameReassembler(limits: BridgeChunkLimits.shared)
+        task.send(.string(authText)) { [weak self] error in
             guard let self, let error else { return }
             Task { @MainActor in self.handleDisconnect(mine, reason: error.localizedDescription) }
         }
@@ -278,9 +290,32 @@ final class GatewayTeamFeed: ObservableObject {
         case "order": applyOrder(object)
         case "card", "card-snapshot": applyCards(object)
         case "avatar": applyAvatarBatches(object)
+        case "chunk": handleChunkFrame(object)
         default: break
         }
         if phase == .live || phase == .connecting { phase = .live }
+    }
+
+    /// 分块帧：拼齐后把原文按 `finalKind` 回放进同一条处理链。
+    /// 任何异常都**不静默**：记日志并断开重连（重连会拿到完整快照），绝不拼半个 JSON 交给上层。
+    private func handleChunkFrame(_ object: [String: Any]) {
+        _ = reassembler.expire()
+        guard let chunk = FrameReassembler.chunk(from: object) else {
+            Self.chunkLog.error("chunk frame malformed: \(object.keys.sorted(), privacy: .public)")
+            handleDisconnect(generation, reason: "分块帧字段缺失")
+            return
+        }
+        switch reassembler.accept(chunk) {
+        case .success(nil):
+            return
+        case .success(.some(let payload)):
+            Self.chunkLog.debug("chunk stream complete kind=\(chunk.finalKind, privacy: .public) bytes=\(payload.utf8.count, privacy: .public)")
+            // payload 是原帧全文：重新解析后按 kind 走原有分发（snapshot/delta/cards/order 都复用）。
+            handleFrame(payload)
+        case .failure(let error):
+            Self.chunkLog.error("chunk reassembly failed: \(String(describing: error), privacy: .public); resyncing")
+            handleDisconnect(generation, reason: "分块重组失败，正在重取快照")
+        }
     }
 
     /// 大快照分帧的补充帧：`{kind:"avatar", items:[{id, avatar:{shape,image}}]}`。

@@ -72,6 +72,7 @@
 		D3A40BFC0B9C8D4B1C8FAA95 /* DeepSeekHarnessMobileApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 430CA64DF207C7EF58574336 /* DeepSeekHarnessMobileApp.swift */; };
 		E20191A4C7B1C0A8FF57CAC1 /* Glass.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCF581253EBCFEB43865AB51 /* Glass.swift */; };
 		AA6100000000000000000011 /* TeamGlyph.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA6100000000000000000010 /* TeamGlyph.swift */; };
+		AA6500000000000000000011 /* FrameReassembler.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA6500000000000000000010 /* FrameReassembler.swift */; };
 		AA6200000000000000000011 /* TeamAvatarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA6200000000000000000010 /* TeamAvatarView.swift */; };
 		AA6300000000000000000011 /* TeamGlyphTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA6300000000000000000010 /* TeamGlyphTests.swift */; };
 		AA6400000000000000000011 /* RosterLookParityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA6400000000000000000010 /* RosterLookParityTests.swift */; };
@@ -204,6 +205,7 @@
 		F2A000000000000000000001 /* config/Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = config/Debug.xcconfig; sourceTree = SOURCE_ROOT; };
 		FCF581253EBCFEB43865AB51 /* Glass.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Glass.swift; sourceTree = "<group>"; };
 		AA6100000000000000000010 /* TeamGlyph.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TeamGlyph.swift; sourceTree = "<group>"; };
+		AA6500000000000000000010 /* FrameReassembler.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FrameReassembler.swift; sourceTree = "<group>"; };
 		AA6200000000000000000010 /* TeamAvatarView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TeamAvatarView.swift; sourceTree = "<group>"; };
 		AA6300000000000000000010 /* TeamGlyphTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TeamGlyphTests.swift; sourceTree = "<group>"; };
 		AA6400000000000000000010 /* RosterLookParityTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RosterLookParityTests.swift; sourceTree = "<group>"; };
@@ -255,6 +257,7 @@
 			isa = PBXGroup;
 			children = (
 				AA6100000000000000000010 /* TeamGlyph.swift */,
+				AA6500000000000000000010 /* FrameReassembler.swift */,
 				873D1E0F3E1B1B2CB2366B06 /* VoiceInputAdapter.swift */,
 				A9F100000000000000000002 /* AppPreferences.swift */,
 				A9F200000000000000000002 /* PairingPayloadParser.swift */,
@@ -686,6 +689,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				AA6100000000000000000011 /* TeamGlyph.swift in Sources */,
+				AA6500000000000000000011 /* FrameReassembler.swift in Sources */,
 				AA6200000000000000000011 /* TeamAvatarView.swift in Sources */,
 				BA1261E01FBB7F30C9AAE9D1 /* VoiceRipplePanel.swift in Sources */,
 				0DC425D67C678AF679BFF15A /* VoiceInputAdapter.swift in Sources */,

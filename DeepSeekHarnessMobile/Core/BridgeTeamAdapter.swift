@@ -869,6 +869,9 @@ final class BridgeTeamAdapter: ObservableObject {
             lastTransportError = nil
             failureAttempt = 0
             connectionIssue = nil
+            // 分块上限同样由 /info 公布（capabilities.maxFrameBytes / maxReassembledBytes /
+            // maxStreamsPerConnection）；团队 WS 下次建连时读 BridgeChunkLimits.shared。
+            BridgeChunkLimits.update(fromInfo: infoBody)
             // 凭证 TTL 由网关在 /info 里公布（capabilities.accessTokenTtlSeconds），
             // 手机按 90% 排主动刷新；老网关没有这个字段 → 保持 14 分钟兜底。
             if let interval = BridgeTokenTTL.proactiveInterval(infoJSON: infoBody),

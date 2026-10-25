@@ -329,3 +329,57 @@ final class BridgeConnectionIssueTests: XCTestCase {
         XCTAssertNil(BridgeTokenTTL.proactiveInterval(ttlSeconds: -5), "非正数当作没给")
     }
 }
+
+// MARK: - ① 分块传输：/info 上限解析与共享上限持有者
+
+final class ChunkLimitNegotiationTests: XCTestCase {
+
+    /// 网关字段名以网关为准：maxFrameBytes / maxReassembledBytes / maxStreamsPerConnection。
+    func testLimitsParsedFromGatewayInfo() throws {
+        let info = """
+        {"protocolVersion":1,"serverId":"pc-1",
+         "capabilities":{"maxFrameBytes":524288,"maxReassembledBytes":4194304,"maxStreamsPerConnection":2}}
+        """
+        let limits = try XCTUnwrap(FrameReassembler.limits(fromInfo: info))
+        XCTAssertEqual(limits.maxChunkBytes, 512 * 1024)
+        XCTAssertEqual(limits.maxReassembledBytes, 4 * 1024 * 1024)
+        XCTAssertEqual(limits.maxStreams, 2)
+        XCTAssertEqual(limits.streamTimeout, FrameReassembler.Limits.default.streamTimeout,
+                       "超时是客户端内部资源保护，网关不公布，必须保持默认 30s")
+    }
+
+    /// 老网关一个字段都不公布 → nil（调用方保持本地兜底，不猜）。
+    func testLimitsMissingFromOldGatewayReturnsNil() {
+        XCTAssertNil(FrameReassembler.limits(fromInfo: #"{"protocolVersion":1,"serverId":"pc-1"}"#))
+        XCTAssertNil(FrameReassembler.limits(fromInfo: #"{"capabilities":{"team":true}}"#))
+        XCTAssertNil(FrameReassembler.limits(fromInfo: #"{"capabilities":{"maxFrameBytes":"524288"}}"#),
+                     "字符串不猜")
+        XCTAssertNil(FrameReassembler.limits(fromInfo: "not-json"))
+    }
+
+    /// 部分字段也认（比如只公布了单块上限）。
+    func testLimitsAcceptPartialPublication() throws {
+        let limits = try XCTUnwrap(FrameReassembler.limits(fromInfo:
+            #"{"capabilities":{"maxFrameBytes":131072}}"#))
+        XCTAssertEqual(limits.maxChunkBytes, 128 * 1024)
+        XCTAssertEqual(limits.maxReassembledBytes, FrameReassembler.Limits.default.maxReassembledBytes)
+    }
+
+    /// 能力名是与网关约定死的字符串，改了网关就不发 chunk。
+    func testCapabilityNameIsContract() {
+        XCTAssertEqual(FrameReassembler.capabilityName, "chunked-frames-v1")
+    }
+
+    /// 共享持有者：网关不公布时保持原值（不乱覆盖），公布后按网关值更新。
+    @MainActor
+    func testSharedLimitsUpdateOnlyWhenPublished() {
+        BridgeChunkLimits.update(fromInfo: #"{"capabilities":{}}"#)
+        XCTAssertEqual(BridgeChunkLimits.shared.maxChunkBytes,
+                       FrameReassembler.Limits.default.maxChunkBytes,
+                       "没公布就保持默认，不能瞎改")
+        BridgeChunkLimits.update(fromInfo: #"{"capabilities":{"maxFrameBytes":262144}}"#)
+        XCTAssertEqual(BridgeChunkLimits.shared.maxChunkBytes, 256 * 1024)
+        BridgeChunkLimits.update(fromInfo: #"{"capabilities":{"maxFrameBytes":262144}}"#)
+        XCTAssertEqual(BridgeChunkLimits.shared.maxChunkBytes, 256 * 1024, "幂等")
+    }
+}

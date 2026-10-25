@@ -12861,3 +12861,119 @@ final class SentFileCardViewportTests: XCTestCase {
         XCTAssertLessThan(try XCTUnwrap(fixture.list.visibleCells.first).bounds.height, initialHeight)
     }
 }
+
+// MARK: - 大响应分块重组（① 分块传输的手机侧）
+
+/// 协议中立的重组器用例：只喂 `Chunk`，不依赖网关实现。
+/// 覆盖 happy path / 乱序 / 重复 / 丢块超时 / 单块超限 / 重组超限 / 并发超限 / 协议错乱。
+final class FrameReassemblerTests: XCTestCase {
+
+    private func chunk(_ stream: String, _ index: Int, _ total: Int,
+                       _ part: String, kind: String = "snapshot") -> FrameReassembler.Chunk {
+        FrameReassembler.Chunk(streamId: stream, index: index, total: total, finalKind: kind, part: part)
+    }
+
+    func testReassemblesOutOfOrderAndSurvivesDuplicate() throws {
+        var r = FrameReassembler()
+        // 模拟网关按 UTF-8 字符边界切开的原始 JSON（含中文，验证拼接后逐字符一致）
+        let a = #"{"kind":"snapshot","bots":["#
+        let b = #"{"id":"b1","name":"翻译官"},"#
+        let c = #"{"id":"b2","name":"写手"}]}"#
+        XCTAssertEqual(try r.accept(chunk("s1", 2, 3, c)).get(), nil, "缺块时先不给结果")
+        XCTAssertEqual(try r.accept(chunk("s1", 0, 3, a)).get(), nil)
+        // 重复块：幂等，不重复计数
+        XCTAssertEqual(try r.accept(chunk("s1", 0, 3, a)).get(), nil)
+        XCTAssertEqual(r.activeStreamCount, 1)
+        XCTAssertEqual(try r.accept(chunk("s1", 1, 3, b)).get(), a + b + c, "乱序+重复后应还原原文")
+        XCTAssertEqual(r.activeStreamCount, 0, "收齐后流要清掉")
+    }
+
+    func testSingleChunkStreamIsEquivalentToPlainFrame() throws {
+        var r = FrameReassembler()
+        let payload = #"{"kind":"delta","seq":7}"#
+        XCTAssertEqual(try r.accept(chunk("s", 0, 1, payload)).get(), payload)
+    }
+
+    func testMissingChunkNeverYieldsPartialPayloadAndExpires() throws {
+        var clock = Date(timeIntervalSince1970: 1_000)
+        var r = FrameReassembler(now: { clock })
+        XCTAssertEqual(try r.accept(chunk("s1", 0, 2, #"{"a":"#)).get(), nil)
+        XCTAssertEqual(r.expire(), [], "未到超时不该丢")
+        clock = clock.addingTimeInterval(31)
+        XCTAssertEqual(r.expire(), ["s1"], "超时流要被丢掉（调用方据此重拉快照）")
+        XCTAssertEqual(r.activeStreamCount, 0)
+        // 超时后同 id 的新流仍可重新开始（不记住旧状态）
+        XCTAssertEqual(try r.accept(chunk("s1", 1, 2, #""b"}"#)).get(), nil)
+    }
+
+    func testChunkLargerThanPublishedLimitIsRejected() {
+        var r = FrameReassembler(limits: .init(maxChunkBytes: 8, maxReassembledBytes: 1024, maxStreams: 2, streamTimeout: 30))
+        let result = r.accept(chunk("s1", 0, 2, String(repeating: "x", count: 9)))
+        XCTAssertEqual(result, .failure(.chunkTooLarge(bytes: 9, limit: 8)))
+        XCTAssertEqual(r.activeStreamCount, 0, "超限块要把流清掉，不留半截")
+    }
+
+    func testStreamLargerThanReassemblyLimitIsRejected() {
+        var r = FrameReassembler(limits: .init(maxChunkBytes: 10, maxReassembledBytes: 12, maxStreams: 2, streamTimeout: 30))
+        XCTAssertNoThrow(try r.accept(chunk("s1", 0, 3, "1234567890")).get())
+        let result = r.accept(chunk("s1", 1, 3, "1234567890"))
+        XCTAssertEqual(result, .failure(.streamTooLarge(bytes: 20, limit: 12)))
+        XCTAssertEqual(r.activeStreamCount, 0)
+    }
+
+    func testTooManyConcurrentStreams() {
+        var r = FrameReassembler(limits: .init(maxChunkBytes: 10, maxReassembledBytes: 100, maxStreams: 1, streamTimeout: 30))
+        XCTAssertNoThrow(try r.accept(chunk("s1", 0, 2, "a")).get())
+        XCTAssertEqual(r.accept(chunk("s2", 0, 2, "b")), .failure(.tooManyStreams(limit: 1)))
+        XCTAssertEqual(r.activeStreamCount, 1, "被拒的新流不能挤掉已在拼的流")
+    }
+
+    func testMalformedChunks() {
+        var r = FrameReassembler()
+        XCTAssertEqual(r.accept(chunk("s", 0, 0, "x")), .failure(.indexOutOfRange(index: 0, total: 0)))
+        XCTAssertEqual(r.accept(chunk("s", 1, 1, "x")), .failure(.indexOutOfRange(index: 1, total: 1)))
+        XCTAssertEqual(r.accept(chunk("s", -1, 2, "x")), .failure(.indexOutOfRange(index: -1, total: 2)))
+        XCTAssertEqual(r.accept(chunk("s", 0, 2, "x", kind: "")), .failure(.indexOutOfRange(index: 0, total: 2)))
+    }
+
+    func testStreamThatChangesShapeMidwayIsDropped() {
+        var r = FrameReassembler()
+        XCTAssertNoThrow(try r.accept(chunk("s1", 0, 2, "a")).get())
+        XCTAssertEqual(r.accept(chunk("s1", 0, 3, "a")), .failure(.malformedChunk("total/finalKind changed mid-stream")))
+        XCTAssertEqual(r.activeStreamCount, 0)
+    }
+
+    func testResetClearsPartialStreams() {
+        var r = FrameReassembler()
+        XCTAssertNoThrow(try r.accept(chunk("s1", 0, 2, "a")).get())
+        r.reset()
+        XCTAssertEqual(r.activeStreamCount, 0)
+    }
+
+    /// `apply(limits:)` 必须夹住危险值：重组上限有 8MiB 硬天花板，并发流 1…4。
+    func testLimitsFromGatewayAreClamped() {
+        var r = FrameReassembler()
+        r.apply(limits: .init(maxChunkBytes: 512 * 1024,
+                              maxReassembledBytes: 64 * 1024 * 1024,
+                              maxStreams: 99,
+                              streamTimeout: 9999))
+        XCTAssertEqual(r.limits.maxReassembledBytes, FrameReassembler.absoluteReassembledCap)
+        XCTAssertEqual(r.limits.maxStreams, 4)
+        XCTAssertEqual(r.limits.streamTimeout, 300)
+    }
+
+    /// 帧解析：只有 kind=chunk 且字段齐全才算，缺字段返回 nil（调用方会走"非 chunk"分支）。
+    func testChunkFrameParsing() {
+        let valid: [String: Any] = ["kind": "chunk", "streamId": "s1", "index": 1, "total": 3,
+                                    "finalKind": "cards", "part": "{}"]
+        XCTAssertEqual(FrameReassembler.chunk(from: valid),
+                       FrameReassembler.Chunk(streamId: "s1", index: 1, total: 3, finalKind: "cards", part: "{}"))
+        XCTAssertNil(FrameReassembler.chunk(from: ["kind": "snapshot"]))
+        var missing = valid
+        missing["part"] = nil
+        XCTAssertNil(FrameReassembler.chunk(from: missing))
+        var wrongType = valid
+        wrongType["index"] = "1"
+        XCTAssertNil(FrameReassembler.chunk(from: wrongType), "类型不对按没给处理，不猜")
+    }
+}
