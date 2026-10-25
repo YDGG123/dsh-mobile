@@ -104,22 +104,63 @@ struct TeamAvatarView: View {
     }
 
     /// 有 glyph：淡色圆底 + 矢量化角色（与电脑端同路径、同色、同挖空眼睛）。
+    ///
+    /// **眼睛不走 Canvas**：SwiftUI 的 `Canvas` 在 `@State` 变化时不保证重绘，
+    /// 「眨眼全档位看不见」就是这么来的（值在变、画面不刷）。改成原生视图后，
+    /// `scaleEffect` + `withAnimation` 是 SwiftUI 自己的动画通道，必然生效。
     private func glyphAvatar(_ glyph: TeamAvatarGlyph) -> some View {
         let ink = GatewayTeamFeed.avatarColor(row)
         let disc = ink.opacity(0.16)
-        let eye = eyeFill
         return Circle()
             .fill(disc)
             .frame(width: size, height: size)
             .overlay {
-                Canvas { context, canvasSize in
-                    glyph.draw(in: &context, canvasSize: canvasSize,
-                               bodyColor: ink, eyeColor: eye, eyeSquash: eyeSquash)
+                ZStack {
+                    Canvas { context, canvasSize in
+                        // 眼睛由下面的原生视图画，这里只画剪影与叠加层。
+                        glyph.draw(in: &context, canvasSize: canvasSize,
+                                   bodyColor: ink, drawEyes: false)
+                    }
+                    .frame(width: size, height: size)
+                    eyeLayers(glyph)
                 }
                 .frame(width: size, height: size)
             }
             .clipShape(Circle())
             .accessibilityHidden(true)
+    }
+
+    /// 眼睛：每只眼睛一个原生圆角胶囊，按 glyph 坐标缩放摆放。
+    /// 压扁用 `scaleEffect(y:)`（= 电脑端 `.bt-eye{scale:1 X}`），
+    /// 且**先压扁再旋转**，否则斜置眼睛会被压歪。
+    private func eyeLayers(_ glyph: TeamAvatarGlyph) -> some View {
+        let scale = size / max(glyph.size, 1)
+        let eyes = TeamAvatarGlyph.rendered(for: glyph)?.eyes ?? []
+        let fill = eyeFill
+        return ZStack(alignment: .topLeading) {
+            Color.clear
+            ForEach(Array(eyes.enumerated()), id: \.offset) { _, eye in
+                let layout = Self.eyeLayout(eye, scale: scale)
+                RoundedRectangle(cornerRadius: layout.radius, style: .continuous)
+                    .fill(fill)
+                    .frame(width: layout.size.width, height: layout.size.height)
+                    .scaleEffect(x: 1, y: eyeSquash, anchor: .center)
+                    .rotationEffect(.degrees(layout.tilt), anchor: .center)
+                    .position(x: layout.center.x, y: layout.center.y)
+            }
+        }
+        .frame(width: size, height: size)
+        .accessibilityHidden(true)
+    }
+
+    /// 眼睛视图的摆放参数（纯函数，便于单测）：缩放后的中心、尺寸、圆角与旋转角。
+    /// 下界是防止 46pt 小头像上出现 0 尺寸图形（0 尺寸视图某些情况下不渲染）。
+    static func eyeLayout(_ eye: TeamAvatarGlyph.RenderedEye, scale: CGFloat)
+        -> (center: CGPoint, size: CGSize, radius: CGFloat, tilt: Double) {
+        (CGPoint(x: eye.cx * scale, y: eye.cy * scale),
+         CGSize(width: max(eye.width * scale, 0.5), height: max(eye.height * scale, 0.5)),
+         max(eye.radius * scale, 0.25),
+         Double(eye.tilt))
     }
 
     /// 一次眨眼周期里的档位序列：`hold` 是该档位保持的秒数（等价电脑端 keyframe 的百分比）。
@@ -167,15 +208,23 @@ struct TeamAvatarView: View {
     @MainActor
     private func driveEyes() async {
         guard Self.shouldAnimate(motion, reduceMotion: reduceMotion) else {
+            // 非静默诊断：设备日志里能直接看到「驱动没开」还是「开了但没画」。
+            Self.log.notice(
+                "blink off bot=\(row.id, privacy: .public) working=\(motion.isWorking, privacy: .public) reduceMotion=\(reduceMotion, privacy: .public)")
             eyeSquash = 1
             return
         }
-        defer { eyeSquash = 1 }
+        Self.log.notice(
+            "blink on bot=\(row.id, privacy: .public) working=\(motion.isWorking, privacy: .public)")
         let steps = Self.blinkSteps(working: motion.isWorking)
         let period = steps.reduce(0) { $0 + $1.hold }
         // 首次从周期中途开始（对应负延迟），之后每轮都从第 0 档走完整个周期。
         var resume = Self.blinkResume(steps: steps,
                                       phase: Self.blinkPhaseDelay(botID: row.id, period: period))
+        defer {
+            eyeSquash = 1
+            Self.log.notice("blink end bot=\(row.id, privacy: .public)")
+        }
         while !Task.isCancelled {
             for index in resume.index..<steps.count {
                 let hold = index == resume.index ? resume.hold : steps[index].hold
@@ -187,14 +236,20 @@ struct TeamAvatarView: View {
 
     /// 设一个档位并保持 `seconds`；返回 false 表示任务已取消（调用方立刻退出）。
     /// 进后台时停手并回正（每 0.5s 复查一次实时状态）。
+    ///
+    /// **必须用 `withAnimation` 推进**：眼睛是原生可动画视图，
+    /// SwiftUI 只会对显式动画的变更做插值；直接赋值也能变，但会是一次跳变。
     @MainActor
     private func holdEye(_ squash: CGFloat, for seconds: Double) async -> Bool {
         guard UIApplication.shared.applicationState == .active else {
-            eyeSquash = 1
+            withAnimation(.easeOut(duration: 0.2)) { eyeSquash = 1 }
             try? await Task.sleep(nanoseconds: 500_000_000)
             return !Task.isCancelled
         }
-        eyeSquash = squash
+        if squash <= 0.2 {
+            Self.log.debug("blink close bot=\(row.id, privacy: .public) squash=\(squash, privacy: .public)")
+        }
+        withAnimation(.easeInOut(duration: max(seconds, 0.01))) { eyeSquash = squash }
         try? await Task.sleep(nanoseconds: UInt64(max(seconds, 0) * 1_000_000_000))
         return !Task.isCancelled
     }

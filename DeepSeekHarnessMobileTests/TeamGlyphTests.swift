@@ -143,7 +143,26 @@ final class TeamGlyphTests: XCTestCase {
         let rect = CGRect(x: -width / 2, y: -height / 2, width: width, height: height)
         return TeamAvatarGlyph.RenderedEye(
             shape: Path(roundedRect: rect, cornerRadius: min(width, height) / 2),
-            cx: cx, cy: cy, tilt: tilt)
+            cx: cx, cy: cy, tilt: tilt, width: width, height: height)
+    }
+
+    /// 眼睛现在由原生 SwiftUI 视图画（Canvas 不保证随 @State 重绘，曾经导致「眨眼看不见」）。
+    /// 这条钉住视图层的摆放换算：glyph 坐标 → 头像点坐标的缩放、尺寸、圆角、旋转角。
+    func testEyeViewLayoutScalesGlyphGeometry() {
+        let target = eye(tilt: -15.8, cx: 72.5, cy: 48.4, width: 9.3, height: 23)
+        let scale: CGFloat = 0.46          // 46pt 头像 / 100 单位坐标系
+        let layout = TeamAvatarView.eyeLayout(target, scale: scale)
+        XCTAssertEqual(layout.center.x, 72.5 * 0.46, accuracy: 0.001)
+        XCTAssertEqual(layout.center.y, 48.4 * 0.46, accuracy: 0.001)
+        XCTAssertEqual(layout.size.width, 9.3 * 0.46, accuracy: 0.001)
+        XCTAssertEqual(layout.size.height, 23 * 0.46, accuracy: 0.001)
+        XCTAssertEqual(layout.radius, 9.3 / 2 * 0.46, accuracy: 0.001)
+        XCTAssertEqual(layout.tilt, -15.8, accuracy: 0.001)
+        // 小头像下界：不能出现 0 尺寸/0 圆角（0 尺寸视图可能根本不渲染）。
+        let tiny = TeamAvatarView.eyeLayout(target, scale: 0.0001)
+        XCTAssertGreaterThanOrEqual(tiny.size.width, 0.5)
+        XCTAssertGreaterThanOrEqual(tiny.size.height, 0.5)
+        XCTAssertGreaterThanOrEqual(tiny.radius, 0.25)
     }
 
     func testEyeSquashCompressesHeightAndKeepsCenter() {

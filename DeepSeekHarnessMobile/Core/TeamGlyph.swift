@@ -166,6 +166,12 @@ struct TeamAvatarGlyph: Hashable {
         let cx: CGFloat
         let cy: CGFloat
         let tilt: CGFloat
+        /// 胶囊几何。视图层改用 SwiftUI 原生视图画眼睛（Canvas 在 `@State` 变化时
+        /// 不保证重绘，「眨眼看不见」就是这么来的），所以宽高也要带出来。
+        let width: CGFloat
+        let height: CGFloat
+
+        var radius: CGFloat { min(width, height) / 2 }
     }
 
     private final class RenderedBox: NSObject {
@@ -210,7 +216,8 @@ struct TeamAvatarGlyph: Hashable {
         let eyes = glyph.eyes.map { eye -> RenderedEye in
             let rect = CGRect(x: -eye.width / 2, y: -eye.height / 2, width: eye.width, height: eye.height)
             return RenderedEye(shape: Path(roundedRect: rect, cornerRadius: min(eye.width, eye.height) / 2),
-                               cx: eye.cx, cy: eye.cy, tilt: eye.tilt)
+                               cx: eye.cx, cy: eye.cy, tilt: eye.tilt,
+                               width: eye.width, height: eye.height)
         }
         let rendered = Rendered(body: body, layers: layers, eyes: eyes)
         renderCache.setObject(RenderedBox(rendered), forKey: key)
@@ -233,8 +240,11 @@ struct TeamAvatarGlyph: Hashable {
     ///   所以调用方必须传头像实际所在的背景色（团队页是 List 行底、工作区是页面底），
     ///   不能传淡色圆底 —— 那会让眼睛和圆底同色，实测"看不见"。
     /// - `eyeSquash`：1 = 正常；0.1 左右 = 眨眼压成一条缝；~0.7 = 思考眯眼。
+    /// - `drawEyes`：是否在 Canvas 里画眼。团队头像**关掉**它，改由 SwiftUI 原生视图画
+    ///   （可动画、可被 withAnimation 驱动）；其它一次性绘制的场景保持默认 true。
     func draw(in context: inout GraphicsContext, canvasSize: CGSize,
-              bodyColor: Color, eyeColor: Color, eyeSquash: CGFloat = 1) {
+              bodyColor: Color, eyeColor: Color = .clear, eyeSquash: CGFloat = 1,
+              drawEyes: Bool = true) {
         guard let rendered = Self.rendered(for: self) else { return }
         let scale = min(canvasSize.width, canvasSize.height) / max(size, 1)
         context.scaleBy(x: scale, y: scale)
@@ -242,6 +252,7 @@ struct TeamAvatarGlyph: Hashable {
         for layer in rendered.layers {
             context.fill(layer.path, with: .color(layer.color.opacity(layer.opacity)))
         }
+        guard drawEyes else { return }
         // 眼睛：电脑端是 mask 挖洞，而 `<g mask>` 罩住的是 body + 全部 layers
         // （`characters.js:95-97` 的 bodyOf 把 layers 一起包进去），所以 shade 与
         // light 高光层同样会被挖掉 —— 这里「最后画眼」等价于同一效果。
