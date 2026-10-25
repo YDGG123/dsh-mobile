@@ -4,6 +4,10 @@
 > 当前分支：`feature/kmm`  
 > 创建日期：2026-08-24  
 > 最近更新：2026-08-28
+
+> ⚠️ **本文不是协议权威**：文中涉及「分块传输 / 续连 / 团队流」的描述只是当时的设计讨论，
+> 可能已与实现不一致。**协议与行为的唯一权威是 [`mobile-contract-v1.md`](mobile-contract-v1.md)**
+> （§8 分块、§9 续连心跳）；真机排查见 [`troubleshooting-matrix-v1.md`](troubleshooting-matrix-v1.md)。
 > 当前任务：阶段 12 remediation 自动化门禁已通过；等待真实 Android 设备与 Mobile Gateway 人工冒烟验收
 
 ## 使用说明
