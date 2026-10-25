@@ -143,6 +143,10 @@ final class GatewayTeamFeed: ObservableObject {
         wantLive = false
         reconnectTask?.cancel()
         reconnectTask = nil
+        // 与 handleDisconnect 显式配对：不靠 deinit 兜底（安全等级不同）。
+        stopHeartbeat()
+        stopChunkSweeper()
+        reassembler.reset()
         socket?.cancel(with: .goingAway, reason: nil)
         socket = nil
         phase = .idle
