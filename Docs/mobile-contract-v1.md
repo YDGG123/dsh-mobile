@@ -38,6 +38,9 @@
 | GET | `/mobile/v1/conversations/{id}/messages` | `limit`、`cursor` | 历史分页；`limit` 限 1–100 | 需 token | gw `docs/mobile-v1-integration.md:90`；上限 gw `lib/mobile-v1/server.mjs:230` |
 | GET | `/mobile/v1/conversations/{id}/target` | — | 会话目标与 `revision` | 需 token | gw `docs/mobile-v1-integration.md:91` |
 | POST | `/mobile/v1/conversations/{id}/cancel` | — | 停止生成（能力位放行时） | 需 token | gw `docs/mobile-v1-integration.md:92` |
+| POST | `/mobile/v1/pairings` | `{code, deviceName}` | `{claimToken, requestId, status}` | 免认证 | gw `docs/mobile-v1-integration.md:85` |
+| POST | `/mobile/v1/pairings/complete` | `{claimToken}` | pending 或 Session（可含 `gateway` 字段） | claimToken | gw `docs/mobile-v1-integration.md:86` |
+| POST | `/mobile/v1/auth/refresh` | `{refreshToken}` | 新 Session | refreshToken | gw `docs/mobile-v1-integration.md:87` |
 | POST | `/mobile/v1/submissions` | `{conversationId, sessionId, requestId, text}` | 幂等发送 | 需 token | gw `docs/mobile-v1-integration.md:93` |
 | GET | `/mobile/v1/submissions/{requestId}` | — | 回执恢复 | 需 token | gw `docs/mobile-v1-integration.md:94` |
 | POST | `/mobile/v1/actions` | `{endpoint, payload}` | 动作白名单；未在白名单 → 403 `ACTION_NOT_ALLOWED`；载荷 > 32768 字节 → 非法 | 需 token | gw `docs/mobile-v1-integration.md:95`；白名单/上限 gw `lib/mobile-v1/server.mjs:246`、`lib/mobile-v1/actions.mjs:90` |
@@ -225,6 +228,7 @@
 | `scripts/check-project-membership.py` | 磁盘 `.swift` 是否按 **target 归属**正确挂进 pbxproj（防「find 收文件」式假绿） | mobile `scripts/check-project-membership.py:1-8` |
 | `scripts/verify-localizations.py` | iOS 目录 + Android 双闸（含 Kotlin 硬编码扫描） | 本仓库 `scripts/verify-localizations.py` |
 | `scripts/i18n-inventory.py` | **仅 Swift** 中文字面量盘点（0 处 Android 引用） | mobile `scripts/i18n-inventory.py` |
+| `scripts/verify-mobile-contract.py` | **契约闸门**：本文件里的每个端点/帧/字段/红线，必须在网关、ds-bot、手机端实现里找到对应探针；文档改名或实现改名任一侧脱节即红（58 条探针） | mobile `scripts/verify-mobile-contract.py` |
 
 ### 7.3 Android 发布清单（latest.json）
 
