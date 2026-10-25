@@ -142,6 +142,13 @@ final class GatewayTeamFeed: ObservableObject {
         connect()
     }
 
+    /// 对象直接销毁（没有走 stop/handleDisconnect）时的最后兜底。
+    /// 注意：@MainActor 类的 deinit 是非隔离上下文，所以这里只做"释放即取消"，
+    /// 不调用任何隔离方法（心跳任务与清扫器都在自己的 deinit 里取消）。
+    deinit {
+        heartbeatTask?.cancel()
+    }
+
     func stop() {
         wantLive = false
         reconnectTask?.cancel()
@@ -197,6 +204,11 @@ final class GatewayTeamFeed: ObservableObject {
     }
 
     private func connect() {
+        // 每次建连前统一收尾：重连、requestResync、前后台切换最终都落到这里，
+        // 这样"任何退出路径都不残留后台任务"只在这一个入口保证一次。
+        stopHeartbeat()
+        stopChunkSweeper()
+        reassembler.reset()
         reconnectTask?.cancel()
         reconnectTask = nil
         guard let resource = sessionResource() else {

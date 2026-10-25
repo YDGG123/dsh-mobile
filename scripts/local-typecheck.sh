@@ -236,6 +236,13 @@ if ! python3 "$(dirname "${BASH_SOURCE[0]}")/verify-version-consistency.py"; the
   exit 1
 fi
 
+# ---- 团队流后台任务清理闸门（2026-10-26）----
+# heartbeatTask / chunkSweeper 必须在 stop()、connect()、handleDisconnect() 三处显式成对清理，
+# startHeartbeat() 只允许 connect() 一处；deinit 兜底必须在位。
+if ! python3 "$(dirname "${BASH_SOURCE[0]}")/verify-feed-cleanup.py"; then
+  exit 1
+fi
+
 # ---- 工程收录守卫（2026-10-25 教训）----
 # 本工程是**显式 fileRef**（不是 Xcode 16 的同步组）：新加的 .swift 如果没登记进 pbxproj，
 # find 式的类型检查照样绿，CI 才炸。守卫已升级为**按 target 归属**核对

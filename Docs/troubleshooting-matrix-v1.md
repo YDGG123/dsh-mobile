@@ -2,7 +2,12 @@
 
 > 状态：**正式版**，2026-10-26 由 iOSDev 整理，对应 commit ①分块 `2ca90cb` / ②续连 `afb64a2`（手机）与 `48adb20` / `719b360`（网关）。
 > 用途：**真机出问题时照着这张表定位**，而不是重新读代码。
-> 配套：协议权威在 [`mobile-contract-v1.md`](mobile-contract-v1.md) §8（分块）/ §9（续连心跳）。
+> 配套（本表只讲「怎么排查」，字段定义看契约）：
+> - 协议权威 [`mobile-contract-v1.md`](mobile-contract-v1.md)：**§8** 分块传输 / **§9** 续连心跳
+> - §9.4 [`sync.done` 六个 reason](mobile-contract-v1.md#94-syncdone-界标与六个-reason)
+> - §9.5 [五个 `SYNC_*` 错误码](mobile-contract-v1.md#95-五个错误码)
+> - §8.4 [超限/并发/超时行为](mobile-contract-v1.md#84-超限并发与超时行为)
+> - §10 [已知缺口](mobile-contract-v1.md#10-已知缺口留给后续决策)
 >
 > **本文每条「日志标记」都是从代码里 grep 出来的真实字符串**，不是拟写。
 > 日志子系统 `ai.dsh.mobile.ios`，category **`team-chunk`**（手机端）/ 网关侧前缀 **`mobile-v1`**、**`team-feed:`**。
@@ -14,6 +19,8 @@
 1. **`reason=snapshot` 不是故障，是自愈标记**——它前面必有一帧 `SYNC_GAP` 或 `SYNC_UNKNOWN_INSTANCE`，紧跟整帧快照，看到就算通过。
 2. **`SYNC_GAP` / `SYNC_UNKNOWN_INSTANCE` 不需要断开重连**——同一连接自愈（等紧跟的快照）。断开重连的是**分块失败 / 超时 / 心跳判死**这几类。
 3. **六种 reason / 五种错误码，没有第七种、没有第六码**——出现别的值说明版本不匹配，直接查版本（详见 §3）。
+   权威枚举表在契约 [§9.4](mobile-contract-v1.md#94-syncdone-界标与六个-reason) /
+   [§9.5](mobile-contract-v1.md#95-五个错误码)，本表不重复维护（避免两处漂移）。
 
 ---
 
@@ -87,7 +94,7 @@
 
 ### 第二步：归类
 
-**A. 续连类（看 reason）**
+**A. 续连类（看 reason）** —— 六个值的权威定义见契约 [§9.4](mobile-contract-v1.md#94-syncdone-界标与六个-reason)
 
 | reason | 结论 | 下一步 |
 | --- | --- | --- |
@@ -106,7 +113,7 @@
 | `chunk reassembly failed: chunkTooLarge` | ⚠️ 网关公布值与实际切分不一致 | **需人工**：核对 `chunked.mjs` 的 `MAX_FRAME_BYTES` 与 `/info` 公布值 |
 | `chunk frame malformed` | ⚠️ 网关发了字段不全的 chunk | **需人工**：对齐两端版本 |
 
-**C. 连接类**
+**C. 连接类**（错误码权威定义见契约 [§9.5](mobile-contract-v1.md#95-五个错误码)）
 
 | 现象 | 结论 | 下一步 |
 | --- | --- | --- |
@@ -162,7 +169,7 @@
 
 | 项 | 去哪看 |
 | --- | --- |
-| 协议字段定义、类型、约束 | [`mobile-contract-v1.md`](mobile-contract-v1.md) §8 / §9 |
+| 协议字段定义、类型、约束 | [`mobile-contract-v1.md`](mobile-contract-v1.md) §8 / §9（唯一权威；两份指针分册只做跳转） |
 | 配对、鉴权、凭证 TTL | 同上 §2 |
 | 出包与校验判据 | 同上 §7 |
 | `/events` 流的大帧行为（当前**不会**收到 chunk） | 同上 §10 缺口 4 |

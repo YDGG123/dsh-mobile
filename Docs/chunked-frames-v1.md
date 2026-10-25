@@ -18,5 +18,5 @@
 | `chunk` 帧七字段 | [`§8.2`](mobile-contract-v1.md#82-chunk-帧字段) |
 | 切分/重组规则（UTF-8 边界、乱序、重复） | [`§8.3`](mobile-contract-v1.md#83-切分与重组规则) |
 | 超限/并发/超时/夹取 | [`§8.4`](mobile-contract-v1.md#84-超限并发与超时行为) |
-| 与 `avatarDeferred`、既有红线的关系 | [`§8.5`](mobile-contract-v1.md#85-与既有红线avatar-deferred-的关系) |
+| 与 `avatarDeferred`、既有红线的关系 | [`§8.5`](mobile-contract-v1.md#85-与既有红线avatardeferred-的关系) |
 | 验证现状（用例数、真机待验） | [`§8.6`](mobile-contract-v1.md#86-验证现状) |
