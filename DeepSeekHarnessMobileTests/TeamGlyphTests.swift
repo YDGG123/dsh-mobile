@@ -311,22 +311,30 @@ final class TeamGlyphTests: XCTestCase {
         let idle = TeamAvatarView.blinkSteps(working: false)
         XCTAssertEqual(idle.reduce(0) { $0 + $1.hold }, 5.0, accuracy: 0.0001, "空闲周期 5s")
 
-        var start = 0.0
+        // 闭眼**到位**时刻 = 累加到该档为止（32.2% / 71.8% × 5s）
+        var elapsed = 0.0
         var closedAt: [Double] = []
         for step in idle {
-            if step.squash == 0.03 { closedAt.append(start) }
-            start += step.hold
+            elapsed += step.hold
+            if step.squash == 0.03 { closedAt.append(elapsed) }
         }
         XCTAssertEqual(closedAt.count, 2, "空闲周期眨两次")
         XCTAssertEqual(closedAt[0], 1.61, accuracy: 0.0001, "32.2% × 5s")
         XCTAssertEqual(closedAt[1], 3.59, accuracy: 0.0001, "71.8% × 5s")
+        // 过冲 1.06 → 1 的归位必须快（电脑端 1.2% 的窗口）：0.06s，而不是拿长静置档慢慢漂。
+        XCTAssertTrue(idle.contains { $0.squash == 1 && abs($0.hold - 0.06) < 0.0001 },
+                      "归位档必须是 0.06s 的快回稳")
+        XCTAssertFalse(idle.contains { $0.squash == 1 && $0.hold > 1 },
+                       "长静置档只能以 1 起止（无可见漂移）")
 
         let working = TeamAvatarView.blinkSteps(working: true)
         XCTAssertEqual(working.reduce(0) { $0 + $1.hold }, 2.4, accuracy: 0.0001, "干活周期 2.4s")
-        XCTAssertEqual(working.count, 4)
+        XCTAssertEqual(working.count, 5)
         XCTAssertEqual(working[1].squash, 0.03, "46% 压成一条缝")
-        XCTAssertEqual(working[1].hold, 0.096, accuracy: 0.0001, "闭眼窗口 4% × 2.4s")
+        XCTAssertEqual(working[1].hold, 0.096, accuracy: 0.0001, "闭眼窗口 6% − 4% = 2% × 2.4s ≈ 0.096s")
         XCTAssertEqual(working[2].squash, 1.06, "48% 回弹过冲不能丢")
+        XCTAssertEqual(working[3].squash, 1, "50% 回稳")
+        XCTAssertEqual(working[3].hold, 0.048, accuracy: 0.0001, "归位 2% × 2.4s ≈ 0.048s")
     }
 
     /// 负延迟语义：相位落在最后一个档位中途时，应立即进入该档位而不是先空等一个相位长度。
