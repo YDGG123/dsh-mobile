@@ -284,4 +284,16 @@ final class BridgeConnectionIssueTests: XCTestCase {
             .unknown
         )
     }
+
+    // MARK: - 主动换凭证（用户真机「反复断连又连接」的根因）
+
+    /// 网关访问凭证 15 分钟过期。主动刷新必须**早于**这个窗口，否则又回到「被踢才刷」；
+    /// 也不能太短（频繁换证对网关是负担）。这条常量是断连频率的唯一旋钮。
+    @MainActor
+    func testProactiveTokenRefreshHappensBeforeCredentialExpiry() {
+        let interval = BridgeTeamAdapter.proactiveRefreshInterval
+        XCTAssertEqual(interval, 14 * 60, "按派单口径：14 分钟主动换新")
+        XCTAssertLessThan(interval, 15 * 60, "必须早于 15 分钟凭证过期，否则又变成每 15 分钟被踢一次")
+        XCTAssertGreaterThanOrEqual(interval, 60, "间隔不能退化成高频轮询")
+    }
 }

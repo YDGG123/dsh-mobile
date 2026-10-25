@@ -1,5 +1,6 @@
 import DeepSeekHarnessShared
 import Foundation
+import os
 import Security
 import UIKit
 
@@ -263,9 +264,20 @@ final class BridgeTeamAdapter: ObservableObject {
     private var pollingTask: Task<Void, Never>?
     private var pairingTask: Task<Void, Never>?
     private var watchdogTask: Task<Void, Never>?
+    /// 主动换凭证的定时任务（见 `startTokenRefreshLoop`）。
+    private var tokenRefreshTask: Task<Void, Never>?
     private var started = false
     private var failureAttempt = 0
     private var lastSequence: Int64 = -1
+
+    /// 主动换凭证的节奏：网关访问凭证 **15 分钟**过期，提前 1 分钟换新，
+    /// 避免每 15 分钟被 401 踢一次（用户真机看到的「反复断连又连接」）。
+    /// 必须 < 15 分钟；改大等于回到「被踢才刷」。
+    static let proactiveRefreshInterval: TimeInterval = 14 * 60
+    /// 主动刷新的诊断（非静默）：失败原因要能在设备日志里看到。
+    private static let refreshLog = Logger(subsystem: "ai.dsh.mobile.ios", category: "bridge-token")
+    /// 上次主动/被动刷新成功的时间（诊断与单测用；不参与鉴权判定）。
+    private(set) var lastTokenRefreshAt: Date?
 
     init() {
         let sessionStore = self.sessionStore
@@ -284,6 +296,7 @@ final class BridgeTeamAdapter: ObservableObject {
         pollingTask?.cancel()
         pairingTask?.cancel()
         watchdogTask?.cancel()
+        tokenRefreshTask?.cancel()
     }
 
     /// 启动时恢复密钥串里的会话；成功后从会话重建 transport 并开始轮询。
@@ -398,6 +411,7 @@ final class BridgeTeamAdapter: ObservableObject {
             if let merged = try? JSONSerialization.data(withJSONObject: next),
                let text = String(data: merged, encoding: .utf8) {
                 store.tokenRefreshSucceeded(sessionJson: text)
+                lastTokenRefreshAt = Date()
                 return true
             }
             store.tokenRefreshRejected(code: "invalid_response")
@@ -790,11 +804,52 @@ final class BridgeTeamAdapter: ObservableObject {
                 try? await Task.sleep(nanoseconds: UInt64(max(delay, 1) * 1_000_000_000))
             }
         }
+        // 轮询一起来就排上主动换凭证；停轮询（断开/进后台）时一并取消。
+        startTokenRefreshLoop()
     }
 
     func stopPolling() {
         pollingTask?.cancel()
         pollingTask = nil
+        stopTokenRefreshLoop()
+    }
+
+    // MARK: - 主动换凭证（不等 401 被踢）
+
+    /// 连上就排一次 `proactiveRefreshInterval` 后的主动刷新；成功后按同一节奏续排。
+    /// 断开/后台由 `stopPolling` 取消；并发安全由 KMP 的 `beginTokenRefresh` 单飞保证，
+    /// 这里不做第二套并发控制。
+    func startTokenRefreshLoop() {
+        guard tokenRefreshTask == nil else { return }
+        guard store.currentAccessToken() != nil else { return }
+        tokenRefreshTask = Task { @MainActor [weak self] in
+            // 无论怎么退出（成功/失败/无 token/被取消）都清句柄，保证还能重新排上。
+            defer { self?.tokenRefreshTask = nil }
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: UInt64(Self.proactiveRefreshInterval * 1_000_000_000))
+                guard !Task.isCancelled, let self else { return }
+                guard self.store.currentAccessToken() != nil else { return }
+                let refreshed = await self.refreshAccessTokenOnce()
+                guard refreshed else {
+                    // 主动刷新失败：不自己重试，退化成「被踢再刷」的老行为；
+                    // 之后任何一次 401 刷新成功、或下一次轮询成功都会把主动刷新重新排上。
+                    Self.refreshLog.error("proactive token refresh failed; falling back to 401-driven refresh")
+                    return
+                }
+                Self.refreshLog.notice("proactive token refresh ok")
+            }
+        }
+    }
+
+    func stopTokenRefreshLoop() {
+        tokenRefreshTask?.cancel()
+        tokenRefreshTask = nil
+    }
+
+    /// 401 路径刷新成功后重新排主动刷新（重置 14 分钟窗口）。
+    private func restartTokenRefreshLoop() {
+        stopTokenRefreshLoop()
+        startTokenRefreshLoop()
     }
 
     /// 一次全量刷新：三响应齐才提交（revision 单调由 KMP 保证）。
@@ -817,6 +872,9 @@ final class BridgeTeamAdapter: ObservableObject {
                 stateJson: stateBody,
                 conversationsJson: conversationsBody
             )
+            // 连接正常时确保主动换凭证在跑（幂等）：主动刷新失败过一次后，
+            // 只要后续轮询恢复，就重新排上，不必等到下次前台。
+            startTokenRefreshLoop()
         } catch {
             await handleRefreshFailure(error, transport: transport)
         }
@@ -825,7 +883,8 @@ final class BridgeTeamAdapter: ObservableObject {
     private func handleRefreshFailure(_ error: Error, transport: BridgeTransport) async {
         if let status = error as? BridgeResponseStatus {
             if status.status == 401 {
-                await refreshToken(transport: transport)
+                // 被踢才有机会刷：成功就顺手把主动刷新重新排上（重置 14 分钟窗口）。
+                if await refreshToken(transport: transport) { restartTokenRefreshLoop() }
                 return
             }
             let envelope = BridgeErrorsKt.decodeBridgeErrorEnvelope(
@@ -860,20 +919,22 @@ final class BridgeTeamAdapter: ObservableObject {
     }
 
     /// 401 单飞刷新：成功喂回 KMP（保留 serverUrl/tlsPin 绑定），失败按 SDK 语义分永久/临时。
-    private func refreshToken(transport: BridgeTransport) async {
-        guard store.beginTokenRefresh() else { return }
+    /// 返回是否刷新成功——调用方据此决定要不要把主动刷新重新排上。
+    @discardableResult
+    private func refreshToken(transport: BridgeTransport) async -> Bool {
+        guard store.beginTokenRefresh() else { return false }
         guard let raw = sessionStore.loadJson(),
               let data = raw.data(using: .utf8),
               let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let refreshToken = payload["refreshToken"] as? String else {
             store.tokenRefreshRejected(code: "unauthorized")
-            return
+            return false
         }
         do {
             let body = try await transport.refreshSession(refreshToken: refreshToken)
             guard var next = try? JSONSerialization.jsonObject(with: body.data(using: .utf8) ?? Data()) as? [String: Any] else {
                 store.tokenRefreshRejected(code: "invalid_response")
-                return
+                return false
             }
             // 与 SDK index.js:242 一致：刷新响应不含 serverUrl/tlsPin，需由客户端合并。
             next["serverUrl"] = payload["serverUrl"]
@@ -881,8 +942,11 @@ final class BridgeTeamAdapter: ObservableObject {
             if let merged = try? JSONSerialization.data(withJSONObject: next),
                let mergedText = String(data: merged, encoding: .utf8) {
                 store.tokenRefreshSucceeded(sessionJson: mergedText)
+                lastTokenRefreshAt = Date()
+                return true
             } else {
                 store.tokenRefreshRejected(code: "invalid_response")
+                return false
             }
         } catch let status as BridgeResponseStatus {
             let envelope = BridgeErrorsKt.decodeBridgeErrorEnvelope(
@@ -890,10 +954,12 @@ final class BridgeTeamAdapter: ObservableObject {
                 body: status.body
             )
             store.tokenRefreshRejected(code: envelope.code)
+            return false
         } catch {
             store.tokenRefreshRejected(
                 code: (error as? URLError)?.code == .timedOut ? "timeout" : "network_error"
             )
+            return false
         }
     }
 
