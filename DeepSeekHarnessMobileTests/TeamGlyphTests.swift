@@ -324,8 +324,10 @@ final class TeamGlyphTests: XCTestCase {
         // 过冲 1.06 → 1 的归位必须快（电脑端 1.2% 的窗口）：0.06s，而不是拿长静置档慢慢漂。
         XCTAssertTrue(idle.contains { $0.squash == 1 && abs($0.hold - 0.06) < 0.0001 },
                       "归位档必须是 0.06s 的快回稳")
-        XCTAssertFalse(idle.contains { $0.squash == 1 && $0.hold > 1 },
-                       "长静置档只能以 1 起止（无可见漂移）")
+        // 长静置是合法的（1 上钉住），要禁的是"非 1 档位拖长"——那会变成可见的慢慢漂。
+        XCTAssertTrue(idle.contains { $0.squash == 1 && $0.hold > 1 }, "idle 应有 1 上的长静置档")
+        XCTAssertFalse(idle.contains { $0.squash != 1 && $0.hold > 0.5 },
+                       "非 1 档位不允许 hold > 0.5s（否则是漂移，不是眨眼）")
 
         let working = TeamAvatarView.blinkSteps(working: true)
         XCTAssertEqual(working.reduce(0) { $0 + $1.hold }, 2.4, accuracy: 0.0001, "干活周期 2.4s")
