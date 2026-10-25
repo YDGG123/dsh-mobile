@@ -1,11 +1,23 @@
-# 手机端契约 v1 · 现状篇
+# 手机端契约 v1
 
-> 状态：**底稿（现状快照）**，2026-10-26 由 iOSDev 整理。分块传输（§8）与心跳/序号增量（`sync-resume-v1`，§8.6 注）均已落地；**sync-resume 的完整契约待单独章节收口**后才算 v1 正式版。
-> 目的：把现在**散在三个仓库、四种载体**里的手机端协议收成一份可核对的表，避免「文档说 A、代码是 B」。
-> 每个字段都带证据源（`文件:行号`），行号是本次整理时的真实位置；改动代码后行号会漂，以字段名为准重新定位。
-> **行号是快照，不是契约**：网关 ①（分块传输）与手机端 ① 正在并行开发，`lib/mobile-v1/server.mjs` 会持续位移
-> （整理期间就已漂过一轮：8MB/2MB 两处从 :362/:311 移到 :412/:353）。所以契约的正确性由
-> `scripts/verify-mobile-contract.py` 的**内容探针**担保，而不是行号。
+> **状态：正式版（2026-10-26 收口）**。①分块传输（§8）与 ②续连/心跳（§9）均已落地出包。
+> **本文档是手机端协议的唯二权威**（另一份是 §7.3 的 Android `latest.json`，那是发布清单不是协议）——
+> `chunked-frames-v1.md`、`team-feed-resume-v1.md` 两份分册已**降级为指针**，内容全部并入本文件的 §8/§9，不要再改它们。
+>
+> 目的：把**散在三个仓库、四种载体**里的手机端协议收成一份可核对的表，避免「文档说 A、代码是 B」。
+> 每个字段都带证据源（`文件:行号`）。
+>
+> **行号是快照，不是契约**：代码改动会让行号持续漂移。契约的正确性由
+> `scripts/verify-mobile-contract.py` 的**内容探针**担保——它把本文档的每条断言钉到真实实现上，
+> 文档改名或实现改名任一侧脱节即红（当前 107 条探针 + 2 项枚举精确比对）。
+
+**文档拓扑（一眼看清谁是权威）**：
+
+| 文件 | 角色 | 是否被闸门看守 |
+| --- | --- | --- |
+| `Docs/mobile-contract-v1.md`（本文件） | **唯一权威**，协议全量 | ✅ 是 |
+| `Docs/chunked-frames-v1.md` | 指针 → §8（历史链接用） | ❌ 否（无内容） |
+| `Docs/team-feed-resume-v1.md` | 指针 → §9（历史链接用） | ❌ 否（无内容） |
 
 三处仓库与简称：
 
@@ -258,7 +270,7 @@
 
 ---
 
-## 8. 分块传输（`chunked-frames-v1`，正式版）
+## 8. 分块传输（`chunked-frames-v1`）
 
 > 权威源：网关 `48adb20`（`lib/mobile-v1/chunked.mjs` + `server.mjs:234-238` 已把三个上限接进 `/info`）。
 > 手机端 ① 在 `Core/FrameReassembler.swift`（同期开发）。**未声明能力的客户端行为与旧版逐字节一致**，不存在灰度风险。
@@ -287,9 +299,16 @@
 
 | 概念 | 网关 `/info` 字段名 | 手机端 `Limits` 字段名 | 映射位置 |
 | --- | --- | --- | --- |
-| 单块上限 | `maxFrameBytes` | `maxChunkBytes` | iOS `FrameReassembler.limits(fromInfo:)` |
-| 重组上限 | `maxReassembledBytes` | `maxReassembledBytes` | 同名 |
-| 并发流上限 | `maxStreamsPerConnection` | `maxStreams` | 同上 |
+| 单块上限 | `capabilities.maxFrameBytes` | `FrameReassembler.Limits.maxChunkBytes` | iOS `FrameReassembler.limits(fromInfo:)` |
+| 重组上限 | `capabilities.maxReassembledBytes` | `maxReassembledBytes` | 同名 |
+| 并发流上限 | `capabilities.maxStreamsPerConnection` | `maxStreams` | 同上 |
+
+**解析容错**（手机端 `limits(fromInfo:)` 的行为，全部有用例守着）：
+
+- 三个字段**一个都没公布** → 返回 nil，保持本地兜底（512 KiB / 4 MiB / 2，与网关当前值一致），**不猜**。
+- **只公布部分**也认，其余保持兜底。
+- **字符串型数值**（如 `"524288"`）不认，按「没给」处理。
+- 握手能力名单容错：网关接受 `capabilities` / `features` / `caps` 三种数组写法，只认字符串项。
 
 网关侧叫 `FrameBytes` 是因为它的出口视角是「一条帧切多大」；手机侧叫 `ChunkBytes` 是因为它只关心「收到的一块多大」。**同一个值的两个视角，映射在解析时一次做完**，不要在别处再换算。
 
@@ -322,32 +341,158 @@
 | 整帧 > `maxReassembledBytes` | **不切、不发**（`mode: refused`，理由 `too-large`），记日志；宁可让手机保持上一份状态 | — | gw `chunked.mjs:70`、`:55-58` |
 | 同时流数 > `maxStreams` | 拒绝（理由 `too-many-streams`），记日志 | — | gw `chunked.mjs:71` |
 | 单块超 `maxChunkBytes` | — | 判错 `chunkTooLarge`（说明网关与宣传值不一致） | iOS `FrameReassembler.swift:31-32`、`:50` |
-| 流 30 s 内没收齐 | — | 丢弃该流（`streamTimeout`）。**客户端实现细节，非协议字段，网关不公布** | iOS `FrameReassembler.swift:37` |
-| 客户端防护帽 8 MiB | 网关永远不会发 >4 MiB | 手机 `absoluteReassembledCap = 8 MiB`：**有意比服务端宽松**（弹性防护），只有网关不守规矩时才触及 | iOS `FrameReassembler.swift:92` |
+| 流 30 s 内没收齐 | — | 丢弃该流（`streamTimeout`）。**客户端实现细节，非协议字段，网关不公布**。实现上由**清扫任务**推进（间隔 = `max(0.5, 超时/6)`，30 s → 5 s），**不依赖新块到达**——网关发一半停住正是要防的故障形态；超时后与重组失败同路径（记 `team-chunk` 日志 + 断连重取快照） | iOS `FrameReassembler.swift:37`、`:277`；`GatewayTeamFeed.swift:333-348` |
+| 客户端防护帽 8 MiB | 网关永远不会发 >4 MiB | 手机 `FrameReassembler.absoluteReassembledCap = 8 MiB`：**有意比服务端宽松**（弹性防护），只有网关不守规矩时才触及 | iOS `FrameReassembler.swift:116` |
+| 网关公布离谱值 | — | 一律先经 `Limits.clamped` 夹取再生效：单块 ≤ 2 MiB、重组 ≤ 8 MiB、并发 ≤ 4、超时 ≤ 300 s。**公布值只会被夹小，不会被照搬** | iOS `FrameReassembler.swift:49-57` |
 
-### 8.5 与既有红线的关系
+### 8.5 与既有红线、`avatarDeferred` 的关系
 
 - §5 的既有上限**继续有效**（头像 32 KiB、快照 1 MiB 分帧 / 256 KiB 批、团队流 8 MiB、`/events` 2 MiB）——
   分块解决的是「单帧过大撞内存/背压」的根因，不是替代这些产品红线。
 - 未声明 `chunked-frames-v1` 的旧客户端：收帧路径完全不变，`4408` 背压逻辑照旧。
+- **与 `avatarDeferred` 不冲突、职责不同**：团队快照 >1 MiB 时仍走既有 `avatarDeferred`
+  优化（主帧去 avatar + 若干 `{kind:"avatar"}` 旁路帧）——它是**针对团队快照的定向优化**
+  （手机能立刻拿到名册）；`chunk` 是**单帧出口的通用兜底**（任何 kind 的超大帧都适用）。
 
-### 8.6 与本版尚未收口的部分
+### 8.6 验证现状
 
-| 项 | 状态 |
-| --- | --- |
-| 手机端 ① 已并入主干 | `7218198`（重组器+接线），P1/P2 防护由 `2ca90cb` 补生效（超时清扫时钟驱动、夹取唯一入口 `Limits.clamped`）。闸门对 `FrameReassembler.swift` 的探针原标 `pending_merge`，文件进树后已按正常规则命中 |
-| 端到端用例（真长帧 walking） | 两侧单测各自齐全（手机 18 条 / 网关 9 条），**真机端到端仍未跑**；随出包验证 |
-| 心跳 + 序号增量补拉（`sync-resume-v1`） | **已实现**（网关 `719b360`、手机 `afb64a2`），但它**不属于 `chunked-frames-v1`**，是控制面能力：网关 `/info` 公布 `heartbeatIntervalSeconds=25` / `heartbeatTimeoutSeconds=75` / `syncResume`（`server.mjs:58-59`、`:248-251`）；auth 可带 `resume{instanceId,afterSeq,maxDeltas}` 或连接中发 `sync.from`；`sync.done` 作回放界标；错误码 `SYNC_GAP`/`SYNC_UNKNOWN_INSTANCE`（→ 等新快照、不断开）与 `SYNC_UNAVAILABLE`/`SYNC_BAD_REQUEST`/`SYNC_RATE_LIMITED`（`server.mjs:463-510`）。**本文件 §8 只描述分块，sync-resume 的完整契约待单独章节收口** |
+| 侧 | 用例 | 状态 |
+| --- | --- | --- |
+| 网关 | 9 条（中文边界、老客户端整帧、超上限拒绝、块连续有序、能力字段容错、`/info` 三值、拼回逐字节一致、参考重组器乱序/缺块/重复） | 已提交 `48adb20` |
+| 手机 | 18 条（乱序+重复、单块退化、缺块超时、单块/重组/并发超限、index/kind 非法、`total` 中途变化、reset、`Limits.clamped` 夹取、`/info` 四形态、能力名契约） | `7218198` + `2ca90cb`（P1/P2 补生效） |
+| 端到端 | 真长帧 walking | **仍待真机验证**，随出包进行 |
 
 ---
 
-## 9. 整理时发现的缺口（不臆造，留给正式版决策）
+## 9. 续连与心跳（`sync-resume-v1`）
+
+> 断网/切网/后台回来时**只补增量**，不再整帧重拉；以及发现「TCP 半开、本端以为还连着」。
+> 网关实现 `48adb20`（①）与 `719b360`（②），手机实现 `afb64a2`。与 §8 分块**互相独立**：
+> 分块管「一帧太大」（§8），续连管「断了怎么接上」（本节）。两份能力**互相独立**，可分别采用。
+
+### 9.1 序号语义（按 `base` 链判缺口，不按 +1）
+
+| 项 | 规则 | 证据 |
+| --- | --- | --- |
+| `seq` | 单调递增，**每 `instanceId` 独立** | gw `team-feed.mjs:630-651` |
+| `snapshot` | 带 `instanceId` + `seq`（当前 head） | bot `roster-publish-v1.md:98-102` |
+| `delta` | 带 `base`（合并窗口前的 head）+ `seq`（窗口末帧） | bot `:80-96` |
+| **合并窗口会让 seq 跳号** | 400 ms 内多条 delta 并成一帧，`7 → 9` 正常（8 被并进 9） | gw `docs/mobile-v1-integration.md:176` |
+| 客户端唯一规则 | `base == 本地 seq` → 应用并把本地 seq 置为 `seq`；否则丢弃并重取快照。**禁止**用「seq 是否 +1」判缺口 | mobile `Core/GatewayTeamFeed.swift:366-374` |
+| `order` 帧 | 不占 seq（`seq` 只是参考值，不代表事件位置） | gw `team-feed.mjs:187` |
+| `avatar` 旁路帧 | 与 `snapshot` 同 seq，**不参与回放** | gw `team-feed.mjs:198-232` |
+| 心跳 / 补增量 | **不占 seq、不触发快照** | gw `server.mjs:463-510` |
+
+### 9.2 零往返续连（首选）
+
+```json
+{ "type": "auth", "token": "…",
+  "capabilities": ["chunked-frames-v1"],
+  "resume": { "instanceId": "…", "afterSeq": 8271, "maxDeltas": 200 } }
+```
+
+| 情况 | 网关行为 | 客户端动作 | 证据 |
+| --- | --- | --- | --- |
+| 命中留窗 | 直接回 delta（**不发整帧快照**）→ 末尾 `sync.done` | 应用增量 | gw `server.mjs:557-568` |
+| 未命中 | `{type:'error'}`（`SYNC_GAP` / `SYNC_UNKNOWN_INSTANCE`）+ **紧跟新快照** + `sync.done` | **不要断开重连**，同一连接自愈 | gw `server.mjs:565-586` |
+| 无可用状态（首连/被清） | 不写 `resume`，退化成整帧快照 | — | mobile `GatewayTeamFeed.swift:356-358` |
+
+**能力位**：`/info.capabilities.syncResume` 表示该网关是否支持补增量（`true` = 有 `history()` 可回放）；
+`heartbeatIntervalSeconds` / `heartbeatTimeoutSeconds` 见 §9.7。老网关缺这些字段时，客户端按「不支持」处理，
+退化成整帧快照 + 本地默认心跳（gw `server.mjs:248-251`）。
+
+`maxDeltas` 客户端默认 200，网关夹取上限 1000（`SYNC_MAX_DELTAS` = 200 / `SYNC_MAX_DELTAS_LIMIT` = 1000，gw `server.mjs:60-61`、`:465`）。
+
+### 9.3 连接中重试（`sync.from`）
+
+```json
+{ "type": "sync.from", "instanceId": "…", "afterSeq": 8271, "maxDeltas": 200 }
+```
+
+语义与 `resume` 相同，用于连接仍在但客户端想主动补一段。**限速 1 次 / 5 s**，超了回 `SYNC_RATE_LIMITED`（gw `server.mjs:504-508`）。
+
+### 9.4 `sync.done` 界标与六个 reason
+
+```json
+{ "type": "sync.done", "instanceId": "…", "seq": 8293,
+  "reason": "resume|sync.from|caught-up|gap|unknown-instance|snapshot" }
+```
+
+**恰好六个值，没有第七种**（由闸门集合精确比对守着，见 §10 缺口 1 与闸门脚本）：
+
+| reason | 含义 | 证据 |
+| --- | --- | --- |
+| `resume` | auth 里的续连命中，有增量可补 | gw `server.mjs:571` |
+| `sync.from` | 连接中重试命中 | gw `server.mjs:508` |
+| `caught-up` | 本来就没落后（零帧） | gw `server.mjs:490` |
+| `gap` | 留窗有缺口 | gw `server.mjs:486`、`:571` |
+| `unknown-instance` | `instanceId` 变了（ds-bot 重启） | gw `server.mjs:480` |
+| `snapshot` | **尝试了 resume 但没命中**，已改发整帧快照 | gw `server.mjs:586` |
+
+客户端拿它当「这段增量结束了」的界标，用于日志与界面状态，不猜「还有没有」。
+`reason=snapshot` **不是故障**，是自愈标记：前面必有一帧 `SYNC_GAP`/`SYNC_UNKNOWN_INSTANCE`。
+未知 reason 值只记日志、不分派分支（网关加值不会让手机走错路）。
+
+### 9.5 五个错误码
+
+| code | 客户端动作 | 证据 |
+| --- | --- | --- |
+| `SYNC_GAP` | 等紧跟的新快照（**不断开**） | gw `server.mjs:485` |
+| `SYNC_UNKNOWN_INSTANCE` | 同上（`instanceId` 变了） | gw `server.mjs:479` |
+| `SYNC_UNAVAILABLE` | 清掉落盘 resume，下次走整帧 | gw `server.mjs:467`、`:476` |
+| `SYNC_BAD_REQUEST` | 清掉落盘 resume（`afterSeq` 非法） | gw `server.mjs:477`、`:565` |
+| `SYNC_RATE_LIMITED` | 忽略（限速） | gw `server.mjs:506` |
+
+**恰好这五个**（同样由闸门集合比对守着）。
+
+### 9.6 客户端只存两个值
+
+`{instanceId, seq}`，按**服务器地址**分键存 `UserDefaults`（mobile `GatewayTeamFeed.swift:384-388`）。
+- 网关重启不重置 `seq` → 留窗被清 → `GAP` → 快照；
+- ds-bot 重启换 `instanceId` → `UNKNOWN_INSTANCE` → 快照。
+
+所以**不需要在手机上存事件缓冲**。
+
+### 9.7 应用层心跳
+
+| 项 | 值 | 证据 |
+| --- | --- | --- |
+| 客户端发 | `{type:'ping'}` → 网关回 `{type:'pong', at}`（`at` = 网关时间戳，仅诊断/校时） | mobile `GatewayTeamFeed.swift:405`；gw `server.mjs:498-502` |
+| `heartbeatIntervalSeconds` | **25**（默认；`/info` 公布） | gw `server.mjs:58`、`:249` |
+| `heartbeatTimeoutSeconds` | **75**（默认；`/info` 公布） | gw `server.mjs:59`、`:250` |
+| 判死条件 | 超过 timeout 没收到**任何帧** → 断开重连 | mobile `GatewayTeamFeed.swift:400-404` |
+| 客户端夹取 | 间隔 ∈ [5, 300]s，判死 ∈ [2×间隔, 600]s | mobile `BridgeSessionTuning` |
+| 与 WS 层 ping 的关系 | 网关自带 **15 s** ping / **75 s** terminate（`server.mjs:394-397`）**互补**：那条清僵死连接，这条发现「TCP 半开」 | gw `PROTOCOL.md`、`server.mjs:394-397` |
+| ping 限速 | 网关丢弃 2 s 内的重复 ping（客户端正常 25 s 一条，不会撞到） | gw `server.mjs:498` |
+
+### 9.8 保留窗与订阅模型
+
+| 项 | 值 | 证据 |
+| --- | --- | --- |
+| 保留窗 | **10,000 帧 / 15 分钟 / 8 MB**（先到者为准） | gw `team-feed.mjs:119-121`、`:158-174` |
+| 常驻订阅 | 即使没有手机连着也保持上游订阅（断线期间事件不丢），宿主侧多约 4 MB 内存 | gw `team-feed.mjs:145-146` |
+| 只记 delta | 快照 / avatar / order **不参与回放** | gw `team-feed.mjs:176-180` |
+| 卡片流 | **不参与**补增量：重连照旧重取 `card-snapshot`（帧小，不值得单开回放通道） | gw `card-frames.mjs` |
+
+### 9.9 兼容
+
+- 老客户端不发 `resume`、不发 `ping` → 网关行为与旧契约**完全一致**。
+- 认证后除 `ping` / `pong` / `sync.from` 外的帧仍按旧契约关闭 **4400**（gw `server.mjs:389`）。
+- **其它错误码**（不在五码内）→ 报给界面 `lastError`，不做静默处理。
+- 手机端用例：resume 载荷（含 `maxDeltas` 夹取）、`SYNC_*` → 动作映射、resume 落盘（多服务器隔离、非法值不写）、心跳参数协商与夹取。
+
+---
+
+## 10. 已知缺口（留给后续决策）
 
 | # | 缺口 | 现状 |
 | --- | --- | --- |
-| 1 | 无统一契约测试 | 网关与 ds-bot 各测各的，字段改名不会有跨仓红灯 |
-| 2 | `/mobile/v1/state` 与团队帧字段重叠但未声明从属 | `state` 的 bot 行带 `color`，网关侧 redaction 行为与 bridge 不一致（gw `docs/mobile-v1-integration.md:313-317`） |
-| 3 | 卡片答复的 `scope` 默认值是安全陷阱 | 已在契约里写明必须显式传（bot `card-projection-v1.md:182-184`），但技术上仍是「不传=全团队」 |
-| 4 | `_manifest` 命名不存在 | 本文件按 `verified-heads.txt` / `latest.json` 实际名记录（§7） |
-| 6 | `/events` 的大帧暴露面待评估 | 网关两条 WS 都接分块出口（`server.mjs:374` events / `:451` team），但手机端只在团队 WS 声明能力（`GatewayTeamFeed.swift:205`），`/events` 的 auth 帧不含 `capabilities`（`BridgeDtos.kt:240-245`），`BridgeChatEngine` 也没有 chunk 分支。**今天**因此不会收到 chunk、行为与旧版一致，安全；**但**一旦 `/events` 出现 >2 MiB 单帧，只剩 §5 的 2 MiB 背压红线（超限 `4408` 断开）这一条路。待评估：是给 `/events` 也接上分块（需手机端补声明 + chunk 分支），还是把该流的大帧限制在 2 MiB 以内 |
-| 5 | 体积红线探针只钉**数字原文**，不钉语义 | 「阈值语义变了但数值没变」（等同值换用）时闸门不红。已知弱点：`1_000_000` / `256 * 1024` / `8 * 1024 * 1024` / `2 * 1024 * 1024` / `32768` 都是纯数字探针。**防法**：红线尽量写成命名常量再做探针（`MAX_OPS = 200` 已是「名字+数值」双锚，最稳）；改常量名时同步改探针。iOSTester 复核认可这条局限为已知边界 |
+| 1 | `/mobile/v1/state` 与团队帧字段重叠但未声明从属 | `state` 的 bot 行带 `color`，网关侧 redaction 行为与 bridge 不一致（gw `docs/mobile-v1-integration.md:313-317`） |
+| 2 | 卡片答复的 `scope` 默认值是安全陷阱 | 已在契约里写明必须显式传（bot `card-projection-v1.md:182-184`），但技术上仍是「不传=全团队」 |
+| 3 | 体积红线探针只钉**数值原文**，不钉语义 | 「阈值语义变了但数值没变」（同值换用）时闸门不红。已知弱点：`1_000_000` / `256 * 1024` / `8 * 1024 * 1024` / `2 * 1024 * 1024` / `32768` 是纯数字探针。**防法**：红线尽量写成命名常量（`MAX_OPS = 200` 已是「名字+数值」双锚，最稳）；改常量名时同步改探针。iOSTester 复核认可为已知边界 |
+| 4 | `/events` 的大帧暴露面待评估 | 网关两条 WS 都接分块出口（`server.mjs:374` events / `:451` team），但手机端只在团队 WS 声明能力（`GatewayTeamFeed.swift:205`），`/events` 的 auth 帧不含 `capabilities`（`BridgeDtos.kt:240-245`），`BridgeChatEngine` 也没有 chunk 分支。**今天**因此不会收到 chunk、行为与旧版一致，安全；**但**一旦 `/events` 出现 >2 MiB 单帧，只剩 §5 的 2 MiB 背压红线（超限 `4408`）这一条路。待评估：给 `/events` 也接分块（需手机端补声明 + chunk 分支），还是把该流大帧限制在 2 MiB 以内 |
+| 5 | `_manifest` 命名不存在 | 本文件按 `verified-heads.txt` / `latest.json` 实际名记录（§7.3） |
+
+> 已收口、不再列为缺口的项：
+> - ~~无统一契约测试~~ → 已由 `scripts/verify-mobile-contract.py` 落地（106 条探针 + 2 项枚举精确比对，双向核对：文档改名或实现改名任一侧脱节即红）。
+> - ~~分块/续连契约散在多份文档~~ → 已并入本文件 §8/§9，两份分册降级为指针。

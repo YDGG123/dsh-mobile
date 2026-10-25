@@ -37,10 +37,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 DOCS_DIR = ROOT / "Docs"
-# 受本闸门看守的契约文档（两份都要钉，各钉各的实现面）
-DOC = DOCS_DIR / "mobile-contract-v1.md"          # 主契约：端点/帧/字段/红线/glyph/出包
-DOC_RESUME = DOCS_DIR / "team-feed-resume-v1.md"  # 续连与心跳：resume/sync.from/sync.done/ping
-CARE_DOCS = (DOC, DOC_RESUME)
+# 契约 v1 收口后：只有一份权威文档（§8 分块 + §9 续连都已并入），两份旧分册降级为指针。
+# `DOC_RESUME` 仅为历史探针条目保留别名——它们现在指向同一份文档。
+DOC = DOCS_DIR / "mobile-contract-v1.md"
+DOC_RESUME = DOC          # 已并入 §9，别名保留以兼容既有探针条目
+CARE_DOCS = (DOC,)
 
 GATEWAY = Path(os.environ.get("MOBILE_GATEWAY_DIR", str(ROOT.parent / "dsh-plugin-mobile-gateway")))
 BOT_REPO = Path(os.environ.get("DS_BOT_DIR", str(ROOT.parent / "ds-bot")))
@@ -58,13 +59,10 @@ BOT_INDEX = BOT / "index.js"
 MOBILE_GLYPH = ROOT / "DeepSeekHarnessMobile" / "Core" / "TeamGlyph.swift"
 MOBILE_FEED = ROOT / "DeepSeekHarnessMobile" / "Core" / "GatewayTeamFeed.swift"
 MOBILE_CHUNK = ROOT / "DeepSeekHarnessMobile" / "Core" / "FrameReassembler.swift"
-# 本轮唯一标记 pending_merge 的目标：手机端分块重组器（① 在途，尚未并入主干）
-PENDING_MERGE_FILES = {MOBILE_CHUNK}
 
 # 每条 = (分组, 文档里的断言原文, 实现文件, 探针)
-# 第 5 项可选 `pending_merge=True`：该实现文件属于**尚未并入主干**的在途批次时，
-# 文件缺席只记「待并入」而不判红（契约 §8.6 已声明手机端 ① 在途）；一旦文件出现，
-# 探针立刻按正常规则生效——缺席不是永久豁免，只是等它进树。
+# 第 5 项为保留位（历史上用于 `pending_merge`，① 合并后该机制已退役，恒为 False）。
+# 第 6 项可指定归属文档（契约收口后只剩一份，恒等于 DOC，保留以兼容既有条目）。
 # 双向核对：断言原文必须在**文档里**仍然出现（防止改名后文档没人动），
 # 探针必须逐字出现在**实现里**（防止实现删了文档还写着）。两边缺一即红。
 CHECKS: list[tuple[str, str, Path, str] | tuple[str, str, Path, str, bool]] = [
@@ -183,9 +181,9 @@ CHECKS: list[tuple[str, str, Path, str] | tuple[str, str, Path, str, bool]] = [
     ("续连", ("heartbeatTimeoutSeconds", "75"), GW_SERVER, "HEARTBEAT_TIMEOUT_SECONDS = 75", False, DOC_RESUME),
     ("续连", ("heartbeatIntervalSeconds", "25"), GW_SERVER, "heartbeatIntervalSeconds: HEARTBEAT_INTERVAL_SECONDS", False, DOC_RESUME),
     # —— 8 保留窗三帽：10,000 帧 / 15 分钟 / 8MB，名字+数值同行 ——
-    ("续连", ("10,000 帧", "15 分钟", "8MB"), GW_TEAM, "historyMaxFrames = 10_000", False, DOC_RESUME),
-    ("续连", ("10,000 帧", "15 分钟", "8MB"), GW_TEAM, "historyMaxBytes = 8 * 1024 * 1024", False, DOC_RESUME),
-    ("续连", ("10,000 帧", "15 分钟", "8MB"), GW_TEAM, "historyMaxAgeMs = 15 * 60_000", False, DOC_RESUME),
+    ("续连", ("10,000 帧", "15 分钟", "8 MB"), GW_TEAM, "historyMaxFrames = 10_000", False, DOC_RESUME),
+    ("续连", ("10,000 帧", "15 分钟", "8 MB"), GW_TEAM, "historyMaxBytes = 8 * 1024 * 1024", False, DOC_RESUME),
+    ("续连", ("10,000 帧", "15 分钟", "8 MB"), GW_TEAM, "historyMaxAgeMs = 15 * 60_000", False, DOC_RESUME),
     # —— 回放判定按 base 链（不按 +1） ——
     ("续连", "base", GW_TEAM, "history[first].base !== afterSeq", False, DOC_RESUME),
     ("续连", "sync.done", GW_TEAM, "mode: 'ok'", False, DOC_RESUME),
@@ -328,27 +326,24 @@ def main() -> int:
     doc_texts = {path: path.read_text() for path in CARE_DOCS if path.is_file()}
     errors: list[str] = []
     probed = 0
-    pending: list[str] = []
     for entry in CHECKS:
         group, claim, path, needle = entry[0], entry[1], entry[2], entry[3]
-        probe_ok = bool(entry[4]) if len(entry) > 4 else False
-        # 第 6 项可指定这条断言属于哪份文档；缺省归主契约
+        # 第 6 项可指定归属文档；契约收口后只剩一份权威文档
         doc = entry[5] if len(entry) > 5 else DOC
         probed += 1
         try:
             body = source_of(path)
         except FileNotFoundError:
-            if probe_ok and path in PENDING_MERGE_FILES:
-                shown = claim if isinstance(claim, str) else " + ".join(claim)
-                pending.append(f"[{group}] {shown}（{path.name} 待并入）")
-                continue
-            errors.append(f"[{group}] 实现文件不存在：{path}（断言：{claim}）")
+            shown = claim if isinstance(claim, str) else " + ".join(claim)
+            errors.append(f"[{group}] 实现文件不存在：{path}（断言：{shown}）")
             continue
         in_doc = doc_line_of(claim, doc) is not None
         hit = needle in body
         if options.list:
             shown = claim if isinstance(claim, str) else " + ".join(claim)
-            print(f"{'✓' if hit else '✗'} [{group}] {shown} → {path.name}: {needle!r}"
+            line = doc_line_of(claim, doc)
+            where = f"{doc.name}:{line}" if line else f"{doc.name}（无对应行）"
+            print(f"{'✓' if hit else '✗'} [{group}] {where} 「{shown}」 → {path.name}: {needle!r}"
                   f"{'' if in_doc else '  ← 文档里已没有这条断言'}")
             continue
         if not in_doc:
@@ -373,13 +368,8 @@ def main() -> int:
         print(f"\n契约闸门：{len(errors)} 处脱节（共 {probed} 条探针）", file=sys.stderr)
         return 1
 
-    if pending:
-        print(f"⏳ {len(pending)} 条探针待并入主干（不算脱节，也不给绿）：")
-        for item in pending:
-            print(f"   · {item}")
-    print(f"契约闸门通过：{probed - len(pending)}/{probed} 条探针命中、{enum_checked} 项枚举精确比对"
-          f"（文档 ↔ 网关/ds-bot/手机端三方一致）"
-          f"{f'，{len(pending)} 条待并入' if pending else ''}")
+    print(f"契约闸门通过：{probed}/{probed} 条探针命中、{enum_checked} 项枚举精确比对"
+          f"（{DOC.name} ↔ 网关/ds-bot/手机端三方一致）")
     return 0
 
 

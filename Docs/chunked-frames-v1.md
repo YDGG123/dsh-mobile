@@ -1,80 +1,22 @@
-# 分块帧契约 v1（`chunked-frames-v1`）
+# 分块帧契约 v1（`chunked-frames-v1`）— 已并入主契约
 
-> 目的：让超大快照/大响应不再撞上宿主网关的缓冲红线（历史事故：单帧 5.9MB 直接把手机踢下线）。
-> 抬阈值治不了根，所以改成**切块发、按序拼**。本文件是手机端与网关端的共同契约；
-> 网关实现在 `dsh-plugin-mobile-gateway`（`48adb20`），手机实现在 `FrameReassembler.swift`
-> （`7218198`）。
+> ⚠️ **本文件不再是权威**，内容已无损并入 [`mobile-contract-v1.md`](mobile-contract-v1.md) **§8**（分块传输）。
+> 保留本文件只为历史链接不 404；**改契约请改主契约**，不要在这里改。
+> 由 `scripts/verify-mobile-contract.py` 看守的是主契约（本文件不在闸门覆盖内）。
 
-## 1. 能力协商
+## 为什么合并
 
-- **声明**：WS 首帧 `{"type":"auth","token":…,"capabilities":["chunked-frames-v1"]}`。
-  网关也接受 `features` / `caps` 字段名，只认字符串项。
-- **不声明 = 永远收整帧**（老客户端零影响；新网关对老客户端行为完全不变）。
-- 两个 WS 都支持：`/mobile/v1/team`、`/mobile/v1/events`。
+原先「主契约 + 两份分册」并行维护，同一事实有两处可写 —— 分册漂了没有任何红灯。
+现在**一份权威**：`mobile-contract-v1.md`。两份分册降级为指针，从根上消除双写。
 
-## 2. `/info` 公布的上限
+## 去哪找内容
 
-| 字段（网关名） | 含义 | 当前值 | 手机端映射 |
-| --- | --- | --- | --- |
-| `capabilities.maxFrameBytes` | 单块上限（UTF-8 字节） | 524288（512KiB） | `FrameReassembler.Limits.maxChunkBytes` |
-| `capabilities.maxReassembledBytes` | 单条流重组上限 | 4194304（4MiB） | `maxReassembledBytes` |
-| `capabilities.maxStreamsPerConnection` | 同连接并发流上限 | 2 | `maxStreams` |
-
-- 一个字段都没公布 → 手机端**保持本地兜底**（512KiB / 4MiB / 2，与当前网关值一致），不猜。
-- 只公布部分字段也认（其余保持兜底）。
-- 字符串型数值（如 `"524288"`）不认，按“没给”处理。
-
-## 3. chunk 帧
-
-```json
-{ "kind": "chunk", "streamId": "…", "index": 0, "total": 3,
-  "finalKind": "snapshot", "part": "{\"kind\":\"snapshot\",…", "at": 1761400000000 }
-```
-
-- `part`：按 **UTF-8 字符边界**切开的原始 JSON 字符串（中文/emoji 不会被劈开）；
-  `parts` 按 `index` 拼接后即为原帧全文。
-- `index`：`0 … total-1` 连续；`streamId` 每条流唯一。
-- `finalKind`：原帧的 `kind`（`snapshot` / `delta` / `cards` / `order` …），手机据此回放进原处理链。
-- `at`：网关时间戳。**手机端忽略**（JSON 宽松解析）；只作诊断。
-
-## 4. 顺序与并发
-
-- 网关**串行**发流（一条发完再发下一条），实际并发恒为 1（≤ 公布的 2）。
-- 手机端仍按 `index` 归位，并**容忍乱序与重复**（重复块幂等覆盖，不重复计数）——
-  协议不保证顺序，客户端不能依赖发送顺序。
-
-## 5. 上限与失败语义
-
-| 情况 | 网关行为 | 手机行为 |
-| --- | --- | --- |
-| 单帧 > `maxFrameBytes` | 切成 chunk 发 | 收齐后回放 |
-| 单帧 > 4MiB（重组上限） | **不切不发**，只记一行日志（`… not sent (too-large …)`），连接与其他帧不受影响 | 收不到该流 → 30s 超时 → 记日志 + 断开重连重取快照 |
-| 单块 > `maxChunkBytes` | 不应发生（网关按自己公布的值切） | 判客户端错误、丢弃该流（说明公布值与实际不一致） |
-| 累计 > `maxReassembledBytes` | — | 丢弃该流，不无限吃内存 |
-| 并发流 > `maxStreams` | — | 拒绝新流，已在拼的流不受影响 |
-| 字段缺失 / `total` 中途变化 / index 越界 | — | 丢弃该流 + 断开重连 |
-
-**两个“非协议参数”的口径（不要混淆）**：
-
-- `streamTimeout = 30s` 是**客户端内部资源保护**（半截流不能永远占内存），
-  **网关不公布也不参与协商**。实现上由客户端**清扫任务**推进（间隔 = 超时/6），
-  **不依赖新块到达**——网关发一半停住正是要防的故障形态；超时后与重组失败同路径
-  （记 `team-chunk` 日志 + 断连重取快照）。
-- 网关公布的上限一律先经客户端 `Limits.clamped` 夹取再生效（单块 ≤2MiB、
-  重组 ≤8MiB、并发 ≤4、超时 ≤300s），公布离谱值只会被夹小，不会被照搬。
-- 手机端另有 **8MiB 硬天花板**（`FrameReassembler.absoluteReassembledCap`），
-  **有意比网关的 4MiB 宽松**——防止一个坏网关公布超大值把手机内存吹爆。
-  这是客户端防御，不是沿用网关值，也不回写进协议。
-
-## 6. 与 `avatarDeferred` 的关系
-
-团队快照 >1MB 时仍走既有 `avatarDeferred` 优化（主帧去 avatar + 若干 `{kind:"avatar"}` 旁路帧）。
-两者不冲突：`avatarDeferred` 是**针对团队快照的定向优化**（手机能立刻拿到名册），
-`chunk` 是**单帧出口的通用兜底**（任何 kind 的超大帧）。
-
-## 7. 验证现状
-
-- 网关：9 条新用例（中文边界、老客户端整帧、超上限拒绝、块连续）+ 全量 103/0（DSBotDev `48adb20`）。
-- 手机：16 条用例（乱序+重复、单块退化、缺块超时后可重开、单块/重组/并发超限、
-  index/kind 非法、`total` 中途变化、reset、limits 夹取、`/info` 四种公布形态、能力名契约）。
-  XCTest 本机不可跑，用例只到静态编译；真机验证随出包进行。
+| 你原本想查 | 现在看 |
+| --- | --- |
+| 能力协商（`chunked-frames-v1`、声明范围、`features`/`caps` 容错） | [`§8.1`](mobile-contract-v1.md#81-能力协商) |
+| `/info` 三上限与手机端映射、解析容错 | [`§8.1`](mobile-contract-v1.md#81-能力协商) |
+| `chunk` 帧七字段 | [`§8.2`](mobile-contract-v1.md#82-chunk-帧字段) |
+| 切分/重组规则（UTF-8 边界、乱序、重复） | [`§8.3`](mobile-contract-v1.md#83-切分与重组规则) |
+| 超限/并发/超时/夹取 | [`§8.4`](mobile-contract-v1.md#84-超限并发与超时行为) |
+| 与 `avatarDeferred`、既有红线的关系 | [`§8.5`](mobile-contract-v1.md#85-与既有红线avatar-deferred-的关系) |
+| 验证现状（用例数、真机待验） | [`§8.6`](mobile-contract-v1.md#86-验证现状) |
