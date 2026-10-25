@@ -18,3 +18,4 @@ ef569dfead9dc239578238c69d68ee44bc2c90be  # 头像三代修复（003cd1c→2ed5b
 c61cd2a65fddc919c674eb5cb653ac51e61678d9  # 「头像不会动」修复（@MainActor 驱动 + 负延迟相位跳段 + 实时前台判断 + blinkResume 纯函数化；QA 增量复核通过）
 03f278b9c4c949d1d4249ae4c4893f5fe8a10c03  # 移除「推入空白测试页」诊断入口（眨眼修复 c61cd2a 之上；四路闸门 + 收录 71/71 绿，i18n iOS 侧 0 红）
 a5bd4c095e4d1ac012a9a87aa9e40cd2086c1618  # 主动换凭证（14 分钟）修「每 15 分钟断连重连」；QA 增量复核通过（生命周期闭环/单飞/失败退化三路重排）
+72181987481acafbb03e150dd96844b990997b84  # ① 分块传输手机侧（FrameReassembler + chunked-frames-v1 能力协商 + 团队 WS 接线 + 16 条用例；QA 增量通过，四件套同笔）
