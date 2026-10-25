@@ -24,3 +24,4 @@ e7aaa9941a2eadee0edfef050e0c485b094094e1  # ② 增量续连（resume/sync.from/
 70e62c27d487074b377eb14805a1a9fa3af0929c  # ② 出包批：build 32 + stop() 显式停清扫（App 代码 = 已复核 afb64a2 之上仅版本号/stop 两处，QA 终审全绿）
 9740e6eeb9d9b987cc65db082177b3fd1739e3a7  # ② 出包批（修正版）：主 App build 号 32（取自 Resources/Info.plist）+ widget 32；含 afb64a2 全部 ② 内容
 bf3de7bfc2c8683a338d0fd8290bd02465db6305  # 版本一致性闸门（5 反向例 + 0548 端到端复现）+ persistResume 节流
+bea67174d60dcfe889eba75993d92b5616cc16fb  # 攒批终版：版本闸门 bf3de7b + resume 节流 + 契约 v1(79b4eb9) + 闸门口径注释（docs-only，App 代码同 bf3de7b）
