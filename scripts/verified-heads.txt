@@ -29,3 +29,4 @@ bea67174d60dcfe889eba75993d92b5616cc16fb  # 攒批终版：版本闸门 bf3de7b 
 e5392c8baf0f0f7f49ff30cfca396d014ba4bc18  # 出包批：build 33 + 版本闸门「必须比已出包新」+ 清理收尾 0b84115 + 节流 bf3de7b
 a4194510bb84735e4471391d8dd68d8060bc60f5  # 出包批：build 33 + 清理收尾(0b84115) + 清理闸门守不变量 + 真机手册（App 代码仅注释差异）
 075f03841b4ba8e97bbc49221baa296f77937654  # 出包批 build 34：改名 Orcarness + 新 Bundle ID/scheme + 隐私政策随包内置（App 代码 = 改名 d9112cf + 深链 c06d5c4 + 隐私 075f038；同批含第五路测试闸门 a5d6c86，不改 App 行为）
+d9d3cf907fdc3d7647dbe2134b95859b48b27d06  # build 34 最终 head（在 075f038 之上仅加 pbxproj 注释：写明测试 target 17.0 是故意的；二进制等价）
