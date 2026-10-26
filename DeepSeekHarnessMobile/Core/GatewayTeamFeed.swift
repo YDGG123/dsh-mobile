@@ -154,6 +154,8 @@ final class GatewayTeamFeed: ObservableObject {
         reconnectTask?.cancel()
         reconnectTask = nil
         // 与 handleDisconnect 显式配对：不靠 deinit 兜底（安全等级不同）。
+        // 历史教训：这里原来只有 `socket?.cancel`，两个后台任务要等对象销毁才停；
+        // 主动 stop（例如离开团队页）后它们还在跑，日志里会看到"没人看的时候仍在 ping"。
         stopHeartbeat()
         stopChunkSweeper()
         reassembler.reset()
@@ -206,6 +208,12 @@ final class GatewayTeamFeed: ObservableObject {
     private func connect() {
         // 每次建连前统一收尾：重连、requestResync、前后台切换最终都落到这里，
         // 这样"任何退出路径都不残留后台任务"只在这一个入口保证一次。
+        //
+        // 历史教训（别退回去）：最早的版本这里只靠 `startHeartbeat()` 内部顺手停旧心跳，
+        // **既没停清扫器、也没重置重组器**。于是每次重连后都留下上一代清扫任务（30s/6=5s 一跳），
+        // 它会对着**新建的**重组器调 `expire()` —— 空的就算了，如果新连接刚开始拼流，
+        // 旧清扫会拿旧时间戳把新流判死，表现是"刚连上就重取快照"的循环。
+        // 现在三个资源在同一个入口成对收尾，并由 `scripts/verify-feed-cleanup.py` 守着。
         stopHeartbeat()
         stopChunkSweeper()
         reassembler.reset()
