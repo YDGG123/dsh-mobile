@@ -121,7 +121,10 @@ final class FileIconAssetTests: XCTestCase {
                             .environment(\.colorScheme, scheme)
                         // Menu 由 UIKit 承载，使用真实视图层级截图，避免 ImageRenderer 的占位图。
                         let controller = UIHostingController(rootView: header)
-                        controller.safeAreaRegions = []
+                        // `safeAreaRegions` 是 iOS 16.4+ API：主 App 侧同样带保护
+                        // （ConversationViewport.swift 的 `if #available(iOS 16.4, *)`），
+                        // 测试别漏——漏了整条测试 target 在 16.0 部署目标下编不过。
+                        if #available(iOS 16.4, *) { controller.safeAreaRegions = [] }
                         controller.overrideUserInterfaceStyle = scheme == .dark ? .dark : .light
                         let size = controller.sizeThatFits(in: CGSize(width: width, height: 1_000))
                         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)

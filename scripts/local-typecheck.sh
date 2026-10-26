@@ -136,7 +136,9 @@ public struct MarkdownTextStyleBuilder {
     public static func buildBlock<A: MarkdownTextStyle, B: MarkdownTextStyle, C: MarkdownTextStyle, D: MarkdownTextStyle>(_ a: A, _ b: B, _ c: C, _ d: D) -> TupleTextStyle { TupleTextStyle() }
     public static func buildBlock<A: MarkdownTextStyle, B: MarkdownTextStyle, C: MarkdownTextStyle, D: MarkdownTextStyle, E: MarkdownTextStyle>(_ a: A, _ b: B, _ c: C, _ d: D, _ e: E) -> TupleTextStyle { TupleTextStyle() }
 }
-public struct EmptyTextStyle: MarkdownTextStyle {}
+public struct EmptyTextStyle: MarkdownTextStyle, TextStyle {
+    public func _collectAttributes(in attributes: inout AttributeContainer) {}
+}
 public struct TupleTextStyle: MarkdownTextStyle {}
 
 public struct Em {
@@ -154,6 +156,168 @@ public extension View {
     func markdownMargin(top: CGFloat, bottom: CGFloat) -> some View { self }
     func relativeLineSpacing(_ spacing: Em) -> some View { self }
 }
+
+// ---- 测试目标（`@testable import MarkdownUI`）会用到的内部 API ----
+// 闸门 `scripts/local-test-typecheck.sh` 要用同一份桩把测试源码也编一遍，
+// 所以这里把测试引用到的符号补齐。**只求签名一致，不求行为**——真正跑测试的是 Xcode。
+// 补的原则：形状照抄 `Vendor/swift-markdown-ui/Sources/MarkdownUI`，别自己发明语义。
+public struct SoftBreak {
+    public enum Mode { case space, lineBreak }
+}
+
+/// Vendor 的 `TextStyle` 是协议（`Theme.code` 等属性就是它）。
+public protocol TextStyle {
+    func _collectAttributes(in attributes: inout AttributeContainer)
+}
+
+enum InlineNode: Hashable, Sendable {
+    case text(String)
+    case softBreak
+    case lineBreak
+    case code(String)
+    case html(String)
+    indirect case emphasis(children: [InlineNode])
+    indirect case strong(children: [InlineNode])
+    indirect case strikethrough(children: [InlineNode])
+    indirect case link(destination: String, children: [InlineNode])
+    indirect case image(source: String, children: [InlineNode])
+}
+
+extension InlineNode {
+    var children: [InlineNode] {
+        switch self {
+        case .emphasis(let c), .strong(let c), .strikethrough(let c), .link(_, let c), .image(_, let c):
+            return c
+        default:
+            return []
+        }
+    }
+
+    func renderAttributedString(
+        baseURL: URL?, textStyles: InlineTextStyles,
+        softBreakMode: SoftBreak.Mode, attributes: AttributeContainer
+    ) -> AttributedString { AttributedString() }
+}
+
+struct InlineTextStyles {
+    let code: TextStyle
+    let emphasis: TextStyle
+    let strong: TextStyle
+    let strikethrough: TextStyle
+    let link: TextStyle
+    init(code: TextStyle, emphasis: TextStyle, strong: TextStyle,
+         strikethrough: TextStyle, link: TextStyle) {
+        self.code = code
+        self.emphasis = emphasis
+        self.strong = strong
+        self.strikethrough = strikethrough
+        self.link = link
+    }
+}
+
+extension Array where Element == InlineNode {
+    func renderText(
+        baseURL: URL?, textStyles: InlineTextStyles, images: [String: Image],
+        softBreakMode: SoftBreak.Mode, attributes: AttributeContainer
+    ) -> Text { Text("") }
+
+    func renderAttributedString(
+        baseURL: URL?, textStyles: InlineTextStyles,
+        softBreakMode: SoftBreak.Mode, attributes: AttributeContainer
+    ) -> AttributedString { AttributedString() }
+}
+
+struct InlineText: View {
+    let hasInlineCode: Bool
+    init(_ inlines: [InlineNode]) { self.hasInlineCode = !inlines.isEmpty }
+    var body: some View { EmptyView() }
+}
+
+struct TextStyleAttributesReader<Content: View>: View {
+    private let content: (AttributeContainer) -> Content
+    init(@ViewBuilder content: @escaping (_ attributes: AttributeContainer) -> Content) {
+        self.content = content
+    }
+    var body: some View { content(AttributeContainer()) }
+}
+
+@available(iOS 18.0, *)
+struct MarkdownInlineCodeBackgroundRenderer: TextRenderer {
+    func draw(layout: Text.Layout, in context: inout GraphicsContext) {}
+}
+
+public protocol InlineImageProvider {
+    func image(with url: URL, label: String) async throws -> Image
+}
+
+public extension View {
+    func markdownInlineImageProvider(_ inlineImageProvider: InlineImageProvider) -> some View { self }
+}
+
+enum BlockNode: Hashable {
+    case codeBlock(fenceInfo: String?, content: String)
+    indirect case paragraph(content: [InlineNode])
+    case other
+}
+
+extension MarkdownContent {
+    var blocks: [BlockNode] { [] }
+}
+
+public extension Theme {
+    var code: TextStyle { EmptyTextStyle() }
+    var emphasis: TextStyle { EmptyTextStyle() }
+    var strong: TextStyle { EmptyTextStyle() }
+    var strikethrough: TextStyle { EmptyTextStyle() }
+    var link: TextStyle { EmptyTextStyle() }
+}
+
+extension EnvironmentValues {
+    var theme: Theme {
+        get { Theme() }
+        set {}
+    }
+    var baseURL: URL? {
+        get { nil }
+        set {}
+    }
+    var softBreakMode: SoftBreak.Mode {
+        get { .space }
+        set {}
+    }
+}
+
+// 内联图片：`InlineText` / `ImageFlow` 走这套（测试里有 task、provider、base URL 三个探针）。
+struct RawImageData: Hashable {
+    var source: String
+    var alt: String
+    var destination: String?
+}
+
+extension InlineNode {
+    var imageData: RawImageData? { nil }
+}
+
+struct StubInlineImageProvider: InlineImageProvider {
+    func image(with url: URL, label: String) async throws -> Image { Image(systemName: "photo") }
+}
+
+public extension InlineImageProvider {
+    static var `default`: InlineImageProvider { StubInlineImageProvider() }
+}
+
+extension EnvironmentValues {
+    var inlineImageProvider: InlineImageProvider {
+        get { StubInlineImageProvider() }
+        set {}
+    }
+    /// Vendor 里是 `URL?`（测试设置时传 URL 会自动提升为 Optional）。
+    var imageBaseURL: URL? {
+        get { nil }
+        set {}
+    }
+}
+
 STUB
 
 # 桩源码变了就重建模块（时间戳比对），否则改动不生效。
@@ -260,6 +424,17 @@ RETIRED_UI=$(grep -rn "pairPastedPayload" DeepSeekHarnessMobile/Views/ 2>/dev/nu
 if [ -n "$RETIRED_UI" ]; then
   echo "❌ 退役配对路径被界面引用（B3 红线）:"
   echo "$RETIRED_UI"
+  exit 1
+fi
+
+# ---- 测试目标类型检查（第五路，2026-10-26）----
+# 上面四路只编 App / Widget，**从不编 DeepSeekHarnessMobileTests**。于是"只在测试目标里
+# 编不过"的错误一直没人发现：`FileIconAssetTests` 用 iOS 16.4 的 `safeAreaRegions` 没加
+# 保护、`GatewayProtocolTests` 直接用 16.1/16.2/17.0 的 API……实测把测试目标当编译单元
+# 编一遍，16.0 部署目标下有 54 个错误（也就是说这个测试目标长期处于"从未编过"的状态）。
+# 这里把"用例能编"变成硬闸门；`--self-test` 是该闸门的反向自证。
+if ! bash "$(dirname "${BASH_SOURCE[0]}")/local-test-typecheck.sh"; then
+  echo "   测试目标编不过：先看上面报错（App 四路绿 ≠ 测试能编）"
   exit 1
 fi
 
