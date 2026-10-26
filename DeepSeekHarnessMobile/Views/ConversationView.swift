@@ -505,6 +505,8 @@ struct ConversationView: View {
                 scrollToBottomToken: viewportScrollToBottomToken,
                 onContentAvailabilityChanged: { sessionID, hasContent in
                     Task { @MainActor in
+                        // 启动时间轴第 5 个时刻：打开会话到"看见消息"。
+                        if hasContent { StartupTimeline.mark("history.rendered") }
                         guard sessionID == store.selectedSessionId else { return }
                         viewportContentSessionID = sessionID
                         viewportHasConversationContent = hasContent

@@ -13191,3 +13191,95 @@ final class FeedResumeAndHeartbeatTests: XCTestCase {
         BridgeSessionTuning.update(fromInfo: #"{"capabilities":{"heartbeatIntervalSeconds":25,"heartbeatTimeoutSeconds":75}}"#)
     }
 }
+
+// MARK: - Bot 页本地缓存（启动/断网可见性）
+
+final class TeamRosterCacheTests: XCTestCase {
+
+    private func snapshot(instanceId: String = "pc-1", botName: String = "翻译官") -> [String: Any] {
+        [
+            "instanceId": instanceId,
+            "seq": 42,
+            "bots": [[
+                "id": "b1", "name": botName, "role": "Translator", "sessionId": "s1",
+                "avatar": ["shape": "whale", "image": "data:image/png;base64,AAAA"],
+                "activity": "working",
+            ]],
+            "rooms": [["id": "r1", "name": "研发群", "sessionId": "s2", "members": ["b1"]]],
+            "_cardCounts": ["b1": 2],
+        ]
+    }
+
+    private func encode(_ snapshot: [String: Any]) -> Data {
+        try! XCTUnwrap(TeamRosterCache.trimmedSnapshot(from: snapshot))
+    }
+
+    // 例 1：缓存损坏（截半截 JSON）→ 静默回空态，绝不抛错打断启动
+    func testCorruptCacheReturnsNil() {
+        let full = encode(snapshot())
+        let truncated = full.prefix(full.count / 2)
+        XCTAssertNil(TeamRosterCache.load(from: Data(truncated)), "半截 JSON 必须静默回空态")
+        XCTAssertNil(TeamRosterCache.load(from: Data()), "空数据同样回空态")
+        XCTAssertNil(TeamRosterCache.load(from: Data("not-json".utf8)))
+    }
+
+    // 例 2：无缓存（首次安装）→ nil，界面走原有空态
+    func testNoCacheReturnsNil() {
+        XCTAssertNil(TeamRosterCache.load(from: Data()))
+    }
+
+    // 例 3：TTL 超期（7 天前）→ 回空态
+    func testExpiredCacheReturnsNil() throws {
+        let data = encode(snapshot())
+        let later = Date().addingTimeInterval(TeamRosterCache.defaultTTL + 60)
+        XCTAssertNil(TeamRosterCache.load(from: data, now: later), "超过 TTL 必须回空态")
+        XCTAssertNotNil(TeamRosterCache.load(from: data, now: Date().addingTimeInterval(60)))
+    }
+
+    // 例 4：instanceId 变了 → 仍能解出旧列表（名字/头像对得上），等新快照替换
+    func testCacheSurvivesInstanceIdChange() throws {
+        let old = try XCTUnwrap(TeamRosterCache.load(from: encode(snapshot(instanceId: "pc-old"))))
+        XCTAssertEqual(old.instanceId, "pc-old")
+        let rows = GatewayTeamFeed.rosterRows(from: old.snapshot)
+        XCTAssertEqual(rows.map(\.name), ["翻译官", "研发群"], "instanceId 变化不影响旧列表可读性")
+        // 新实例的快照应当是"另一批行"，替换后不再含旧名字
+        let newer = GatewayTeamFeed.rosterRows(from: snapshot(instanceId: "pc-new", botName: "写手"))
+        XCTAssertEqual(newer.map(\.name), ["写手", "研发群"])
+    }
+
+    // 例 5：整表替换 + 字段保真（照片只留 hasImage；卡片计数随快照落盘）
+    func testTrimmedSnapshotKeepsIdentityFieldsAndCardCounts() throws {
+        let payload = try XCTUnwrap(TeamRosterCache.load(from: encode(snapshot())))
+        let bots = try XCTUnwrap(payload.snapshot["bots"] as? [[String: Any]])
+        let avatar = try XCTUnwrap(bots.first?["avatar"] as? [String: Any])
+        XCTAssertNil(avatar["image"], "照片字节不入缓存")
+        XCTAssertEqual(avatar["hasImage"] as? Bool, true, "留 hasImage 口子，将来补文件缓存不用改结构")
+        XCTAssertEqual(avatar["shape"] as? String, "whale")
+        XCTAssertEqual(payload.snapshot["_cardCounts"] as? [String: Int], ["b1": 2], "卡片计数随快照落盘")
+
+        let rows = GatewayTeamFeed.rosterRows(from: payload.snapshot)
+        XCTAssertEqual(rows.count, 2)
+        XCTAssertEqual(rows.first?.avatarShape, "whale")
+        XCTAssertEqual(rows.first?.activity, "working", "缓存保留上次状态值")
+    }
+
+    // 版本号：结构版本不符 → 静默回空态（字段演进不许炸启动）
+    func testVersionMismatchReturnsNil() throws {
+        let inner = try XCTUnwrap(TeamRosterCache.trimmedSnapshot(from: snapshot()))
+        let wrapper: [String: Any] = [
+            "cacheVersion": 999,
+            "savedAt": Date().timeIntervalSince1970 * 1000,
+            "snapshot": (try JSONSerialization.jsonObject(with: inner)) as Any,
+        ]
+        let data = try JSONSerialization.data(withJSONObject: wrapper)
+        XCTAssertNil(TeamRosterCache.load(from: data))
+    }
+
+    // 裁剪上限：超限快照不落盘（返回 nil），绝不写超大 JSON
+    func testOversizeSnapshotIsSkipped() {
+        var huge = snapshot()
+        huge["bots"] = [["id": "b1", "name": String(repeating: "x", count: 4096)]]
+        huge["work"] = String(repeating: "y", count: 4096)
+        XCTAssertNil(TeamRosterCache.trimmedSnapshot(from: huge, maxBytes: 256))
+    }
+}

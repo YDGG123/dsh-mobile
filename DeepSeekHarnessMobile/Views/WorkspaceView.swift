@@ -104,8 +104,13 @@ struct WorkspaceView: View {
         }
         .foregroundStyle(palette.ink(1))
         .onAppear {
+            StartupTimeline.mark("workspace.appear")
             store.refreshRemoteState()
             gatewayTeam.start()
+            if !displayedSessions.isEmpty { StartupTimeline.mark("sessions.rendered") }
+        }
+        .onChange(of: displayedSessions.count) { count in
+            if count > 0 { StartupTimeline.mark("sessions.rendered") }
         }
         .onDisappear { gatewayTeam.stop() }
         .onDisappear {

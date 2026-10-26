@@ -93,6 +93,13 @@ final class GatewayTeamFeed: ObservableObject {
     private static let chunkLog = Logger(subsystem: "ai.dsh.mobile.ios", category: "team-chunk")
     /// 分块超时清扫：网关发一半停住时没有任何新块，必须靠"只推进时钟"的清扫触发超时。
     private var chunkSweeper: ChunkStreamSweeper?
+    /// Bot 页本地缓存：启动先水合（断网也能看到上次列表与 glyph 头像），快照到达后静默替换。
+    private let rosterStore = TeamRosterCacheStore()
+    /// 首次水合/首次实时渲染各打一条启动时间轴。
+    private var didMarkBotsRendered = false
+    /// 最近一次真实快照的原始 JSON：卡片帧到达时用它重算并回写缓存（含卡片计数）。
+    private var lastSnapshotObject: [String: Any]?
+
     // MARK: ② 增量续连与心跳（网关 719b360）
     /// `{instanceId, seq}` 落盘：重连时用零往返 `resume` 直接补增量，不用整帧快照。
     private static let resumeStore = TeamFeedResumeStore()
@@ -135,11 +142,79 @@ final class GatewayTeamFeed: ObservableObject {
 
     func start() {
         wantLive = true
-        guard sessionResource() != nil else {
+        guard let resource = sessionResource() else {
             phase = .needsPairing
             return
         }
+        resumeKey = Self.resumeKey(for: resource)
+        // 先喂缓存（同步读，几百 KB），再连网 —— Bot 页与会话页一样"启动即有内容"。
+        hydrateRosterCacheIfNeeded()
         connect()
+    }
+
+    /// 用上次落盘的团队快照先渲染。**不碰 `seq`/`instanceId`**（那是续连游标，
+    /// 由真实快照/续连接管），只喂 `rows` 并把 phase 置成 `.connecting`，
+    /// 这样 UI 的 `gatewayTeamReady`（要求 rows 非空）立刻成立。
+    private func hydrateRosterCacheIfNeeded() {
+        guard rows.isEmpty, !resumeKey.isEmpty else { return }
+        guard let payload = rosterStore.load(serverKey: resumeKey) else { return }
+        let cachedRows = Self.rosterRows(from: payload.snapshot)
+        guard !cachedRows.isEmpty else { return }
+        rows = cachedRows
+        if let counts = payload.snapshot["_cardCounts"] as? [String: Int], !counts.isEmpty {
+            for index in rows.indices {
+                rows[index].placeholderCards = counts[pendingKey(rows[index])] ?? rows[index].placeholderCards
+            }
+        }
+        // 缓存不是实时态：沿用现有降级提示，绝不把旧状态显示成当前状态而不作区分。
+        degraded = true
+        phase = .connecting
+        markBotsRendered(source: "cache")
+        Self.chunkLog.notice("roster cache hydrated rows=\(cachedRows.count, privacy: .public) age=\(Int(Date().timeIntervalSince(payload.savedAt)), privacy: .public)s")
+    }
+
+    /// 从快照 JSON 解析行（缓存水合与真快照共用同一套字段语义）。
+    nonisolated static func rosterRows(from snapshot: [String: Any]) -> [Row] {
+        // 走实例解析会牵扯 @MainActor 状态；这里只做纯字段映射的最小副本，
+        // 字段集合与 `row(from:kind:)` 保持一致（改一处要同步另一处，单测钉住）。
+        var out: [Row] = []
+        for raw in (snapshot["bots"] as? [[String: Any]]) ?? [] {
+            if let row = Self.makeRow(raw, kind: .bot) { out.append(row) }
+        }
+        for raw in (snapshot["rooms"] as? [[String: Any]]) ?? [] {
+            if let row = Self.makeRow(raw, kind: .room) { out.append(row) }
+        }
+        return out
+    }
+
+    nonisolated private static func makeRow(_ raw: [String: Any], kind: Row.Kind) -> Row? {
+        guard let id = raw["id"] as? String, !id.isEmpty else { return nil }
+        var row = Row(id: id, kind: kind,
+                      name: raw["name"] as? String ?? id,
+                      role: raw["role"] as? String,
+                      sessionId: raw["sessionId"] as? String ?? id)
+        row.pinned = raw["pinned"] as? Bool ?? false
+        row.main = raw["main"] as? Bool ?? false
+        row.members = (raw["members"] as? [String]) ?? []
+        row.admin = raw["admin"] as? String
+        row.mode = raw["mode"] as? String
+        row.activity = raw["activity"] as? String
+        row.preview = raw["preview"] as? String
+        row.updatedAt = (raw["updatedAt"] as? NSNumber)?.int64Value
+        if let avatar = raw["avatar"] as? [String: Any] {
+            row.avatarShape = avatar["shape"] as? String
+            row.avatarImage = avatar["image"] as? String
+        }
+        if let glyph = raw["glyph"], let parsed = TeamAvatarGlyph(json: glyph) {
+            row.glyph = parsed
+        }
+        return row
+    }
+
+    private func markBotsRendered(source: String) {
+        guard !didMarkBotsRendered else { return }
+        didMarkBotsRendered = true
+        StartupTimeline.mark("bots.rendered(\(source))")
     }
 
     /// 对象直接销毁（没有走 stop/handleDisconnect）时的最后兜底。
@@ -320,6 +395,7 @@ final class GatewayTeamFeed: ObservableObject {
               let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return }
         if let type = object["type"] as? String {
             if type == "ready" {
+                StartupTimeline.mark("ws.connected")
                 reconnectDelay = 1
                 if let instance = object["instanceId"] as? String { instanceId = instance }
                 phase = .live
@@ -535,6 +611,11 @@ final class GatewayTeamFeed: ObservableObject {
         applySnapshotOrderFallback()
         phase = .live
         lastError = nil
+        markBotsRendered(source: "live")
+        // 记住原始快照（卡片帧到达时要重算并回写），再回写缓存
+        // （后台队列 + 5 秒节流；照片头像只留 hasImage，不存字节）。
+        lastSnapshotObject = object
+        rosterStore.save(serverKey: resumeKey, snapshot: object, instanceId: instanceId)
     }
 
     /// snapshot 里已经带 updatedAt（网关补的），作为 order 帧到达前的排序依据。
@@ -571,6 +652,12 @@ final class GatewayTeamFeed: ObservableObject {
         }
         for index in rows.indices {
             rows[index].placeholderCards = counts[pendingKey(rows[index])] ?? 0
+        }
+        // 卡片是"等回答"入口：断网也要能看到红点，所以计数随团队快照一起落盘。
+        if var snapshot = lastSnapshotObject {
+            snapshot["_cardCounts"] = counts
+            lastSnapshotObject = snapshot
+            rosterStore.save(serverKey: resumeKey, snapshot: snapshot, instanceId: instanceId)
         }
     }
 

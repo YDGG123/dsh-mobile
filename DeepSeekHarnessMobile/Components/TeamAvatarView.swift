@@ -128,6 +128,7 @@ struct TeamAvatarView: View {
             }
             .clipShape(Circle())
             .accessibilityHidden(true)
+            .onAppear { StartupTimeline.mark("avatar.rendered") }
     }
 
     /// 眼睛：每只眼睛一个原生圆角胶囊，按 glyph 坐标缩放摆放。
