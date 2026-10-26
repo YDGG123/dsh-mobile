@@ -36,3 +36,4 @@ ed8ef4d360cc3c820106b2bcd09f2888e45bc797  # build 34 head：在 d9d3cf9 之上�
 75ce0621824b449d9d160b5706b934e9217dee5b  # build 36 head（在 0671ad3 之上仅调整改名闸门的报错顺序：字形检查与字面量残留同时报；App 二进制等价）
 ad51ab0b5fc831a3c5eadd3bcfb95ccce7b62384  # build 37：顶栏/抽屉去掉原版虎鲸图标，只留 Orcarness 字标（App 代码 head）
 7059457adc2de33c208cb9bf39c87c6c36ca078f  # build 37 完整版：顶栏去原版鲸鱼 + 空态新虎鲸矢量 + 图标黑改深灰 #14161A + Bot 页返回不再整段隐藏（App 代码 head）
+ef1101913843fba6637b94e6dc3e6c020ae18e5d  # build 38：卡片止血（card 帧正文保留 + 只读展示 + 诚实文案；无答复路径）（App 代码 head）
