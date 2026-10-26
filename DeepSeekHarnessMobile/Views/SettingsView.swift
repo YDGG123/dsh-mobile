@@ -11,10 +11,10 @@ import Charts
 /// 类问题，维护者还能用一条命令做二分，不必重新加 UI、重新出包：
 ///
 /// ```
-/// defaults write com.lichaofan.dshmobile dsh.diag.noCompositing -bool YES   # 关离屏合成+阴影
-/// defaults write com.lichaofan.dshmobile dsh.diag.noRootIdentity -bool YES  # 关根 identity 绑定
-/// defaults write com.lichaofan.dshmobile dsh.background.layers -string none # 关全部背景图层
-/// defaults delete com.lichaofan.dshmobile dsh.diag.noCompositing             # 复位
+/// defaults write com.ydgg123.orcarness dsh.diag.noCompositing -bool YES   # 关离屏合成+阴影
+/// defaults write com.ydgg123.orcarness dsh.diag.noRootIdentity -bool YES  # 关根 identity 绑定
+/// defaults write com.ydgg123.orcarness dsh.background.layers -string none # 关全部背景图层
+/// defaults delete com.ydgg123.orcarness dsh.diag.noCompositing             # 复位
 /// ```
 ///
 /// 默认值全部是「关闭诊断 = 正常形态」；没有 UI 入口，普通用户不会误触。

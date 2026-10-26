@@ -170,9 +170,9 @@ struct HarnessMark: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            WhalenessOrcaIcon(size: 29)
+            OrcarnessOrcaIcon(size: 29)
                 .foregroundStyle(onDarkBackground ? Color.white : Color.black)
-            Image("WhalenessHarnessWordmark")
+            Image("OrcarnessHarnessWordmark")
                 .resizable()
                 .scaledToFit()
                 .colorInvertIfNeeded(onDarkBackground)
@@ -180,11 +180,11 @@ struct HarnessMark: View {
         }
         .frame(maxWidth: width, alignment: .leading)
         .frame(height: 29)
-        .accessibilityLabel("Whaleness Harness")
+        .accessibilityLabel("Orcarness Harness")
     }
 }
 
-struct WhalenessOrcaIcon: View {
+struct OrcarnessOrcaIcon: View {
     var size: CGFloat
 
     var body: some View {

@@ -47,7 +47,7 @@ private object WorkspaceLoadingLogoCache {
 
     suspend fun load(context: Context): WorkspaceLoadingLogoAnimation = withContext(Dispatchers.IO) {
         synchronized(this@WorkspaceLoadingLogoCache) {
-            animation ?: context.resources.openRawResource(R.raw.whaleness_loading).use {
+            animation ?: context.resources.openRawResource(R.raw.orcarness_loading).use {
                 decodeWorkspaceLoadingLogo(it.readBytes()).also { decoded -> animation = decoded }
             }
         }
@@ -77,7 +77,7 @@ internal fun WorkspaceLoadingLogo() {
     val decoded = animation
     val modifier = Modifier.size(72.dp).testTag("workspace-loading-logo")
     if (decoded == null) {
-        Image(painterResource(R.drawable.whaleness_loading_poster), null, modifier)
+        Image(painterResource(R.drawable.orcarness_loading_poster), null, modifier)
     } else {
         val frame = if (active && !reduceMotion) {
             val position = rememberInfiniteTransition(label = "loading-logo").animateFloat(

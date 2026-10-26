@@ -25,7 +25,7 @@ final class WorkspaceLoadingLogoAnimation: @unchecked Sendable {
     }
 
     static let shared: WorkspaceLoadingLogoAnimation? = {
-        guard let data = NSDataAsset(name: "WhalenessLoading")?.data else { return nil }
+        guard let data = NSDataAsset(name: "OrcarnessLoading")?.data else { return nil }
         return WorkspaceLoadingLogoAnimation(data: data)
     }()
 }
@@ -40,7 +40,7 @@ struct WorkspaceLoadingLogo: View {
             if let animation {
                 WorkspaceLoadingLogoPlayer(animation: animation, plays: !reduceMotion && scenePhase == .active)
             } else {
-                Image("WhalenessLoadingPoster").resizable().scaledToFit()
+                Image("OrcarnessLoadingPoster").resizable().scaledToFit()
             }
         }
         .frame(width: 72, height: 72)

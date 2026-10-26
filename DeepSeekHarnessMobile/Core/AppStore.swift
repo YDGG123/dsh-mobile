@@ -2770,7 +2770,7 @@ final class AppStore: ObservableObject {
     }
     func title(for sessionId: String) -> String { sessions.first(where: { $0.id == sessionId })?.title ?? "DeepSeek Harness" }
     private func liveActivitySourceLabel(for sessionID: String) -> String {
-        let host = gatewayDisplayName.isEmpty ? "Whaleness" : gatewayDisplayName
+        let host = gatewayDisplayName.isEmpty ? "Orcarness" : gatewayDisplayName
         guard let workspace = workspaces.first(where: { $0.sessionIds.contains(sessionID) }) else { return host }
         let workspaceName = workspace.title.isEmpty
             ? URL(fileURLWithPath: workspace.path).lastPathComponent

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Whaleness</string>
+    <string name="app_name">Orcarness</string>
     <string name="workspace_hero_title">Into the Unknown</string>
     <string name="gateway_notification_channel">Agent connection</string>
     <string name="gateway_notification_channel_description">Keep the Mobile Gateway connected while an Agent turn runs</string>

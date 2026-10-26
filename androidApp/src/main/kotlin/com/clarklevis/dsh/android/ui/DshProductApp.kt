@@ -499,13 +499,13 @@ private fun HarnessMark(onClick: () -> Unit, modifier: Modifier = Modifier) {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(7.dp * scale)
         ) {
-            WhalenessOrcaIcon(
+            OrcarnessOrcaIcon(
                 modifier = Modifier.size(if (showWordmark) 29.dp * scale else 29.dp),
                 tint = Color.White
             )
             if (showWordmark) {
                 Image(
-                    painter = painterResource(R.drawable.dsh_whaleness_wordmark_dark),
+                    painter = painterResource(R.drawable.dsh_orcarness_wordmark_dark),
                     contentDescription = null,
                     modifier = Modifier.size(width = 183.dp * scale, height = 29.dp * scale)
                 )
@@ -515,13 +515,13 @@ private fun HarnessMark(onClick: () -> Unit, modifier: Modifier = Modifier) {
 }
 
 @Composable
-internal fun WhalenessOrcaIcon(
+internal fun OrcarnessOrcaIcon(
     modifier: Modifier = Modifier,
     tint: Color = MaterialTheme.colorScheme.onSurface
 ) {
     Image(
         painter = painterResource(R.drawable.dsh_orca_mark),
-        contentDescription = "Whaleness",
+        contentDescription = "Orcarness",
         modifier = modifier,
         colorFilter = ColorFilter.tint(tint)
     )

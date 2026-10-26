@@ -1558,7 +1558,7 @@ internal fun ScrollToBottomButton(isGenerating: Boolean, onClick: () -> Unit) {
 @Composable
 private fun EmptyConversation(modifier: Modifier = Modifier) {
     Column(modifier.padding(horizontal = 28.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        WhalenessOrcaIcon(Modifier.size(52.dp))
+        OrcarnessOrcaIcon(Modifier.size(52.dp))
         Text(appText("操作远端 DSH Agent"), fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
         Text(
             appText("发送任务后，工具调用、推理进度和最终回复会通过 Mobile Gateway 实时返回。"),

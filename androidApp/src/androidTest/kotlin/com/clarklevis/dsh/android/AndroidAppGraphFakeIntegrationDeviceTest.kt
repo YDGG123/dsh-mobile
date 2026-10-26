@@ -146,7 +146,7 @@ class AndroidAppGraphFakeIntegrationDeviceTest {
     @Test
     fun logoApngPreservesFramesTransparencyAndLoopTiming() {
         val resources = InstrumentationRegistry.getInstrumentation().targetContext.resources
-        val data = resources.openRawResource(R.raw.whaleness_loading).use { it.readBytes() }
+        val data = resources.openRawResource(R.raw.orcarness_loading).use { it.readBytes() }
         val animation = decodeWorkspaceLoadingLogo(data)
         assertEquals(48, animation.frames.size)
         assertEquals(50, animation.frameMilliseconds)

@@ -146,22 +146,22 @@ for i in 0..<frameCount {
 animation += chunk("IEND", Data())
 let destinations = [
     "Design/loading-logo/whaleness-loading.apng",
-    "DeepSeekHarnessMobile/Resources/Assets.xcassets/WhalenessLoading.dataset/whaleness-loading.apng",
-    "androidApp/src/main/res/raw/whaleness_loading.png"
+    "DeepSeekHarnessMobile/Resources/Assets.xcassets/OrcarnessLoading.dataset/orcarness-loading.apng",
+    "androidApp/src/main/res/raw/orcarness_loading.png"
 ]
 for relative in destinations {
     let url = root.appendingPathComponent(relative)
     try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
     try animation.write(to: url)
 }
-let asset = #"{"data":[{"filename":"whaleness-loading.apng","idiom":"universal"}],"info":{"author":"xcode","version":1}}"#
-try asset.write(to: root.appendingPathComponent("DeepSeekHarnessMobile/Resources/Assets.xcassets/WhalenessLoading.dataset/Contents.json"), atomically: true, encoding: .utf8)
+let asset = #"{"data":[{"filename":"orcarness-loading.apng","idiom":"universal"}],"info":{"author":"xcode","version":1}}"#
+try asset.write(to: root.appendingPathComponent("DeepSeekHarnessMobile/Resources/Assets.xcassets/OrcarnessLoading.dataset/Contents.json"), atomically: true, encoding: .utf8)
 print("已生成 \(frameCount) 帧 / \(Double(frameCount * frameMilliseconds) / 1000)s / \(animation.count) 字节的透明循环 APNG")
 
 let poster = try Data(contentsOf: directory.appendingPathComponent("poster.png"))
-let posterAsset = root.appendingPathComponent("DeepSeekHarnessMobile/Resources/Assets.xcassets/WhalenessLoadingPoster.imageset")
+let posterAsset = root.appendingPathComponent("DeepSeekHarnessMobile/Resources/Assets.xcassets/OrcarnessLoadingPoster.imageset")
 try FileManager.default.createDirectory(at: posterAsset, withIntermediateDirectories: true)
 try poster.write(to: posterAsset.appendingPathComponent("poster.png"))
 try #"{"images":[{"filename":"poster.png","idiom":"universal"}],"info":{"author":"xcode","version":1}}"#
     .write(to: posterAsset.appendingPathComponent("Contents.json"), atomically: true, encoding: .utf8)
-try poster.write(to: root.appendingPathComponent("androidApp/src/main/res/drawable-nodpi/whaleness_loading_poster.png"))
+try poster.write(to: root.appendingPathComponent("androidApp/src/main/res/drawable-nodpi/orcarness_loading_poster.png"))

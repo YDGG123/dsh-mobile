@@ -159,7 +159,7 @@ private final class BridgeMviObserver: NSObject, SharedMviEventObserver {
 
 /// 只做 JSON 字符串存取；解析与校验全部留在 KMP（fail-closed）。
 final class BridgeKeychainSessionStore: NSObject, BridgeSessionStore {
-    private let service = "com.clarklevis.dsh.bridge.session"
+    private let service = "com.ydgg123.orcarness.bridge.session"
     private let account = "device-session"
 
     private var baseQuery: [String: Any] {

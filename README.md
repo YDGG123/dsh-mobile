@@ -2,25 +2,17 @@
 
 **简体中文** · [English](README.en.md)
 
-<img src="Design/whale-girl-ios-app-promo-16x9-v3.png" alt="Whaleness iOS 应用展示" width="100%">
+<img src="Design/whale-girl-ios-app-promo-16x9-v3.png" alt="Orcarness iOS 应用展示" width="100%">
 
-# Whaleness（DeepSeek Harness 的第三方移动端应用）
+# Orcarness（DeepSeek Harness 的第三方移动端应用）
 
 **使用 Kotlin Multiplatform 共享核心逻辑，为 Android 与 iOS 提供原生移动端体验。**
 
 通过 Mobile Gateway 在手机、平板和折叠屏设备上访问 DeepSeek Harness 的工作区、实时对话、Agent 轨迹、插件、定时任务与文件。
 
-官方网站：[Whaleness](https://clarklevis1995.github.io/dsh-mobile/)
-
-<p>
-  <a href="https://testflight.apple.com/join/1Euwby6r"><img src="Docs/images/badges/testflight.svg" alt="加入 iOS TestFlight 公测" width="180" height="60"></a>
-  &nbsp;&nbsp;
-  <a href="https://github.com/Clarklevis1995/dsh-mobile/releases"><img src="Docs/images/badges/android-github.svg" alt="从 GitHub Releases 下载 Android APK" width="180" height="60"></a>
-</p>
-
 ![Kotlin Multiplatform](https://img.shields.io/badge/Kotlin-Multiplatform-7F52FF?logo=kotlin&logoColor=white)
 ![Android 7.0+](https://img.shields.io/badge/Android-7.0%2B-3DDC84?logo=android&logoColor=white)
-![iOS 17+](https://img.shields.io/badge/iOS-17.0%2B-111827?logo=apple&logoColor=white)
+![iOS 16+](https://img.shields.io/badge/iOS-16.0%2B-111827?logo=apple&logoColor=white)
 ![Jetpack Compose](https://img.shields.io/badge/Jetpack-Compose-4285F4?logo=jetpackcompose&logoColor=white)
 ![SwiftUI](https://img.shields.io/badge/iOS-SwiftUI-F05138?logo=swift&logoColor=white)
 ![WebSocket](https://img.shields.io/badge/WebSocket-Realtime-2563EB)
@@ -29,30 +21,30 @@
 
 ## 项目简介
 
-Whaleness 是独立开发的 DeepSeek Harness 第三方原生移动客户端。项目已完成 Kotlin Multiplatform（KMP）架构改造，并同时提供可运行的 Android 与 iOS 应用：
+Orcarness 是独立开发的 DeepSeek Harness 第三方原生移动客户端。项目已完成 Kotlin Multiplatform（KMP）架构改造，并同时提供可运行的 Android 与 iOS 应用：
 
 - `shared` 负责跨端协议、状态机、Reducer、投影和同步逻辑，是共享业务状态的唯一来源。
 - `androidApp` 使用 Kotlin、Jetpack Compose 和 OkHttp 实现 Android 产品能力。
 - `DeepSeekHarnessMobile` 使用 SwiftUI/UIKit 构建 iOS 界面，并通过 Kotlin/Native framework 接入共享逻辑。
 
-两端均通过 [`dsh-plugin-mobile-gateway`](https://github.com/Clarklevis1995/dsh-plugin-mobile-gateway) 与 Harness 建立 WebSocket 连接。网络、安全存储、文件、图片、生命周期和后台任务由各平台原生实现，业务规则则尽可能收敛到 `shared/commonMain`。
+两端均通过 `dsh-plugin-mobile-gateway` 与 Harness 建立 WebSocket 连接。网络、安全存储、文件、图片、生命周期和后台任务由各平台原生实现，业务规则则尽可能收敛到 `shared/commonMain`。
 
 ## 下载与前置条件
 
-- **iOS**：[加入 TestFlight 公测](https://testflight.apple.com/join/1Euwby6r)，支持 iPhone 与 iPad，要求 iOS / iPadOS 17.0 或更高版本。
-- **Android**：[从 GitHub Releases 下载 APK](https://github.com/Clarklevis1995/dsh-mobile/releases)，要求 Android 7.0（API 24）或更高版本。应用内检查更新优先使用加速下载源，并校验安装包。
+- **iOS**：使用本仓库产出的 IPA 自行签名安装，支持 iPhone 与 iPad，要求 iOS / iPadOS 16.0 或更高版本（Live Activity 需 16.2+）。
+- **Android**：使用分发的 APK 安装，要求 Android 7.0（API 24）或更高版本。应用内检查更新优先使用加速下载源，并校验安装包。
 - **桌面端**：需要运行 DeepSeek Harness，并安装、启用 **`dsh-plugin-mobile-gateway` 0.10.3 或更高版本**。最低版本以 [`AppRelease/release-info.json`](AppRelease/release-info.json) 为准。
 - **语音输入**：另需在桌面端的“插件”模块启用官方“语音输入”插件，完成模型下载和初始化，并授予移动端麦克风权限。
 
 ## 公测用户群
 
-欢迎加入 Whaleness 公测用户群，交流使用体验、反馈问题并获取支持。使用微信扫码，或保存图片后在微信中识别。
+欢迎加入 Orcarness 公测用户群，交流使用体验、反馈问题并获取支持。使用微信扫码，或保存图片后在微信中识别。
 
 <p align="center">
-  <a href="website/assets/support-wechat-2026-10-23.png"><img src="website/assets/support-wechat-2026-10-23.png" alt="Whaleness 公测用户群微信二维码，2026 年 10 月 30 日前有效" width="320"></a>
+  <a href="website/assets/support-wechat-2026-10-23.png"><img src="website/assets/support-wechat-2026-10-23.png" alt="Orcarness 公测用户群微信二维码，2026 年 10 月 30 日前有效" width="320"></a>
 </p>
 
-> 当前二维码于 2026 年 10 月 23 日更新，原图注明 2026 年 10 月 30 日前有效。若已过期，请查看[产品页面](https://clarklevis1995.github.io/dsh-mobile/)中的最新群码。
+> 当前二维码于 2026 年 10 月 23 日更新，原图注明 2026 年 10 月 30 日前有效。若已过期，请等待群内更新。
 
 ## 当前平台状态
 
@@ -403,8 +395,6 @@ iOS 测试可在 Xcode 中选择 `DeepSeekHarnessMobile` Scheme 后执行 **Prod
 项目处于持续开发阶段。KMP 共享层、Android 原生应用和 iOS 原生应用均已落地，协议、跨端一致性和移动端体验仍会随 DeepSeek Harness 与 Mobile Gateway 持续演进。
 
 本项目是面向 DeepSeek Harness 的社区客户端，不代表 DeepSeek 官方发布。
-
-[![Listed on dsh-plugin.org](https://dsh-plugin.org/badges/listed.svg)](https://dsh-plugin.org/plugins/clarklevis1995/dsh-plugin-mobile-gateway)
 
 ### 应用内发布说明资源
 

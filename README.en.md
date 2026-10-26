@@ -2,25 +2,17 @@
 
 [简体中文](README.md) · **English**
 
-<img src="Design/whale-girl-ios-app-promo-16x9-v3.png" alt="Whaleness iOS app showcase" width="100%">
+<img src="Design/whale-girl-ios-app-promo-16x9-v3.png" alt="Orcarness iOS app showcase" width="100%">
 
-# Whaleness — An Unofficial Mobile Client for DeepSeek Harness
+# Orcarness — An Unofficial Mobile Client for DeepSeek Harness
 
 **Native Android and iOS apps with core business logic shared through Kotlin Multiplatform.**
 
 Connect to DeepSeek Harness through Mobile Gateway to access workspaces, live conversations, Agent traces, plugins, scheduled tasks, and files from your phone, tablet, or foldable.
 
-Website: [Whaleness](https://clarklevis1995.github.io/dsh-mobile/)
-
-<p>
-  <a href="https://testflight.apple.com/join/1Euwby6r"><img src="Docs/images/badges/testflight.svg" alt="Join the iOS TestFlight beta" width="180" height="60"></a>
-  &nbsp;&nbsp;
-  <a href="https://github.com/Clarklevis1995/dsh-mobile/releases"><img src="Docs/images/badges/android-github.svg" alt="Download the Android APK from GitHub Releases" width="180" height="60"></a>
-</p>
-
 ![Kotlin Multiplatform](https://img.shields.io/badge/Kotlin-Multiplatform-7F52FF?logo=kotlin&logoColor=white)
 ![Android 7.0+](https://img.shields.io/badge/Android-7.0%2B-3DDC84?logo=android&logoColor=white)
-![iOS 17+](https://img.shields.io/badge/iOS-17.0%2B-111827?logo=apple&logoColor=white)
+![iOS 16+](https://img.shields.io/badge/iOS-16.0%2B-111827?logo=apple&logoColor=white)
 ![Jetpack Compose](https://img.shields.io/badge/Jetpack-Compose-4285F4?logo=jetpackcompose&logoColor=white)
 ![SwiftUI](https://img.shields.io/badge/iOS-SwiftUI-F05138?logo=swift&logoColor=white)
 ![WebSocket](https://img.shields.io/badge/WebSocket-Realtime-2563EB)
@@ -29,30 +21,30 @@ Website: [Whaleness](https://clarklevis1995.github.io/dsh-mobile/)
 
 ## Overview
 
-Whaleness is an independently developed, unofficial native mobile client for DeepSeek Harness. Both Android and iOS apps use Kotlin Multiplatform (KMP):
+Orcarness is an independently developed, unofficial native mobile client for DeepSeek Harness. Both Android and iOS apps use Kotlin Multiplatform (KMP):
 
 - `shared` is the source of truth for shared business state, including protocol handling, state machines, reducers, projections, and synchronization.
 - `androidApp` implements the Android app with Kotlin, Jetpack Compose, and OkHttp.
 - `DeepSeekHarnessMobile` builds the iOS interface with SwiftUI/UIKit and accesses shared logic through a Kotlin/Native framework.
 
-Both apps connect to Harness over WebSocket through [`dsh-plugin-mobile-gateway`](https://github.com/Clarklevis1995/dsh-plugin-mobile-gateway). Networking, secure storage, files, images, lifecycle handling, and background execution use native platform APIs. Business rules are consolidated in `shared/commonMain` wherever practical.
+Both apps connect to Harness over WebSocket through `dsh-plugin-mobile-gateway`. Networking, secure storage, files, images, lifecycle handling, and background execution use native platform APIs. Business rules are consolidated in `shared/commonMain` wherever practical.
 
 ## Downloads and Prerequisites
 
-- **iOS**: [Join the TestFlight beta](https://testflight.apple.com/join/1Euwby6r). Supports iPhone and iPad running iOS / iPadOS 17.0 or later.
-- **Android**: [Download an APK from GitHub Releases](https://github.com/Clarklevis1995/dsh-mobile/releases). Requires Android 7.0 (API 24) or later. In-app update checks prefer the accelerated download source and verify downloaded packages.
+- **iOS**: Install a self-signed IPA built from this repository. Supports iPhone and iPad running iOS / iPadOS 16.0 or later (Live Activities require 16.2+).
+- **Android**: Install a distributed APK. Requires Android 7.0 (API 24) or later. In-app update checks prefer the accelerated download source and verify downloaded packages.
 - **Desktop host**: Run DeepSeek Harness with **`dsh-plugin-mobile-gateway` 0.10.3 or later** installed and enabled. [`AppRelease/release-info.json`](AppRelease/release-info.json) defines the required minimum version.
 - **Voice input**: Enable the official Voice Input plugin in the desktop host's Plugins section, finish model download and initialization, and grant microphone access on the mobile device.
 
 ## Beta Community
 
-Join the Whaleness beta WeChat group to share feedback, discuss your experience, and get support. Scan with WeChat, or save the image and recognize it in WeChat.
+Join the Orcarness beta WeChat group to share feedback, discuss your experience, and get support. Scan with WeChat, or save the image and recognize it in WeChat.
 
 <p align="center">
-  <a href="website/assets/support-wechat-2026-10-23.png"><img src="website/assets/support-wechat-2026-10-23.png" alt="Whaleness beta WeChat group QR code, valid before October 30, 2026" width="320"></a>
+  <a href="website/assets/support-wechat-2026-10-23.png"><img src="website/assets/support-wechat-2026-10-23.png" alt="Orcarness beta WeChat group QR code, valid before October 30, 2026" width="320"></a>
 </p>
 
-> Updated on October 23, 2026. The original image states that the code is valid before October 30, 2026. If it has expired, check the [product page](https://clarklevis1995.github.io/dsh-mobile/) for the latest group QR code.
+> Updated on October 23, 2026. The original image states that the code is valid before October 30, 2026. If it has expired, wait for an update in the group.
 
 ## Platform Status
 
@@ -402,11 +394,9 @@ The following documents record the KMP migration and Android implementation. For
 
 ## Project Status
 
-Whaleness is under active development. The KMP shared module and native Android and iOS apps are implemented. Protocol support, platform consistency, and the mobile experience continue to evolve alongside DeepSeek Harness and Mobile Gateway.
+Orcarness is under active development. The KMP shared module and native Android and iOS apps are implemented. Protocol support, platform consistency, and the mobile experience continue to evolve alongside DeepSeek Harness and Mobile Gateway.
 
 This is a community client for DeepSeek Harness, not an official DeepSeek release.
-
-[![Listed on dsh-plugin.org](https://dsh-plugin.org/badges/listed.svg)](https://dsh-plugin.org/plugins/clarklevis1995/dsh-plugin-mobile-gateway)
 
 ### Bundled Release Notes
 

@@ -148,16 +148,16 @@ internal fun WorkspaceDrawer(
                 Row(
                     modifier = Modifier.padding(start = 12.dp, bottom = 16.dp)
                         .size(width = minOf(216.dp, (drawerWidth - 48.dp).coerceAtLeast(0.dp)), height = 29.dp)
-                        .semantics { contentDescription = "Whaleness Harness" },
+                        .semantics { contentDescription = "Orcarness Harness" },
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    WhalenessOrcaIcon(
+                    OrcarnessOrcaIcon(
                         modifier = Modifier.size(29.dp),
                         tint = if (dark) Color.White else Color.Black
                     )
                     Image(
-                        painter = painterResource(R.drawable.dsh_whaleness_wordmark),
+                        painter = painterResource(R.drawable.dsh_orcarness_wordmark),
                         contentDescription = null,
                         modifier = Modifier.size(width = 183.dp, height = 29.dp)
                     )

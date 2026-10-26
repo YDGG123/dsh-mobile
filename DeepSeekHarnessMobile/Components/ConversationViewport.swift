@@ -683,7 +683,7 @@ final class ConversationViewportController: UIViewController, UICollectionViewDe
     var isNativeHistoryOffsetCompensationActiveForTesting: Bool { chatLayout.keepContentOffsetAtBottomOnBatchUpdates }
     var historyDiffableCompletionGateForTesting: ((@escaping () -> Void) -> Void)?
     var isHistoryPresentationScheduledForTesting: Bool { historyPreparationDisplayLink != nil }
-    private static let scrollPerformanceLog = OSLog(subsystem: "com.clarklevis.dsh", category: "HistoryScroll")
+    private static let scrollPerformanceLog = OSLog(subsystem: "com.ydgg123.orcarness", category: "HistoryScroll")
     private var historyPreparationSignpostID: OSSignpostID?
     private var historyPreparationMeasuredRows = 0
     private var lastApproachTopSignpostTime: CFTimeInterval = 0
