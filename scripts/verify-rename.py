@@ -269,6 +269,17 @@ def main() -> int:
             print(f"  ⚠️ {item}")
         return 0
 
+    # 字形轮廓和字面量残留**同时**报：否则一旦有已知残留（比如待迁移的入口链接），
+    # 后面这层检查就永远走不到，等于没装。
+    reviewed_svg, pending_svg = check_glyph_outlines()
+    if pending_svg:
+        print(f"\n⚠️ 字形轮廓待人工确认 —— {len(pending_svg)} 个 SVG 疑似用 `<path>` 画字，"
+              f"而字面量扫描看不到 path 里的字形：", file=sys.stderr)
+        for item in pending_svg:
+            print(f"    {item}", file=sys.stderr)
+        print("    处置：渲染看一眼字形是否正确；确认后把 路径→(sha256, 说明) 加进 GLYPH_REVIEWED。",
+              file=sys.stderr)
+
     if residues:
         # 按代号分组，报错更可读
         by_code: dict[str, list[tuple[str, int, str, str]]] = {}
@@ -283,19 +294,12 @@ def main() -> int:
         print("  处置见脚本头部「三类目标 + 豁免」表；确属误报请改脚本豁免规则，不要就地改文档。", file=sys.stderr)
         return 1
 
-    reviewed_svg, pending_svg = check_glyph_outlines()
-    if pending_svg:
-        print(f"\n⚠️ 字形轮廓待人工确认 —— {len(pending_svg)} 个 SVG 疑似用 `<path>` 画字，"
-              f"而闸门扫不到 path 里的字形：", file=sys.stderr)
-        for item in pending_svg:
-            print(f"    {item}", file=sys.stderr)
-        print("    处置：打开文件/渲染看一眼字形是否正确；确认后把 路径→(sha256, 说明) 加进 "
-              "scripts/verify-rename.py 的 GLYPH_REVIEWED。\n"
-              "    为什么要拦：文件名/注释/aria-label 全改对、字形仍是旧名字的形态，字面量闸门永远抓不到"
-              "（2026-10-26 真机就是这个）。", file=sys.stderr)
-        return 1
     if reviewed_svg:
         print(f"  ℹ️ 字形轮廓已复核 {len(reviewed_svg)} 个（sha256 绑定，内容一改就重新要求确认）")
+
+    if pending_svg:
+        print(f"改名闸门：字面量 0 处残留，但字形轮廓有 {len(pending_svg)} 个待确认（见上）", file=sys.stderr)
+        return 1
 
     print(f"改名闸门通过：0 处残留（豁免 {len(allowed)} 处，历史稿 {len(historical)} 个文件）")
     if allowed:
