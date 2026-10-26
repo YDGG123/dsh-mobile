@@ -168,19 +168,20 @@ struct HarnessMark: View {
     var onDarkBackground = true
     var width: CGFloat = 216
 
+    /// 只有字标，**不再前置那只虎鲸**（2026-10-26 真机反馈：「字的左右还有原版的图标在」）。
+    /// 原来它读 `DshOrcaMark`——那是原版 Whaleness 的图形、还带
+    /// `aria-label="Whaleness orca mark"`，挂在 Orcarness 字标旁边就是拼盘。
+    /// 新字标本身已经表达完整（Orcarness + HARNESS 徽章），前面再放一只鲸是重复。
+    /// 顺带好处：去掉图标后字标可用满 `width`（216pt），163:24 在 29pt 高时宽约 197pt，
+    /// 正好不再被压到 183pt，字比之前更清楚。
     var body: some View {
-        HStack(spacing: 4) {
-            OrcarnessOrcaIcon(size: 29)
-                .foregroundStyle(onDarkBackground ? Color.white : Color.black)
-            Image("OrcarnessHarnessWordmark")
-                .resizable()
-                .scaledToFit()
-                .colorInvertIfNeeded(onDarkBackground)
-                .frame(maxWidth: .infinity, maxHeight: 29, alignment: .leading)
-        }
-        .frame(maxWidth: width, alignment: .leading)
-        .frame(height: 29)
-        .accessibilityLabel("Orcarness Harness")
+        Image("OrcarnessHarnessWordmark")
+            .resizable()
+            .scaledToFit()
+            .colorInvertIfNeeded(onDarkBackground)
+            .frame(maxWidth: width, maxHeight: 29, alignment: .leading)
+            .frame(width: width, height: 29, alignment: .leading)
+            .accessibilityLabel("Orcarness Harness")
     }
 }
 
