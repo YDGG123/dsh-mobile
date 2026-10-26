@@ -1,4 +1,7 @@
-# Whaleness 产品宣传页
+# Orcarness 产品宣传页
+
+> ⚠️ **项目已由 Whaleness 改名为 Orcarness**（2026-10-26）。本文提到的旧名是历史；
+> 宣传页实际标题以 `main.js` 为准（那属于代码改名，见改名专项）。
 
 入口是仓库根目录的 `index.html`。沿用现有 GitHub Pages 的 `main / (root)` 发布方式，推送后对应 `https://clarklevis1995.github.io/dsh-mobile/`。隐私政策仍位于 `privacy/index.html`。
 

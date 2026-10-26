@@ -1,4 +1,7 @@
-# Whaleness iPhone 透明渲染图
+# 现有 iPhone 透明渲染图（目录名沿用旧品牌 `whaleness-`）
+
+> ⚠️ **项目已改名为 Orcarness**；本目录名是历史遗留（资源文件路径，改名需同步引用它的代码），
+> 内容本身是产品渲染素材，与品牌无关。
 
 复用 [Portrait Studio](https://portrait-studio-lichaofan.mistylynx17.chatgpt.site/) 的本地源码、真实 GLB 模型和原有透明 PNG 导出流程生成。原始截图不做修改。
 

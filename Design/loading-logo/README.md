@@ -1,5 +1,7 @@
 # 文件加载动画
 
+> ⚠️ **项目已改名为 Orcarness**；本文件路径与引用的 `whaleness-orca-mark/` 目录是历史遗留。
+
 使用 `Design/whaleness-orca-mark/whaleness-orca-dark.svg` 的原始路径生成，不改变品牌轮廓。
 
 - 透明 APNG，192 × 192 像素，48 帧，20 fps，2.4 秒无限循环。
