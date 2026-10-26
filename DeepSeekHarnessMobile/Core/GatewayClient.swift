@@ -83,6 +83,33 @@ final class GatewayClient: ObservableObject {
         try await credentials.saveToken(token, for: credentialURL(endpoint))
     }
 
+    /// 最近一次收到**任何**帧的时间（含语音帧）。判活不能只看 pong：
+    /// 通道里明明有数据在流，一次迟到的 pong 不该拆掉健康连接
+    /// （2026-10-26 真机「一直在断连重连」的断连风暴就是这条缺失导致的误判）。
+    private var lastInboundFrameAt = Date()
+    /// 连续「判活失败」次数。一次失败就拆 → 手机忙时每 ~30s 一轮重连；必须连续两次。
+    private var consecutiveProbeMisses = 0
+    /// 判死门限（连续失败次数）。提到类常量，方便和单测对齐。
+    static let probeMissLimit = 2
+
+    /// 判活结论（纯函数，单测直接钉）。放在这里而不是写死进 Task：
+    /// 这类「多久算死」的决策出过一次错，必须可测。
+    enum ProbeVerdict: Equatable {
+        /// 超时窗内有数据帧进来 → 活着（pong 只是迟了）
+        case aliveByInboundFrames
+        /// 记为一次失败，还不够拆（下个心跳再试）
+        case miss(Int)
+        /// 连续失败到门限 → 拆连接重连
+        case giveUp(Int)
+    }
+
+    static func probeVerdict(inboundSinceProbe: Bool, consecutiveMisses: Int,
+                             limit: Int = probeMissLimit) -> ProbeVerdict {
+        if inboundSinceProbe { return .aliveByInboundFrames }
+        let next = consecutiveMisses + 1
+        return next >= limit ? .giveUp(next) : .miss(next)
+    }
+
     private var conversationClient: GatewayClient?
     private var onTransportFailure: ((String, Bool) -> Void)?
     private let credentials: any GatewayCredentialStoring
@@ -93,7 +120,7 @@ final class GatewayClient: ObservableObject {
         channel: String = "control",
         credentials: (any GatewayCredentialStoring)? = nil,
         heartbeatInterval: Duration = .seconds(30),
-        probeTimeout: Duration = .seconds(5)
+        probeTimeout: Duration = .seconds(10)
     ) {
         self.channel = channel
         self.credentials = credentials ?? SystemGatewayCredentialStore.shared
@@ -335,7 +362,9 @@ final class GatewayClient: ObservableObject {
             }
             let socket = self.transportSession.webSocketTask(with: request)
             socket.maximumMessageSize = Self.maximumIncomingMessageSize
-            self.socket = socket
+                self.socket = socket
+            self.lastInboundFrameAt = Date()
+            self.consecutiveProbeMisses = 0
             socket.resume()
             self.startConnectionTimeout(for: socket)
             self.receiveTask = Task { [weak self] in await self?.receiveLoop(socket) }
@@ -774,6 +803,9 @@ final class GatewayClient: ObservableObject {
         do {
             while !Task.isCancelled {
                 let message = try await socket.receive()
+                // 收到任何一条消息就证明链路是活的：刷新时间戳并清零连续失败计数。
+                lastInboundFrameAt = Date()
+                consecutiveProbeMisses = 0
                 let data: Data
                 switch message {
                 case .string(let text): data = Data(text.utf8)
@@ -1073,18 +1105,42 @@ final class GatewayClient: ObservableObject {
     }
 
     /// URLSession 可能尚未报告后台或网络切换断线；以 ping 验证连接，超时则自动恢复。
+    ///
+    /// 2026-10-26 断连风暴的三条防御都在这里（真机反馈「一直在断连重连」，网关侧 307 次断开）：
+    /// 1. **判活也认数据**：超时窗内收到过任何帧就算活着——UI 忙时 pong 回调会被推后，
+    ///    只看 pong 会把健康连接判死（这是风暴的主因）；
+    /// 2. **连续两次失败才拆**：一次迟到不再等于死亡；
+    /// 3. **期限 10s**（原 5s）且结论由纯函数 `probeVerdict` 给出，可单测。
+    /// 观测点：日志里会看到 `probe-skipped-by-inbound-frame` / `probe-miss consecutive=N`
+    /// / `foreground-probe-timeout consecutive=N`，真机上能确认防御是否真的生效。
     private func probeForegroundConnection() {
         guard let socket, state.isConnected, foregroundProbeTask == nil else { return }
         onConnectionCheckStarted?()
         foregroundProbeSequence += 1
         let sequence = foregroundProbeSequence
+        let probeStartedAt = Date()
+        let timeout = probeTimeout
         traceLifecycle("foreground-probe-ping")
         foregroundProbeTask = Task { [weak self, weak socket] in
-            do { try await Task.sleep(for: self?.probeTimeout ?? .seconds(5)) } catch { return }
+            do { try await Task.sleep(for: timeout) } catch { return }
             guard let self, let socket, self.socket === socket,
                   !self.isApplicationInBackground, self.foregroundProbeSequence == sequence else { return }
-            self.traceLifecycle("foreground-probe-timeout")
-            await self.handleFailure(URLError(.timedOut), socket: socket)
+            let inbound = self.lastInboundFrameAt > probeStartedAt
+            switch Self.probeVerdict(inboundSinceProbe: inbound,
+                                     consecutiveMisses: self.consecutiveProbeMisses) {
+            case .aliveByInboundFrames:
+                self.foregroundProbeTask = nil
+                self.consecutiveProbeMisses = 0
+                self.traceLifecycle("probe-skipped-by-inbound-frame")
+                self.onConnectionReady?()
+            case .miss(let count):
+                self.foregroundProbeTask = nil
+                self.consecutiveProbeMisses = count
+                self.traceLifecycle("probe-miss consecutive=\(count) retryOnNextHeartbeat")
+            case .giveUp(let count):
+                self.traceLifecycle("foreground-probe-timeout consecutive=\(count)")
+                await self.handleFailure(URLError(.timedOut), socket: socket)
+            }
         }
         socket.sendPing { [weak self, weak socket] error in
             Task { @MainActor [weak self, weak socket] in
@@ -1093,8 +1149,20 @@ final class GatewayClient: ObservableObject {
                 self.foregroundProbeTask?.cancel()
                 self.foregroundProbeTask = nil
                 if let error {
-                    await self.handleFailure(error, socket: socket)
+                    // 单次 ping 失败同样先记一次 miss，不直接拆（与超时走同一门限）。
+                    switch Self.probeVerdict(inboundSinceProbe: false,
+                                             consecutiveMisses: self.consecutiveProbeMisses) {
+                    case .aliveByInboundFrames:
+                        self.onConnectionReady?()
+                    case .miss(let count):
+                        self.consecutiveProbeMisses = count
+                        self.traceLifecycle("probe-miss consecutive=\(count) pingError=\(error.localizedDescription)")
+                    case .giveUp(let count):
+                        self.traceLifecycle("foreground-probe-error consecutive=\(count)")
+                        await self.handleFailure(error, socket: socket)
+                    }
                 } else {
+                    self.consecutiveProbeMisses = 0
                     self.traceLifecycle("foreground-probe-pong")
                     self.onConnectionReady?()
                 }

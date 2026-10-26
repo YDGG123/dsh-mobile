@@ -13316,3 +13316,49 @@ final class TeamRosterCacheTests: XCTestCase {
         XCTAssertNil(TeamRosterCache.trimmedSnapshot(from: huge, maxBytes: 256))
     }
 }
+
+/// 判活策略的纯函数用例（2026-10-26「一直在断连重连」回归）。
+///
+/// 背景：控制通道每 30s 发一次 ping，5s 没 pong 就 `handleFailure(.timedOut)`，
+/// 并且任一条 socket 失败会把父子两条都拆掉 → 真机上表现为「每 ~30s 一轮断连重连」
+/// （网关日志 307 次断开、连接成对出现）。三项防御里最根本的一项是：
+/// **超时窗内收到过数据帧就不算死**（UI 忙时 pong 回调会被推后）。
+final class GatewayProbePolicyTests: XCTestCase {
+
+    @MainActor
+    func testInboundFrameBeatsMissingPong() {
+        XCTAssertEqual(
+            GatewayClient.probeVerdict(inboundSinceProbe: true, consecutiveMisses: 0),
+            .aliveByInboundFrames,
+            "窗口内有数据帧 = 活着，不能因为 pong 迟到就拆"
+        )
+        XCTAssertEqual(
+            GatewayClient.probeVerdict(inboundSinceProbe: true, consecutiveMisses: 5),
+            .aliveByInboundFrames,
+            "即使已经连续失败很多次，只要进来过数据帧就要救回来（不是判死）"
+        )
+    }
+
+    @MainActor
+    func testSingleMissRetriesInsteadOfTearingDown() {
+        XCTAssertEqual(
+            GatewayClient.probeVerdict(inboundSinceProbe: false, consecutiveMisses: 0),
+            .miss(1),
+            "第一次失败只记过一次，等下个心跳再试——一次迟到不等于死亡"
+        )
+    }
+
+    @MainActor
+    func testSecondConsecutiveMissGivesUp() {
+        XCTAssertEqual(
+            GatewayClient.probeVerdict(inboundSinceProbe: false, consecutiveMisses: 1),
+            .giveUp(2),
+            "连续两次都拿不到任何证据才拆连接"
+        )
+        XCTAssertEqual(
+            GatewayClient.probeVerdict(inboundSinceProbe: false, consecutiveMisses: 3, limit: 2),
+            .giveUp(4),
+            "门限可配，但达到就判死"
+        )
+    }
+}
