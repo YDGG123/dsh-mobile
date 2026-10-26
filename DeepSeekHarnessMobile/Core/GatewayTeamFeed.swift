@@ -173,41 +173,78 @@ final class GatewayTeamFeed: ObservableObject {
         Self.chunkLog.notice("roster cache hydrated rows=\(cachedRows.count, privacy: .public) age=\(Int(Date().timeIntervalSince(payload.savedAt)), privacy: .public)s")
     }
 
-    /// 从快照 JSON 解析行（缓存水合与真快照共用同一套字段语义）。
+    /// 从快照 JSON 解析行（缓存水合用的入口；解析器与实时路径**是同一个**）。
+    ///
+    /// 历史教训（别再分叉）：这里原来有一份叫 `makeRow` 的"最小副本"，与 `row(from:kind:)`
+    /// 各写一遍。结果 `color` 漏读了——断网水合时所有头像落默认灰，一直错到联网收到新快照。
+    /// 缓存的功能卖点就是"断网也像个样子"，颜色全灰等于打对折。现在只有 `makeRow` 一处
+    /// 字段映射，`row(from:kind:)` 只是把实例上的 `mainBotIds` 传进来后调用它。
+    ///
+    /// 字段对照（快照里保留的字段 → `Row`，缓存与实时必须一致）：
+    /// - `id/name/role/sessionId` → 基本字段；`id` 为空丢整行
+    /// - `pinned` / `main` → 同名字段；`main` 还要并上**快照顶层** `mainBotIds`
+    ///   （缓存里主 Bot 名单只有顶层这一份，行上可能没写 `main`）
+    /// - `members/admin/mode/activity/preview/updatedAt` → 同名字段
+    /// - `work/approvals/pending/waiting` → 同名（缓存超限时会被裁掉，属已知降级）
+    /// - `avatar.{shape,image,hasImage}` → `avatarShape`/`avatarImage`；兼容旧式 `avatar`
+    ///   字符串；空串当 nil；`hasImage` 只是标记（照片字节不入缓存）
+    /// - `glyph`（顶层，其次 `avatar.glyph`）→ `glyph`
+    /// - `color` → `colorKey`（ds-bot 调色板 key，头像底色）
     nonisolated static func rosterRows(from snapshot: [String: Any]) -> [Row] {
-        // 走实例解析会牵扯 @MainActor 状态；这里只做纯字段映射的最小副本，
-        // 字段集合与 `row(from:kind:)` 保持一致（改一处要同步另一处，单测钉住）。
+        // 快照顶层的主 Bot 名单：实时路径由 `applySnapshot` 存进实例，缓存路径没人在做，
+        // 必须在这里显式读出来，否则断网首屏"主 Bot 置顶"会退化成普通行。
+        var mainIds = (snapshot["mainBotIds"] as? [String]) ?? []
+        if mainIds.isEmpty, let single = snapshot["mainBotId"] as? String, !single.isEmpty {
+            mainIds = [single]
+        }
         var out: [Row] = []
         for raw in (snapshot["bots"] as? [[String: Any]]) ?? [] {
-            if let row = Self.makeRow(raw, kind: .bot) { out.append(row) }
+            if let row = Self.makeRow(raw, kind: .bot, mainBotIds: mainIds) { out.append(row) }
         }
         for raw in (snapshot["rooms"] as? [[String: Any]]) ?? [] {
-            if let row = Self.makeRow(raw, kind: .room) { out.append(row) }
+            if let row = Self.makeRow(raw, kind: .room, mainBotIds: mainIds) { out.append(row) }
         }
         return out
     }
 
-    nonisolated private static func makeRow(_ raw: [String: Any], kind: Row.Kind) -> Row? {
+    /// **唯一的**行解析器。非隔离（缓存水合没有 @MainActor 上下文），所以下面用到的
+    /// `workValue/approval/pendingValue/waitingValue` 也都是 `nonisolated static`——
+    /// 它们本来就只做纯字段映射，挪成静态不改变语义。
+    private nonisolated static func makeRow(_ raw: [String: Any], kind: Row.Kind,
+                                           mainBotIds: [String]) -> Row? {
         guard let id = raw["id"] as? String, !id.isEmpty else { return nil }
-        var row = Row(id: id, kind: kind,
-                      name: raw["name"] as? String ?? id,
-                      role: raw["role"] as? String,
-                      sessionId: raw["sessionId"] as? String ?? id)
+        let name = raw["name"] as? String ?? id
+        let sessionId = raw["sessionId"] as? String ?? id
+        var row = Row(id: id, kind: kind, name: name, role: raw["role"] as? String, sessionId: sessionId)
         row.pinned = raw["pinned"] as? Bool ?? false
-        row.main = raw["main"] as? Bool ?? false
+        row.main = (raw["main"] as? Bool ?? false) || mainBotIds.contains(id)
         row.members = (raw["members"] as? [String]) ?? []
         row.admin = raw["admin"] as? String
         row.mode = raw["mode"] as? String
         row.activity = raw["activity"] as? String
+        if let work = raw["work"] { row.work = workValue(work) }
+        row.approvals = ((raw["approvals"] as? [[String: Any]]) ?? []).compactMap { approval(from: $0) }
+        row.pending = ((raw["pending"] as? [[String: Any]]) ?? []).compactMap { pendingValue($0) }
+        if let waiting = raw["waiting"] as? [String: Any] { row.waiting = waitingValue(waiting) }
         row.preview = raw["preview"] as? String
         row.updatedAt = (raw["updatedAt"] as? NSNumber)?.int64Value
+        // avatar 可能是 `{ shape, image }`（当前契约实际形态），也可能是旧式单个 data URL 字符串。
+        // 空串一律当"没给"：否则空 shape 会盖掉按 id 推导的默认形状。
         if let avatar = raw["avatar"] as? [String: Any] {
-            row.avatarShape = avatar["shape"] as? String
-            row.avatarImage = avatar["image"] as? String
+            row.avatarShape = (avatar["shape"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            row.avatarImage = (avatar["image"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        } else if let single = raw["avatar"] as? String, !single.isEmpty {
+            row.avatarShape = nil
+            row.avatarImage = single
         }
-        if let glyph = raw["glyph"], let parsed = TeamAvatarGlyph(json: glyph) {
-            row.glyph = parsed
-        }
+        // ⚠️ glyph 在**bot 顶层**（与 avatar 平级），不是 avatar 里的字段——
+        // ds-bot 发布端就是这么发的。之前写成 `avatar["glyph"]` 导致恒 nil、
+        // 所有头像永远走符号层（方案 C 等于没做）。这里以顶层为准，同时兼容旧的嵌套形态。
+        row.glyph = raw["glyph"].flatMap(TeamAvatarGlyph.init(json:))
+            ?? (raw["avatar"] as? [String: Any])?["glyph"].flatMap(TeamAvatarGlyph.init(json:))
+        // ds-bot 调色板 key（契约明写「手机端需同名映射」）。**这一行漏过一次**：
+        // 缓存水合路径没有它，断网时头像全灰，别删。
+        row.colorKey = raw["color"] as? String
         return row
     }
 
@@ -725,14 +762,14 @@ final class GatewayTeamFeed: ObservableObject {
 
     private func merge(_ set: [String: Any], into row: inout Row) {
         if set.keys.contains("activity") { row.activity = set["activity"] as? String }
-        if let work = set["work"] { row.work = workValue(work) }
+        if let work = set["work"] { row.work = Self.workValue(work) }
         if let approvals = set["approvals"] as? [[String: Any]] {
-            row.approvals = approvals.compactMap { approval(from: $0) }
+            row.approvals = approvals.compactMap { Self.approval(from: $0) }
         }
         if let pending = set["pending"] as? [[String: Any]] {
-            row.pending = pending.compactMap { pendingValue($0) }
+            row.pending = pending.compactMap { Self.pendingValue($0) }
         }
-        if let waiting = set["waiting"] as? [String: Any] { row.waiting = waitingValue(waiting) }
+        if let waiting = set["waiting"] as? [String: Any] { row.waiting = Self.waitingValue(waiting) }
         if let preview = set["preview"] as? String { row.preview = preview }
         if let stamp = (set["lastActivityAt"] as? NSNumber)?.int64Value { row.updatedAt = row.updatedAt ?? stamp }
         if set.keys.contains("name"), let name = set["name"] as? String { row.name = name }
@@ -747,42 +784,15 @@ final class GatewayTeamFeed: ObservableObject {
 
     // MARK: - 解码
 
-    /// internal（非 private）仅为让 `TeamAvatarGlyphTests` 用真实发布形态构造行，逻辑不变。
+    /// 快照/增量路径的入口。解析只有一套（`makeRow`），这里只负责把实例上的
+    /// `mainBotIds` 传进去——**不要再往这里加字段**，缓存水合走的是同一个函数，
+    /// 加在这里等于只喂了实时路径（`color` 就是这么漏的）。
+    /// internal（非 private）仅为让 `TeamAvatarGlyphTests` 用真实发布形态构造行。
     func row(from raw: [String: Any], kind: Row.Kind) -> Row? {
-        guard let id = raw["id"] as? String, !id.isEmpty else { return nil }
-        let name = raw["name"] as? String ?? id
-        let sessionId = raw["sessionId"] as? String ?? id
-        var row = Row(id: id, kind: kind, name: name, role: raw["role"] as? String, sessionId: sessionId)
-        row.pinned = raw["pinned"] as? Bool ?? false
-        row.main = (raw["main"] as? Bool ?? false) || mainBotIds.contains(id)
-        row.members = (raw["members"] as? [String]) ?? []
-        row.admin = raw["admin"] as? String
-        row.mode = raw["mode"] as? String
-        row.activity = raw["activity"] as? String
-        if let work = raw["work"] { row.work = workValue(work) }
-        row.approvals = ((raw["approvals"] as? [[String: Any]]) ?? []).compactMap { approval(from: $0) }
-        row.pending = ((raw["pending"] as? [[String: Any]]) ?? []).compactMap { pendingValue($0) }
-        if let waiting = raw["waiting"] as? [String: Any] { row.waiting = waitingValue(waiting) }
-        row.preview = raw["preview"] as? String
-        row.updatedAt = (raw["updatedAt"] as? NSNumber)?.int64Value
-        // avatar 可能是 `{ shape, image }`（当前契约实际形态），也可能是旧式单个 data URL 字符串。
-        if let avatar = raw["avatar"] as? [String: Any] {
-            row.avatarShape = (avatar["shape"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-            row.avatarImage = (avatar["image"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-        } else if let single = raw["avatar"] as? String, !single.isEmpty {
-            row.avatarShape = nil
-            row.avatarImage = single
-        }
-        // ⚠️ glyph 在**bot 顶层**（与 avatar 平级），不是 avatar 里的字段——
-        // ds-bot 发布端就是这么发的。之前写成 `avatar["glyph"]` 导致恒 nil、
-        // 所有头像永远走符号层（方案 C 等于没做）。这里以顶层为准，同时兼容旧的嵌套形态。
-        row.glyph = (raw["glyph"] as? [String: Any]).flatMap(TeamAvatarGlyph.init(json:))
-            ?? (raw["avatar"] as? [String: Any])?["glyph"].flatMap { $0 as? [String: Any] }.flatMap(TeamAvatarGlyph.init(json:))
-        row.colorKey = raw["color"] as? String
-        return row
+        Self.makeRow(raw, kind: kind, mainBotIds: mainBotIds)
     }
 
-    private func workValue(_ raw: Any) -> Work? {
+    private nonisolated static func workValue(_ raw: Any) -> Work? {
         if let list = raw as? [[String: Any]] {
             // 群聊的 work 是数组（每个成员一条），取第一条作为行内摘要。
             guard let first = list.first else { return nil }
@@ -794,19 +804,19 @@ final class GatewayTeamFeed: ObservableObject {
                     said: dict["said"] as? String, since: (dict["since"] as? NSNumber)?.int64Value)
     }
 
-    private func approval(from raw: [String: Any]) -> Approval? {
+    private nonisolated static func approval(from raw: [String: Any]) -> Approval? {
         guard let sessionId = raw["sessionId"] as? String else { return nil }
         return Approval(sessionId: sessionId, tool: raw["tool"] as? String, reason: raw["reason"] as? String,
                         at: (raw["at"] as? NSNumber)?.int64Value)
     }
 
-    private func pendingValue(_ raw: [String: Any]) -> Pending? {
+    private nonisolated static func pendingValue(_ raw: [String: Any]) -> Pending? {
         guard let kind = raw["kind"] as? String, let sessionId = raw["sessionId"] as? String else { return nil }
         return Pending(kind: kind, sessionId: sessionId, roomId: raw["roomId"] as? String,
                        at: (raw["at"] as? NSNumber)?.int64Value)
     }
 
-    private func waitingValue(_ raw: [String: Any]) -> Waiting {
+    private nonisolated static func waitingValue(_ raw: [String: Any]) -> Waiting {
         Waiting(bots: (raw["bots"] as? [String]) ?? [], rooms: (raw["rooms"] as? [String]) ?? [],
                 forWhom: (raw["for"] as? [String]) ?? [])
     }

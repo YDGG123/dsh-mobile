@@ -17,6 +17,11 @@
 | 1 | **飞行模式开**（彻底断网）→ 冷启动 App（先从后台划掉） | 会话列表立刻可见（不等网络） | 空列表 / 转圈超过 2 秒 |
 | 2 | 切到 **Bot 页** | 上次的 Bot/群聊列表**立即可见**；头像显示 glyph（照片头像降级为形状/glyph 是预期的） | 空列表 / 一直"正在同步团队" |
 | 3 | Bot 页看"等你回答"红点 | 上次的卡片计数仍在（断网也能看到入口） | 红点全消失 |
+
+> **#3 的已知豁免窗口**：卡片计数是在**首条卡片帧**到达后才写进缓存的。所以
+> 「刚收到团队快照、还没收到任何卡片帧就断网」这种情况下，还没写进缓存的计数会缺失——
+> 这是**已知窗口，不算红**；只有「上次明确看到过红点、联网也确实有卡片、重开仍有缓存却全没了」才算红。
+
 | 4 | 打开任一历史会话 | 已缓存的历史消息可见（窗口内） | 空白 / 报错 |
 | 5 | 顶部状态提示 | 能看出"这不是实时状态"（现有降级提示在位，不能把旧状态当实时显示） | 无任何区分 |
 | 6 | 关飞行模式 → 等 5–10 秒 | Bot 页静默更新为实时数据；无闪白/重排跳动 | 整页闪白 / 列表清空再重填 |
@@ -29,11 +34,14 @@ log stream --device-name "<iPhone>" --level debug \
   --predicate 'subsystem == "ai.dsh.mobile.ios" AND (category == "startup" OR category == "team-cache")'
 ```
 
-- `category=startup`：`ws.connected` / `bots.rendered(cache|live)` / `bots.rendered` /
-  `sessions.rendered` / `history.rendered` / `avatar.rendered`，单位毫秒、相对首条 mark
+- `category=startup`：`ws.connected` / `sessions.rendered` / `bots.rendered(cache|live)` /
+  `history.rendered` / `avatar.rendered`，单位毫秒、相对首条 mark
 - `category=team-cache`：`roster cache hydrated rows=N age=Ns`（水合成功）、
   `roster cache ignored: …`（损坏/版本不符/超期/缺字段）
 - 判定：#7 的"时间差"= `bots.rendered` 与 `sessions.rendered` 的毫秒数之差
+- **口径**：时间轴第一个 mark 当 t0，其余都是相对它的毫秒数——**只能作同一次启动内的
+  相对比较**（谁先谁后、相差多少），不能跨设备/跨启动比绝对耗时，也不要拿它当性能承诺。
+  想要绝对耗时得另接 signpost。
 
 ## 判红之后怎么办
 

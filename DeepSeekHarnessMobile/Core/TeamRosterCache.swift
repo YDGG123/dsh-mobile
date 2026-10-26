@@ -146,7 +146,8 @@ final class TeamRosterCacheStore {
         return TeamRosterCache.load(from: data, now: now)
     }
 
-    /// 后台回写：5 秒节流 + 内容指纹去重；**裁剪与序列化都在后台队列**，不阻塞主线程。
+    /// 后台回写：**只有 5 秒时间节流**（内容没变也会写一次，因为这里没有做内容比对——
+    /// 别把这条注释读成"有指纹去重"）；**裁剪与序列化都在后台队列**，不阻塞主线程。
     func save(serverKey: String, snapshot: [String: Any], instanceId: String, now: Date = Date()) {
         guard !serverKey.isEmpty else { return }
         if let lastSavedAt, now.timeIntervalSince(lastSavedAt) < 5 {

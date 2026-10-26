@@ -13200,10 +13200,16 @@ final class TeamRosterCacheTests: XCTestCase {
         [
             "instanceId": instanceId,
             "seq": 42,
+            // 顶层主 Bot 名单：缓存里"谁置顶"只有这一份（行上不一定写 main），水合必须读它
+            "mainBotIds": ["b1"],
             "bots": [[
                 "id": "b1", "name": botName, "role": "Translator", "sessionId": "s1",
                 "avatar": ["shape": "whale", "image": "data:image/png;base64,AAAA"],
                 "activity": "working",
+                // 调色板 key：曾经在缓存水合路径漏读 → 断网时头像全灰（QA 抓到的真 bug）
+                "color": "deepseek",
+                "work": ["tool": "read_file", "note": "正在读 ARCHITECTURE.md"],
+                "preview": "上次的最后一句话",
             ]],
             "rooms": [["id": "r1", "name": "研发群", "sessionId": "s2", "members": ["b1"]]],
             "_cardCounts": ["b1": 2],
@@ -13261,6 +13267,33 @@ final class TeamRosterCacheTests: XCTestCase {
         XCTAssertEqual(rows.count, 2)
         XCTAssertEqual(rows.first?.avatarShape, "whale")
         XCTAssertEqual(rows.first?.activity, "working", "缓存保留上次状态值")
+    }
+
+    // 例 6：**缓存水合的行必须与原始快照同色**——QA 抓到的真 bug：水合路径漏读 `color`，
+    // 断网时所有头像落默认灰，一直错到联网收到新快照。反向：删掉 `makeRow` 里的
+    // `row.colorKey = raw["color"] as? String` 一行 → 这条变红。
+    // 顺带钉住「只有一套解析」：同一份 raw 走实时入口 `row(from:)` 与缓存入口，字段必须一致。
+    @MainActor
+    func testHydratedRowsKeepColorAndOtherSnapshotFields() throws {
+        let payload = try XCTUnwrap(TeamRosterCache.load(from: encode(snapshot())))
+        let bots = try XCTUnwrap(payload.snapshot["bots"] as? [[String: Any]])
+        let raw = try XCTUnwrap(bots.first)
+        let cached = try XCTUnwrap(GatewayTeamFeed.rosterRows(from: payload.snapshot).first { $0.kind == .bot })
+
+        XCTAssertEqual(cached.colorKey, "deepseek", "缓存水合必须保留调色板 key（否则断网头像全灰）")
+        XCTAssertEqual(cached.colorKey, raw["color"] as? String, "必须与原始快照逐字一致")
+        XCTAssertTrue(cached.main, "顶层 mainBotIds 要并进行上的 main——断网首屏主 Bot 同样置顶")
+        XCTAssertEqual(cached.work?.tool, "read_file", "易变字段同批解析，别让两套解析再分叉")
+        XCTAssertEqual(cached.preview, "上次的最后一句话")
+
+        // 实时入口与缓存入口是同一个解析器（`makeRow`）：这些字段不该有任何差异
+        let feed = GatewayTeamFeed()
+        let live = try XCTUnwrap(feed.row(from: raw, kind: .bot))
+        XCTAssertEqual(live.colorKey, cached.colorKey, "实时/缓存解析分叉就会重演 color 漏读")
+        XCTAssertEqual(live.work?.tool, cached.work?.tool)
+        XCTAssertEqual(live.preview, cached.preview)
+        XCTAssertEqual(live.avatarShape, cached.avatarShape)
+        XCTAssertEqual(live.glyph?.layers.count, cached.glyph?.layers.count)
     }
 
     // 版本号：结构版本不符 → 静默回空态（字段演进不许炸启动）
