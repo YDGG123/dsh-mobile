@@ -33,3 +33,4 @@ d9d3cf907fdc3d7647dbe2134b95859b48b27d06  # build 34 最终 head（在 075f038 �
 ed8ef4d360cc3c820106b2bcd09f2888e45bc797  # build 34 head：在 d9d3cf9 之上修 Widget orca 资源内部文件名/aria-label（仅资源名与无障碍文案，二进制行为等价）
 064865cf53eec3531d8104a5268cd130ce4056b3  # build 35（干净重打）：改名 + 新 Bundle ID/scheme + 隐私页随包内置且品牌邮箱归位 + 撤死链跳转 + 测试闸门（App 代码 head，打包用这个）
 0671ad3a321660676688f372bf14a628a053116a  # build 36：新图标三套(light/dark/tinted) + 新字标(SVG 字形 Orcarness) + 删死资源 + 改名闸门字形检查 + 心跳三项防御（App 代码 head）
+75ce0621824b449d9d160b5706b934e9217dee5b  # build 36 head（在 0671ad3 之上仅调整改名闸门的报错顺序：字形检查与字面量残留同时报；App 二进制等价）
