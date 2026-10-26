@@ -159,3 +159,8 @@ if (question === undefined || question.id !== body.questionId) return fail('This
 查 `lib/mobile-v1/actions.mjs` 的 `fields` 里有没有 `answer-question`：没有 = 只止血；有 = 已根治。
 
 > 只看到「红点不显示了」就以为修好，是最容易误判的一种——那可能只是把红点也一起关了（错误修法）。
+
+### 7.2 当前状态
+
+> 当前状态（2026-10-27）：② 止血已落地（`ef11019`，build 38）；
+> ③ 根治未开始（等网关 `answer-question` action）。
