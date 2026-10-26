@@ -56,6 +56,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import re
 import sys
 from pathlib import Path
@@ -108,6 +109,22 @@ ATTRIBUTION_FILES = {
 }
 
 
+# —— 字形轮廓：闸门扫不到的那一层 ——
+# 教训（2026-10-26，真机反馈）：`orcarness-harness.svg` 的**文件名、注释、aria-label**
+# 都改成了 Orcarness，但里面 16 个 `<path>` 画的还是 `whaleness` 这 9 个字母的轮廓。
+# 字面量闸门永远抓不到这种「自洽但过时」——所以这里补一层**疑似检测**：
+#   SVG 里 `<path>` 数 > 12 且没有 `<text>` → 很可能是字母轮廓而不是图标，
+#   输出 ⚠️ 要求人工看一眼（不求自动判定谁对谁错，只求不静默漏过）。
+# 已人工确认的实现登记在 GLYPH_REVIEWED（带 sha256）：内容一改就重新要求确认，
+# 否则「确认过一次」会变成永久免检。
+GLYPH_PATH_THRESHOLD = 12
+GLYPH_REVIEWED = {
+    "DeepSeekHarnessMobile/Resources/Assets.xcassets/OrcarnessHarnessWordmark.imageset/orcarness-harness.svg": (
+        "cd4b26185553257df34cc61f740f12d4ab53b052063a36cac0b3f4db4145a3c2",
+        "人工确认：9 个字母 path = Orcarness（首字母大写），另 HARNESS 胶囊 —— Chief 生成、用户确认版式",
+    ),
+}
+
 # 闸门自身必然包含这些词（它们就是规则定义），必须豁免自己
 SELF_PATH = "scripts/verify-rename.py"
 
@@ -142,6 +159,34 @@ def iter_files():
                 continue
             if p.suffix.lower() in TEXT_SUFFIXES:
                 yield p
+
+
+def check_glyph_outlines() -> tuple[list[str], list[str]]:
+    """返回 (已复核, 待复核)。只看 .svg：path 数量异常多且没有 <text> 的，疑似字母轮廓。"""
+    reviewed: list[str] = []
+    pending: list[str] = []
+    for d in SCAN_DIRS:
+        base = ROOT / d
+        if not base.is_dir():
+            continue
+        for p in base.rglob("*.svg"):
+            if any(part in SKIP_DIR_NAMES for part in p.parts):
+                continue
+            try:
+                text = p.read_text(errors="ignore")
+            except OSError:
+                continue
+            if text.count("<path") <= GLYPH_PATH_THRESHOLD or "<text" in text:
+                continue
+            rel = relpath(p)
+            expected = GLYPH_REVIEWED.get(rel)
+            digest = hashlib.sha256(text.encode()).hexdigest()
+            if expected and expected[0] == digest:
+                reviewed.append(rel)
+            else:
+                reason = "内容已变更，需重新确认" if expected else "未登记"
+                pending.append(f"{rel}（{reason}；{text.count('<path')} 个 path）")
+    return reviewed, pending
 
 
 def relpath(p: Path) -> str:
@@ -216,6 +261,12 @@ def main() -> int:
         print(f"\n=== Docs 历史稿豁免清单（{len(historical)} 个文件）===")
         for rel in sorted(historical):
             print(f"  {rel}")
+        reviewed_svg, pending_svg = check_glyph_outlines()
+        print(f"\n=== 字形轮廓：已复核 {len(reviewed_svg)} 个 / 待复核 {len(pending_svg)} 个 ===")
+        for rel in reviewed_svg:
+            print(f"  ✅ {rel}")
+        for item in pending_svg:
+            print(f"  ⚠️ {item}")
         return 0
 
     if residues:
@@ -231,6 +282,20 @@ def main() -> int:
         print(f"\n改名闸门：{len(residues)} 处残留（豁免 {len(allowed)} 处，历史稿 {len(historical)} 个文件）", file=sys.stderr)
         print("  处置见脚本头部「三类目标 + 豁免」表；确属误报请改脚本豁免规则，不要就地改文档。", file=sys.stderr)
         return 1
+
+    reviewed_svg, pending_svg = check_glyph_outlines()
+    if pending_svg:
+        print(f"\n⚠️ 字形轮廓待人工确认 —— {len(pending_svg)} 个 SVG 疑似用 `<path>` 画字，"
+              f"而闸门扫不到 path 里的字形：", file=sys.stderr)
+        for item in pending_svg:
+            print(f"    {item}", file=sys.stderr)
+        print("    处置：打开文件/渲染看一眼字形是否正确；确认后把 路径→(sha256, 说明) 加进 "
+              "scripts/verify-rename.py 的 GLYPH_REVIEWED。\n"
+              "    为什么要拦：文件名/注释/aria-label 全改对、字形仍是旧名字的形态，字面量闸门永远抓不到"
+              "（2026-10-26 真机就是这个）。", file=sys.stderr)
+        return 1
+    if reviewed_svg:
+        print(f"  ℹ️ 字形轮廓已复核 {len(reviewed_svg)} 个（sha256 绑定，内容一改就重新要求确认）")
 
     print(f"改名闸门通过：0 处残留（豁免 {len(allowed)} 处，历史稿 {len(historical)} 个文件）")
     if allowed:
