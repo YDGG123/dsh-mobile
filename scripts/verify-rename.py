@@ -7,6 +7,22 @@
   漏在某个 README 徽章里。这类残留不会让构建变红，只会在用户看到产品时露出来。
   所以这里把三类目标逐文件扫一遍，命中即红，并给出精确位置。
 
+## ⚠️ 已知盲区（写在这里，因为「让人以为全查了」比漏查更危险）
+
+本闸门**只扫文本文件**（后缀白名单见 `TEXT_SUFFIXES`），因此以下情况它**查不到**，
+必须靠人工复核或别的闸门兜底：
+
+1. **位图内容**——PNG/JPG/APNG 里若印着旧 logo 或旧品牌字，本闸门**永远抓不到**
+   （`Docs/images/`、`Assets.xcassets` 里的图片都属于此列）。改名时图片要么换新图，
+   要么逐张目视确认。
+2. **编译产物与二进制**——`build/`、`.app`、IPA/APK 内部字符串不在扫描范围内。
+3. **代码里的「间接旧名」**——例如资源名 `whaleness_loading` 会被抓到，
+   但若有人改成 `legacy_loading` 这种不含目标词的名字，闸门就看不见了。改名要成对检查「资源名 + 引用它的代码」。
+4. **域名/包名这类「保留但需迁移」的项**——已按豁免处理并显式提示，
+   不代表它们是「正确的」，只代表「现在不动它更安全」（见下方豁免第 1、2 条）。
+
+> 闸门绿 = 「文本里没有旧名残留」；**不等于**「产品完全改名干净」。
+
 ## 三类目标（性质完全不同，处置也不同）
 
 | 目标 | 含义 | 处置 |
@@ -221,7 +237,14 @@ def main() -> int:
         # 提醒域名仍是旧名——不是错误，但迁移完成前要记着
         domain_hits = [a for a in allowed if "whaleness.cc" in a[3]]
         if domain_hits:
-            print(f"  ⚠️ 发布域名仍是旧名 `download.whaleness.cc`（{len(domain_hits)} 处，属部署决策，迁移完成后用 --strict 复查）")
+            print(f"  ⚠️ 发布域名仍是旧名 `download.whaleness.cc`（{len(domain_hits)} 处）——这是**待迁移的部署负债**，不是可忽略的豁免。")
+            print("     换域名**不是改一个字符串**：`R2UpdateManifest.kt` 把该域硬编码进 APK 更新的安全白名单，")
+            print("     直接切域会让已装机老 APK 拒装新域名的包。正确顺序（少一步就断用户）：")
+            print("       ① 先发一版只把白名单扩成「新旧域都收」的 APK")
+            print("       ② 等用户都升到这一版")
+            print("       ③ 切 DNS/证书 + R2 桶 `whaleness-apks` 的 publicBaseUrl + 发布脚本 PUBLIC_BASE")
+            print("       ④ 再发一版收紧白名单，删掉旧域")
+            print("     迁移完成后用 --strict 复查（届时这些处会按残留判红）。")
         pkg_hits = [a for a in allowed if PACKAGE_ALLOW.search(a[3])]
         if pkg_hits:
             print(f"  ℹ️ Kotlin 包名 `com.clarklevis.dsh` 豁免 {len(pkg_hits)} 处（改包名=全仓重构+断签名连续性，不在本闸门范围）")
