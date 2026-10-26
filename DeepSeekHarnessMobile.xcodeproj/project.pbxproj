@@ -824,6 +824,9 @@
 				"FRAMEWORK_SEARCH_PATHS[sdk=iphonesimulator*][arch=arm64]" = "$(SRCROOT)/shared/build/bin/iosSimulatorArm64/debugFramework";
 				"FRAMEWORK_SEARCH_PATHS[sdk=iphonesimulator*][arch=x86_64]" = "$(SRCROOT)/shared/build/bin/iosX64/debugFramework";
 				GENERATE_INFOPLIST_FILE = YES;
+				/* 测试 target 故意要求 17.0+（App 本体仍是 16.0）：测试源码直接用 16.1/16.2/17.0 的 API，
+				   在 16.0 下有 54 个编译错误、长期从未编译过。测试不随包发布，只在 17+ 模拟器跑；
+				   改名/版本调整时别把它当笔误改回 16.0。详见 scripts/local-test-typecheck.sh。 */
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(LOCAL_BUNDLE_IDENTIFIER).tests";
 				SDKROOT = iphoneos;
@@ -873,6 +876,9 @@
 				"FRAMEWORK_SEARCH_PATHS[sdk=iphonesimulator*][arch=arm64]" = "$(SRCROOT)/shared/build/bin/iosSimulatorArm64/releaseFramework";
 				"FRAMEWORK_SEARCH_PATHS[sdk=iphonesimulator*][arch=x86_64]" = "$(SRCROOT)/shared/build/bin/iosX64/releaseFramework";
 				GENERATE_INFOPLIST_FILE = YES;
+				/* 测试 target 故意要求 17.0+（App 本体仍是 16.0）：测试源码直接用 16.1/16.2/17.0 的 API，
+				   在 16.0 下有 54 个编译错误、长期从未编译过。测试不随包发布，只在 17+ 模拟器跑；
+				   改名/版本调整时别把它当笔误改回 16.0。详见 scripts/local-test-typecheck.sh。 */
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.ydgg123.orcarness.tests;
 				SDKROOT = iphoneos;
