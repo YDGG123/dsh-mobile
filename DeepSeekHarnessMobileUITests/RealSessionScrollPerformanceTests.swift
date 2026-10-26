@@ -17,7 +17,7 @@ final class RealSessionScrollPerformanceTests: XCTestCase {
         let app = XCUIApplication()
         let environment = ProcessInfo.processInfo.environment
         if let rawURL = environment["DSH_SCROLL_EXISTING_SESSION_URL"], let url = URL(string: rawURL),
-           url.scheme == "dshmobile", url.host == "session" {
+           url.scheme == "orcarness", url.host == "session" {
             // 正常重启只清进程内缓存，保留用户数据库与配对；不提供 fake/reset 参数。
             app.launchEnvironment["DSH_HISTORY_SCROLL_METRICS"] = "1"
             app.launchEnvironment["DSH_HISTORY_SCROLL_METRICS_SECONDS"] = environment["DSH_SCROLL_SECONDS"] ?? "120"
@@ -147,7 +147,7 @@ final class ControlledHistoryPresentationPerformanceTests: XCTestCase {
         continueAfterFailure = false
         let parameters = try Parameters(environment: environment)
         guard let rawURL = environment["DSH_SCROLL_EXISTING_SESSION_URL"],
-              let url = URL(string: rawURL), url.scheme == "dshmobile", url.host == "session" else {
+              let url = URL(string: rawURL), url.scheme == "orcarness", url.host == "session" else {
             XCTFail("需要本机私有配置中的已有真实会话deep link")
             return
         }

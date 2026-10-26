@@ -186,7 +186,7 @@ private struct RootNavigationHost: View, Equatable {
     }
 
     private func openLiveActivityURL(_ url: URL) {
-        guard url.scheme == "dshmobile", url.host == "session",
+        guard url.scheme == "orcarness", url.host == "session",
               let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
               let gatewayID = components.queryItems?.first(where: { $0.name == "gateway" })?.value,
               gatewayID == store.gatewayLocalID,

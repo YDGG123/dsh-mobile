@@ -762,13 +762,13 @@ private enum AgentActivityPresentation {
 private enum AgentActivityLink {
     static func session(_ context: ActivityViewContext<AgentActivityAttributes>) -> URL {
         var components = URLComponents()
-        components.scheme = "dshmobile"
+        components.scheme = "orcarness"
         components.host = "session"
         components.queryItems = [
             URLQueryItem(name: "gateway", value: context.attributes.gatewayID),
             URLQueryItem(name: "id", value: context.attributes.sessionID)
         ]
-        return components.url ?? URL(string: "dshmobile://session")!
+        return components.url ?? URL(string: "orcarness://session")!
     }
 }
 
