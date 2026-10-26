@@ -389,8 +389,10 @@ struct WorkspaceView: View {
     private var gatewayTeamReady: Bool {
         switch gatewayTeam.phase {
         case .live: return true
-        case .connecting, .offline: return !gatewayTeam.rows.isEmpty
-        case .idle, .needsPairing: return false
+        // 有行就可见：返回 Bot 页的瞬间不要因为"正在重连"把整段藏起来
+        // （缓存水合出来的旧行、以及 stop→start 之间残留的 .idle 都走这里）。
+        case .connecting, .offline, .idle: return !gatewayTeam.rows.isEmpty
+        case .needsPairing: return false
         }
     }
 

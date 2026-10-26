@@ -348,7 +348,12 @@ final class GatewayTeamFeed: ObservableObject {
         self.session = session
         let task = session.webSocketTask(with: url)
         socket = task
-        phase = rows.isEmpty ? .connecting : phase
+        // 建连时**一律**进 `.connecting`：因为 UI 的可见性判据把 `.idle` 当"不可用"，
+        // 而从会话页返回时 `stop()` 已把 phase 打成 `.idle`（rows 还在）。
+        // 原写法 `rows.isEmpty ? .connecting : phase` 会让 rows 非空时**保持 .idle**
+        // → Bot 段整段隐藏，直到新快照到达才 .live（真机"退回来要等一两秒"的真因，
+        // 不是头像重渲染：glyph 有 static NSCache）。
+        phase = .connecting
         task.resume()
         // ① 分块传输：只有声明了能力，网关才会把超大帧切成 chunk 发（不声明 = 永远收整帧）。
         resumeKey = Self.resumeKey(for: resource)
