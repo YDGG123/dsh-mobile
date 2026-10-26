@@ -447,7 +447,8 @@ struct WorkspaceView: View {
     }
 
     private func gatewayTeamRow(_ row: GatewayTeamFeed.Row) -> some View {
-        HStack(spacing: 11) {
+        let status = gatewayTeam.statusText(for: row, botNames: gatewayBotNames)
+        return HStack(spacing: 11) {
             // 头像（静态字段）：有 data URL 用它，没有就回落默认块（色块 + 首字母），**不留空白**。
             gatewayAvatar(row)
                 .overlay(alignment: .bottomTrailing) {
@@ -462,9 +463,18 @@ struct WorkspaceView: View {
                     if row.main { Text("主").appFont(.caption2).foregroundStyle(palette.ink(0.55)) }
                     if row.pinned { Image(systemName: "pin.fill").appFont(.caption2).foregroundStyle(palette.ink(0.4)) }
                 }
-                if let status = gatewayTeam.statusText(for: row, botNames: gatewayBotNames) {
+                if let status {
                     Text(status).appFont(.caption).foregroundStyle(statusForeground(for: row)).lineLimit(1)
-                } else {
+                }
+                if let card = row.cardQuestions.first(where: { !$0.prompt.isEmpty }) {
+                    // 正文只读：bridge 还没有答复通道，所以不给可点样式，只把内容摆出来
+                    // （原来"等你回答"点进去是空白，就是正文被丢掉了）。
+                    Text("「\(card.prompt)」")
+                        .appFont(.caption2)
+                        .foregroundStyle(palette.ink(0.6))
+                        .lineLimit(2)
+                }
+                if status == nil {
                     Text(row.kind == .room
                          ? gatewayTeam.roomSubtitle(for: row, botNames: gatewayBotNames)
                          : (row.role ?? "Bot"))

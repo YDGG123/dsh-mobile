@@ -49,6 +49,26 @@ final class GatewayTeamFeed: ObservableObject {
         var at: Int64?
     }
 
+    /// 卡片帧（bridge `card`）里的**正文**。
+    ///
+    /// 为什么需要它：红点一直来自 card 帧，但正文渲染原来只等旧协议
+    /// `/ws/mobile` 的 `question-requested`，而手机已全迁 bridge —— 那条不通，
+    /// 于是「显示等你回答、点进去空白」。止血方案：把 card 帧自带的正文本地存下来，
+    /// 有正文就显示正文、没正文就显示计数提示，**并且都标明要在电脑端处理**
+    /// （bridge 目前没有 question-answer action，答了发不回去，绝不能假装能点）。
+    struct CardQuestion: Hashable {
+        /// 卡片 id（网关保证唯一）
+        var id: String
+        /// 会话 id（网关可能只给 botId/roomId，此时为空）
+        var sessionId: String?
+        var kind: String            // question | view | secret
+        /// 正文：question 取第一条问题；view 取 title/text/body；secret 取 name/description
+        var prompt: String
+        var options: [String] = []
+        var allowsCustom = false
+        var allowsMultiple = false
+    }
+
     struct Waiting: Hashable {
         var bots: [String] = []
         var rooms: [String] = []
@@ -84,6 +104,8 @@ final class GatewayTeamFeed: ObservableObject {
         /// ds-bot 调色板 key（契约明写「手机端需同名映射」），默认块颜色优先用它。
         var colorKey: String?
         var placeholderCards: Int = 0
+        /// card 帧带来的正文（止血方案）。空 = 只有计数没有正文。
+        var cardQuestions: [CardQuestion] = []
     }
 
     @Published private(set) var phase: Phase = .idle
@@ -679,25 +701,78 @@ final class GatewayTeamFeed: ObservableObject {
 
     private func pendingKey(_ row: Row) -> String { row.id }
 
-    private func applyCards(_ object: [String: Any]) {
-        // 卡片帧暂时只用来点「等你回答」的红点：正文渲染仍走 bridge 的提问卡片通道。
+    /// 卡片帧归一化（纯函数，便于单测）：计数 + 正文。
+    ///
+    /// 止血要点：正文**必须留下来**，否则用户看到「等你回答」点进去是空白
+    /// （真机反馈）。这里按 owner（roomId 优先，其次 botId）归集，
+    /// 同时给出计数，供断网缓存 `_cardCounts` 使用。
+    nonisolated static func cardOwners(from cards: [[String: Any]])
+        -> (counts: [String: Int], questions: [String: [CardQuestion]]) {
+        var counts: [String: Int] = [:]
+        var questions: [String: [CardQuestion]] = [:]
+        for card in cards {
+            let owner = (card["roomId"] as? String) ?? (card["botId"] as? String) ?? ""
+            guard !owner.isEmpty else { continue }
+            counts[owner, default: 0] += 1
+            if let parsed = cardQuestion(from: card) {
+                questions[owner, default: []].append(parsed)
+            }
+        }
+        return (counts, questions)
+    }
+
+    /// 单张卡 → 正文。网关的三种形态（question / view / secret）分别取标题或首问。
+    nonisolated static func cardQuestion(from card: [String: Any]) -> CardQuestion? {
+        guard let id = card["id"] as? String, !id.isEmpty else { return nil }
+        let kind = (card["kind"] as? String) ?? "question"
+        let sessionId = card["sessionId"] as? String
+        switch kind {
+        case "question":
+            let list = (card["questions"] as? [[String: Any]]) ?? []
+            guard let first = list.first,
+                  let prompt = (first["question"] as? String) ?? (first["title"] as? String),
+                  !prompt.isEmpty else { return nil }
+            let options = ((first["options"] as? [[String: Any]]) ?? [])
+                .compactMap { $0["label"] as? String }
+                .filter { !$0.isEmpty }
+            return CardQuestion(id: id, sessionId: sessionId, kind: kind, prompt: prompt,
+                                options: options,
+                                allowsCustom: first["custom"] as? Bool == true,
+                                allowsMultiple: first["multiple"] as? Bool == true)
+        case "view":
+            guard let view = card["view"] as? [String: Any] else { return nil }
+            let prompt = ["title", "text", "body"].compactMap { view[$0] as? String }
+                .first { !$0.isEmpty }
+            guard let prompt else { return nil }
+            return CardQuestion(id: id, sessionId: sessionId, kind: kind, prompt: prompt)
+        case "secret":
+            guard let secret = card["secret"] as? [String: Any] else { return nil }
+            let prompt = ["name", "description"].compactMap { secret[$0] as? String }
+                .first { !$0.isEmpty }
+            guard let prompt else { return nil }
+            return CardQuestion(id: id, sessionId: sessionId, kind: kind, prompt: prompt)
+        default:
+            return nil
+        }
+    }
+
+    func applyCards(_ object: [String: Any]) {
         let cards: [[String: Any]]
         if let list = object["cards"] as? [[String: Any]] {
             cards = list
         } else {
             cards = ((object["ops"] as? [[String: Any]]) ?? []).compactMap { $0["card"] as? [String: Any] }
         }
-        var counts: [String: Int] = [:]
-        for card in cards {
-            let owner = (card["roomId"] as? String) ?? (card["botId"] as? String) ?? ""
-            if !owner.isEmpty { counts[owner, default: 0] += 1 }
-        }
+        let parsed = Self.cardOwners(from: cards)
         for index in rows.indices {
-            rows[index].placeholderCards = counts[pendingKey(rows[index])] ?? 0
+            let key = pendingKey(rows[index])
+            rows[index].placeholderCards = parsed.counts[key] ?? 0
+            rows[index].cardQuestions = parsed.questions[key] ?? []
         }
-        // 卡片是"等回答"入口：断网也要能看到红点，所以计数随团队快照一起落盘。
+        // 卡片是"等回答"入口：断网也要能看到红点，所以计数随团队快照一起落盘
+        // （正文不进缓存：体积大且可能被裁；离线时按"只有计数"提示处理）。
         if var snapshot = lastSnapshotObject {
-            snapshot["_cardCounts"] = counts
+            snapshot["_cardCounts"] = parsed.counts
             lastSnapshotObject = snapshot
             rosterStore.save(serverKey: resumeKey, snapshot: snapshot, instanceId: instanceId)
         }
@@ -845,9 +920,18 @@ final class GatewayTeamFeed: ObservableObject {
 
     /// 需求 4：名字下面那行实时状态。`nil` 表示这一行没有要显示的状态。
     func statusText(for row: Row, botNames: [String: String] = [:]) -> String? {
-        if !row.pending.isEmpty || row.placeholderCards > 0 {
+        if !row.pending.isEmpty {
             let kind = row.pending.first?.kind ?? "question"
             return kind == "view" ? "等你确认卡片" : kind == "secret" ? "等你填密钥" : "等你回答"
+        }
+        if row.placeholderCards > 0 {
+            // 只有卡片帧的红点、没有答复通道（bridge 尚无 question-answer action）：
+            // **绝不显示成"点一下就能答"**，否则用户点了没反应更糟。
+            if row.cardQuestions.contains(where: { !$0.prompt.isEmpty }) {
+                return "等你回答（在电脑端回答）"
+            }
+            let count = row.placeholderCards
+            return count > 1 ? "\(count) 个提问待回答（请在电脑端处理）" : "有提问待回答（请在电脑端处理）"
         }
         if !row.approvals.isEmpty { return "等你审批\(row.approvals.first?.tool.map { "（\($0)）" } ?? "")" }
         if degraded, row.activity == nil { return "实时状态暂不可用（网关降级）" }

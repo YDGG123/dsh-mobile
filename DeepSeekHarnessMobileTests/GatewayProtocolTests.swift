@@ -13362,3 +13362,65 @@ final class GatewayProbePolicyTests: XCTestCase {
         )
     }
 }
+
+/// 卡片止血（2026-10-26 真机「显示等你回答、点进去空白」）：
+/// 红点来自 bridge 的 `card` 帧，正文却只走旧协议 `question-requested`（手机已全迁 bridge，不通）。
+/// 止血口径：**正文留下来、只读展示，并且明确告诉用户去电脑端**（没有答复通道，不许假装能点）。
+final class TeamCardTextTests: XCTestCase {
+
+    // ① 有正文：card 帧里的问题/选项/自定义标记都要留下来
+    func testCardFrameTextIsRetained() {
+        let cards: [[String: Any]] = [[
+            "id": "card-1", "kind": "question", "botId": "b1", "sessionId": "s1",
+            "questions": [[
+                "id": "q1", "question": "选哪个方案？", "custom": true, "multiple": false,
+                "options": [["label": "A 方案"], ["label": "B 方案"]],
+            ]],
+        ]]
+        let parsed = GatewayTeamFeed.cardOwners(from: cards)
+        XCTAssertEqual(parsed.counts["b1"], 1, "红点计数不能丢")
+        let list = parsed.questions["b1"] ?? []
+        XCTAssertEqual(list.count, 1)
+        XCTAssertEqual(list.first?.prompt, "选哪个方案？", "正文不能再被丢掉")
+        XCTAssertEqual(list.first?.options, ["A 方案", "B 方案"], "选项标注要保留（答复时逐字一致）")
+        XCTAssertEqual(list.first?.allowsCustom, true)
+        XCTAssertEqual(list.first?.sessionId, "s1")
+    }
+
+    // ② 只有计数、没有正文：不猜内容，也不产生可答正文
+    func testCardWithoutTextStillCountsButCarriesNoBody() {
+        let cards: [[String: Any]] = [
+            ["id": "card-2", "kind": "question", "botId": "b1"],   // 没有 questions
+            ["id": "card-3", "kind": "view", "botId": "b1"],       // 没有 view 正文
+        ]
+        let parsed = GatewayTeamFeed.cardOwners(from: cards)
+        XCTAssertEqual(parsed.counts["b1"], 2, "两张卡都要计入红点")
+        XCTAssertEqual((parsed.questions["b1"] ?? []).count, 0, "没有正文就不许编出正文")
+    }
+
+    // ③ 文案必须诚实：有正文要标明「在电脑端回答」，没正文要给计数提示
+    @MainActor
+    func testStatusTextNeverPretendsTheCardIsAnswerable() {
+        var row = GatewayTeamFeed.Row(id: "b1", kind: .bot, name: "翻译官", role: nil, sessionId: "s1")
+        row.placeholderCards = 2
+        let feed = GatewayTeamFeed()
+        XCTAssertEqual(feed.statusText(for: row), "2 个提问待回答（请在电脑端处理）",
+                       "只有计数时必须给计数提示，不能只说「等你回答」")
+
+        row.cardQuestions = [GatewayTeamFeed.CardQuestion(
+            id: "card-1", sessionId: "s1", kind: "question", prompt: "选哪个方案？")]
+        XCTAssertEqual(feed.statusText(for: row), "等你回答（在电脑端回答）",
+                       "有正文也要标明答复在电脑端——bridge 没有答复通道")
+    }
+
+    // ④ view / secret 两种卡的正文同样保留（否则同样"点进去空白"）
+    func testViewAndSecretCardsKeepTheirBody() {
+        let parsed = GatewayTeamFeed.cardOwners(from: [
+            ["id": "c1", "kind": "view", "roomId": "r1", "view": ["title": "确认部署"]],
+            ["id": "c2", "kind": "secret", "roomId": "r1", "secret": ["name": "GitHub Token"]],
+        ])
+        let list = parsed.questions["r1"] ?? []
+        XCTAssertEqual(list.map(\.prompt), ["确认部署", "GitHub Token"])
+        XCTAssertEqual(list.map(\.kind), ["view", "secret"])
+    }
+}
