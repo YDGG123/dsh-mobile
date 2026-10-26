@@ -532,15 +532,22 @@ private struct PrivacyPolicySheet: View {
     @State private var loadFailed = false
     @State private var reloadID = UUID()
 
-    private let url = URL(string: "https://clarklevis1995.github.io/dsh-mobile/privacy/")!
+    /// 隐私政策是**随包内置**的本地页（`privacy/index.html` → Bundle 根目录 `index.html`）。
+    /// 不用外部站点：别人的仓库一删就 404，而且上架合规只要求"可访问的隐私政策"。
+    private let url = Bundle.main.url(forResource: "index", withExtension: "html")
 
     var body: some View {
         NavigationStack {
             ZStack {
-                PrivacyPolicyWebView(url: url, isLoading: $isLoading, loadFailed: $loadFailed)
-                    .id(reloadID)
-                    .opacity(loadFailed ? 0 : 1)
-                    .allowsHitTesting(!loadFailed)
+                if let url {
+                    PrivacyPolicyWebView(url: url, isLoading: $isLoading, loadFailed: $loadFailed)
+                        .id(reloadID)
+                        .opacity(loadFailed ? 0 : 1)
+                        .allowsHitTesting(!loadFailed)
+                } else {
+                    // 资源没打进包才会走到这里：明确告诉用户，别显示一个永远转圈的空白页。
+                    Text("隐私政策文件缺失")
+                }
 
                 if isLoading {
                     ProgressView()
@@ -587,7 +594,13 @@ private struct PrivacyPolicyWebView: UIViewRepresentable {
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.navigationDelegate = context.coordinator
         webView.pageZoom = CGFloat(AppFontScale.effective(fontScale, followsSystem: fontFollowsSystem))
-        webView.load(URLRequest(url: url))
+        // 本地文件要用 loadFileURL（load(URLRequest) 打不开 file://），
+        // 读取范围限定在它所在目录；远程 URL 仍走原来的请求路径。
+        if url.isFileURL {
+            webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
+        } else {
+            webView.load(URLRequest(url: url))
+        }
         return webView
     }
 

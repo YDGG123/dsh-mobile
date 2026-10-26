@@ -94,6 +94,7 @@
 		F2B000000000000000000001 /* WorkspaceDrawerUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2B000000000000000000002 /* WorkspaceDrawerUITests.swift */; };
 		AB0170000000000000000001 /* release-info.json in Resources */ = {isa = PBXBuildFile; fileRef = AB0170000000000000000003 /* release-info.json */; };
 		AB0170000000000000000002 /* release-notes.md in Resources */ = {isa = PBXBuildFile; fileRef = AB0170000000000000000004 /* release-notes.md */; };
+		AB0170000000000000000011 /* index.html in Resources */ = {isa = PBXBuildFile; fileRef = AB0170000000000000000012 /* index.html */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -217,6 +218,7 @@
 		81886703A6C3AB2164852990 /* VoiceInputTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceInputTests.swift; sourceTree = "<group>"; };
 		AB0170000000000000000003 /* release-info.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "../../AppRelease/release-info.json"; sourceTree = "<group>"; };
 		AB0170000000000000000004 /* release-notes.md */ = {isa = PBXFileReference; lastKnownFileType = text; path = "../../AppRelease/release-notes.md"; sourceTree = "<group>"; };
+		AB0170000000000000000012 /* index.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = "../../privacy/index.html"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -373,6 +375,7 @@
 			children = (
 				AB0170000000000000000003 /* release-info.json */,
 				AB0170000000000000000004 /* release-notes.md */,
+				AB0170000000000000000012 /* index.html */,
 				59B069578BB7F31AD35F601A /* Info.plist */,
 				A1A0C0000000000000000002 /* LaunchScreen.storyboard */,
 				152A3874C0D169644C9C7B6D /* Assets.xcassets */,
@@ -599,6 +602,7 @@
 			files = (
 				AB0170000000000000000001 /* release-info.json in Resources */,
 				AB0170000000000000000002 /* release-notes.md in Resources */,
+				AB0170000000000000000011 /* index.html in Resources */,
 				A1A0C0000000000000000001 /* LaunchScreen.storyboard in Resources */,
 				6FED6D958ABD07A258CC53F0 /* Assets.xcassets in Resources */,
 				CA11E000000000000000000B /* Localizable.xcstrings in Resources */,
