@@ -97,18 +97,34 @@ struct SettingsView: View {
         }
     }
 
-    private func releaseRow(_ title: String, value: String, repository: String, version: String?) -> some View {
-        Button { openRelease(repository, version: version) } label: {
-            HStack {
-                Text(LocalizedStringKey(title))
-                Spacer()
-                Text(verbatim: value).foregroundStyle(.secondary)
+    /// 版本行。`linkable: false` 时**只显示不跳转**——产品仓库换成用户自己的 fork 后
+    /// 还没有任何 release（GitHub 上是空页面），点进去等于给用户一个死链；
+    /// 等 fork 发布第一个 release 再把它打开。
+    private func releaseRow(_ title: String, value: String, repository: String,
+                            version: String?, linkable: Bool = true) -> some View {
+        Group {
+            if linkable {
+                Button { openRelease(repository, version: version) } label: {
+                    releaseRowLabel(title: title, value: value, showsChevron: true)
+                }
+                .buttonStyle(.plain)
+            } else {
+                releaseRowLabel(title: title, value: value, showsChevron: false)
+            }
+        }
+    }
+
+    private func releaseRowLabel(title: String, value: String, showsChevron: Bool) -> some View {
+        HStack {
+            Text(LocalizedStringKey(title))
+            Spacer()
+            Text(verbatim: value).foregroundStyle(.secondary)
+            if showsChevron {
                 Image(systemName: "chevron.right").appFont(.footnote).foregroundStyle(.tertiary)
             }
-            .frame(maxWidth: .infinity, minHeight: 32)
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity, minHeight: 32)
+        .contentShape(Rectangle())
     }
 
     private var gatewayState: ConnectionState {
@@ -311,7 +327,8 @@ struct SettingsView: View {
             }
 
             Section("关于") {
-                releaseRow("当前版本", value: appVersion, repository: "dsh-mobile", version: appVersion)
+                releaseRow("当前版本", value: appVersion, repository: "dsh-mobile",
+                           version: appVersion, linkable: false)
                 releaseRow("要求网关版本", value: releaseInfo.map { "≥ \($0.minimumGatewayVersion)" } ?? "未提供",
                            repository: "dsh-plugin-mobile-gateway", version: releaseInfo?.minimumGatewayVersion)
                 releaseRow("已连接网关版本", value: !gatewayState.isConnected ? "未连接" :
