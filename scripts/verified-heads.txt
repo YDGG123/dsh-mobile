@@ -47,3 +47,4 @@ f50685e015331b2b1f87f9a9a64c438df3dc5a4d  # build 42：order 帧 degraded + 缓�
   # build 43 出包坐标：卡片/加载标识 + 版本提升提交（版本号与代码同笔，ReleaseBot 用这个）
 21456714d39099e59373885232cae29cbdda14b1  # build 43 出包坐标（修正上一行空 sha 的笔误：版本提升提交 7aaee2d，ReleaseBot 用这一行）
 00f3e08879b421db3ef172ed304aac4a194d1632  # build 44 第一段：分段历史翻页钩子接入（渲染聚合未接，自检点后交付）
+410a350cd2d09535290caa593758b87009e1a4bf  # build 45：旧段响应过门（startHistorySync+beginRequestTimeout）+ 翻页钩子；渲染聚合未接
