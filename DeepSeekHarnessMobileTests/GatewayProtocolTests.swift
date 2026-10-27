@@ -13408,7 +13408,7 @@ final class TeamCardTextTests: XCTestCase {
                        "只有计数时必须给计数提示，不能只说「等你回答」")
 
         row.cardQuestions = [GatewayTeamFeed.CardQuestion(
-            id: "card-1", sessionId: "s1", kind: "question", prompt: "选哪个方案？")]
+            id: "card-1", owner: "b1", sessionId: "s1", kind: "question", prompt: "选哪个方案？")]
         XCTAssertEqual(feed.statusText(for: row), "等你回答（在电脑端回答）",
                        "有正文也要标明答复在电脑端——bridge 没有答复通道")
     }
@@ -13628,5 +13628,58 @@ final class TeamDegradedDeltaTests: XCTestCase {
     func testExplicitFalseRestores() {
         XCTAssertFalse(GatewayTeamFeed.degradedAfter(current: true, frame: ["degraded": false]),
                        "显式 false 才恢复（双相兜底）")
+    }
+}
+
+/// bridge 卡片 → 可点卡片（网关 09d66ad `answer-question`）。
+/// 核心约束：**能力不含就不给可点数据（fail-closed）**；一套 UI 两种来源；
+/// `rpcId = "bridge-card:" + card.id`（服务端只认 sessionId/questionId/answer，rpcId 只是本地键）。
+@MainActor
+final class BridgeQuestionIngestTests: XCTestCase {
+    private func card(id: String, owner: String = "b1", sessionId: String? = "s1",
+                      prompt: String = "选哪个方案？", options: [String] = ["A", "B"]) -> GatewayTeamFeed.CardQuestion {
+        GatewayTeamFeed.CardQuestion(id: id, owner: owner, sessionId: sessionId, kind: "question",
+                                     prompt: prompt, options: options, allowsCustom: true, allowsMultiple: false)
+    }
+
+    // ① 能力开启：卡片变成可点请求，rpcId 带前缀，sessionId 用卡片帧的
+    func testIngestBuildsClickableRequestsWhenCapable() {
+        let store = AppStore(preferences: UserDefaultsAppPreferences(userDefaults: UserDefaults(suiteName: "bridge-ingest")!, gatewayID: "t"),
+                             gatewayClient: GatewayClient(credentials: nil), gatewayLocalID: "t")
+        store.ingestBridgeQuestionCards([card(id: "card-1")], answerEnabled: true)
+        let req = store.bridgePendingQuestions.first
+        XCTAssertEqual(req?.rpcId, AppStore.bridgeCardRpcPrefix + "card-1")
+        XCTAssertEqual(req?.sessionId, "s1")
+        XCTAssertEqual(req?.questions.first?.question, "选哪个方案？")
+        XCTAssertEqual(req?.questions.first?.options?.map(\.label), ["A", "B"], "选项 label 逐字原样")
+        XCTAssertEqual(store.bridgeCardsByRpcId[req!.rpcId]?.id, "card-1", "提交时按 rpcId 取回卡片 → questionId=card.id")
+    }
+
+    // ② 能力不含：fail-closed，不给可点数据（UI 自然回落到只读正文）
+    func testIngestIsFailClosedWithoutCapability() {
+        let store = AppStore(preferences: UserDefaultsAppPreferences(userDefaults: UserDefaults(suiteName: "bridge-ingest2")!, gatewayID: "t"),
+                             gatewayClient: GatewayClient(credentials: nil), gatewayLocalID: "t")
+        store.ingestBridgeQuestionCards([card(id: "card-1")], answerEnabled: false)
+        XCTAssertTrue(store.bridgePendingQuestions.isEmpty, "没有答复通道就绝不能给可点数据")
+    }
+
+    // ③ 群卡（无 sessionId）：payload.sessionId 回落 owner（=roomId）
+    func testGroupCardFallsBackToOwnerForSessionId() {
+        let store = AppStore(preferences: UserDefaultsAppPreferences(userDefaults: UserDefaults(suiteName: "bridge-ingest3")!, gatewayID: "t"),
+                             gatewayClient: GatewayClient(credentials: nil), gatewayLocalID: "t")
+        store.ingestBridgeQuestionCards([card(id: "card-r", owner: "r1", sessionId: nil)], answerEnabled: true)
+        XCTAssertEqual(store.bridgePendingQuestions.first?.sessionId, "r1",
+                       "群卡的 sessionId 用卡片帧的 roomId（文档 §1：必须是卡片帧上那个）")
+    }
+
+    // ④ 卡片消失（card.answered 之后 feed 重推）→ 可点列表与状态一起清
+    func testIngestReplacesListAndPrunesStatuses() {
+        let store = AppStore(preferences: UserDefaultsAppPreferences(userDefaults: UserDefaults(suiteName: "bridge-ingest4")!, gatewayID: "t"),
+                             gatewayClient: GatewayClient(credentials: nil), gatewayLocalID: "t")
+        store.ingestBridgeQuestionCards([card(id: "card-1")], answerEnabled: true)
+        store.bridgeCardAnswerAccepted(rpcId: AppStore.bridgeCardRpcPrefix + "card-1")
+        store.ingestBridgeQuestionCards([], answerEnabled: true)
+        XCTAssertTrue(store.bridgePendingQuestions.isEmpty)
+        XCTAssertTrue(store.bridgeQuestionStatuses.isEmpty, "已离队的卡不留状态尾巴")
     }
 }

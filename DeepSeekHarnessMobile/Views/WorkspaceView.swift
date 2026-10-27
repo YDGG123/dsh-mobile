@@ -107,6 +107,7 @@ struct WorkspaceView: View {
             StartupTimeline.mark("workspace.appear")
             store.refreshRemoteState()
             gatewayTeam.start()
+            installBridgeCardWiring()
             if !displayedSessions.isEmpty { StartupTimeline.mark("sessions.rendered") }
         }
         .onChange(of: displayedSessions.count) { count in
@@ -441,6 +442,32 @@ struct WorkspaceView: View {
                     .buttonStyle(.plain)
                     .id("gateway-team-\(row.id)")
                     Divider().overlay(palette.stroke(0.1)).padding(.leading, 18)
+                }
+            }
+        }
+    }
+
+    /// 卡片正文 → 可点卡片（能力 fail-closed：白名单没有 answer-question 就不给可点数据）。
+    /// 抽出成方法：body 已在类型检查极限边缘，别再往里塞闭包。
+    private func installBridgeCardWiring() {
+        // WorkspaceView 是 struct，`[weak self]` 不合法；这里只弱持有两个 class 引用
+        let team = bridgeTeam
+        gatewayTeam.onBridgeQuestionCards = { [weak store] cards in
+            guard let store else { return }
+            store.ingestBridgeQuestionCards(cards, answerEnabled: team.mirror?.supportsAction("answer-question") == true)
+        }
+        store.bridgeCardAnswerSender = { [weak team, weak store] (rpcId: String, sessionId: String, questionId: String, selected: [String], custom: String?) in
+            guard let team, let store else { return }
+            Task { @MainActor in
+                do {
+                    try await team.answerCardQuestion(sessionId: sessionId, questionId: questionId,
+                                                      selected: selected, custom: custom)
+                    store.bridgeCardAnswerAccepted(rpcId: rpcId)
+                } catch {
+                    // 409 QUESTION_IN_FLIGHT（连点）按"已受理"处理；其余给失败状态
+                    let text = error.localizedDescription
+                    if text.contains("QUESTION_IN_FLIGHT") { store.bridgeCardAnswerAccepted(rpcId: rpcId) }
+                    else { store.bridgeCardAnswerFailed(rpcId: rpcId, message: text) }
                 }
             }
         }

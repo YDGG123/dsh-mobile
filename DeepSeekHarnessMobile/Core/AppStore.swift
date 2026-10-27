@@ -483,6 +483,70 @@ final class AppStore: ObservableObject {
     @Published private(set) var defaultModelSelection: GatewayModelSelection?
     @Published private(set) var defaultConfigurationLoadingKinds: Set<String> = []
     @Published private(set) var pendingQuestionRequests: [GatewayPendingQuestionRequest] = []
+    /// bridge 卡片帧来的可点卡片（**独立第二来源**，不并进 KMP store：
+    /// 旧协议与 bridge 一断一通，混存会让"哪条通道有数据"不可判断）。
+    @Published private(set) var bridgePendingQuestions: [GatewayPendingQuestionRequest] = []
+    /// bridge 卡片提交状态（idle/提交中/已受理/失败），UI 优先读它
+    @Published private(set) var bridgeQuestionStatuses: [String: GatewayQuestionRequestStatus] = [:]
+    /// 提交执行器：WorkspaceView 用 bridgeTeam 注入（POST /mobile/v1/actions）
+    var bridgeCardAnswerSender: ((_ rpcId: String, _ sessionId: String, _ questionId: String,
+                                  _ selected: [String], _ custom: String?) -> Void)?
+    /// internal 仅为测试：用例验证「提交时按 rpcId 取回卡片 → questionId=card.id」
+    var bridgeCardsByRpcId: [String: GatewayTeamFeed.CardQuestion] = [:]
+
+    static let bridgeCardRpcPrefix = "bridge-card:"
+
+    /// 卡片正文 → `HumanQuestionView` 能吃的请求。**能力不含时给空表（fail-closed）**：
+    /// 没有答复通道就不给可点数据，UI 自然回落到"只读正文"。
+    func ingestBridgeQuestionCards(_ cards: [GatewayTeamFeed.CardQuestion], answerEnabled: Bool) {
+        guard answerEnabled else {
+            bridgePendingQuestions = []
+            bridgeCardsByRpcId = [:]
+            bridgeQuestionStatuses = [:]
+            return
+        }
+        var requests: [GatewayPendingQuestionRequest] = []
+        var byId: [String: GatewayTeamFeed.CardQuestion] = [:]
+        for card in cards where card.kind == "question" && !card.prompt.isEmpty {
+            let rpcId = Self.bridgeCardRpcPrefix + card.id
+            byId[rpcId] = card
+            requests.append(GatewayPendingQuestionRequest(
+                rpcId: rpcId,
+                sessionId: card.sessionId ?? card.owner,
+                questions: [GatewayQuestion(
+                    id: card.id, header: nil, question: card.prompt, detail: nil,
+                    options: card.options.map { GatewayQuestionOption(label: $0) },
+                    multiSelect: card.allowsMultiple ? true : nil, intent: nil)],
+                replay: false))
+        }
+        bridgePendingQuestions = requests
+        bridgeCardsByRpcId = byId
+        bridgeQuestionStatuses = bridgeQuestionStatuses.filter { byId[$0.key] != nil }
+    }
+
+    var selectedBridgeQuestionRequest: GatewayPendingQuestionRequest? {
+        guard let selectedSessionId else { return nil }
+        return bridgePendingQuestions.first { $0.sessionId == selectedSessionId }
+    }
+
+    /// UI 的统一入口：**bridge 卡片优先，旧协议兜底**（两来源并存，一套 UI）
+    var selectedPendingQuestionRequestMerged: GatewayPendingQuestionRequest? {
+        selectedBridgeQuestionRequest ?? selectedPendingQuestionRequest
+    }
+
+    /// UI 取状态：bridge 优先，旧协议兜底（两来源并存）
+    func questionStatus(for request: GatewayPendingQuestionRequest) -> GatewayQuestionRequestStatus {
+        bridgeQuestionStatuses[request.rpcId] ?? questionRequestStatuses[request.rpcId] ?? .idle
+    }
+
+    func bridgeCardAnswerAccepted(rpcId: String) {
+        bridgeQuestionStatuses[rpcId] = .accepted(.answer)
+        // 本地卡不在此处删：等卡片流 `card.answered`（HTTP 200 只是已受理）
+    }
+
+    func bridgeCardAnswerFailed(rpcId: String, message: String) {
+        bridgeQuestionStatuses[rpcId] = .rejected(message)
+    }
     @Published private(set) var questionRequestStatuses: [String: GatewayQuestionRequestStatus] = [:]
     @Published private(set) var pendingApprovalRequests: [GatewayPendingApprovalRequest] = []
     @Published private(set) var approvalRequestStatuses: [String: GatewayApprovalRequestStatus] = [:]
@@ -2814,6 +2878,14 @@ final class AppStore: ObservableObject {
     }
 
     func answerQuestion(_ request: GatewayPendingQuestionRequest, answers: [GatewayQuestionAnswer]) {
+        // bridge 卡片（rpcId 前缀）：走 POST /mobile/v1/actions，不进旧协议决策引擎
+        if request.rpcId.hasPrefix(Self.bridgeCardRpcPrefix),
+           let card = bridgeCardsByRpcId[request.rpcId] {
+            bridgeQuestionStatuses[request.rpcId] = .submitting(.answer)
+            bridgeCardAnswerSender?(request.rpcId, card.sessionId ?? card.owner, card.id,
+                                    answers.flatMap(\.selected), answers.first?.custom)
+            return
+        }
         let transition = dispatchQuestionIntent(.submitAnswer(
             rpcID: request.rpcId,
             answers: answers,

@@ -59,6 +59,8 @@ final class GatewayTeamFeed: ObservableObject {
     struct CardQuestion: Hashable {
         /// 卡片 id（网关保证唯一）
         var id: String
+        /// 归属键（roomId 优先，其次 botId）：群卡提交时 payload.sessionId 用它
+        var owner: String
         /// 会话 id（网关可能只给 botId/roomId，此时为空）
         var sessionId: String?
         var kind: String            // question | view | secret
@@ -125,6 +127,8 @@ final class GatewayTeamFeed: ObservableObject {
     /// - answered/cleared 帧**不带 card 字段** → 旧代码直接整帧跳过，
     ///   于是"ReleaseBot 在等你回答"永远消不掉（真机反馈）。
     private var liveCards: [String: [String: [String: Any]]] = [:]
+    /// 卡片正文 → 可点卡片（bridge `answer-question`）的出口。由 WorkspaceView 注入。
+    var onBridgeQuestionCards: (([CardQuestion]) -> Void)?
 
     /// 最近一次真实快照的原始 JSON：卡片帧到达时用它重算并回写缓存（含卡片计数）。
     private var lastSnapshotObject: [String: Any]?
@@ -795,7 +799,8 @@ final class GatewayTeamFeed: ObservableObject {
 
     /// 单张卡 → 正文。网关的三种形态（question / view / secret）分别取标题或首问。
     nonisolated static func cardQuestion(from card: [String: Any]) -> CardQuestion? {
-        guard let id = card["id"] as? String, !id.isEmpty else { return nil }
+        guard let id = card["id"] as? String, !id.isEmpty,
+              let owner = cardOwner(card) else { return nil }
         let kind = (card["kind"] as? String) ?? "question"
         let sessionId = card["sessionId"] as? String
         switch kind {
@@ -807,7 +812,7 @@ final class GatewayTeamFeed: ObservableObject {
             let options = ((first["options"] as? [[String: Any]]) ?? [])
                 .compactMap { $0["label"] as? String }
                 .filter { !$0.isEmpty }
-            return CardQuestion(id: id, sessionId: sessionId, kind: kind, prompt: prompt,
+            return CardQuestion(id: id, owner: owner, sessionId: sessionId, kind: kind, prompt: prompt,
                                 options: options,
                                 allowsCustom: first["custom"] as? Bool == true,
                                 allowsMultiple: first["multiple"] as? Bool == true)
@@ -816,13 +821,13 @@ final class GatewayTeamFeed: ObservableObject {
             let prompt = ["title", "text", "body"].compactMap { view[$0] as? String }
                 .first { !$0.isEmpty }
             guard let prompt else { return nil }
-            return CardQuestion(id: id, sessionId: sessionId, kind: kind, prompt: prompt)
+            return CardQuestion(id: id, owner: owner, sessionId: sessionId, kind: kind, prompt: prompt)
         case "secret":
             guard let secret = card["secret"] as? [String: Any] else { return nil }
             let prompt = ["name", "description"].compactMap { secret[$0] as? String }
                 .first { !$0.isEmpty }
             guard let prompt else { return nil }
-            return CardQuestion(id: id, sessionId: sessionId, kind: kind, prompt: prompt)
+            return CardQuestion(id: id, owner: owner, sessionId: sessionId, kind: kind, prompt: prompt)
         default:
             return nil
         }
@@ -836,6 +841,7 @@ final class GatewayTeamFeed: ObservableObject {
             liveCards = Self.applyingCardOps((object["ops"] as? [[String: Any]]) ?? [], to: liveCards)
         }
         let parsed = Self.cardState(from: liveCards)
+        onBridgeQuestionCards?(parsed.questions.values.flatMap { $0 })
         for index in rows.indices {
             let key = pendingKey(rows[index])
             rows[index].placeholderCards = parsed.counts[key] ?? 0

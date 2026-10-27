@@ -488,6 +488,27 @@ struct ConversationView: View {
         .black.opacity(colorScheme == .dark ? 0.34 : 0.10)
     }
 
+    /// 待答问题卡（两种来源合并：旧协议 + bridge 卡片帧），抽出来让 `chat` 不超类型检查时限
+    private var hasPendingQuestionCard: Bool {
+        store.selectedPendingQuestionRequestMerged != nil
+    }
+
+    /// 待答问题卡（两种来源合并：旧协议 + bridge 卡片帧），抽出来让 `chat` 不超类型检查时限
+    @ViewBuilder
+    private var questionCard: some View {
+        if let request = store.selectedPendingQuestionRequestMerged {
+            HumanQuestionView(
+                request: request,
+                status: store.questionStatus(for: request),
+                onAnswer: { store.answerQuestion(request, answers: $0) },
+                onCancel: { store.cancelQuestion(request) }
+            )
+            .id(request.rpcId)
+            .padding(.bottom, composerBottomPadding)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+        }
+    }
+
     private var chat: some View {
         let sessionID = store.selectedSessionId
         return ZStack(alignment: .bottom) {
@@ -610,16 +631,8 @@ struct ConversationView: View {
                         .id(request.rpcId)
                         .padding(.bottom, composerBottomPadding)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
-                    } else if let request = store.selectedPendingQuestionRequest {
-                        HumanQuestionView(
-                            request: request,
-                            status: store.questionRequestStatuses[request.rpcId] ?? .idle,
-                            onAnswer: { store.answerQuestion(request, answers: $0) },
-                            onCancel: { store.cancelQuestion(request) }
-                        )
-                        .id(request.rpcId)
-                        .padding(.bottom, composerBottomPadding)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                    } else if hasPendingQuestionCard {
+                        questionCard
                     } else {
                         // Approval and human-question cards are high-priority
                         // interaction layers. Lower-priority composer chrome is

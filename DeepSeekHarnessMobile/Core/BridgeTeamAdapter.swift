@@ -36,7 +36,7 @@ struct BridgeTeamMirror: Decodable {
     func isPending(_ id: String) -> Bool { pendingActions?[id] != nil }
     func models(forRowId: String) -> [BridgeTeamModelRow]? { models }
 
-    /// 能力门控（fail-closed）：actions 白名单里没有 ⇒ 对应写操作 UI 直接隐藏。
+    /// 能力门控（fail-closed）：actions 白名单里没有 ⇒ 对应写操作 UI 直接隐藏。    /// 能力门控（fail-closed）：actions 白名单里没有 ⇒ 对应写操作 UI 直接隐藏。
     func supportsAction(_ action: String) -> Bool {
         capabilities?.actionsWhitelist?.contains(action) == true
     }
@@ -364,6 +364,29 @@ final class BridgeTeamAdapter: ObservableObject {
     // MARK: - bridge 聊天（一次配对 = 聊天 + 团队）
 
     /// 为某个 bot/群创建聊天引擎；transport 缺失时先从 Keychain 会话重建。
+    /// bridge `answer-question`（POST /mobile/v1/actions，网关 `09d66ad`）。
+    /// **HTTP 200 只代表已受理**：卡片最终以卡片流 `card.answered` 为准，本地卡不在此处删。
+    /// 409 `bot/stale` / `QUESTION_IN_FLIGHT` 原样抛给调用方按文档处置（不重试）。
+    func answerCardQuestion(sessionId: String, questionId: String,
+                            selected: [String], custom: String?) async throws {
+        restoreTransportFromStoredSession()
+        guard let transport, let token = store.currentAccessToken() else {
+            throw BridgeAnswerError.notPaired
+        }
+        var answer: [String: Any] = ["selected": selected]   // 逐字原样：不 trim、不去重
+        if let custom, !custom.isEmpty { answer["custom"] = custom }
+        _ = try await transport.post(path: "/mobile/v1/actions", token: token, jsonBody: [
+            "endpoint": "answer-question",
+            "payload": ["sessionId": sessionId, "questionId": questionId, "answer": answer],
+        ])
+    }
+
+    enum BridgeAnswerError: LocalizedError {
+        case notPaired
+        var errorDescription: String? { "尚未完成配对，无法提交回答。" }
+    }
+
+
     func chatEngine(conversationId: String, sessionId: String) -> BridgeChatEngine? {
         restoreTransportFromStoredSession()
         guard let transport, store.currentAccessToken() != nil else { return nil }
