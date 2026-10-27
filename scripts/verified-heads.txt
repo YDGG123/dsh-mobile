@@ -50,3 +50,4 @@ f50685e015331b2b1f87f9a9a64c438df3dc5a4d  # build 42：order 帧 degraded + 缓�
 410a350cd2d09535290caa593758b87009e1a4bf  # build 45：旧段响应过门（startHistorySync+beginRequestTimeout）+ 翻页钩子；渲染聚合未接
 8b83ffd2bfaf2effb43522e33d2aef65214e5ddc  # build 45 完整版：钩子+过门+防环+finish核验+长期日志（渲染聚合待真机自检后接）
 3d5aba0517d975589f4e439c4da1fa9f366c12bd  # build 46 第一段：conversationSegments 段顺序（读取聚合地基，零行为变更）
+0400d6dba0a0b4e6f8f396d3a7237dbbdd248634  # build 46 第二段：旧段缓存自动水合 + 渲染聚合接线（分段历史 A 完成渲染层）
