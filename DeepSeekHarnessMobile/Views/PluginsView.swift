@@ -23,7 +23,7 @@ struct PluginsView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 if let error = store.pluginsError {
-                    ContentUnavailableView(error, systemImage: "puzzlepiece.extension",
+                    DshEmptyState(error, systemImage: "puzzlepiece.extension",
                         description: Text("请检查网关连接后重试"))
                         .frame(maxWidth: .infinity)
                 }
@@ -48,9 +48,16 @@ struct PluginsView: View {
             .padding(.horizontal, 20).padding(.vertical, 20)
             .readableContentWidth()
         }
-        .onGeometryChange(for: CGFloat.self) { geometry in
-            geometry.size.width
-        } action: { containerWidth = $0 }
+        .background {
+            // iOS 16.1 无 onGeometryChange，改用 GeometryReader 上报宽度。
+            GeometryReader { proxy in
+                Color.clear
+                    .onAppear { containerWidth = proxy.size.width }
+                    .onChangeCompat(of: proxy.size.width) { _, width in
+                        containerWidth = width
+                    }
+            }
+        }
         .background(Color(uiColor: .systemBackground))
         .navigationTitle("插件")
         // B4：容器级推入页同样整屏盖住背景，推入期间暂停动画（与设置子页同一策略）。

@@ -11,9 +11,13 @@ data class SessionSummary(
     val hasUnread: Boolean,
     val agentPreset: String? = null,
     // null 兼容旧缓存；网关列表到达后使用 Host 的 blank 标记决定历史可见性。
-    val hasConversation: Boolean? = null
+    val hasConversation: Boolean? = null,
+    val parentSessionId: String? = null,
+    val origin: String? = null
 ) {
-    val isVisibleInHistory: Boolean get() = hasConversation != false
+    // 普通 fork 也可能有父会话，只隐藏 Host 明确标记的子智能体。
+    val isSubagent: Boolean get() = origin == "subagent"
+    val isVisibleInHistory: Boolean get() = hasConversation != false && !isSubagent
 }
 
 data class SessionListLabels(
@@ -137,7 +141,9 @@ object SessionListReducer {
                 lastActivityEpochSeconds = timestamp,
                 isRunning = item.running,
                 agentPreset = item.agentPreset ?: existing.agentPreset,
-                hasConversation = !item.blank
+                hasConversation = !item.blank,
+                parentSessionId = item.parentSessionId ?: existing.parentSessionId,
+                origin = item.origin ?: existing.origin
             ) ?: SessionSummary(
                 id = item.sessionId,
                 title = if (item.blank) labels.blankTitle(item.sessionId) else title,
@@ -145,7 +151,9 @@ object SessionListReducer {
                 isRunning = item.running,
                 hasUnread = false,
                 agentPreset = item.agentPreset,
-                hasConversation = !item.blank
+                hasConversation = !item.blank,
+                parentSessionId = item.parentSessionId,
+                origin = item.origin
             )
         }
         return state.copy(sessions = sessions.values

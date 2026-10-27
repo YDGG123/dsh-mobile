@@ -723,6 +723,282 @@ private struct DefaultPermissionChoice: Identifiable, Hashable {
     }
 }
 
+private struct AgentPresetSelectionView: View {
+    @EnvironmentObject private var store: AppStore
+    @State private var pendingPreset: GatewayAgentPreset?
+
+    private var isChangingDefault: Bool {
+        store.defaultConfigurationLoadingKinds.contains("set-default")
+    }
+
+    var body: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 7) {
+                    Text("Agent 预设")
+                        .appFont(.title2.bold())
+                    Text("预设决定 Agent 使用的工具、提示词与能力。选择后只对新建会话生效。")
+                        .appFont(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.bottom, 4)
+
+                if let error = store.agentPresetsLoadError {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Label(error, systemImage: "exclamationmark.circle")
+                            .foregroundStyle(.secondary)
+                        Button("重试") { store.retryAgentPresets() }
+                            .disabled(store.defaultConfigurationLoadingKinds.contains("agent-presets"))
+                    }
+                    .padding(.vertical, 12)
+                }
+
+                if store.defaultConfigurationLoadingKinds.contains("agent-presets") && store.agentPresets.isEmpty {
+                    HStack(spacing: 10) {
+                        ProgressView()
+                        Text("正在读取 Agent 预设…")
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 48)
+                } else if store.agentPresets.isEmpty && store.agentPresetsLoadError == nil {
+                    DshEmptyState(
+                        "没有可用的 Agent 预设",
+                        systemImage: "point.3.filled.connected.trianglepath.dotted",
+                        description: Text("网关暂无可用预设，可下拉刷新。")
+                    )
+                    .padding(.vertical, 24)
+                } else {
+                    ForEach(store.agentPresets) { preset in
+                        AgentPresetCard(
+                            preset: preset,
+                            isSelected: preset.id == store.agentPresetDefault,
+                            isBusy: isChangingDefault
+                        ) {
+                            pendingPreset = preset
+                        }
+                    }
+                }
+
+                if store.agentPresetsAuthorable || store.agentPresetsHasDocument {
+                    Label(presetCapabilityText, systemImage: "info.circle")
+                        .appFont(.footnote)
+                        .foregroundStyle(.secondary)
+                        .padding(.top, 4)
+                }
+            }
+            .padding(20)
+            .readableContentWidth()
+        }
+        .background(Color(uiColor: .systemGroupedBackground))
+        .navigationTitle("Agent 预设")
+        .navigationBarTitleDisplayMode(.inline)
+        .refreshable {
+            store.refreshDefaultConfiguration()
+        }
+        .task {
+            if store.agentPresets.isEmpty {
+                store.refreshDefaultConfiguration()
+            }
+        }
+        .alert(item: $pendingPreset) { preset in
+            Alert(
+                title: Text("设为全局默认预设？"),
+                message: Text(String(localized: "defaults.preset.confirm.body", defaultValue: "将“\(preset.displayName)”设为新会话的默认 Agent 预设。这会更新部署级设置，并同步影响 WebUI。")),
+                primaryButton: .cancel(Text("取消")),
+                secondaryButton: .default(Text("设为默认")) {
+                    store.setDefaultAgentPreset(preset.id)
+                }
+            )
+        }
+    }
+
+    private var presetCapabilityText: String {
+        switch (store.agentPresetsAuthorable, store.agentPresetsHasDocument) {
+        case (true, true): return String(localized: "服务端支持编写自定义预设，并提供预设配置文档。")
+        case (true, false): return String(localized: "服务端支持编写自定义 Agent 预设。")
+        case (false, true): return String(localized: "服务端提供 Agent 预设配置文档。")
+        case (false, false): return ""
+        }
+    }
+}
+
+private struct AgentPresetCard: View {
+    let preset: GatewayAgentPreset
+    let isSelected: Bool
+    let isBusy: Bool
+    let select: () -> Void
+
+    var body: some View {
+        Button(action: select) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(preset.displayName)
+                        .appFont(.headline)
+                        .foregroundStyle(.primary)
+                    Text(preset.id)
+                        .appFont(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(.secondary.opacity(0.1), in: Capsule())
+                    Spacer()
+                    if isSelected {
+                        Text("当前使用")
+                            .appFont(.caption.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(.black, in: Capsule())
+                    }
+                }
+
+                Text(preset.displayDescription)
+                    .appFont(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if preset.broken == true {
+                    Label("该预设存在配置错误，暂时不能设为默认值", systemImage: "exclamationmark.triangle.fill")
+                        .appFont(.caption)
+                        .foregroundStyle(.orange)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(16)
+            .background(Color(uiColor: .secondarySystemGroupedBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(isSelected ? Color.primary : Color.secondary.opacity(0.18), lineWidth: isSelected ? 1.5 : 1)
+            }
+        }
+        .buttonStyle(.plain)
+        .allowsHitTesting(!isSelected && !isBusy && preset.broken != true)
+        .opacity(preset.broken == true ? 0.68 : 1)
+    }
+}
+
+private struct DefaultModelSelectionView: View {
+    @EnvironmentObject private var store: AppStore
+    @State private var pendingChange: PendingDefaultModelChange?
+
+    private var isBusy: Bool {
+        store.defaultConfigurationLoadingKinds.contains("save-default-model")
+    }
+    private var modelGroups: [GatewayModelGroup] {
+        store.anyModelCatalog?.groups ?? []
+    }
+    private var isLoadingCatalog: Bool {
+        store.sessionControlLoadingKinds.contains("models") && modelGroups.isEmpty
+    }
+
+    var body: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 20) {
+                VStack(alignment: .leading, spacing: 7) {
+                    Text("默认模型")
+                        .appFont(.title2.bold())
+                    Text("为之后新建的会话设置默认模型与思考等级。这会更新部署级设置，同步影响 WebUI，运行中的会话保持启动时的配置。")
+                        .appFont(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.bottom, 4)
+
+                if isLoadingCatalog {
+                    HStack(spacing: 10) {
+                        ProgressView()
+                        Text("正在读取模型列表…")
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 48)
+                } else if modelGroups.isEmpty {
+                    DshEmptyState(
+                        "暂无可用模型",
+                        systemImage: "cpu",
+                        description: Text("未能读取到模型列表，请检查网关连接后下拉重试。")
+                    )
+                    .padding(.vertical, 24)
+                } else {
+                    ForEach(modelGroups) { group in
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text(group.name)
+                                .appFont(.subheadline.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            ForEach(group.models) { model in
+                                DefaultModelCard(
+                                    group: group,
+                                    model: model,
+                                    isSelected: isDefault(group: group, model: model),
+                                    currentEffort: store.defaultModelSelection?.reasoningEffort,
+                                    isBusy: isBusy,
+                                    onSelectModel: { select(group: group, model: model) },
+                                    onSelectEffort: { effort in selectEffort(effort, group: group, model: model) }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(20)
+            .readableContentWidth()
+        }
+        .background(Color(uiColor: .systemGroupedBackground))
+        .navigationTitle("默认模型")
+        .navigationBarTitleDisplayMode(.inline)
+        .refreshable {
+            store.ensureModelCatalogForDefaults()
+        }
+        .task {
+            store.ensureModelCatalogForDefaults()
+        }
+        .alert(item: $pendingChange) { change in
+            Alert(
+                title: Text("修改默认模型？"),
+                message: Text(String(localized: "defaults.model.confirm.body", defaultValue: "将新会话的默认模型改为“\(change.summary)”。这会更新部署级设置，并同步影响 WebUI。")),
+                primaryButton: .cancel(Text("取消")),
+                secondaryButton: .default(Text("确认修改")) {
+                    store.saveDefaultModel(provider: change.provider, model: change.model, reasoningEffort: change.reasoningEffort)
+                }
+            )
+        }
+    }
+
+    private func isDefault(group: GatewayModelGroup, model: GatewayModelItem) -> Bool {
+        store.defaultModelSelection?.provider == group.id && store.defaultModelSelection?.model == model.id
+    }
+
+    private func select(group: GatewayModelGroup, model: GatewayModelItem) {
+        let efforts = model.reasoning?.efforts ?? []
+        let retainedEffort = store.defaultModelSelection?.reasoningEffort.flatMap { current in
+            efforts.contains(where: { $0.id == current }) ? current : nil
+        }
+        let effortId = retainedEffort ?? model.reasoning?.defaultEffort
+        pendingChange = PendingDefaultModelChange(
+            provider: group.id,
+            providerName: group.name,
+            model: model.id,
+            modelName: model.name,
+            reasoningEffort: effortId,
+            effortName: effortId.flatMap { id in efforts.first(where: { $0.id == id })?.name }
+        )
+    }
+
+    private func selectEffort(_ effort: GatewayReasoningEffort, group: GatewayModelGroup, model: GatewayModelItem) {
+        pendingChange = PendingDefaultModelChange(
+            provider: group.id,
+            providerName: group.name,
+            model: model.id,
+            modelName: model.name,
+            reasoningEffort: effort.id,
+            effortName: effort.name
+        )
+    }
+}
+
 private struct PendingDefaultModelChange: Identifiable {
     let id = UUID()
     let provider: String

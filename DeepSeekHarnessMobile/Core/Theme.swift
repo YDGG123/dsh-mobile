@@ -268,3 +268,59 @@ private struct AdaptiveListWidth: ViewModifier {
         }
     }
 }
+
+/// `ContentUnavailableView` 的 iOS 16.1 替代实现，覆盖项目内用到的三种构造形式。
+struct DshEmptyState: View {
+    private let label: AnyView
+    private let message: AnyView?
+    private let actions: AnyView?
+
+    init<L: View, D: View, A: View>(
+        @ViewBuilder label: () -> L,
+        @ViewBuilder description: () -> D,
+        @ViewBuilder actions: () -> A
+    ) {
+        self.label = AnyView(label())
+        self.message = AnyView(description())
+        self.actions = AnyView(actions())
+    }
+
+    init<L: View, D: View>(
+        @ViewBuilder label: () -> L,
+        @ViewBuilder description: () -> D
+    ) {
+        self.label = AnyView(label())
+        self.message = AnyView(description())
+        self.actions = nil
+    }
+
+    init(_ title: String, systemImage: String, description: Text? = nil) {
+        self.label = AnyView(
+            VStack(spacing: 10) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 40, weight: .light))
+                Text(title)
+                    .font(.headline)
+                    .multilineTextAlignment(.center)
+            }
+        )
+        self.message = description.map { AnyView($0.font(.subheadline).multilineTextAlignment(.center)) }
+        self.actions = nil
+    }
+
+    var body: some View {
+        VStack(spacing: 12) {
+            label
+            if let message {
+                message
+            }
+            if let actions {
+                actions
+                    .padding(.top, 4)
+            }
+        }
+        .foregroundStyle(.secondary)
+        .frame(maxWidth: .infinity)
+        .padding(24)
+    }
+}

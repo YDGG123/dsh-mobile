@@ -368,12 +368,14 @@ private class AndroidVoiceRecorder : AndroidVoiceAudioCapturing {
                     if (count <= 0) {
                         check(current.stopped || count == 0) { "AudioRecord read failed" }
                     } else {
-                        check(bytes.size() + count * 2 <= VoiceAudioFormat.MAX_CAPTURE_BYTES)
+                        val retainedSamples = minOf(count, (VoiceAudioFormat.MAX_CAPTURE_BYTES - bytes.size()) / 2)
                         var energy = 0.0
                         repeat(count) { index ->
                             val sample = samples[index].toInt()
-                            bytes.write(sample and BYTE_MASK)
-                            bytes.write((sample ushr BYTE_BITS) and BYTE_MASK)
+                            if (index < retainedSamples) {
+                                bytes.write(sample and BYTE_MASK)
+                                bytes.write((sample ushr BYTE_BITS) and BYTE_MASK)
+                            }
                             val normalized = sample / PCM_SCALE
                             energy += normalized * normalized
                         }

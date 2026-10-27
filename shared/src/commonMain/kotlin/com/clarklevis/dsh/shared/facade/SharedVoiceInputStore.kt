@@ -7,11 +7,14 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlin.io.encoding.Base64
+import kotlin.math.ceil
 import kotlin.math.ln
 import kotlin.random.Random
 
 private const val WAVEFORM_HISTORY_SIZE = 45
 private const val WAVEFORM_TRIGGER_LEVEL = 0.08f
+private const val RECORDING_WARNING_SECONDS = 10
+private const val SECONDS_PER_MINUTE = 60
 
 /** 两端只渲染此状态；识别流程、音量归一化与草稿冲突策略只有一份。 */
 data class SharedVoiceInputSnapshot(
@@ -29,6 +32,7 @@ data class SharedVoiceInputSnapshot(
     val waveformActive: Boolean = false,
     val alertMessage: String? = null,
     val recordingSeconds: Double = 0.0,
+    val recordingLimitSeconds: Double = VoiceAudioFormat.MAX_DURATION_SECONDS,
     val cancelArmed: Boolean = false,
     val error: String? = null,
     val pendingTranscript: String? = null,
@@ -42,12 +46,20 @@ data class SharedVoiceInputSnapshot(
     val inputBlocked: Boolean get() = phase in setOf("authorizing", "starting", "recording")
     val touchPending: Boolean get() = phase == "priming"
     val recording: Boolean get() = phase in setOf("authorizing", "starting", "recording", "stopping")
+    val remainingRecordingSeconds: Double get() = (recordingLimitSeconds - recordingSeconds).coerceAtLeast(0.0)
+    val recordingLimitApproaching: Boolean get() = phase == "recording" && remainingRecordingSeconds <= RECORDING_WARNING_SECONDS
+    val recordingTimeLabel: String get() = "${clock(recordingSeconds.toInt())} / ${clock(ceil(recordingLimitSeconds).toInt())}"
+
+    private fun clock(seconds: Int): String =
+        "${seconds / SECONDS_PER_MINUTE}:${(seconds % SECONDS_PER_MINUTE).toString().padStart(2, '0')}"
+
     val status: String get() =
         when {
             !overlayVisible -> ""
             cancelArmed -> "松手取消"
             phase == "authorizing" -> "正在获取麦克风权限"
             phase == "starting" -> "正在开启麦克风"
+            recordingLimitApproaching -> "即将达到录音上限 · 松手转文字"
             phase == "recording" -> "松手转文字 · 上滑取消"
             preparing -> "正在准备语音模型"
             else -> error.orEmpty()
@@ -135,19 +147,18 @@ class SharedVoiceInputStore {
         )
     }
 
-    fun open(
-        context: String,
-        currentDraft: String,
-    ): SharedVoiceInputTransition {
-        val cancelled = if (contextId != context) cancel() else result()
+    fun open(context: String, currentDraft: String): SharedVoiceInputTransition {
+        val cancelled = if (contextId != context && contextId != null) suspendCapture() else result()
         if (contextId != context) {
             state = state.copy(voiceMode = false, pendingTranscript = null, error = null, alertMessage = null)
         }
         contextId = context
-        draftChanged(currentDraft)
+        val draftTransition = draftChanged(currentDraft)
         return cancelled.copy(
             snapshot = state,
-            effects = cancelled.effects + if (state.ready && !state.active) listOf(VoiceHardwareEffect("warmCapture")) else emptyList(),
+            effects =
+            cancelled.effects + draftTransition.effects +
+                if (canWarmCapture()) listOf(VoiceHardwareEffect("warmCapture")) else emptyList()
         )
     }
 
@@ -156,7 +167,7 @@ class SharedVoiceInputStore {
             draft = value
             draftRevision++
         }
-        if (value.isNotBlank() && !state.recording && !state.touchPending) state = state.copy(voiceMode = false)
+        if (value.isNotBlank() && !state.recording && !state.touchPending) return setVoiceMode(false)
         return result()
     }
 
@@ -165,12 +176,19 @@ class SharedVoiceInputStore {
         if (state.voiceMode == enabled) return result()
         val cancelled = if (!enabled && (state.inputBlocked || state.touchPending)) cancel() else result()
         state = state.copy(voiceMode = enabled, keyboardVisible = if (enabled) false else state.keyboardVisible)
-        return cancelled.copy(snapshot = state)
+        val effects = when {
+            !enabled -> listOf(VoiceHardwareEffect("releaseCapture"))
+            canWarmCapture() -> listOf(VoiceHardwareEffect("warmCapture"))
+            else -> emptyList()
+        }
+        return cancelled.copy(snapshot = state, effects = cancelled.effects + effects)
     }
+
+    private fun canWarmCapture(): Boolean = contextId != null && state.voiceMode && !state.keyboardVisible && state.ready && !state.active
 
     fun keyboardChanged(visible: Boolean): SharedVoiceInputTransition {
         state = state.copy(keyboardVisible = visible)
-        return result()
+        return if (visible) setVoiceMode(false) else result()
     }
 
     fun connectionChanged(
@@ -178,7 +196,7 @@ class SharedVoiceInputStore {
         supported: Boolean,
     ): SharedVoiceInputTransition {
         if (!connected || !supported) {
-            val cancelled = cancel()
+            val cancelled = suspendCapture()
             catalogId = null
             followId = null
             state =
@@ -433,6 +451,7 @@ class SharedVoiceInputStore {
                     recordedLanguage?.let { put("language", it) }
                 },
             ),
+            effects = listOf(VoiceHardwareEffect("releaseCapture"))
         )
     }
 
@@ -442,13 +461,13 @@ class SharedVoiceInputStore {
                 state.copy(
                     recordingSeconds = ((nowMilliseconds - startedAt).coerceAtLeast(0) / 1000.0),
                 )
-            if (state.recordingSeconds >=
-                minOf(
-                    maxDurationSeconds,
-                    (maxAudioBytes - VoiceAudioFormat.WAV_HEADER_BYTES) / VoiceAudioFormat.BYTES_PER_SECOND.toDouble(),
+            if (state.recordingSeconds >= state.recordingLimitSeconds) {
+                val finished = finishHold(nowMilliseconds)
+                if (finished.snapshot.phase != "stopping") return finished
+                return finished.copy(
+                    effects = finished.effects +
+                        VoiceHardwareEffect("showToast", message = "已达到录音上限，正在转文字")
                 )
-            ) {
-                return finishHold(nowMilliseconds)
             }
         }
         val timeout = if (state.phase == "transcribing") 180_000 else 30_000
@@ -493,20 +512,22 @@ class SharedVoiceInputStore {
                 canPrepare = catalog.canPrepare,
                 preparing = catalog.preparing,
                 preparationProgress = catalog.progress,
-                error = catalog.error,
+                recordingLimitSeconds = minOf(
+                    maxDurationSeconds,
+                    (maxAudioBytes - VoiceAudioFormat.WAV_HEADER_BYTES) / VoiceAudioFormat.BYTES_PER_SECOND.toDouble()
+                ),
+                error = catalog.error
             )
         return if (!catalog.available && state.active) {
             fail("语音服务已关闭，请重试")
         } else {
             result(
                 effects =
-                    if (contextId != null && state.ready &&
-                        !state.active
-                    ) {
-                        listOf(VoiceHardwareEffect("warmCapture"))
-                    } else {
-                        emptyList()
-                    },
+                if (canWarmCapture()) {
+                    listOf(VoiceHardwareEffect("warmCapture"))
+                } else {
+                    emptyList()
+                }
             )
         }
     }
@@ -528,7 +549,7 @@ class SharedVoiceInputStore {
             )
         if (update != null) draftChanged(update)
         // 转写只更新草稿；焦点和键盘由用户点击原生输入框决定。
-        return result(effects = listOf(VoiceHardwareEffect("stopTicker")), draftUpdate = update)
+        return result(effects = listOf(VoiceHardwareEffect("stopTicker"), VoiceHardwareEffect("releaseCapture")), draftUpdate = update)
     }
 
     private fun acceptError(
@@ -563,7 +584,7 @@ class SharedVoiceInputStore {
         val update = appendToDraft(draft, text)
         draftChanged(update)
         state = state.copy(voiceMode = false, pendingTranscript = null)
-        return result(draftUpdate = update)
+        return result(effects = listOf(VoiceHardwareEffect("releaseCapture")), draftUpdate = update)
     }
 
     fun dismissAlert(): SharedVoiceInputTransition {
@@ -611,7 +632,7 @@ class SharedVoiceInputStore {
     }
 
     fun resumeCapture(): SharedVoiceInputTransition =
-        result(effects = if (contextId != null && state.ready && !state.active) listOf(VoiceHardwareEffect("warmCapture")) else emptyList())
+        result(effects = if (canWarmCapture()) listOf(VoiceHardwareEffect("warmCapture")) else emptyList())
 
     fun suspendCapture(): SharedVoiceInputTransition {
         val cancelled = cancel()

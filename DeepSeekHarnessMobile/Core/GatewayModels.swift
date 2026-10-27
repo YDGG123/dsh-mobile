@@ -1331,7 +1331,10 @@ struct SessionSummary: Codable, Hashable, Identifiable {
     var hasUnread: Bool
     var agentPreset: String? = nil
     var hasConversation: Bool? = nil
-    var isVisibleInHistory: Bool { hasConversation != false }
+    var parentSessionId: String? = nil
+    var origin: String? = nil
+    var isSubagent: Bool { origin == "subagent" }
+    var isVisibleInHistory: Bool { hasConversation != false && !isSubagent }
 }
 
 struct ScheduledTask: Identifiable, Hashable {
@@ -1435,13 +1438,13 @@ struct MobileTeamMember: Codable, Equatable, Identifiable {
     var avatarIndex: Int?
 
     var statusLabel: String {
-        if phase == "provisioning" { return "正在创建" }
-        if phase == "failed" { return "创建失败" }
+        if phase == "provisioning" { return String(localized: "正在创建") }
+        if phase == "failed" { return String(localized: "创建失败") }
         if phase != "active" { return phase }
-        if mode == "external" { return "外部智能体" }
-        if mode == "one-shot" { return "只读 · 单次执行" }
-        if mode == "unknown" { return "只读 · 身份待确认" }
-        return running.map { $0 ? "运行中" : "未运行" } ?? "状态同步中"
+        if mode == "external" { return String(localized: "外部智能体") }
+        if mode == "one-shot" { return String(localized: "只读 · 单次执行") }
+        if mode == "unknown" { return String(localized: "只读 · 身份待确认") }
+        return running.map { $0 ? String(localized: "运行中") : String(localized: "未运行") } ?? String(localized: "状态同步中")
     }
 }
 
@@ -1459,9 +1462,9 @@ struct MobileTeamTask: Codable, Equatable, Identifiable {
 
     var statusLabel: String {
         switch status {
-        case "completed": return "已完成"
-        case "in_progress": return "进行中"
-        case "pending": return ready ? "待处理" : "受阻"
+        case "completed": return String(localized: "已完成")
+        case "in_progress": return String(localized: "进行中")
+        case "pending": return ready ? String(localized: "待处理") : String(localized: "受阻")
         default: return status
         }
     }

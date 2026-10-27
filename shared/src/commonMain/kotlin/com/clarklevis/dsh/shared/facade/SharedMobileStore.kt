@@ -141,7 +141,9 @@ class SharedMobileStore(
                 it.isRunning,
                 it.hasUnread,
                 it.agentPreset,
-                it.hasConversation
+                it.hasConversation,
+                it.parentSessionId,
+                it.origin
             )
         }
         SharedOfflineCatalogCodec().encode(
@@ -178,7 +180,9 @@ class SharedMobileStore(
                         it.isRunning,
                         it.hasUnread,
                         it.agentPreset,
-                        it.hasConversation
+                        it.hasConversation,
+                        it.parentSessionId,
+                        it.origin
                     )
                 },
                 archivedSessionIds = if (archiveCatalogInitialized) {

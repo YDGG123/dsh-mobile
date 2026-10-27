@@ -69,7 +69,7 @@ class SharedVoiceInputStoreTest {
         store.setVoiceMode(false)
         val switched = store.setVoiceMode(true)
         assertTrue(switched.snapshot.voiceMode)
-        assertTrue(switched.effects.isEmpty())
+        assertEquals(listOf("warmCapture"), switched.effects.map { it.action })
         assertTrue(switched.requests.isEmpty())
         val token = capture(store)
         val exited = store.setVoiceMode(false)
@@ -301,7 +301,7 @@ class SharedVoiceInputStoreTest {
     }
 
     @Test
-    fun hardwareWarmupIsScopedToConversationAndNeverStartsCapture() {
+    fun hardwareWarmupRequiresVoiceModeAndNeverStartsCapture() {
         val store = SharedVoiceInputStore()
         val catalog =
             store
@@ -315,14 +315,76 @@ class SharedVoiceInputStoreTest {
             )
         assertTrue(metadata.effects.isEmpty())
         val opened = store.open("conversation", "")
-        assertTrue(opened.effects.any { it.action == "warmCapture" })
+        assertFalse(opened.effects.any { it.action == "warmCapture" })
+        assertTrue(store.resumeCapture().effects.isEmpty())
+        val voiceMode = store.setVoiceMode(true)
+        assertEquals(listOf("warmCapture"), voiceMode.effects.map { it.action })
         assertFalse(opened.effects.any { it.action == "start" || it.action == "permission" })
         assertFalse(opened.snapshot.active)
         val suspended = store.suspendCapture()
         assertTrue(suspended.effects.any { it.action == "releaseCapture" })
         assertEquals(listOf("warmCapture"), store.resumeCapture().effects.map { it.action })
+        assertTrue(store.setVoiceMode(false).effects.any { it.action == "releaseCapture" })
+        assertTrue(store.resumeCapture().effects.isEmpty())
+        store.setVoiceMode(true)
+        assertTrue(store.keyboardChanged(true).effects.any { it.action == "releaseCapture" })
+        assertFalse(store.snapshot().voiceMode)
+        assertTrue(store.resumeCapture().effects.isEmpty())
         store.leave()
         assertTrue(store.resumeCapture().effects.isEmpty())
+    }
+
+    @Test
+    fun textDraftReleasesVoiceWarmupWithoutCancellingBackgroundTranscript() {
+        val store = ready()
+        val changed = store.draftChanged("typing")
+        assertFalse(changed.snapshot.voiceMode)
+        assertTrue(changed.effects.any { it.action == "releaseCapture" })
+        assertTrue(store.resumeCapture().effects.isEmpty())
+    }
+
+    @Test
+    fun delayedCatalogInTextModeDoesNotWarmMicrophone() {
+        val store = SharedVoiceInputStore()
+        store.open("text", "")
+        val catalog = store.connectionChanged(true, true).requests.first { it.requestType == "speech-catalog" }
+        val accepted = store.acceptJson(
+            """{"kind":"speech-catalog","requestId":"${catalog.correlationId}","available":true,"selection":{"providerId":"p"},"providers":[{"id":"p","preparation":{"phase":"ready"}}]}"""
+        )
+        assertTrue(accepted.snapshot.ready)
+        assertFalse(accepted.effects.any { it.action == "warmCapture" })
+        assertTrue(store.resumeCapture().effects.isEmpty())
+    }
+
+    @Test
+    fun recordingShowsLimitWarningAndAutomaticallyTranscribesOnlyOnce() {
+        val store = ready()
+        val token = capture(store)
+        val warning = store.tick(111002)
+        assertEquals("1:50 / 2:00", warning.snapshot.recordingTimeLabel)
+        assertTrue(warning.snapshot.recordingLimitApproaching)
+        val stopped = store.tick(121002)
+        assertEquals("stopping", stopped.snapshot.phase)
+        assertTrue(stopped.effects.any { it.action == "stop" })
+        assertEquals("已达到录音上限，正在转文字", stopped.effects.single { it.action == "showToast" }.message)
+        assertTrue(store.tick(121102).effects.isEmpty())
+        val finished = store.captureFinished(token, Base64.encode(ByteArray(3_850_000)), 121202)
+        assertEquals(120.0, finished.snapshot.recordingSeconds)
+        assertEquals("speech-transcribe", finished.requests.single().requestType)
+        assertTrue(finished.effects.any { it.action == "releaseCapture" })
+        assertTrue(store.captureFinished(token, Base64.encode(ByteArray(2)), 121203).requests.isEmpty())
+    }
+
+    @Test
+    fun reachingLimitWhileSwipingToCancelDoesNotClaimToTranscribe() {
+        val store = ready()
+        val token = capture(store)
+        store.pointerMoved(-100f)
+        val stopped = store.tick(121002)
+        assertEquals("idle", stopped.snapshot.phase)
+        assertTrue(stopped.effects.any { it.action == "stop" && it.recordingId == token && it.discard })
+        assertFalse(stopped.effects.any { it.action == "showToast" })
+        assertTrue(store.captureFinished(token, Base64.encode(ByteArray(2)), 121003).requests.isEmpty())
     }
 
     @Test

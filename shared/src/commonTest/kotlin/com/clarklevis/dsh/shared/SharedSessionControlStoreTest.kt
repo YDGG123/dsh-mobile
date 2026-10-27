@@ -244,7 +244,7 @@ class SharedSessionControlStoreTest {
         val context = store.currentState().contextSnapshots["session-1"]
 
         assertEquals(10, context?.asOfSeq)
-        assertEquals(12, context?.tokenUsage?.uncachedInputTokens)
+        assertEquals(12L, context?.tokenUsage?.uncachedInputTokens)
         assertEquals(30, context?.pressure?.pressureTokens)
         assertEquals(4, context?.breakdown?.systemTokens)
 
@@ -326,7 +326,7 @@ class SharedSessionControlStoreTest {
         val stats = assertNotNull(state.sessionStatsSnapshots["session-1"])
         assertEquals(20, stats.asOfSeq)
         assertEquals(2, stats.stats?.turns)
-        assertEquals(100, stats.tokenUsage?.totals?.inputTokens)
+        assertEquals(100L, stats.tokenUsage?.totals?.inputTokens)
         // 同一次业务快照的第二部分通过独立 projection 合并，不伪造 request generation。
         store.mergeStatsProjection(
             "session-1", null, null, null,

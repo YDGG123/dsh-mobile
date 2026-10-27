@@ -14,6 +14,7 @@ import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -124,12 +125,16 @@ fun VoiceInputPanel(
                 canvas.restore()
             }
         }
-        Text(
-            appText(state.status),
-            color = ink.copy(alpha = 0.9f),
-            fontSize = 17.sp,
+        Column(
             modifier = Modifier.align(Alignment.Center).padding(bottom = 32.dp),
-        )
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            val textColor = if (state.recordingLimitApproaching) MaterialTheme.colorScheme.error else ink.copy(alpha = 0.9f)
+            Text(appText(state.status), color = textColor, fontSize = 17.sp)
+            if (state.phase == "recording") {
+                Text(state.recordingTimeLabel, color = textColor, fontSize = 15.sp, modifier = Modifier.padding(top = 8.dp))
+            }
+        }
     }
 }
 

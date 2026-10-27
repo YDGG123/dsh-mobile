@@ -37,7 +37,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -165,8 +164,13 @@ internal fun DshProductApp(
             WorkspaceScreen(
                 stateHolder = stateHolder,
                 onOpenSession = { id ->
-                    stateHolder.selectSession(id)
-                    navController.navigate(ROUTE_CONVERSATION)
+                    // 转场期间首页仍能收到点击，直接读取当前目的地以拦截重复事件。
+                    if (navController.currentDestination?.route == ROUTE_WORKSPACE) {
+                        stateHolder.selectSession(id)
+                        navController.navigate(ROUTE_CONVERSATION) {
+                            launchSingleTop = true
+                        }
+                    }
                 },
                 onNewSession = {
                     workspaceScope.launch {
@@ -181,7 +185,12 @@ internal fun DshProductApp(
             )
         }
         composable(ROUTE_CONVERSATION) {
-            ConversationScreen(stateHolder, onPickImage, navController::popBackStack, onPickFile)
+            ConversationScreen(
+                stateHolder, onPickImage, navController::popBackStack, onPickFile,
+                onPlugins = { navController.navigate(ROUTE_PLUGINS) { launchSingleTop = true } },
+                onScheduledTasks = { navController.navigate(ROUTE_SCHEDULED_TASKS) { launchSingleTop = true } },
+                onSettings = { navController.navigate(ROUTE_SETTINGS) { launchSingleTop = true } }
+            )
         }
         composable(ROUTE_SETTINGS) {
             SettingsScreen(
@@ -313,6 +322,7 @@ internal fun WorkspaceScreen(
     val ungroupedSelected = stateHolder.isUngroupedWorkspaceSelected
     val sessions = remember(
         stateHolder.snapshot.sessions,
+        stateHolder.childSessionIds,
         stateHolder.gatewayState.connection,
         stateHolder.snapshot.searchResultSessionIds,
         stateHolder.localChatMatches,
@@ -324,7 +334,8 @@ internal fun WorkspaceScreen(
         val scoped = workspaceScopedSessions(
             sessions = stateHolder.snapshot.sessions,
             workspaces = workspaces,
-            selectedWorkspaceId = stateHolder.selectedWorkspaceId
+            selectedWorkspaceId = stateHolder.selectedWorkspaceId,
+            childSessionIds = stateHolder.childSessionIds
         )
         if (searchQuery.isBlank()) {
             scoped
@@ -394,7 +405,8 @@ internal fun WorkspaceScreen(
                                     workspace = selectedWorkspace,
                                     ungrouped = ungroupedSelected,
                                     ungroupedCount = stateHolder.snapshot.sessions.count { session ->
-                                        session.isVisibleInHistory && workspaces.none { session.id in it.sessionIds }
+                                        session.isVisibleInHistory && session.id !in stateHolder.childSessionIds &&
+                                            workspaces.none { session.id in it.sessionIds }
                                     },
                                     state = stateHolder.gatewayState,
                                     onClick = { showWorkspaceMenu = true }
@@ -634,10 +646,13 @@ internal fun LocalChatSearchContent(
     val scopedIds = workspaceScopedSessions(
         stateHolder.snapshot.sessions,
         stateHolder.availableWorkspaces,
-        stateHolder.selectedWorkspaceId
+        stateHolder.selectedWorkspaceId,
+        stateHolder.childSessionIds
     ).mapTo(mutableSetOf()) { it.id }
     val catalogIds = stateHolder.snapshot.sessions.mapTo(mutableSetOf()) { it.id }
-    stateHolder.localChatMatches.filter { it.sessionId !in catalogIds || it.sessionId in scopedIds }.forEach { match ->
+    stateHolder.localChatMatches.filter {
+        !stateHolder.isSubagentSession(it.sessionId) && (it.sessionId !in catalogIds || it.sessionId in scopedIds)
+    }.forEach { match ->
         Column(
             Modifier.fillMaxWidth().clickable {
                 stateHolder.prepareLocalChatMatch(match)
@@ -733,17 +748,14 @@ private fun SessionList(
                         }
                     )
                 }
-                if (renaming) AlertDialog(
+                if (renaming) RenameSessionDialog(
+                    title = title,
+                    onTitleChange = { title = it },
                     onDismissRequest = { renaming = false },
-                    title = { Text(appText("重命名会话")) },
-                    text = { OutlinedTextField(value = title, onValueChange = { title = it }, singleLine = true) },
-                    confirmButton = {
-                        TextButton(enabled = title.isNotBlank(), onClick = {
-                            onRename(session.id, title)
-                            renaming = false
-                        }) { Text(appText("保存")) }
-                    },
-                    dismissButton = { TextButton(onClick = { renaming = false }) { Text(appText("取消")) } }
+                    onSave = {
+                        onRename(session.id, title)
+                        renaming = false
+                    }
                 )
                 if (archiving) AlertDialog(
                     onDismissRequest = { archiving = false },
@@ -862,7 +874,8 @@ internal fun filterSessionsByQuery(
 internal fun workspaceScopedSessions(
     sessions: List<SessionSummary>,
     workspaces: List<GatewayWorkspace>,
-    selectedWorkspaceId: String?
+    selectedWorkspaceId: String?,
+    childSessionIds: Set<String> = emptySet()
 ): List<SessionSummary> {
     val selected = workspaces.firstOrNull { it.workspaceId == selectedWorkspaceId }
         ?: workspaces.firstOrNull()
@@ -871,9 +884,9 @@ internal fun workspaceScopedSessions(
         selected == null
     ) {
         val assigned = workspaces.flatMapTo(mutableSetOf()) { it.sessionIds }
-        return sessions.filter { it.isVisibleInHistory && it.id !in assigned }
+        return sessions.filter { it.isVisibleInHistory && it.id !in childSessionIds && it.id !in assigned }
     }
-    return sessions.filter { it.isVisibleInHistory && it.id in selected.sessionIds }
+    return sessions.filter { it.isVisibleInHistory && it.id !in childSessionIds && it.id in selected.sessionIds }
 }
 
 internal fun relativeTime(

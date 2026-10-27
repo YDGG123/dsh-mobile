@@ -77,7 +77,8 @@ private data class MarkdownRenderTag(
     val source: String,
     val palette: DshMarkdownPalette,
     val knownFilePaths: List<String>,
-    val fileLinksEnabled: Boolean
+    val fileLinksEnabled: Boolean,
+    val rendered: Spanned
 )
 
 private data class MarkdownRenderCacheKey(
@@ -142,7 +143,7 @@ private object DshAsyncMarkdownRenderer {
         palette: DshMarkdownPalette
     ): Spanned = withContext(dispatcher) {
         DshMarkdownRenderCache.get(markdown, palette) ?: renderedMarkdown(
-            markwon = markwons.getOrPut(palette) { buildDshMarkwon(context, palette) },
+            markwon = markwons.getOrPut(palette) { buildDshMarkwon(context, palette, interactiveTables = true) },
             markdown = markdown,
             palette = palette
         )
@@ -185,7 +186,7 @@ private object DshMarkdownTextApplier {
 
     @Synchronized
     fun get(context: Context, palette: DshMarkdownPalette): Markwon =
-        markwons.getOrPut(palette) { buildDshMarkwon(context, palette) }
+        markwons.getOrPut(palette) { buildDshMarkwon(context, palette, interactiveTables = true) }
 }
 
 @Composable
@@ -297,6 +298,35 @@ private fun DshRenderedMarkdownText(
     onOpenFile: ((String) -> Unit)? = null,
     copyMarkdown: String = markdown
 ) {
+    val tables = remember(rendered) {
+        rendered.getSpans(0, rendered.length, DshTableMarker::class.java).sortedBy(rendered::getSpanStart)
+    }
+    if (tables.isNotEmpty()) {
+        androidx.compose.foundation.layout.Column(modifier.fillMaxWidth(),
+            verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(10.dp)) {
+            var offset = 0
+            fun textPart(end: Int): Spanned? {
+                var start = offset
+                var last = end
+                while (start < last && rendered[start] == '\n') start++
+                while (last > start && rendered[last - 1] == '\n') last--
+                return if (last > start) SpannedString(rendered.subSequence(start, last)) else null
+            }
+            tables.forEachIndexed { tableIndex, marker ->
+                textPart(rendered.getSpanStart(marker))?.let { part ->
+                    DshRenderedMarkdownText(markdown, part, palette, textSizeSp, lineSpacingExtra,
+                        Modifier.fillMaxWidth(), knownFiles, onOpenFile, copyMarkdown)
+                }
+                DshMarkdownTableCard(marker.table, textSizeSp, onOpenFile, copyMarkdown, markdown, tableIndex)
+                offset = rendered.getSpanEnd(marker)
+            }
+            textPart(rendered.length)?.let { part ->
+                DshRenderedMarkdownText(markdown, part, palette, textSizeSp, lineSpacingExtra,
+                    Modifier.fillMaxWidth(), knownFiles, onOpenFile, copyMarkdown)
+            }
+        }
+        return
+    }
     val context = LocalContext.current.applicationContext
     val textSizePx = with(LocalDensity.current) { textSizeSp.sp.toPx() }
     val markwon = remember(context, palette) {
@@ -349,7 +379,7 @@ private fun DshRenderedMarkdownText(
             textView.onMessageMenuRequested = { messageMenuAnchor = it }
             textView.onSelectText = { selectionText = copyMarkdown }
             textView.plainTextProvider = { markdownPlainText(markwon.parse(copyMarkdown)) }
-            val nextTag = MarkdownRenderTag(markdown, palette, knownFilePaths, onOpenFile != null)
+            val nextTag = MarkdownRenderTag(markdown, palette, knownFilePaths, onOpenFile != null, rendered)
             if (textView.tag == nextTag) return@AndroidView
             textView.resetTextInteraction()
             if (onOpenFile != null) {
@@ -416,7 +446,8 @@ internal fun DshStreamingAwareMarkdownText(
 
 internal fun buildDshMarkwon(
     context: Context,
-    palette: DshMarkdownPalette
+    palette: DshMarkdownPalette,
+    interactiveTables: Boolean = false
 ): Markwon {
     val tableTheme = TableTheme.emptyBuilder()
         .tableBorderColor(palette.tableBorderColor)
@@ -464,6 +495,7 @@ internal fun buildDshMarkwon(
         .usePlugin(SoftBreakAddsNewLinePlugin.create())
         .usePlugin(StrikethroughPlugin.create())
         .usePlugin(TablePlugin.create(tableTheme))
+        .apply { if (interactiveTables) usePlugin(DshMarkdownTablePlugin()) }
         .usePlugin(
             TaskListPlugin.create(
                 DshColors.Ocean.toArgb(),

@@ -21,13 +21,16 @@
 		AF17C0000000000000000001 /* FileTypeIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF17C0000000000000000002 /* FileTypeIcon.swift */; };
 		AF17C0000000000000000003 /* FileIconAssetTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF17C0000000000000000004 /* FileIconAssetTests.swift */; };
 		3874FCB0CE354690A304E63F /* WorkspaceDrawerFeedbackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9A3BDFA7B0949F8BA0B01A6 /* WorkspaceDrawerFeedbackTests.swift */; };
+		0DC425D67C678AF679BFF15A /* VoiceInputAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 873D1E0F3E1B1B2CB2366B06 /* VoiceInputAdapter.swift */; };
 		3459A8BD9696202CAC9D85A5 /* GatewaySwitcherView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65B6B2953247E15BDA40F0BB /* GatewaySwitcherView.swift */; };
 		375D401B1B6F03015EC9073D /* GatewayProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = E638ED93D0BBFD018966FB52 /* GatewayProfile.swift */; };
+		3874FCB0CE354690A304E63F /* WorkspaceDrawerFeedbackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9A3BDFA7B0949F8BA0B01A6 /* WorkspaceDrawerFeedbackTests.swift */; };
 		39FD319C875F4B4A6893D676 /* GatewayProtocolTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B53A008218F24CA9A4DB4D1 /* GatewayProtocolTests.swift */; };
 		48857E4314868A4DD9F695EA /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BE407E6C6512836EB108990D /* Foundation.framework */; };
 		5ED39F22065A71FC54D755AC /* AppStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61A1F439244BA594BF547C92 /* AppStore.swift */; };
 		605DCE79952E970820A95606 /* ConversationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEABECFD00017A6E10B1F4A2 /* ConversationView.swift */; };
 		605DCE79952E970820A95607 /* HumanQuestionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEABECFD00017A6E10B1F4A3 /* HumanQuestionView.swift */; };
+		65B1D361C78618DBA4550C4F /* ConversationSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCB5E4921392A6503AD87B74 /* ConversationSidebar.swift */; };
 		6FED6D958ABD07A258CC53F0 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 152A3874C0D169644C9C7B6D /* Assets.xcassets */; };
 		75392054CB69B9596796C57A /* MultiGatewayTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEABDA4B6DAF199B320B1BA1 /* MultiGatewayTests.swift */; };
 		7B8DAA4E77DE3665B7E1C087 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D98111628697EC1C4FF9878B /* SettingsView.swift */; };
@@ -56,10 +59,18 @@
 		A9FC00000000000000000001 /* KMPSharedAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9FC00000000000000000002 /* KMPSharedAdapter.swift */; };
 		A9FD00000000000000000001 /* AgentBackgroundKeepAliveManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9FD00000000000000000002 /* AgentBackgroundKeepAliveManager.swift */; };
 		A9FE00000000000000000001 /* AgentUserNotificationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9FE00000000000000000002 /* AgentUserNotificationManager.swift */; };
+		AB0170000000000000000001 /* ../../AppRelease/release-info.json in Resources */ = {isa = PBXBuildFile; fileRef = AB0170000000000000000003 /* ../../AppRelease/release-info.json */; };
+		AB0170000000000000000002 /* ../../AppRelease/release-notes.md in Resources */ = {isa = PBXBuildFile; fileRef = AB0170000000000000000004 /* ../../AppRelease/release-notes.md */; };
+		AF17C0000000000000000001 /* FileTypeIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF17C0000000000000000002 /* FileTypeIcon.swift */; };
+		AF17C0000000000000000003 /* FileIconAssetTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF17C0000000000000000004 /* FileIconAssetTests.swift */; };
+		AF18C0000000000000000001 /* WorkspacePreviewCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF18C0000000000000000002 /* WorkspacePreviewCache.swift */; };
+		AF18C0000000000000000003 /* WorkspacePreviewCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF18C0000000000000000004 /* WorkspacePreviewCacheTests.swift */; };
+		AF19C0000000000000000001 /* WorkspaceLoadingLogo.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF19C0000000000000000002 /* WorkspaceLoadingLogo.swift */; };
 		AFAE90EEB4462AD84169D356 /* GatewayModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 954FCEA4A6E71F3D1A22BB53 /* GatewayModels.swift */; };
 		B0C0FFEE0000000000000001 /* HarnessAnimatedBackground.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0C0FFEE0000000000000002 /* HarnessAnimatedBackground.swift */; };
 		B0A10000000000000000000F /* BackgroundAnimationPause.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A100000000000000000010 /* BackgroundAnimationPause.swift */; };
 		B10000000000000000000001 /* PluginsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000002 /* PluginsView.swift */; };
+		BA1261E01FBB7F30C9AAE9D1 /* VoiceRipplePanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B77DEC008C0209D814CD7BE /* VoiceRipplePanel.swift */; };
 		C075849EE750C3CCD2C87FC7 /* MultiGatewayStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5FF365A80AA28B4D4CF2347 /* MultiGatewayStore.swift */; };
 		C5F737EBF5077A9BF35E9F64 /* TrajectoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65009160A0642089906B54DF /* TrajectoryView.swift */; };
 		C7A710000000000000000001 /* ChatLayout in Frameworks */ = {isa = PBXBuildFile; productRef = C7A710000000000000000003 /* ChatLayout */; };
@@ -69,6 +80,17 @@
 		CA11E000000000000000000B /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = CA11E000000000000000000C /* Localizable.xcstrings */; };
 		CA11E000000000000000000D /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = CA11E000000000000000000E /* InfoPlist.xcstrings */; };
 		CA11E000000000000000000F /* LocalizationCatalogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA11E0000000000000000011 /* LocalizationCatalogTests.swift */; };
+		CD86C5C4C6FF6F4BD8D715A6 /* VoiceInputTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81886703A6C3AB2164852990 /* VoiceInputTests.swift */; };
+		CF2010000000000000000001 /* ChatHistoryCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF2010000000000000000002 /* ChatHistoryCache.swift */; };
+		CF2010000000000000000003 /* ChatHistoryCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF2010000000000000000004 /* ChatHistoryCacheTests.swift */; };
+		CF2020000000000000000001 /* ChatSessionPrefetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF2020000000000000000002 /* ChatSessionPrefetcher.swift */; };
+		CF2030000000000000000001 /* ChatSessionPrefetcherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF2030000000000000000002 /* ChatSessionPrefetcherTests.swift */; };
+		CF204000000000000000001 /* RealSessionScrollPerformanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF204000000000000000002 /* RealSessionScrollPerformanceTests.swift */; };
+		CF205000000000000000001 /* DebugHistoryScrollMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF205000000000000000002 /* DebugHistoryScrollMetrics.swift */; };
+		CF205000000000000000011 /* HistoryPresentationAdmission.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF205000000000000000012 /* HistoryPresentationAdmission.swift */; };
+		CF206000000000000000001 /* FileUploadController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF206000000000000000002 /* FileUploadController.swift */; };
+		CF225000000000000000001 /* MarkdownTableCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF225000000000000000002 /* MarkdownTableCard.swift */; };
+		CF225000000000000000011 /* DocumentPageChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF225000000000000000012 /* DocumentPageChrome.swift */; };
 		D3A40BFC0B9C8D4B1C8FAA95 /* DeepSeekHarnessMobileApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 430CA64DF207C7EF58574336 /* DeepSeekHarnessMobileApp.swift */; };
 		E20191A4C7B1C0A8FF57CAC1 /* Glass.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCF581253EBCFEB43865AB51 /* Glass.swift */; };
 		AA6100000000000000000011 /* TeamGlyph.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA6100000000000000000010 /* TeamGlyph.swift */; };
@@ -79,6 +101,8 @@
 		AA6400000000000000000011 /* RosterLookParityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA6400000000000000000010 /* RosterLookParityTests.swift */; };
 		E73A2DB9D678DA4B8C01E349 /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = 4CE3D78565179C422C796509 /* MarkdownUI */; };
 		E7585B9F7F89A3084B6E0182 /* WorkspaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D610757C1FF81FD953A9D000 /* WorkspaceView.swift */; };
+		EAAE88B94CBECC20963D9646 /* AdaptiveLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D3FFEFFB831B9A6454ECA0E /* AdaptiveLayoutTests.swift */; };
+		CF227000000000000000001 /* TrajectoryOverviewLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF227000000000000000002 /* TrajectoryOverviewLayoutTests.swift */; };
 		F1A000000000000000000001 /* AgentActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A000000000000000000011 /* AgentActivityAttributes.swift */; };
 		F1A000000000000000000002 /* AgentActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A000000000000000000011 /* AgentActivityAttributes.swift */; };
 		F1A000000000000000000003 /* AgentApprovalIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A000000000000000000012 /* AgentApprovalIntents.swift */; };
@@ -87,14 +111,11 @@
 		F1A000000000000000000006 /* AgentLiveActivityWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A000000000000000000014 /* AgentLiveActivityWidget.swift */; };
 		F1A000000000000000000007 /* AgentLiveActivityWidget.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = F1A000000000000000000016 /* AgentLiveActivityWidget.appex */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		F1A000000000000000000008 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F1A000000000000000000017 /* Assets.xcassets */; };
-		F5CD0CFD51B8D80944F87550 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BE407E6C6512836EB108990D /* Foundation.framework */; };
-		0DC425D67C678AF679BFF15A /* VoiceInputAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 873D1E0F3E1B1B2CB2366B06 /* VoiceInputAdapter.swift */; };
-		BA1261E01FBB7F30C9AAE9D1 /* VoiceRipplePanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B77DEC008C0209D814CD7BE /* VoiceRipplePanel.swift */; };
-		CD86C5C4C6FF6F4BD8D715A6 /* VoiceInputTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81886703A6C3AB2164852990 /* VoiceInputTests.swift */; };
 		F2B000000000000000000001 /* WorkspaceDrawerUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2B000000000000000000002 /* WorkspaceDrawerUITests.swift */; };
 		AB0170000000000000000001 /* release-info.json in Resources */ = {isa = PBXBuildFile; fileRef = AB0170000000000000000003 /* release-info.json */; };
 		AB0170000000000000000002 /* release-notes.md in Resources */ = {isa = PBXBuildFile; fileRef = AB0170000000000000000004 /* release-notes.md */; };
 		AB0170000000000000000011 /* index.html in Resources */ = {isa = PBXBuildFile; fileRef = AB0170000000000000000012 /* index.html */; };
+		F5CD0CFD51B8D80944F87550 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BE407E6C6512836EB108990D /* Foundation.framework */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -150,14 +171,20 @@
 		430CA64DF207C7EF58574336 /* DeepSeekHarnessMobileApp.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DeepSeekHarnessMobileApp.swift; sourceTree = "<group>"; };
 		59B069578BB7F31AD35F601A /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		5A37B43613D712F252BA91D7 /* RootView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		5D3FFEFFB831B9A6454ECA0E /* AdaptiveLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdaptiveLayoutTests.swift; sourceTree = "<group>"; };
+		CF227000000000000000002 /* TrajectoryOverviewLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrajectoryOverviewLayoutTests.swift; sourceTree = "<group>"; };
 		61A1F439244BA594BF547C92 /* AppStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppStore.swift; sourceTree = "<group>"; };
 		65009160A0642089906B54DF /* TrajectoryView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TrajectoryView.swift; sourceTree = "<group>"; };
 		65B6B2953247E15BDA40F0BB /* GatewaySwitcherView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GatewaySwitcherView.swift; sourceTree = "<group>"; };
+		81886703A6C3AB2164852990 /* VoiceInputTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceInputTests.swift; sourceTree = "<group>"; };
+		873D1E0F3E1B1B2CB2366B06 /* VoiceInputAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceInputAdapter.swift; sourceTree = "<group>"; };
+		8B77DEC008C0209D814CD7BE /* VoiceRipplePanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceRipplePanel.swift; sourceTree = "<group>"; };
 		954FCEA4A6E71F3D1A22BB53 /* GatewayModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GatewayModels.swift; sourceTree = "<group>"; };
 		A0C0FFEE0000000000000002 /* ConversationViewport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ConversationViewport.swift; sourceTree = "<group>"; };
 		A0C0FFEE0000000000000004 /* ConversationTimeline.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ConversationTimeline.swift; sourceTree = "<group>"; };
 		A1A0C0000000000000000002 /* LaunchScreen.storyboard */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
 		A1B2C3D4E5F60718293A4B5D /* ApprovalRequestView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ApprovalRequestView.swift; sourceTree = "<group>"; };
+		A9A3BDFA7B0949F8BA0B01A6 /* WorkspaceDrawerFeedbackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceDrawerFeedbackTests.swift; sourceTree = "<group>"; };
 		A9F100000000000000000002 /* AppPreferences.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppPreferences.swift; sourceTree = "<group>"; };
 		A9F200000000000000000002 /* PairingPayloadParser.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PairingPayloadParser.swift; sourceTree = "<group>"; };
 		A9F300000000000000000002 /* KMPDomainIntents.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = KMPDomainIntents.swift; sourceTree = "<group>"; };
@@ -169,13 +196,18 @@
 		A9FC00000000000000000002 /* KMPSharedAdapter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = KMPSharedAdapter.swift; sourceTree = "<group>"; };
 		A9FD00000000000000000002 /* AgentBackgroundKeepAliveManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentBackgroundKeepAliveManager.swift; sourceTree = "<group>"; };
 		A9FE00000000000000000002 /* AgentUserNotificationManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentUserNotificationManager.swift; sourceTree = "<group>"; };
+		AB0170000000000000000003 /* ../../AppRelease/release-info.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "../../AppRelease/release-info.json"; sourceTree = "<group>"; };
+		AB0170000000000000000004 /* ../../AppRelease/release-notes.md */ = {isa = PBXFileReference; lastKnownFileType = text; path = "../../AppRelease/release-notes.md"; sourceTree = "<group>"; };
+		AF17C0000000000000000002 /* FileTypeIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileTypeIcon.swift; sourceTree = "<group>"; };
+		AF17C0000000000000000004 /* FileIconAssetTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileIconAssetTests.swift; sourceTree = "<group>"; };
+		AF18C0000000000000000002 /* WorkspacePreviewCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspacePreviewCache.swift; sourceTree = "<group>"; };
+		AF18C0000000000000000004 /* WorkspacePreviewCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspacePreviewCacheTests.swift; sourceTree = "<group>"; };
+		AF19C0000000000000000002 /* WorkspaceLoadingLogo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceLoadingLogo.swift; sourceTree = "<group>"; };
 		B0C0FFEE0000000000000002 /* HarnessAnimatedBackground.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HarnessAnimatedBackground.swift; sourceTree = "<group>"; };
 		B0A100000000000000000010 /* BackgroundAnimationPause.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BackgroundAnimationPause.swift; sourceTree = "<group>"; };
 		B0C0FFEE0000000000000004 /* HarnessBackground.metal */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.metal; path = HarnessBackground.metal; sourceTree = "<group>"; };
 		B10000000000000000000002 /* PluginsView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PluginsView.swift; sourceTree = "<group>"; };
 		B64F29E9B8346B9A678CA487 /* DeepSeekHarnessMobileTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = DeepSeekHarnessMobileTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		F2B000000000000000000002 /* WorkspaceDrawerUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceDrawerUITests.swift; sourceTree = "<group>"; };
-		F2B000000000000000000003 /* DeepSeekHarnessMobileUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = DeepSeekHarnessMobileUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		BE407E6C6512836EB108990D /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
 		CA11E0000000000000000002 /* ImageAttachmentCache.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ImageAttachmentCache.swift; sourceTree = "<group>"; };
 		CA11E0000000000000000004 /* ImagePreprocessor.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ImagePreprocessor.swift; sourceTree = "<group>"; };
@@ -183,8 +215,19 @@
 		CA11E000000000000000000C /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		CA11E000000000000000000E /* InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = InfoPlist.xcstrings; sourceTree = "<group>"; };
 		CA11E0000000000000000011 /* LocalizationCatalogTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LocalizationCatalogTests.swift; sourceTree = "<group>"; };
+		CF2010000000000000000002 /* ChatHistoryCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatHistoryCache.swift; sourceTree = "<group>"; };
+		CF2010000000000000000004 /* ChatHistoryCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatHistoryCacheTests.swift; sourceTree = "<group>"; };
+		CF2020000000000000000002 /* ChatSessionPrefetcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatSessionPrefetcher.swift; sourceTree = "<group>"; };
+		CF2030000000000000000002 /* ChatSessionPrefetcherTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatSessionPrefetcherTests.swift; sourceTree = "<group>"; };
+		CF204000000000000000002 /* RealSessionScrollPerformanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RealSessionScrollPerformanceTests.swift; sourceTree = "<group>"; };
+		CF205000000000000000002 /* DebugHistoryScrollMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugHistoryScrollMetrics.swift; sourceTree = "<group>"; };
+		CF205000000000000000012 /* HistoryPresentationAdmission.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryPresentationAdmission.swift; sourceTree = "<group>"; };
+		CF206000000000000000002 /* FileUploadController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileUploadController.swift; sourceTree = "<group>"; };
+		CF225000000000000000002 /* MarkdownTableCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownTableCard.swift; sourceTree = "<group>"; };
+		CF225000000000000000012 /* DocumentPageChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentPageChrome.swift; sourceTree = "<group>"; };
 		D610757C1FF81FD953A9D000 /* WorkspaceView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WorkspaceView.swift; sourceTree = "<group>"; };
 		D98111628697EC1C4FF9878B /* SettingsView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		DCB5E4921392A6503AD87B74 /* ConversationSidebar.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ConversationSidebar.swift; sourceTree = "<group>"; };
 		E5FF365A80AA28B4D4CF2347 /* MultiGatewayStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MultiGatewayStore.swift; sourceTree = "<group>"; };
 		E61E231D0CD3E07857F861B0 /* GatewayClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GatewayClient.swift; sourceTree = "<group>"; };
 		E638ED93D0BBFD018966FB52 /* GatewayProfile.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GatewayProfile.swift; sourceTree = "<group>"; };
@@ -205,6 +248,8 @@
 		F1A000000000000000000016 /* AgentLiveActivityWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = AgentLiveActivityWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		F1A000000000000000000017 /* Assets.xcassets */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		F2A000000000000000000001 /* config/Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = config/Debug.xcconfig; sourceTree = SOURCE_ROOT; };
+		F2B000000000000000000002 /* WorkspaceDrawerUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceDrawerUITests.swift; sourceTree = "<group>"; };
+		F2B000000000000000000003 /* DeepSeekHarnessMobileUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = DeepSeekHarnessMobileUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		FCF581253EBCFEB43865AB51 /* Glass.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Glass.swift; sourceTree = "<group>"; };
 		AA6100000000000000000010 /* TeamGlyph.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TeamGlyph.swift; sourceTree = "<group>"; };
 		AA6600000000000000000010 /* TeamRosterCache.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TeamRosterCache.swift; sourceTree = "<group>"; };
@@ -222,13 +267,6 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
-		F2B000000000000000000007 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		2730CFAAB3AB8815D8F74EB4 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -248,6 +286,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		F1A000000000000000000031 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F2B000000000000000000007 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -276,7 +321,7 @@
 				A9FB00000000000000000002 /* GatewayFrameRouter.swift */,
 				A9FC00000000000000000002 /* KMPSharedAdapter.swift */,
 				61A1F439244BA594BF547C92 /* AppStore.swift */,
-                AF18C0000000000000000002 /* WorkspacePreviewCache.swift */,
+				AF18C0000000000000000002 /* WorkspacePreviewCache.swift */,
 				CF2010000000000000000002 /* ChatHistoryCache.swift */,
 				CF2020000000000000000002 /* ChatSessionPrefetcher.swift */,
 				CF2050000000000000000002 /* DebugHistoryScrollMetrics.swift */,
@@ -308,8 +353,10 @@
 				A9A3BDFA7B0949F8BA0B01A6 /* WorkspaceDrawerFeedbackTests.swift */,
 				81886703A6C3AB2164852990 /* VoiceInputTests.swift */,
 				AF17C0000000000000000004 /* FileIconAssetTests.swift */,
-                AF18C0000000000000000004 /* WorkspacePreviewCacheTests.swift */,
+				AF18C0000000000000000004 /* WorkspacePreviewCacheTests.swift */,
 				CF2010000000000000000004 /* ChatHistoryCacheTests.swift */,
+				5D3FFEFFB831B9A6454ECA0E /* AdaptiveLayoutTests.swift */,
+				CF227000000000000000002 /* TrajectoryOverviewLayoutTests.swift */,
 				CF2030000000000000000002 /* ChatSessionPrefetcherTests.swift */,
 				CA11E0000000000000000011 /* LocalizationCatalogTests.swift */,
 				FEABDA4B6DAF199B320B1BA1 /* MultiGatewayTests.swift */,
@@ -397,6 +444,8 @@
 			isa = PBXGroup;
 			children = (
 				AA6200000000000000000010 /* TeamAvatarView.swift */,
+				CF225000000000000000012 /* DocumentPageChrome.swift */,
+				CF225000000000000000002 /* MarkdownTableCard.swift */,
 				8B77DEC008C0209D814CD7BE /* VoiceRipplePanel.swift */,
 				FCF581253EBCFEB43865AB51 /* Glass.swift */,
 				AF17C0000000000000000002 /* FileTypeIcon.swift */,
@@ -421,6 +470,7 @@
 				D610757C1FF81FD953A9D000 /* WorkspaceView.swift */,
 				B0A100000000000000000006 /* TeamView.swift */,
 				B0A10000000000000000000C /* BridgeConversationView.swift */,
+				DCB5E4921392A6503AD87B74 /* ConversationSidebar.swift */,
 				65B6B2953247E15BDA40F0BB /* GatewaySwitcherView.swift */,
 			);
 			path = Views;
@@ -473,6 +523,15 @@
 			path = AgentLiveActivityWidget;
 			sourceTree = "<group>";
 		};
+		F2B000000000000000000004 /* DeepSeekHarnessMobileUITests */ = {
+			isa = PBXGroup;
+			children = (
+				F2B000000000000000000002 /* WorkspaceDrawerUITests.swift */,
+				CF204000000000000000002 /* RealSessionScrollPerformanceTests.swift */,
+			);
+			path = DeepSeekHarnessMobileUITests;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -519,23 +578,6 @@
 			productReference = B64F29E9B8346B9A678CA487 /* DeepSeekHarnessMobileTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
-		F2B000000000000000000005 /* DeepSeekHarnessMobileUITests */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = F2B000000000000000000008 /* Build configuration list for PBXNativeTarget "DeepSeekHarnessMobileUITests" */;
-			buildPhases = (
-				F2B000000000000000000006 /* Sources */,
-				F2B000000000000000000007 /* Frameworks */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-				DD2CB1177812E5F54629AA43 /* PBXTargetDependency */,
-			);
-			name = DeepSeekHarnessMobileUITests;
-			productName = DeepSeekHarnessMobileUITests;
-			productReference = F2B000000000000000000003 /* DeepSeekHarnessMobileUITests.xctest */;
-			productType = "com.apple.product-type.bundle.ui-testing";
-		};
 		F1A000000000000000000040 /* AgentLiveActivityWidget */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = F1A000000000000000000052 /* Build configuration list for PBXNativeTarget "AgentLiveActivityWidget" */;
@@ -554,6 +596,23 @@
 			productName = AgentLiveActivityWidget;
 			productReference = F1A000000000000000000016 /* AgentLiveActivityWidget.appex */;
 			productType = "com.apple.product-type.app-extension";
+		};
+		F2B000000000000000000005 /* DeepSeekHarnessMobileUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F2B000000000000000000008 /* Build configuration list for PBXNativeTarget "DeepSeekHarnessMobileUITests" */;
+			buildPhases = (
+				F2B000000000000000000006 /* Sources */,
+				F2B000000000000000000007 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				DD2CB1177812E5F54629AA43 /* PBXTargetDependency */,
+			);
+			name = DeepSeekHarnessMobileUITests;
+			productName = DeepSeekHarnessMobileUITests;
+			productReference = F2B000000000000000000003 /* DeepSeekHarnessMobileUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
 		};
 /* End PBXNativeTarget section */
 
@@ -651,10 +710,16 @@
 		AB0170000000000000000005 /* Build Metal Library */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
-			files = ();
-			inputPaths = ("$(SRCROOT)/DeepSeekHarnessMobile/Shaders/HarnessBackground.metal", "$(SRCROOT)/scripts/build_metal_library.sh");
+			files = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/DeepSeekHarnessMobile/Shaders/HarnessBackground.metal",
+				"$(SRCROOT)/scripts/build_metal_library.sh",
+			);
 			name = "Build Metal Library";
-			outputPaths = ("$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/default.metallib");
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/default.metallib",
+			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "/bin/sh \"$SRCROOT/scripts/build_metal_library.sh\"\n";
@@ -682,8 +747,10 @@
 				3874FCB0CE354690A304E63F /* WorkspaceDrawerFeedbackTests.swift in Sources */,
 				CD86C5C4C6FF6F4BD8D715A6 /* VoiceInputTests.swift in Sources */,
 				AF17C0000000000000000003 /* FileIconAssetTests.swift in Sources */,
-                AF18C0000000000000000003 /* WorkspacePreviewCacheTests.swift in Sources */,
+				AF18C0000000000000000003 /* WorkspacePreviewCacheTests.swift in Sources */,
 				CF2010000000000000000003 /* ChatHistoryCacheTests.swift in Sources */,
+				EAAE88B94CBECC20963D9646 /* AdaptiveLayoutTests.swift in Sources */,
+				CF227000000000000000001 /* TrajectoryOverviewLayoutTests.swift in Sources */,
 				CF2030000000000000000001 /* ChatSessionPrefetcherTests.swift in Sources */,
 				CA11E000000000000000000F /* LocalizationCatalogTests.swift in Sources */,
 				75392054CB69B9596796C57A /* MultiGatewayTests.swift in Sources */,
@@ -717,7 +784,7 @@
 				A9FB00000000000000000001 /* GatewayFrameRouter.swift in Sources */,
 				A9FC00000000000000000001 /* KMPSharedAdapter.swift in Sources */,
 				5ED39F22065A71FC54D755AC /* AppStore.swift in Sources */,
-                AF18C0000000000000000001 /* WorkspacePreviewCache.swift in Sources */,
+				AF18C0000000000000000001 /* WorkspacePreviewCache.swift in Sources */,
 				CF2010000000000000000001 /* ChatHistoryCache.swift in Sources */,
 				CF2020000000000000000001 /* ChatSessionPrefetcher.swift in Sources */,
 				CF2050000000000000000001 /* DebugHistoryScrollMetrics.swift in Sources */,
@@ -736,6 +803,8 @@
 				A0C0FFEE0000000000000001 /* ConversationViewport.swift in Sources */,
 				B0C0FFEE0000000000000001 /* HarnessAnimatedBackground.swift in Sources */,
 				B0A10000000000000000000F /* BackgroundAnimationPause.swift in Sources */,
+				CF225000000000000000001 /* MarkdownTableCard.swift in Sources */,
+				CF225000000000000000011 /* DocumentPageChrome.swift in Sources */,
 				605DCE79952E970820A95606 /* ConversationView.swift in Sources */,
 				605DCE79952E970820A95607 /* HumanQuestionView.swift in Sources */,
 				B0A100000000000000000001 /* BridgeTransport.swift in Sources */,
@@ -750,6 +819,7 @@
 				7B8DAA4E77DE3665B7E1C087 /* SettingsView.swift in Sources */,
 				C5F737EBF5077A9BF35E9F64 /* TrajectoryView.swift in Sources */,
 				E7585B9F7F89A3084B6E0182 /* WorkspaceView.swift in Sources */,
+				65B1D361C78618DBA4550C4F /* ConversationSidebar.swift in Sources */,
 				375D401B1B6F03015EC9073D /* GatewayProfile.swift in Sources */,
 				C075849EE750C3CCD2C87FC7 /* MultiGatewayStore.swift in Sources */,
 				3459A8BD9696202CAC9D85A5 /* GatewaySwitcherView.swift in Sources */,
@@ -763,6 +833,15 @@
 				F1A000000000000000000002 /* AgentActivityAttributes.swift in Sources */,
 				F1A000000000000000000004 /* AgentApprovalIntents.swift in Sources */,
 				F1A000000000000000000006 /* AgentLiveActivityWidget.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F2B000000000000000000006 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				F2B000000000000000000001 /* WorkspaceDrawerUITests.swift in Sources */,
+				CF204000000000000000001 /* RealSessionScrollPerformanceTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -868,10 +947,11 @@
 		};
 		6CEBD593F2F351E87AE7198C /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = F2A000000000000000000001 /* config/Debug.xcconfig */;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CLANG_ENABLE_OBJC_WEAK = NO;
-				DEVELOPMENT_TEAM = T58RY5HUA7;
+				DEVELOPMENT_TEAM = "$(LOCAL_DEVELOPMENT_TEAM)";
 				"FRAMEWORK_SEARCH_PATHS[sdk=iphoneos*]" = "$(SRCROOT)/shared/build/bin/iosArm64/releaseFramework";
 				"FRAMEWORK_SEARCH_PATHS[sdk=iphonesimulator*][arch=arm64]" = "$(SRCROOT)/shared/build/bin/iosSimulatorArm64/releaseFramework";
 				"FRAMEWORK_SEARCH_PATHS[sdk=iphonesimulator*][arch=x86_64]" = "$(SRCROOT)/shared/build/bin/iosX64/releaseFramework";
@@ -1020,7 +1100,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.7.10;
+				MARKETING_VERSION = 1.7.11;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(LOCAL_BUNDLE_IDENTIFIER).AgentLiveActivityWidget";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
@@ -1033,6 +1113,7 @@
 		};
 		F1A000000000000000000051 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = F2A000000000000000000001 /* config/Debug.xcconfig */;
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CLANG_ENABLE_OBJC_WEAK = NO;
@@ -1047,8 +1128,8 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.7.10;
-				PRODUCT_BUNDLE_IDENTIFIER = com.ydgg123.orcarness.AgentLiveActivityWidget;
+				MARKETING_VERSION = 1.7.11;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(LOCAL_BUNDLE_IDENTIFIER).AgentLiveActivityWidget";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
@@ -1059,8 +1140,40 @@
 			};
 			name = Release;
 		};
+		F2B000000000000000000009 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = "$(LOCAL_DEVELOPMENT_TEAM)";
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(LOCAL_BUNDLE_IDENTIFIER).uitests";
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.10;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = DeepSeekHarnessMobile;
+			};
+			name = Debug;
+		};
+		F2B00000000000000000000A /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = F2A000000000000000000001 /* config/Debug.xcconfig */;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = "$(LOCAL_DEVELOPMENT_TEAM)";
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(LOCAL_BUNDLE_IDENTIFIER).uitests";
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.10;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = DeepSeekHarnessMobile;
+			};
+			name = Release;
+		};
 		FD30CB375EBC3646AECADEE1 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = F2A000000000000000000001 /* config/Debug.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
@@ -1093,15 +1206,6 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		F2B000000000000000000008 /* Build configuration list for PBXNativeTarget "DeepSeekHarnessMobileUITests" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				F2B00000000000000000000A /* Release */,
-				F2B000000000000000000009 /* Debug */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
 		62C8D12628E44A75D40278DD /* Build configuration list for PBXNativeTarget "DeepSeekHarnessMobile" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -1134,6 +1238,15 @@
 			buildConfigurations = (
 				F1A000000000000000000051 /* Release */,
 				F1A000000000000000000050 /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		F2B000000000000000000008 /* Build configuration list for PBXNativeTarget "DeepSeekHarnessMobileUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F2B00000000000000000000A /* Release */,
+				F2B000000000000000000009 /* Debug */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

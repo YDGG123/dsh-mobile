@@ -177,12 +177,14 @@ final class AgentBackgroundKeepAliveManager: NSObject, AgentLongRunningKeepAlive
         guard agentWorkIsActive,
               !applicationIsInBackground,
               backgroundActivitySession == nil else { return }
-        backgroundActivitySession = CLBackgroundActivitySession()
+        if #available(iOS 17.0, *) {
+            backgroundActivitySession = CLBackgroundActivitySession()
+        }
     }
 
     private func endBackgroundActivitySession() {
-        if #available(iOS 17.0, *) {
-            (backgroundActivitySession as? CLBackgroundActivitySession)?.invalidate()
+        if #available(iOS 17.0, *), let session = backgroundActivitySession as? CLBackgroundActivitySession {
+            session.invalidate()
         }
         backgroundActivitySession = nil
     }

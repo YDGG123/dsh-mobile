@@ -23,6 +23,7 @@ struct TrajectoryView: View {
     @Environment(\.colorScheme) private var colorScheme
     @State private var selected: TrajectoryNode?
     @State private var highlightedID: String?
+    @State private var usesActualDuration = false
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -80,7 +81,15 @@ struct TrajectoryView: View {
     private func overview(onSelect: @escaping (TrajectoryNode) -> Void) -> some View {
         VStack(alignment: .leading, spacing: 9) {
             HStack {
-                Label("Duration", systemImage: "clock")
+                Button {
+                    usesActualDuration.toggle()
+                } label: {
+                    Label("Duration", systemImage: "clock")
+                        .foregroundStyle(usesActualDuration ? DSHColor.ocean : Color.secondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(usesActualDuration ? .isSelected : [])
+                .accessibilityIdentifier("trajectory-duration-toggle")
                 Text("\(timeline.presentation.turnCount) Turns")
                 Text("\(timeline.presentation.toolCount) Calls")
                 Spacer()
@@ -97,11 +106,17 @@ struct TrajectoryView: View {
                 }
                 .appFont(.caption2).foregroundStyle(.secondary).frame(width: 34, alignment: .leading)
 
-                TimelineOverviewCanvas(nodes: timeline.presentation.visibleNodes, onSelect: onSelect)
+                TimelineOverviewCanvas(
+                    nodes: timeline.presentation.visibleNodes,
+                    usesActualDuration: usesActualDuration,
+                    onSelect: onSelect
+                )
                 .frame(height: 52)
             }
-            HStack { Text("0s"); Spacer(); Text(timeline.presentation.durationText) }
-                .appFont(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+            if usesActualDuration {
+                HStack { Text("0s"); Spacer(); Text(timeline.presentation.durationText) }
+                    .appFont(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+            }
         }
         .padding(.horizontal, 20).padding(.vertical, 12)
         .readableContentWidth()
@@ -182,15 +197,43 @@ fileprivate struct TrajectoryPresentation {
 
 private struct TimelineOverviewCanvas: View {
     let nodes: [TrajectoryNode]
+    let usesActualDuration: Bool
     let onSelect: (TrajectoryNode) -> Void
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
+        let layout = TrajectoryOverviewLayout(nodes: nodes, usesActualDuration: usesActualDuration)
         GeometryReader { geometry in
-            Canvas { context, size in
-                for laneY in [CGFloat(6), 25, 44] {
-                    let guide = CGRect(x: 0, y: laneY, width: size.width, height: 0.7)
-                    context.fill(Path(guide), with: .color(laneGuideColor))
+            ScrollView(.horizontal, showsIndicators: false) {
+                plot(layout: layout, width: max(geometry.size.width, CGFloat(nodes.count) * 8))
+            }
+        }
+    }
+
+    private func plot(layout: TrajectoryOverviewLayout, width: CGFloat) -> some View {
+        Canvas { context, size in
+            for laneY in [CGFloat(6), 25, 44] {
+                let guide = CGRect(x: 0, y: laneY, width: size.width, height: 0.7)
+                context.fill(Path(guide), with: .color(laneGuideColor))
+            }
+            for entry in layout.entries {
+                let node = entry.node
+                context.fill(
+                    Path(roundedRect: entry.barFrame(width: size.width), cornerRadius: 1),
+                    with: .color(node.displayColor)
+                )
+            }
+        }
+        .frame(width: width, height: 52)
+        .contentShape(Rectangle())
+        .gesture(
+            SpatialTapGesture().onEnded { value in
+                let targetKind: TrajectoryNode.Kind = if value.location.y < 15 {
+                    .input
+                } else if value.location.y < 35 {
+                    .assistant
+                } else {
+                    .tool
                 }
                 for entry in layoutEntries {
                     let node = entry.node
@@ -210,59 +253,50 @@ private struct TimelineOverviewCanvas: View {
                     )
                 }
             }
-            .contentShape(Rectangle())
-            .gesture(
-                SpatialTapGesture().onEnded { value in
-                    guard !nodes.isEmpty, geometry.size.width > 0 else { return }
-                    let fraction = min(0.999_999, max(0, value.location.x / geometry.size.width))
-                    let targetKind: TrajectoryNode.Kind = if value.location.y < 15 {
-                        .input
-                    } else if value.location.y < 35 {
-                        .assistant
-                    } else {
-                        .tool
-                    }
-                    let laneEntries = layoutEntries.filter { entry in
-                        if targetKind == .assistant {
-                            return entry.node.kind == .assistant || entry.node.kind == .context
-                        }
-                        return entry.node.kind == targetKind
-                    }
-                    let candidates = laneEntries.isEmpty ? layoutEntries : laneEntries
-                    if let nearest = candidates.min(by: {
-                        layoutDistance(from: fraction, to: $0) < layoutDistance(from: fraction, to: $1)
-                    }) {
-                        onSelect(nearest.node)
-                    }
-                }
-            )
-        }
+        )
     }
 
     private var laneGuideColor: Color {
         colorScheme == .dark ? .white.opacity(0.10) : .black.opacity(0.07)
     }
 
-    private struct LayoutEntry {
+}
+
+/// 与 Web UI 一致：默认按操作顺序等宽展示，只有主动切换时才使用实际耗时。
+struct TrajectoryOverviewLayout {
+    struct Entry {
         let node: TrajectoryNode
         let startFraction: CGFloat
         let endFraction: CGFloat
+
+        func barFrame(width: CGFloat) -> CGRect {
+            let plotWidth = max(0, width)
+            let naturalWidth = (endFraction - startFraction) * plotWidth
+            let inset = min(1, naturalWidth * 0.08)
+            let barWidth = min(plotWidth, max(2, naturalWidth - inset * 2))
+            let height: CGFloat = node.kind == .assistant ? 9 : 7
+            return CGRect(
+                x: max(0, min(plotWidth - barWidth, startFraction * plotWidth + inset)),
+                y: node.kind.laneY - height / 2,
+                width: barWidth,
+                height: height
+            )
+        }
     }
 
-    /// Every frame keeps its real duration, but frames are laid out back-to-back
-    /// so idle time between turns cannot compress active work into tiny marks.
-    private var layoutEntries: [LayoutEntry] {
-        guard !nodes.isEmpty else { return [] }
+    let entries: [Entry]
+
+    init(nodes: [TrajectoryNode], usesActualDuration: Bool = false) {
         let durations = nodes.map { max(0, $0.end.timeIntervalSince($0.start)) }
         let activeDuration = durations.reduce(0, +)
         let minimumWeight = max(0.001, activeDuration / 500)
-        let weights = durations.map { max($0, minimumWeight) }
+        let weights = durations.map { usesActualDuration ? max($0, minimumWeight) : 1 }
         let totalWeight = max(0.001, weights.reduce(0, +))
         var cursor: TimeInterval = 0
-        return zip(nodes, weights).map { node, weight in
+        entries = zip(nodes, weights).map { node, weight in
             let start = cursor / totalWeight
             cursor += weight
-            return LayoutEntry(
+            return Entry(
                 node: node,
                 startFraction: CGFloat(start),
                 endFraction: CGFloat(cursor / totalWeight)
@@ -270,10 +304,15 @@ private struct TimelineOverviewCanvas: View {
         }
     }
 
-    private func layoutDistance(from fraction: CGFloat, to entry: LayoutEntry) -> CGFloat {
-        if fraction < entry.startFraction { return entry.startFraction - fraction }
-        if fraction > entry.endFraction { return fraction - entry.endFraction }
-        return 0
+    func nearestNode(x: CGFloat, width: CGFloat, lane: TrajectoryNode.Kind) -> TrajectoryNode? {
+        guard width > 0 else { return nil }
+        let laneEntries = entries.filter { $0.node.kind.laneY == lane.laneY }
+        let candidates = laneEntries.isEmpty ? entries : laneEntries
+        func distance(_ entry: Entry) -> CGFloat {
+            let frame = entry.barFrame(width: width)
+            return max(0, max(frame.minX - x, x - frame.maxX))
+        }
+        return candidates.min { distance($0) < distance($1) }?.node
     }
 }
 
@@ -304,7 +343,7 @@ struct TrajectoryNode: Identifiable, Sendable {
 
         var color: Color { color(in: .dark) }
         var laneY: CGFloat {
-            switch self { case .input: 6; case .context, .request, .assistant: 25; case .tool, .subtool: 44 }
+            switch self { case .input, .context: 6; case .request, .assistant: 25; case .tool, .subtool: 44 }
         }
         var label: String {
             switch self { case .input: "USER"; case .context: "CONTEXT"; case .request: "REQUEST"; case .assistant: "ASSISTANT"; case .tool: "TOOL"; case .subtool: "SUBTOOL" }
@@ -322,6 +361,12 @@ struct TrajectoryNode: Identifiable, Sendable {
     var records: [SessionEvent]
     var request: TrajectoryRequest?
     var tool: TrajectoryTool?
+
+    var isError: Bool { records.contains { $0.event.isError == true } }
+
+    var displayColor: Color {
+        (kind == .tool || kind == .subtool) && isError ? .red : kind.color
+    }
 }
 
 struct TrajectoryTool: Sendable {
@@ -959,7 +1004,7 @@ private struct EventDetailSheet: View {
         }
     }
 
-    private var isError: Bool { node.records.contains { $0.event.isError == true } }
+    private var isError: Bool { node.isError }
     private var isCompleted: Bool {
         switch node.kind {
         case .input: true

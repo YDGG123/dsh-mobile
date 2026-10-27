@@ -104,9 +104,9 @@ internal object SessionStatsFormatter {
         return if (total > 0) (cacheRead.toDouble() / total).coerceIn(0.0, 1.0) else null
     }
 
-    fun compact(value: Int): String = when {
+    fun compact(value: Long): String = when {
         value >= 1_000_000 -> {
-            if (value % 1_000_000 == 0) "${value / 1_000_000}M"
+            if (value % 1_000_000 == 0L) "${value / 1_000_000}M"
             else String.format(Locale.US, "%.1fM", value / 1_000_000.0)
         }
         value >= 1_000 -> String.format(Locale.US, "%.1fK", value / 1_000.0)
@@ -358,9 +358,9 @@ internal fun SessionStatsSheet(
                                 title = appText("上下文"),
                                 containerColor = cardColor,
                                 metrics = listOf(
-                                    appText("当前压力") to token(pressure.pressureTokens),
-                                    appText("预计用量") to token(pressure.projectedTokens),
-                                    appText("上下文窗口") to token(pressure.contextWindow)
+                                    appText("当前压力") to token(pressure.pressureTokens?.toLong()),
+                                    appText("预计用量") to token(pressure.projectedTokens?.toLong()),
+                                    appText("上下文窗口") to token(pressure.contextWindow?.toLong())
                                 )
                             )
                         }
@@ -427,4 +427,4 @@ private fun StatsMetricsSection(
     }
 }
 
-private fun token(value: Int?): String = value?.let { "${SessionStatsFormatter.compact(it)} tok" } ?: "—"
+private fun token(value: Long?): String = value?.let { "${SessionStatsFormatter.compact(it)} tok" } ?: "—"

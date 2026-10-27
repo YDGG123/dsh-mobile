@@ -4,6 +4,107 @@ import DeepSeekHarnessShared
 
 final class ChatHistoryCacheTests: XCTestCase {
     @MainActor
+    func testSubscriptionAndEmptyQueueDoNotForceCachedHistoryOntoMainThread() async throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let suite = UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let preferences = UserDefaultsAppPreferences(userDefaults: defaults)
+        preferences.automaticallyConnect = false
+        let session = SessionSummary(id: "s1", title: "缓存会话", lastActivity: .distantPast,
+                                     isRunning: false, hasUnread: false)
+        preferences.saveSessions([session])
+        let cache = ChatHistoryCache(url: directory.appendingPathComponent("subscription.db"))
+        let saved = await cache.save(gatewayID: "g", sessionID: session.id, json: try window(session.id, text: "后台缓存正文"))
+        XCTAssertTrue(saved)
+        let store = AppStore(preferences: preferences, gatewayLocalID: "g", chatHistoryCache: cache)
+        defer { store.deactivateGateway() }
+        store.gateway.installConnectedTransportForTesting()
+        store.gateway.onFrame?(try GatewayWireDecoder.decode(Data(
+            #"{"kind":"hello","historyFormatVersion":1,"capabilities":["assistant-stream-v1"]}"#.utf8)))
+        await store.awaitPendingKMPEventDeliveriesForTesting()
+        let gate = ChatProtectionCommitBarrier()
+        store.conversationHistoryPreparationForTesting = { input in
+            await gate.blockFirstCommit()
+            return try KMPConversationStoreAdapter.prepareHistory(input)
+        }
+        _ = await store.prepareConversation(for: session)
+        for _ in 0..<200 {
+            if await gate.hasEntered { break }
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        let entered = await gate.hasEntered
+        XCTAssertTrue(entered)
+        await store.activatePreparedConversation(sessionID: session.id)
+        for json in [
+            #"{"kind":"subscribed","sessionId":"s1","subscriptionId":"sub","assistantStream":true}"#,
+            #"{"kind":"session-queue","sessionId":"s1","items":[]}"#,
+            #"{"kind":"session-queues","queues":{"s1":[]}}"#
+        ] {
+            store.gateway.onFrame?(try GatewayWireDecoder.decode(Data(json.utf8)))
+            await store.awaitPendingKMPEventDeliveriesForTesting(includingHistoryPreparation: false)
+        }
+        try await Task.sleep(for: .milliseconds(50))
+        XCTAssertTrue(store.renderedConversationItems[session.id, default: []].isEmpty,
+            "无临时内容的订阅和空队列不能绕过后台 worker，同步重算缓存")
+        await gate.resume()
+        await store.awaitPendingKMPEventDeliveriesForTesting()
+        await store.awaitConversationProjectionForTesting(sessionID: session.id, expectedText: "后台缓存正文")
+        XCTAssertEqual(store.renderedConversationItems[session.id]?.last?.text, "后台缓存正文")
+        XCTAssertNil(store.lastError)
+        await cache.close()
+    }
+
+    @MainActor
+    func testHistoryReconciliationInsertsMissingHeadWithoutReplacingCachedRows() async throws {
+        let history = KMPHistoryStoreAdapter()
+        let conversation = KMPConversationStoreAdapter()
+        let cached = (2...81).map { sequence in
+            SessionEvent(sessionId: "s", seq: sequence, time: Double(sequence),
+                event: GatewayEvent(type: "user/message", text: "正文 \(sequence)"))
+        }
+        try conversation.replace(sessionID: "s", events: cached)
+        var fullReplacements = 0
+        conversation.onChange = { if $0.replacesAll { fullReplacements += 1 } }
+        let authoritative = [SessionEvent(sessionId: "s", seq: 1, time: 1,
+            event: GatewayEvent(type: "user/message", text: "补回首条"))] + cached
+        _ = try history.installSnapshot(sessionID: "s", events: authoritative, hasMore: false, nextBeforeSequence: nil)
+        let snapshot = try XCTUnwrap(history.projectionSnapshot(for: "s"))
+        XCTAssertFalse(try conversation.appendHistory(sessionID: "s", snapshot: snapshot, lastSequence: 81))
+        let input = try XCTUnwrap(conversation.historyPreparation(sessionID: "s", snapshot: snapshot))
+        let prepared = try await Task.detached { try KMPConversationStoreAdapter.prepareHistory(input) }.value
+        XCTAssertTrue(try conversation.commitPreparedHistory(prepared, sessionID: "s", lastSequence: 81))
+        XCTAssertEqual(fullReplacements, 0)
+        XCTAssertEqual(conversation.items(for: "s").count, 81)
+        XCTAssertEqual(conversation.items(for: "s").first?.text, "补回首条")
+        XCTAssertEqual(conversation.items(for: "s").dropFirst().map(\.text), cached.map { $0.event.text! })
+        XCTAssertNil(conversation.runtimeError)
+    }
+
+    @MainActor
+    func testHistoryAppendPreservesBaselineAndHandlesAuthoritativeDeletion() async throws {
+        let history = KMPHistoryStoreAdapter()
+        let conversation = KMPConversationStoreAdapter()
+        let old = SessionEvent(sessionId: "s", seq: 1, time: 1, event: GatewayEvent(type: "user/message", text: "原有正文"))
+        let new = SessionEvent(sessionId: "s", seq: 2, time: 2, event: GatewayEvent(type: "user/message", text: "新增正文"))
+        try conversation.replace(sessionID: "s", events: [old])
+        _ = try history.installSnapshot(sessionID: "s", events: [old, new], hasMore: false, nextBeforeSequence: nil)
+        let snapshot = try XCTUnwrap(history.projectionSnapshot(for: "s"))
+        XCTAssertTrue(try conversation.appendHistory(sessionID: "s", snapshot: snapshot, lastSequence: 2))
+        XCTAssertEqual(conversation.items(for: "s").map(\.text), ["原有正文", "新增正文"])
+        _ = try history.installSnapshot(sessionID: "s", events: [], hasMore: false, nextBeforeSequence: nil)
+        let empty = try XCTUnwrap(history.projectionSnapshot(for: "s"))
+        XCTAssertFalse(try conversation.appendHistory(sessionID: "s", snapshot: empty, lastSequence: -1))
+        let input = try XCTUnwrap(conversation.historyPreparation(sessionID: "s", snapshot: empty))
+        let prepared = try await Task.detached { try KMPConversationStoreAdapter.prepareHistory(input) }.value
+        XCTAssertTrue(try conversation.commitPreparedHistory(prepared, sessionID: "s", lastSequence: -1))
+        XCTAssertTrue(conversation.items(for: "s").isEmpty)
+        XCTAssertEqual(conversation.lastSequenceBySessionID["s"], -1)
+        XCTAssertNil(conversation.runtimeError)
+    }
+
+    @MainActor
     func testReadingBatchContinuesToolOnlyRoomPageUntilBodyWithoutAnotherGesture() async throws {
         let directory = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }

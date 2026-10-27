@@ -70,6 +70,37 @@ class TrajectoryUiProjectionTest {
         assertSame(assistant, TrajectoryUiProjection.nearestEntry(entries, 0.95f, TrajectoryNodeKind.ASSISTANT))
     }
 
+    @Test
+    fun longToolDoesNotCompressOtherOperationsUnlessDurationIsSelected() {
+        val nodes = listOf(
+            node("model", TrajectoryNodeKind.ASSISTANT, 1, 1.0, 1.1),
+            node("long-tool", TrajectoryNodeKind.TOOL, 2, 1.1, 141.1),
+            node("next-tool", TrajectoryNodeKind.TOOL, 3, 141.1, 141.3)
+        )
+        val sequence = TrajectoryUiProjection.overview(nodes)
+        val duration = TrajectoryUiProjection.overview(nodes, usesActualDuration = true)
+
+        val widths = sequence.entries.map { it.endFraction - it.startFraction }
+        widths.forEach { assertEquals(1f / 3, it, 0.0001f) }
+        assertTrue(duration.entries[1].endFraction - duration.entries[1].startFraction > 0.98f)
+        assertEquals(sequence.durationSeconds, duration.durationSeconds, 0.0001)
+        val firstTool = sequence.entries[1].barBounds(300f)
+        val nextTool = sequence.entries[2].barBounds(300f)
+        assertTrue(nextTool.start - firstTool.endInclusive >= 1.9f)
+        assertEquals(300f, nextTool.endInclusive + 1f, 0.001f)
+    }
+
+    @Test
+    fun overviewTapIncludesContextAndSubtoolInTheirVisibleLanes() {
+        val context = node("context", TrajectoryNodeKind.CONTEXT, 1, 1.0, 1.0)
+        val assistant = node("model", TrajectoryNodeKind.ASSISTANT, 2, 1.0, 2.0)
+        val subtool = node("subtool", TrajectoryNodeKind.SUBTOOL, 3, 2.0, 4.0)
+        val entries = TrajectoryUiProjection.overview(listOf(context, assistant, subtool)).entries
+
+        assertSame(context, TrajectoryUiProjection.nearestEntry(entries, 0.1f, TrajectoryNodeKind.INPUT))
+        assertSame(subtool, TrajectoryUiProjection.nearestEntry(entries, 0.1f, TrajectoryNodeKind.TOOL))
+    }
+
     private fun requestNode(
         id: String,
         turn: Int,

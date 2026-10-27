@@ -70,9 +70,36 @@ private class DshWindowBackdrop(private val source: LayerBackdrop) : Backdrop {
 /** 所有菜单共用透明度、模糊和描边；阴影由外层统一绘制，避免叠加。 */
 @Composable
 internal fun Modifier.dshMenuGlass(shape: Shape, whiteSurface: Boolean = false): Modifier {
-    val backdrop = LocalDshMenuBackdrop.current
     val dark = !whiteSurface && isSystemInDarkTheme()
     val tint = if (whiteSurface) Color.White else MaterialTheme.colorScheme.surface
+    return dshBackdropGlass(
+        shape = shape,
+        tint = tint,
+        surfaceAlpha = if (whiteSurface) 0.78f else if (dark) 0.70f else 0.60f,
+        fallback = tint.copy(alpha = 0.92f),
+        dark = dark
+    )
+}
+
+/** 与 iOS 首页重命名弹窗一致的浅蓝玻璃，独立窗口沿用页面的屏幕坐标采样。 */
+@Composable
+internal fun Modifier.dshLightDialogGlass(shape: Shape): Modifier = dshBackdropGlass(
+    shape = shape,
+    tint = Color(0xFFC2DFFF),
+    surfaceAlpha = 0.78f,
+    fallback = Color(0xFFACC8E8),
+    dark = false
+)
+
+@Composable
+private fun Modifier.dshBackdropGlass(
+    shape: Shape,
+    tint: Color,
+    surfaceAlpha: Float,
+    fallback: Color,
+    dark: Boolean
+): Modifier {
+    val backdrop = LocalDshMenuBackdrop.current
     val surface = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && backdrop != null) {
         Modifier.drawPlainBackdrop(
             backdrop = backdrop,
@@ -80,10 +107,10 @@ internal fun Modifier.dshMenuGlass(shape: Shape, whiteSurface: Boolean = false):
             // 形状更新而重新放置，因此只采样矩形，由外层统一裁切实际轮廓。
             shape = { RectangleShape },
             effects = { blur(24.dp.toPx()) },
-            onDrawSurface = { drawRect(tint.copy(alpha = if (whiteSurface) 0.78f else if (dark) 0.70f else 0.60f)) }
+            onDrawSurface = { drawRect(tint.copy(alpha = surfaceAlpha)) }
         )
     } else {
-        Modifier.background(tint.copy(alpha = 0.92f))
+        Modifier.background(fallback)
     }
     return clip(shape).then(surface).border(
         0.5.dp,

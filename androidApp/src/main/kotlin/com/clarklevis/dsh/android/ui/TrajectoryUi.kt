@@ -6,8 +6,11 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -46,6 +49,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.PlatformTextStyle
@@ -72,7 +76,15 @@ internal data class TrajectoryOverviewEntry(
     val node: TrajectoryNode,
     val startFraction: Float,
     val endFraction: Float
-)
+) {
+    fun barBounds(plotWidth: Float, density: Float = 1f): ClosedFloatingPointRange<Float> {
+        val naturalWidth = (endFraction - startFraction) * plotWidth
+        val inset = minOf(density, naturalWidth * 0.08f)
+        val width = minOf(plotWidth, maxOf(2f * density, naturalWidth - inset * 2))
+        val start = (startFraction * plotWidth + inset).coerceIn(0f, (plotWidth - width).coerceAtLeast(0f))
+        return start..(start + width)
+    }
+}
 
 internal data class TrajectoryOverviewSummary(
     val durationSeconds: Double,
@@ -83,7 +95,7 @@ internal data class TrajectoryOverviewSummary(
 )
 
 internal object TrajectoryUiProjection {
-    fun overview(nodes: List<TrajectoryNode>): TrajectoryOverviewSummary {
+    fun overview(nodes: List<TrajectoryNode>, usesActualDuration: Boolean = false): TrajectoryOverviewSummary {
         val visible = nodes.filter { it.kind != TrajectoryNodeKind.REQUEST }
         val duration = visible.sumOf { (it.endEpochSeconds - it.startEpochSeconds).coerceAtLeast(0.0) }
         val turns = mutableSetOf<Int>()
@@ -95,7 +107,7 @@ internal object TrajectoryUiProjection {
                 it.kind == TrajectoryNodeKind.TOOL || it.kind == TrajectoryNodeKind.SUBTOOL
             },
             visibleNodes = visible,
-            entries = layoutEntries(visible)
+            entries = layoutEntries(visible, usesActualDuration)
         )
     }
 
@@ -141,10 +153,10 @@ internal object TrajectoryUiProjection {
     ): TrajectoryNode? {
         val laneEntries = entries.filter { entry ->
             when (lane) {
-                TrajectoryNodeKind.ASSISTANT -> entry.node.kind in setOf(
-                    TrajectoryNodeKind.CONTEXT,
-                    TrajectoryNodeKind.ASSISTANT
-                )
+                TrajectoryNodeKind.INPUT -> entry.node.kind == TrajectoryNodeKind.INPUT ||
+                    entry.node.kind == TrajectoryNodeKind.CONTEXT
+                TrajectoryNodeKind.TOOL -> entry.node.kind == TrajectoryNodeKind.TOOL ||
+                    entry.node.kind == TrajectoryNodeKind.SUBTOOL
                 else -> entry.node.kind == lane
             }
         }
@@ -157,14 +169,18 @@ internal object TrajectoryUiProjection {
         }?.node
     }
 
-    private fun layoutEntries(nodes: List<TrajectoryNode>): List<TrajectoryOverviewEntry> {
+    // 默认与 Web UI 一样按顺序等宽展示，实际耗时仅在用户主动切换后参与宽度计算。
+    private fun layoutEntries(
+        nodes: List<TrajectoryNode>,
+        usesActualDuration: Boolean
+    ): List<TrajectoryOverviewEntry> {
         if (nodes.isEmpty()) return emptyList()
         val durations = nodes.map {
             (it.endEpochSeconds - it.startEpochSeconds).coerceAtLeast(0.0)
         }
         val activeDuration = durations.sum()
         val minimumWeight = maxOf(0.001, activeDuration / 500.0)
-        val weights = durations.map { maxOf(it, minimumWeight) }
+        val weights = durations.map { if (usesActualDuration) maxOf(it, minimumWeight) else 1.0 }
         val totalWeight = maxOf(0.001, weights.sum())
         var cursor = 0.0
         return nodes.zip(weights).map { (node, weight) ->
@@ -180,7 +196,8 @@ internal fun TrajectoryPage(
     nodes: List<TrajectoryNode>,
     isActive: Boolean
 ) {
-    val summary = remember(nodes) { TrajectoryUiProjection.overview(nodes) }
+    var usesActualDuration by remember { mutableStateOf(false) }
+    val summary = remember(nodes, usesActualDuration) { TrajectoryUiProjection.overview(nodes, usesActualDuration) }
     val rows = remember(nodes) { TrajectoryUiProjection.displayRows(nodes) }
     val listState = rememberLazyListState()
     var selectedNode by remember { mutableStateOf<TrajectoryNode?>(null) }
@@ -193,7 +210,7 @@ internal fun TrajectoryPage(
     }
 
     Column(Modifier.fillMaxSize().adaptiveContentWidth().testTag("trajectory-page")) {
-        TrajectoryOverview(summary) { node ->
+        TrajectoryOverview(summary, usesActualDuration, { usesActualDuration = !usesActualDuration }) { node ->
             val index = rows.indexOfFirst { it.node.id == node.id }
             if (index >= 0) {
                 highlightedId = node.id
@@ -250,6 +267,8 @@ internal fun TrajectoryPage(
 @Composable
 private fun TrajectoryOverview(
     summary: TrajectoryOverviewSummary,
+    usesActualDuration: Boolean,
+    onToggleDuration: () -> Unit,
     onSelect: (TrajectoryNode) -> Unit
 ) {
     val isDark = isSystemInDarkTheme()
@@ -264,9 +283,17 @@ private fun TrajectoryOverview(
             verticalArrangement = Arrangement.spacedBy(9.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                TrajectoryClockIcon()
-                Spacer(Modifier.width(8.dp))
-                Text("Duration", fontSize = 12.sp)
+                Row(
+                    Modifier.clickable(role = Role.Checkbox, onClick = onToggleDuration)
+                        .semantics { selected = usesActualDuration }
+                        .testTag("trajectory-duration-toggle"),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val color = if (usesActualDuration) DshColors.Ocean else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f)
+                    TrajectoryClockIcon(color)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Duration", fontSize = 12.sp, color = color)
+                }
                 Spacer(Modifier.width(12.dp))
                 Text("${summary.turnCount} Turns", fontSize = 12.sp)
                 Spacer(Modifier.width(12.dp))
@@ -287,13 +314,18 @@ private fun TrajectoryOverview(
                     Text("Model", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.56f), fontSize = 11.sp)
                     Text("Tools", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.56f), fontSize = 11.sp)
                 }
-                TimelineOverviewCanvas(
-                    entries = summary.entries,
-                    onSelect = onSelect,
-                    modifier = Modifier.weight(1f).height(52.dp)
-                )
+                BoxWithConstraints(Modifier.weight(1f).height(52.dp)) {
+                    val plotWidth = maxOf(maxWidth, (summary.entries.size * 8).dp)
+                    Box(Modifier.horizontalScroll(rememberScrollState())) {
+                        TimelineOverviewCanvas(
+                            entries = summary.entries,
+                            onSelect = onSelect,
+                            modifier = Modifier.width(plotWidth).height(52.dp)
+                        )
+                    }
+                }
             }
-            Row {
+            if (usesActualDuration) Row {
                 Text(
                     "0s",
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f),
@@ -318,8 +350,7 @@ private fun TrajectoryOverview(
 }
 
 @Composable
-private fun TrajectoryClockIcon() {
-    val color = MaterialTheme.colorScheme.onSurface
+private fun TrajectoryClockIcon(color: Color) {
     Canvas(Modifier.size(16.dp)) {
         val stroke = 1.5.dp.toPx()
         drawCircle(color, style = Stroke(stroke))
@@ -368,16 +399,12 @@ private fun TimelineOverviewCanvas(
         }
         entries.forEach { entry ->
             val height = if (entry.node.kind == TrajectoryNodeKind.ASSISTANT) 9.dp.toPx() else 7.dp.toPx()
-            val startX = entry.startFraction * size.width
-            val naturalWidth = (entry.endFraction - entry.startFraction) * size.width
-            val minimumWidth = if (entry.node.kind == TrajectoryNodeKind.INPUT) 2.dp.toPx() else 1.5.dp.toPx()
-            val width = maxOf(minimumWidth, naturalWidth)
-            val x = startX.coerceIn(0f, (size.width - width).coerceAtLeast(0f))
+            val bounds = entry.barBounds(size.width, density)
             val y = trajectoryLaneY(entry.node.kind).dp.toPx() - height / 2
             drawRoundRect(
-                color = trajectoryColor(entry.node.kind, isDark),
-                topLeft = Offset(x, y),
-                size = Size(width, height),
+                color = trajectoryColor(entry.node, isDark),
+                topLeft = Offset(bounds.start, y),
+                size = Size(bounds.endInclusive - bounds.start, height),
                 cornerRadius = CornerRadius(1.dp.toPx())
             )
         }
@@ -415,7 +442,7 @@ private fun TrajectoryRow(
 ) {
     val node = row.node
     val isDark = isSystemInDarkTheme()
-    val color = trajectoryColor(node.kind, isDark)
+    val color = trajectoryColor(node, isDark)
     Row(
         modifier = Modifier.fillMaxWidth().height(42.dp).clip(RoundedCornerShape(10.dp))
             .background(if (highlighted) DshColors.Ocean.copy(alpha = 0.12f) else Color.Transparent)
@@ -515,12 +542,19 @@ private fun TrajectoryRow(
     }
 }
 
-internal fun trajectoryColor(kind: TrajectoryNodeKind, isDark: Boolean): Color = when (kind) {
-    TrajectoryNodeKind.INPUT -> DshColors.Ocean
-    TrajectoryNodeKind.CONTEXT -> if (isDark) Color(0xFF30D158) else Color(0xFF34C759)
-    TrajectoryNodeKind.REQUEST -> Color(0xFF8E8E93)
-    TrajectoryNodeKind.ASSISTANT -> DshColors.Purple
-    TrajectoryNodeKind.TOOL, TrajectoryNodeKind.SUBTOOL -> DshColors.Orange
+internal fun trajectoryColor(node: TrajectoryNode, isDark: Boolean): Color {
+    if ((node.kind == TrajectoryNodeKind.TOOL || node.kind == TrajectoryNodeKind.SUBTOOL) &&
+        node.records.any { it.event.isError == true }
+    ) {
+        return if (isDark) Color(0xFFFF453A) else Color(0xFFFF3B30)
+    }
+    return when (node.kind) {
+        TrajectoryNodeKind.INPUT -> DshColors.Ocean
+        TrajectoryNodeKind.CONTEXT -> if (isDark) Color(0xFF30D158) else Color(0xFF34C759)
+        TrajectoryNodeKind.REQUEST -> Color(0xFF8E8E93)
+        TrajectoryNodeKind.ASSISTANT -> DshColors.Purple
+        TrajectoryNodeKind.TOOL, TrajectoryNodeKind.SUBTOOL -> DshColors.Orange
+    }
 }
 
 internal fun trajectoryLabel(kind: TrajectoryNodeKind): String = when (kind) {
@@ -533,8 +567,8 @@ internal fun trajectoryLabel(kind: TrajectoryNodeKind): String = when (kind) {
 }
 
 private fun trajectoryLaneY(kind: TrajectoryNodeKind): Int = when (kind) {
-    TrajectoryNodeKind.INPUT -> 6
-    TrajectoryNodeKind.CONTEXT, TrajectoryNodeKind.REQUEST, TrajectoryNodeKind.ASSISTANT -> 25
+    TrajectoryNodeKind.INPUT, TrajectoryNodeKind.CONTEXT -> 6
+    TrajectoryNodeKind.REQUEST, TrajectoryNodeKind.ASSISTANT -> 25
     TrajectoryNodeKind.TOOL, TrajectoryNodeKind.SUBTOOL -> 44
 }
 

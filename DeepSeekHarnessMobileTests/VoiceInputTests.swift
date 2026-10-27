@@ -42,6 +42,27 @@ final class VoiceInputTests: XCTestCase {
         }
     }
 
+    @MainActor
+    func testTextInputNeverPrewarmsAndLeavingVoiceModeReleasesHardware() async throws {
+        let (shared, _) = try recordingStore()
+        _ = shared.cancel()
+        _ = shared.setVoiceMode(enabled: false)
+        let prepared = expectation(description: "仅进入语音输入时预热")
+        let released = expectation(description: "切回文字时释放")
+        let recorder = VoiceModeRecorderSpy(prepared: prepared, released: released)
+        let voice = VoiceInputAdapter(shared: shared, recorder: recorder, permissionGranted: { true })
+        voice.open(context: "swift-test", draft: "")
+        voice.keyboardChanged(true)
+        voice.keyboardChanged(false)
+        voice.setVoiceMode(true)
+        await fulfillment(of: [prepared], timeout: 1)
+        voice.setVoiceMode(false)
+        voice.keyboardChanged(true)
+        await fulfillment(of: [released], timeout: 1)
+        XCTAssertEqual(recorder.prepareCount, 1, "文字态进入页面、键盘变化不得激活预热")
+        XCTAssertEqual(recorder.startCount, 0, "仅切换到语音输入不得采集音频")
+    }
+
     func testEndOfStreamPreservesBufferedTailSamples() throws {
         let source = try XCTUnwrap(AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 48000, channels: 1, interleaved: false))
         let target = try XCTUnwrap(AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 16000, channels: 1, interleaved: true))
@@ -201,7 +222,7 @@ final class VoiceInputTests: XCTestCase {
         let recorder = DelayedPreparationVoiceRecorder(preparing: preparing, released: released)
         let voice = VoiceInputAdapter(shared: shared, recorder: recorder, permissionGranted: { true })
         defer { recorder.finishPreparation() }
-        voice.open(context: "queued-start", draft: "")
+        voice.open(context: "swift-test", draft: "")
         voice.setVoiceMode(true)
         await fulfillment(of: [preparing], timeout: 0.5)
         voice.touchDown()
@@ -738,6 +759,29 @@ private final class DelayedPreparationVoiceRecorder: VoiceAudioCapturing, @unche
     func release() { released.fulfill() }
     func start(id: String, ready: @escaping @Sendable () -> Void, level: @escaping @Sendable (Float) -> Void, failure: @escaping @Sendable () -> Void) throws {
         lock.lock(); starts += 1; lock.unlock(); ready()
+    }
+    func stop(id: String, discard: Bool) throws -> Data? { nil }
+}
+
+private final class VoiceModeRecorderSpy: VoiceAudioCapturing, @unchecked Sendable {
+    private let lock = NSLock()
+    private var preparations = 0
+    private var starts = 0
+    private let prepared: XCTestExpectation
+    private let released: XCTestExpectation
+    init(prepared: XCTestExpectation, released: XCTestExpectation) {
+        self.prepared = prepared
+        self.released = released
+    }
+    var prepareCount: Int { lock.lock(); defer { lock.unlock() }; return preparations }
+    var startCount: Int { lock.lock(); defer { lock.unlock() }; return starts }
+    func prepare() throws {
+        lock.lock(); preparations += 1; lock.unlock()
+        prepared.fulfill()
+    }
+    func release() { released.fulfill() }
+    func start(id: String, ready: @escaping @Sendable () -> Void, level: @escaping @Sendable (Float) -> Void, failure: @escaping @Sendable () -> Void) throws {
+        lock.lock(); starts += 1; lock.unlock()
     }
     func stop(id: String, discard: Bool) throws -> Data? { nil }
 }

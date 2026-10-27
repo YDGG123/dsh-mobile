@@ -24,11 +24,14 @@ final class GatewayClient: ObservableObject {
     private var desiredSubscriptionID: String?
     private var subscriptionDirty = false
     private var subscriptionTimeout: Task<Void, Never>?
+    private var subscriptionGeneration = UUID()
 
     func resetSubscriptionRequests() {
         subscriptionTimeout?.cancel()
         subscriptionTimeout = nil
+        subscriptionGeneration = UUID()
         subscriptionPending = false
+        pendingSubscriptionID = nil
         subscriptionDirty = false
     }
 
@@ -121,17 +124,20 @@ final class GatewayClient: ObservableObject {
     private let credentials: any GatewayCredentialStoring
     private let heartbeatInterval: Duration
     private let probeTimeout: Duration
+    private let subscriptionTimeoutInterval: Duration
 
     init(
         channel: String = "control",
         credentials: (any GatewayCredentialStoring)? = nil,
         heartbeatInterval: Duration = .seconds(30),
-        probeTimeout: Duration = .seconds(10)
+        probeTimeout: Duration = .seconds(10),
+        subscriptionTimeoutInterval: Duration = .seconds(15)
     ) {
         self.channel = channel
         self.credentials = credentials ?? SystemGatewayCredentialStore.shared
         self.heartbeatInterval = heartbeatInterval
         self.probeTimeout = probeTimeout
+        self.subscriptionTimeoutInterval = subscriptionTimeoutInterval
     }
 #if DEBUG
     private var testRequestTransport: ((String) -> Void)?
@@ -241,6 +247,7 @@ final class GatewayClient: ObservableObject {
     private var isRecoveringFromBackground = false
 
     deinit {
+        subscriptionTimeout?.cancel()
         networkPathMonitor?.cancel()
         outboundTask?.cancel()
         receiveTask?.cancel()
@@ -574,11 +581,17 @@ final class GatewayClient: ObservableObject {
         if subscriptionPending { subscriptionDirty = true; return }
         subscriptionPending = true
         pendingSubscriptionID = sessionId
+        let generation = UUID()
+        subscriptionGeneration = generation
+        let timeout = subscriptionTimeoutInterval
         subscriptionTimeout?.cancel()
         subscriptionTimeout = Task { [weak self] in
-            do { try await Task.sleep(for: .seconds(15)) } catch { return }
-            guard let self, self.subscriptionPending else { return }
+            do { try await Task.sleep(for: timeout) } catch { return }
+            guard let self, !Task.isCancelled, self.subscriptionPending,
+                  self.subscriptionGeneration == generation else { return }
             let target = self.pendingSubscriptionID
+            let superseded = self.subscriptionDirty && target != self.desiredSubscriptionID
+            let latest = self.desiredSubscriptionID
             self.resetSubscriptionRequests()
             // **不再弹模态**：用户明确说这个"经常弹"、打断正在看的页面。
             // 超时只留痕 + 静默重订阅一次；真的没有回包时，界面行为与"还没订阅上"一致，
@@ -1041,6 +1054,7 @@ final class GatewayClient: ObservableObject {
         connectionPreparationTask = nil
         traceLifecycle("failure-cleanup reconnect=\(shouldReconnect) report=\(reportFailure)")
         onConnectionInvalidated?()
+        resetSubscriptionRequests()
         outboundTask?.cancel()
         outboundTask = nil
         heartbeatTask?.cancel()
