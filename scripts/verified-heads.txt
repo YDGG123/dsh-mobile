@@ -39,3 +39,4 @@ ad51ab0b5fc831a3c5eadd3bcfb95ccce7b62384  # build 37：顶栏/抽屉去掉原版
 ef1101913843fba6637b94e6dc3e6c020ae18e5d  # build 38：卡片止血（card 帧正文保留 + 只读展示 + 诚实文案；无答复路径）（App 代码 head）
 5cefeffa1af759d9b9ca9f81c2e00f9de52fa60b  # build 39：卡片增量帧修复（cleared/answered 即时生效）；不含分段历史（另行交付）
 f8ed278f9b5cc473127c91027252ba59b0b9a4fe  # build 40：降级 delta 修复 + debc076 翻页语义层（App 代码 head；网关坐标 debc076）
+3da5c575d5d4f83b9746f1e5257df96c930cc250  # build 40 最终 head：降级 delta 修复 + 卡片增量 + debc076 翻页语义层 + UITests 16.4 守卫（App 代码 head）
