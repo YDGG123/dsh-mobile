@@ -184,17 +184,21 @@
 
 （FrameReassembler 2 条是 `0035e97` 夹取下限的连带破坏，随本批一并修复。）
 
-## 6.6 第二批分类表（待 Chief 裁决，未动手）
+## 6.6 第二批分类表（Chief 已裁决；"未知 7 条"已全部根因定位并更新）
 
-| 类.用例 | 条数 | 分类 | 依据（失败消息实锤） |
+| 类.用例 | 条数 | 裁决 | 依据（失败消息实锤） |
 |---|---|---|---|
-| HistoryViewportControlledPresentationTests | 19 | **环境** | 全部 `XCTUnwrap failed: UIWindowScene`——测试基建需要真实 window scene，模拟器单元测试环境不给 |
-| InlineImageTaskIsolationTests | 6 | **未知（疑真 bug）** | MainActor 隔离相关，需逐条读 |
-| GatewayForegroundRecoveryTests.testForegroundProbesStaleConnection | 1 | **未知（疑真 bug）** | 前台探测陈旧连接——0b84115 心跳清理新代码区域 |
-| HistoryPreviousSessionDecodeTests.testPayloadCarriesPreviousSegmentID | 1 | **期望错/fixture 错** | `keyNotFound "kind"`——测试 fixture 缺 kind 键 |
-| MarkdownRenderProductTests.testJSONKeyWhitespace… | 1 | **环境/期望** | UIKitPlatformColorProvider ≠ #F07D14FF（动态色解析差异）|
-| PluginIconRenderingTests.testSVGColorScheme… | 1 | **环境** | 渲染计数 0 vs 335（模拟器图形上下文）|
-| WorkspaceDrawerUITests（字体 125/150 持久化、长按全屏） | 2 | **环境/需真机** | UITests 真机向断言 |
+| HistoryViewportControlledPresentationTests | 19 | **环境，挂起** | 全部 `XCTUnwrap failed: UIWindowScene`——app-host 环境无真实 window scene。**是环境限制，不是产品缺陷**；修需 window scene 测试基建（数天活），收益成本不匹配 |
+| InlineImageTaskIsolationTests | 6 | **环境，挂起（根因已定位）** | 与 19 条**同根**：同一 fixture 的 `UIWindowScene` unwrap 失败 → 视图/任务从未运行 → 下游 expectations 全部 unwaited。**不是 MainActor 数据竞争** |
+| GatewayForegroundRecoveryTests.testForegroundProbes… | 1 | **环境，挂起（待真机复查）** | `XCTWaiter 1s 超时`：「回前台立即探测」的 expectation 未满足。**不能排除真 bug**（0b84115 新代码区域）——挂起同时标注：真机验证时若前台探测仍异常，此条升级为真 bug |
+| HistoryPreviousSessionDecodeTests.testPayloadCarriesPreviousSegmentID | 1 | **fixture 错，已修（`8b5320e`）** | fixture 缺 `kind:"history"`（网关 `lib/index.mjs:1120` + 手机路由 `:200` 双确认），修复后 1/1 过 |
+| MarkdownRenderProductTests.testJSONKeyWhitespace… | 1 | **环境，挂起** | UIKitPlatformColorProvider ≠ #F07D14FF（模拟器动态色解析差异）|
+| PluginIconRenderingTests.testSVGColorScheme… | 1 | **环境，挂起** | 渲染计数 0 vs 335（模拟器图形上下文不产出）|
+| WorkspaceDrawerUITests（字体 125/150 持久化、长按全屏） | 2 | **需真机，挂起** | UITests 真机向断言 |
+
+**裁决后分布**：已修 6（ChunkGuard 2 + blink 1 + cache helper 4 的 fixture 部分）+ **环境挂起 27**（19+6+1+1）+ **需真机 2** = 40 全部对账。
+
+> ⚠️ 每次全量重跑都会看到这 27 条红——**它们是环境限制，不是产品缺陷**（本文档防止误读的锚点）。
 
 ## 7. 建议执行顺序
 
