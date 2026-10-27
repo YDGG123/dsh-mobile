@@ -82,6 +82,48 @@ comm -13 /tmp/o.txt /tmp/t.txt        # 上游独有的 → 逐个判断要不�
 **自查**：编译报 `X is only available in iOS 16.1 or newer` 时，
 不要只在调用点加 `if #available`——**先看被用的类型/extension 本身有没有标注**。
 
+### 5. 构建配置被上游占位值覆盖 → 只有真正 archive 才炸
+
+这是**最深的一层**：`git` 不报冲突、**四路 typecheck + 工程收录 + 版本一致性三个闸门全绿**，
+但 `xcodebuild archive` 的 `ValidateEmbeddedBinary` 一步会直接拒绝出包。
+
+**实例（47 包，2026-10-28）**：
+
+```
+Embedded binary's bundle identifier is not prefixed with the parent app's bundle identifier.
+    Embedded Binary Bundle Identifier:  com.example.dshmobile.AgentLiveActivityWidget
+    Parent App Bundle Identifier:        com.ydgg123.orcarness
+```
+
+根因是 Widget target 的 **Release** 配置被合并换成了占位变量：
+
+| 版本 | Widget **Debug** | Widget **Release** |
+| --- | --- | --- |
+| 46（`b0bf36f`） | `$(LOCAL_BUNDLE_IDENTIFIER).AgentLiveActivityWidget` | `com.ydgg123.orcarness.AgentLiveActivityWidget`（硬编码） |
+| 47（合并后，**坏**） | 占位符（原样） | **占位符**（被覆盖） |
+
+而 `config/Debug.xcconfig` 里 `LOCAL_BUNDLE_IDENTIFIER = com.example.dshmobile` 是**上游的占位值**。
+上游本身两侧都用占位符，但**另加了一行 `"PRODUCT_BUNDLE_IDENTIFIER[sdk=iphoneos*]" = com.lichaofan.…` 覆盖**，
+那行在合并中被丢掉了 → 占位符失去覆盖 → 真机归档展开成 `com.example.*`。
+
+**为什么必须用 xcodebuild 而不是 grep pbxproj**：pbxproj 里
+`$(LOCAL_BUNDLE_IDENTIFIER)` 看起来"有值"，**展开后才知道是不是占位符**。
+
+**自查（已固化为闸门）**：
+
+```bash
+python3 scripts/verify-bundle-prefix.py
+# 判据：Widget ID 必须以 "主AppID." 为前缀；Release 两侧都不得是 com.example.*
+# 用 xcodebuild -showBuildSettings 取**展开值**，四组 (App|Widget) × (Debug|Release) 全查
+```
+
+**修复方式**：只把 Widget **Release** 改回硬编码
+`com.ydgg123.orcarness.AgentLiveActivityWidget`；
+**不要改 `config/Debug.xcconfig` 的 `LOCAL_BUNDLE_IDENTIFIER`** —— 那会连带 tests/uitests 一起变，范围更大。
+
+> ⚠️ 同类风险的通用形态：**凡是 `$(变量)` 形式的构建配置，上游给的默认值多半是占位符。**
+> 合并后要么确认我方有覆盖行，要么改回硬编码。**这一类只能靠「真 archive 一次」或专门闸门抓。**
+
 ---
 
 ## `#available` 保护不了编译期（重要区分）
@@ -111,6 +153,28 @@ comm -13 /tmp/o.txt /tmp/t.txt        # 上游独有的 → 逐个判断要不�
 
 ---
 
+## 五类隐含依赖的共同规律（这是本文最该记住的一节）
+
+五类缺口的**共同点**：`git` 都不报冲突、代码 review 也看不出，
+**只有更深一层验证才能暴露**。而它们失效的"验证层"深浅不同：
+
+| # | 类型 | 只有谁能抓到 | 代价 |
+| --- | --- | --- | --- |
+| 1 | pbxproj 非法 ID（23 位） | 工程收录闸门（比对磁盘 vs target 归属） | 本地秒级 |
+| 2 | 上游依赖但本地缺的符号（`DshEmptyState`） | **编译器** | 本地分钟级 |
+| 3 | 我方为基座导致丢掉上游新参数（`DeepOceanBackground`） | **编译器** | 本地分钟级 |
+| 4 | 新类型 + 部署目标更低（缺 `@available`） | **编译器** | 本地分钟级 |
+| 5 | **构建配置被上游占位值覆盖（Bundle ID）** | **`xcodebuild archive` + ValidateEmbeddedBinary** | **一次云端出包** |
+
+前四类在本地 `local-typecheck.sh` 一轮就全暴露；**第五类没有任何本地代码级闸门能抓，
+只有真正 archive 才知道** —— 47 包就是这么白跑一次的。
+
+**所以：任何"配置层"（build settings、xcconfig、Info.plist 变量、entitlements）
+在合并后都要当成独立风险面，单独核一遍。**
+验证深度和风险深度要匹配：**代码层靠编译器，配置层必须靠"真打一次包"。**
+
+---
+
 ## 合并后的验收清单（按顺序，缺一不可）
 
 ```bash
@@ -119,7 +183,7 @@ KONAN_DATA_DIR="$HOME/.konan" ./gradlew :shared:linkDebugFrameworkIosX64
 #    注意：本机同时存在 ~/.konan 与 tools/konan 两套同版本，会 KLIB 重复解析冲突，
 #    显式指定单一路径可绕开。
 
-# 2. 本地闸门（四路 typecheck + 收录 + 版本 + 测试目标）
+# 2. 本地闸门（四路 typecheck + 收录 + 版本 + Bundle ID + 测试目标）
 bash scripts/local-typecheck.sh
 
 # 3. 全量 XCTest（含 UI 测试）
@@ -135,7 +199,7 @@ KONAN_DATA_DIR="$HOME/.konan" xcodebuild test \
 
 ---
 
-## 本次四次隐含依赖的修复位置（供将来对照）
+## 本次五处隐含依赖的修复位置（供将来对照）
 
 | 文件 | 修什么 |
 | --- | --- |
@@ -143,12 +207,15 @@ KONAN_DATA_DIR="$HOME/.konan" xcodebuild test \
 | `DeepSeekHarnessMobile/Core/Theme.swift` | 补 `DshEmptyState`（55 行）+ `DeepOceanBackground` 的 `prefersOpenLightArcs` / GeometryReader 版（14 行） |
 | `DeepSeekHarnessMobile/Components/HarnessAnimatedBackground.swift` | 补 `HarnessBackgroundStyle.resolve(size:isPad:)` + `prefersOpenLightArcs`（10 行） |
 | `DeepSeekHarnessMobile/LiveActivity/AgentLiveActivityManager.swift` | 兼容层 extension 补 `@available(iOS 16.1, *)`（3 行） |
-| `scripts/local-typecheck.sh` | 补 MarkdownUI 桩：`TextTableColumnAlignment` / `Table*` 系列 / `Theme.table` / `BlockConfiguration`（26 行） |
+| `DeepSeekHarnessMobile.xcodeproj/project.pbxproj` | Widget **Release** 的 `PRODUCT_BUNDLE_IDENTIFIER` 从 `$(LOCAL_BUNDLE_IDENTIFIER).…` 改回硬编码 `com.ydgg123.orcarness.AgentLiveActivityWidget`（1 行） |
+| `scripts/local-typecheck.sh` | 补 MarkdownUI 桩：`TextTableColumnAlignment` / `Table*` 系列 / `Theme.table` / `BlockConfiguration`（26 行）；接入 Bundle ID 闸门（11 行） |
+| `scripts/verify-bundle-prefix.py` | **新增** Bundle ID 前缀闸门（用 xcodebuild 展开值判 Release 占位符 + 前缀关系） |
 
 ---
 
 ## 一句话总结
 
-> **合并 = 解冲突 + 补「上游新代码依赖但本地没有的符号」。**
-> 前者 git 会告诉你，后者只有**闸门和全量测试**会告诉你。
-> 所以**合完必须跑完整闸门，不能只看 `git diff --diff-filter=U` 归零。**
+> **合并 = 解冲突 + 补「上游新代码依赖但本地没有的符号」+ 核对「上游配置变量是否指向占位值」。**
+> 第一项 git 会告诉你，第二项只有**编译器和闸门**会告诉你，
+> 第三项**只有真打一次包**才会告诉你。
+> 所以**合完必须跑完整闸门，不能只看 `git diff --diff-filter=U` 归零；配置层变动还要抢在首发前真 archive 一次。**

@@ -426,6 +426,17 @@ if ! python3 "$(dirname "${BASH_SOURCE[0]}")/verify-version-consistency.py"; the
   exit 1
 fi
 
+# ---- Bundle ID 前缀闸门（2026-10-28 教训：47 包归档被 ValidateEmbeddedBinary 拒绝）----
+# 合并上游把 Widget target 的 Release 配置从硬编码改成了 "$(LOCAL_BUNDLE_IDENTIFIER).AgentLiveActivityWidget"，
+# 而 config/Debug.xcconfig 里该变量 = com.example.dshmobile（上游占位值）→ 嵌入二进制 ID 不再以主 App
+# com.ydgg123.orcarness 为前缀 → 真正 archive 时才炸。上面三闸门（typecheck/收录/版本）全绿也照样漏。
+# 判据必须用 xcodebuild 展开值：pbxproj 里看着有值，展开后才知道是不是占位符。
+if ! python3 "$(dirname "${BASH_SOURCE[0]}")/verify-bundle-prefix.py"; then
+  echo "   Widget 的 PRODUCT_BUNDLE_IDENTIFIER 必须硬编码 com.ydgg123.orcarness.AgentLiveActivityWidget（Release），"
+  echo "   不要用 \$(LOCAL_BUNDLE_IDENTIFIER) 占位——那会展开成上游的 com.example.dshmobile。"
+  exit 1
+fi
+
 # ---- 团队流后台任务清理闸门（2026-10-26）----
 # heartbeatTask / chunkSweeper 必须在 stop()、connect()、handleDisconnect() 三处显式成对清理，
 # startHeartbeat() 只允许 connect() 一处；deinit 兜底必须在位。
