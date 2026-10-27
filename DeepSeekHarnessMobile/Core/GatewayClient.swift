@@ -36,10 +36,16 @@ final class GatewayClient: ObservableObject {
     func acceptSubscriptionAck(sessionID: String?) -> Bool {
         // 兼容未经过前台选择入口的历史订阅与旧网关；托管切换仍严格单飞。
         guard subscriptionPending else { return true }
-        guard pendingSubscriptionID == sessionID else { return false }
+        // 收到确认就**先停计时、清 pending**，无论 sessionId 是否等于等待值：
+        // 网关收到 subscribe 会立刻回 `subscribed`（`lib/index.mjs:3182`），对不上只可能是
+        // 旧响应/快速切换的错位；早期的"严格相等才停表"会让一次错位把 15 秒计时留到爆炸，
+        // 表现为用户正看页面时弹「订阅超时」（真机频繁打断的根因）。
         subscriptionTimeout?.cancel()
         subscriptionTimeout = nil
         subscriptionPending = false
+        if pendingSubscriptionID != sessionID {
+            gatewayApprovalTrace("subscribe-ack-stale got=\(sessionID ?? "nil") waiting=\(pendingSubscriptionID ?? "nil")")
+        }
         if subscriptionDirty {
             subscriptionDirty = false
             subscribe(sessionId: desiredSubscriptionID)
@@ -574,8 +580,13 @@ final class GatewayClient: ObservableObject {
             guard let self, self.subscriptionPending else { return }
             let target = self.pendingSubscriptionID
             self.resetSubscriptionRequests()
-            self.onFrame?(GatewayFrame(kind: "error", sessionId: target, code: "subscription-timeout",
-                message: "成员会话订阅超时，请重试或返回 Lead", requestType: "subscribe"))
+            // **不再弹模态**：用户明确说这个"经常弹"、打断正在看的页面。
+            // 超时只留痕 + 静默重订阅一次；真的没有回包时，界面行为与"还没订阅上"一致，
+            // 比一个遮住屏幕的弹窗更接近真实（拿不到确认时降级成安静的真实）。
+            gatewayApprovalTrace("subscribe-timeout-silent-retry target=\(target ?? "nil")")
+            if let target, !target.isEmpty {
+                self.subscribe(sessionId: target)
+            }
         }
         gatewayApprovalTrace("transport subscribe hasSession=\(sessionId?.isEmpty == false)")
         if let sessionId, !sessionId.isEmpty {

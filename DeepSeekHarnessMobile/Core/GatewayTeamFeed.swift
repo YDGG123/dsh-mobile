@@ -714,6 +714,10 @@ final class GatewayTeamFeed: ObservableObject {
     /// （真机反馈）。这里按 owner（roomId 优先，其次 botId）归集，
     /// 同时给出计数，供断网缓存 `_cardCounts` 使用。
     /// 卡片归属键：`roomId` 优先，其次 `botId`（与网关 `normalizeCard` 的字段一致）。
+    /// 降级帧（网关只发名册）**不许沿用**易变状态——把"没给"当"沿用旧值"就是谎报。
+    /// 纯函数便于单测；`statusText` 里「实时状态暂不可用」的兜底依赖它不被假值填掉。
+    nonisolated static func inheritsVolatileState(degraded: Bool) -> Bool { !degraded }
+
     nonisolated static func cardOwner(_ card: [String: Any]) -> String? {
         let owner = (card["roomId"] as? String) ?? (card["botId"] as? String) ?? ""
         return owner.isEmpty ? nil : owner
@@ -868,12 +872,22 @@ final class GatewayTeamFeed: ObservableObject {
                 guard let entity = op["entity"] as? [String: Any],
                       var row = row(from: entity, kind: name.hasPrefix("bot") ? .bot : .room) else { continue }
                 // update 是完整对象；保留帧里没带的易变值，避免结构变更把实时态清空。
+                //
+                // ⚠️ **但降级态下必须清空，不许沿用**（2026-10-27 真机「状态显示反了」）：
+                // 网关拿不到 `dsBotTeam` 时只发名册、**故意不填 `activity`**
+                // （`team-feed.mjs:335`：契约枚举里没有 unknown，写 idle 就是谎报全部空闲）。
+                // 把"没给"当成"沿用旧值"，用户就会看到上一次实时帧的旧状态——
+                // 空闲的显示"正在干活"，干活的显示"空闲"，而且 `statusText` 里那条
+                // 「实时状态暂不可用」的正确兜底永远不生效（被这里填的假值挡住了）。
+                // `placeholderCards` 来自卡片帧、与降级无关，继续沿用。
                 if let existing = table[row.id] {
-                    row.activity = row.activity ?? existing.activity
-                    row.work = row.work ?? existing.work
-                    if row.approvals.isEmpty { row.approvals = existing.approvals }
-                    if row.pending.isEmpty { row.pending = existing.pending }
-                    if row.waiting == nil { row.waiting = existing.waiting }
+                    if Self.inheritsVolatileState(degraded: degraded) {
+                        row.activity = row.activity ?? existing.activity
+                        row.work = row.work ?? existing.work
+                        if row.approvals.isEmpty { row.approvals = existing.approvals }
+                        if row.pending.isEmpty { row.pending = existing.pending }
+                        if row.waiting == nil { row.waiting = existing.waiting }
+                    }
                     row.placeholderCards = existing.placeholderCards
                 }
                 if table[row.id] == nil { order.append(row.id) }

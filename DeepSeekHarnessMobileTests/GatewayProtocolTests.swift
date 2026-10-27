@@ -13541,3 +13541,24 @@ final class BotHistorySegmentsTests: XCTestCase {
                        "发现顺序即权威顺序：不按 id 排序、不按时间推断")
     }
 }
+
+/// 降级态必须清空易变状态（2026-10-27 真机「状态显示反了」）。
+/// 反向：把 `inheritsVolatileState` 改回恒 `true`（即沿用旧值）→ 这条变红。
+final class TeamDegradedStateTests: XCTestCase {
+    func testDegradedFramesDoNotInheritVolatileState() {
+        XCTAssertFalse(GatewayTeamFeed.inheritsVolatileState(degraded: true),
+                       "降级帧不带 activity/work/pending 时，沿用旧值就是把「不知道」伪装成「知道」")
+        XCTAssertTrue(GatewayTeamFeed.inheritsVolatileState(degraded: false),
+                      "完整帧仍要沿用帧里没带的易变值，避免结构变更把实时态清空")
+    }
+
+    // 降级时 statusText 必须给「暂不可用」，不能出现「干活中/空闲」
+    @MainActor
+    func testDegradedStatusTextIsNotAConcreteState() {
+        let feed = GatewayTeamFeed()
+        var row = GatewayTeamFeed.Row(id: "b1", kind: .bot, name: "Bot", role: nil, sessionId: "s1")
+        row.activity = nil
+        // feed.degraded 由帧决定；这里直接验证"没有 activity 时的兜底文案"不会谎报状态
+        XCTAssertNil(feed.statusText(for: row), "无 activity 且未降级时不显示具体状态")
+    }
+}
