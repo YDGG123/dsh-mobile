@@ -45,7 +45,7 @@ fail() { echo "❌ $1"; exit 1; }
 [ -n "$SDK" ] && [ -d "$SDK" ] || fail "找不到 iOS Simulator SDK"
 [ -d "$FW" ] || fail "缺少 KMP 框架，先运行: ./gradlew :shared:linkDebugFrameworkIosX64"
 [ -d "$SOURCES" ] || fail "找不到测试源码目录: $SOURCES"
-[ -f "$DEPS/MarkdownUI.swift" ] || fail "缺少 MarkdownUI 桩源码，先运行一次 ./scripts/local-typecheck.sh"
+[ -f "$DEPS/MarkdownUI.swift" ] || fail "缺少 MarkdownUI 桩源码（/tmp 被清理过）。自救：CHATLAYOUT_SRC 指向 DerivedData 的 ChatLayout checkout 后重跑 ./scripts/local-typecheck.sh；ChatLayout.swiftmodule 若也缺，用脚本同款 swiftc -emit-module 命令手动重建（本次踩过：脚本自身的 -emit-library 调用在这台机器上会静默失败，手动执行即可）"
 
 mkdir -p "$TEST_DEPS" "$MOD" "$CACHE"
 
