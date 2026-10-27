@@ -43,3 +43,4 @@ f8ed278f9b5cc473127c91027252ba59b0b9a4fe  # build 40：降级 delta 修复 + deb
 3b18ea289924daed0a351ee0bf1ccf55d96d028f  # build 41：bridge 卡片帧 → 可点卡片（能力门控 + POST /actions + 等 card.answered）
 f50685e015331b2b1f87f9a9a64c438df3dc5a4d  # build 42：order 帧 degraded + 缓存与凭证解耦（start 重排）+ 进后台同步落盘 + 缓存可观测性
 6b4f5c4b0f41c2b332b388f9e3e39741234a43fa  # build 43：加载标识改矢量渲染（绕开自绘 APNG 管线；Android 侧旧鲸另行处理）
+2565aaf508429d68fa6c3f0f222328da55262455  # build 43：加载标识去 template、原始多色渲染 + 浅色圆角底（深浅同款）
