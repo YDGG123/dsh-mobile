@@ -1114,6 +1114,25 @@ final class AppStore: ObservableObject {
         return .finished
     }
 
+    /// 会话的段读取顺序：**当前段 + 已发现旧段（发现顺序）**。
+    /// 选择 B（2026-10-27 Chief 拍板）：`botSegments` 为空（首次打开/刚切段、钩子还没跑过）
+    /// 时**只返回当前段**——第一次打开可能只有当前段，等钩子登记后聚合才含旧段。
+    /// 这个边界如实写进验收：不是 bug，是"缓存需要一次写入才有得读"。
+    ///
+    /// 截断用**双保险**：段数上限（防段数失控）+ 条数上限在聚合层裁（防超长段）。
+    /// 段数 16 的依据：当前真实数据 2 段；16 段 ≈ 数月量级，且只是"参与合并的上限"，
+    /// 超出部分按发现顺序（最旧的）截掉，不影响新段。
+    nonisolated static let maxMergedSegments = 16
+
+    func conversationSegments(for current: String) -> [String] {
+        guard !current.isEmpty else { return [] }
+        var ids = [current]
+        for older in botSegments.allOlderParts[current] ?? [] where !ids.contains(older) {
+            ids.append(older)
+        }
+        return Array(ids.prefix(Self.maxMergedSegments))
+    }
+
     /// 跨段聚合成一条时间线。
     /// - 旧段：各段内部顺序原样保留（seq 序），段之间按 `date` 合并；同 `date` 时保持
     ///   段内先后与段的发现顺序（稳定合并，不做二次排序）

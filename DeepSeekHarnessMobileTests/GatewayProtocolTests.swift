@@ -13736,3 +13736,33 @@ final class BotSegmentsCycleGuardTests: XCTestCase {
                       "s2 与 s3 都在已访问集合里，回头的 s3 会被挡下")
     }
 }
+
+/// conversationSegments（读取聚合的段顺序，选 B：首次只读当前段）。
+final class ConversationSegmentsTests: XCTestCase {
+    func testFirstOpenReturnsOnlyCurrent() {
+        let store = AppStore(preferences: UserDefaultsAppPreferences(userDefaults: UserDefaults(suiteName: "conv-seg1")!, gatewayID: "t"),
+                             gatewayClient: GatewayClient(credentials: nil), gatewayLocalID: "t")
+        XCTAssertEqual(store.conversationSegments(for: "s3"), ["s3"],
+                       "钩子未跑过时只有当前段——第一次打开可能不含旧段（B 的已知边界）")
+    }
+
+    func testOlderPartsAppendInDiscoveryOrderAfterCurrent() {
+        let store = AppStore(preferences: UserDefaultsAppPreferences(userDefaults: UserDefaults(suiteName: "conv-seg2")!, gatewayID: "t"),
+                             gatewayClient: GatewayClient(credentials: nil), gatewayLocalID: "t")
+        store.botSegments.register(previousSessionId: "s2", current: "s3")
+        store.botSegments.register(previousSessionId: "s1", current: "s3")
+        XCTAssertEqual(store.conversationSegments(for: "s3"), ["s3", "s2", "s1"],
+                       "当前段在最前（渲染层当前段固定末尾由 mergedHistory 负责），旧段按发现顺序")
+    }
+
+    func testSegmentCapTruncatesOldestDiscovered() {
+        let store = AppStore(preferences: UserDefaultsAppPreferences(userDefaults: UserDefaults(suiteName: "conv-seg3")!, gatewayID: "t"),
+                             gatewayClient: GatewayClient(credentials: nil), gatewayLocalID: "t")
+        for i in stride(from: 20, through: 1, by: -1) {
+            store.botSegments.register(previousSessionId: "p\(i)", current: "s3")
+        }
+        let segments = store.conversationSegments(for: "s3")
+        XCTAssertEqual(segments.count, AppStore.maxMergedSegments, "段数双保险上限生效")
+        XCTAssertEqual(segments.first, "s3", "当前段永不被截")
+    }
+}
