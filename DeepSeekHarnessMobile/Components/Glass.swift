@@ -187,14 +187,26 @@ struct HarnessMark: View {
 
 struct OrcarnessOrcaIcon: View {
     var size: CGFloat
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        Image("DshOrcaMark")
-            .renderingMode(.template)
-            .resizable()
-            .scaledToFit()
-            .frame(width: size, height: size)
-            .accessibilityHidden(true)
+        // ⚠️ 用户拍板（2026-10-27）：**不用 template**——多色品牌图套模板会压平细节
+        // （黑鲸+白眼斑+灰眼睛 → 一块纯色剪影，"认不出"）。原始渲染保留全部细节。
+        // 深色模式黑上黑 → 给一层极浅灰圆底（浅色模式直接原图）。
+        // 资产级 `template-rendering-intent` 也已移除（见 DshOrcaMark.imageset/Contents.json）。
+        if colorScheme == .dark {
+            Image("DshOrcaMark")
+                .resizable().scaledToFit()
+                .padding(size * 0.14)
+                .background(Circle().fill(Color(white: 0.92)))
+                .frame(width: size, height: size)
+                .accessibilityHidden(true)
+        } else {
+            Image("DshOrcaMark")
+                .resizable().scaledToFit()
+                .frame(width: size, height: size)
+                .accessibilityHidden(true)
+        }
     }
 }
 

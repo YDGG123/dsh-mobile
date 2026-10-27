@@ -890,8 +890,7 @@ struct ConversationView: View {
 
     private var emptyState: some View {
         VStack(spacing: 14) {
-            OrcarnessOrcaIcon(size: 52)
-                .foregroundStyle(colorScheme == .dark ? Color.white : Color.black)
+            OrcarnessOrcaIcon(size: 52)   // 原始多色渲染（template 已去，foregroundStyle 不再生效）
             Text("操作远端 DSH Agent").appFont(.title3.weight(.semibold))
             Text("发送任务后，工具调用、推理进度和最终回复会通过 Mobile Gateway 实时返回。")
                 .appFont(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
