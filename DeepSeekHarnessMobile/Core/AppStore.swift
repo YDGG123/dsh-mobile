@@ -5209,6 +5209,10 @@ final class AppStore: ObservableObject {
                     failure: change.outcome == "failed" ? .failed : nil, historyEventSequence: change.eventSequence)
             }
         }
+        // ⚠️ 引擎收尾的**权威路径**是这里（KMP outcome 推送），不是 applyHistoryRebased：
+        // 成功路径上**没有显式 finish**——KMP 完成一页后推 `outcome:"stopped"`（或 failed），
+        // 这里按 sessionId 收尾。多段翻页（previousSessionId 链）的旧段也走这条：
+        // 旧段响应被消费后，KMP 推 stopped → 引擎对旧段正常收尾，:4184 的门不会对旧段常开。
         switch change.outcome {
         case "none", "request-page":
             break
