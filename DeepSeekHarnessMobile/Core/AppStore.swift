@@ -1002,7 +1002,40 @@ final class AppStore: ObservableObject {
             }
         }
 
+        /// 按网关语义登记：**只在收到 `previousSessionId` 时**登记，
+        /// 不从页内容推断（页内 sessionId 属于哪段由服务端说了算）。
+        mutating func register(previousSessionId: String, current: String) {
+            register(pageSessionIds: [previousSessionId], current: current)
+        }
+
         mutating func reset(current: String) { olderParts[current] = nil }
+    }
+
+    /// 一页 history 响应该怎么翻（网关 `debc076` 的语义，纯函数可测）。
+    ///
+    /// 两个字段**互斥**，但客户端不依赖对方的互斥保证做假设——按字段各自判断：
+    /// - `hasMore == true` → 本段还有更早内容，用 `nextBeforeSeq` 继续翻本段
+    /// - `hasMore == false` 且带 `previousSessionId` → 本段到头，换段再发一次
+    ///   （**绝不带 `beforeSeq`**：带了会从上一段中间开始翻，表现是"翻到旧段了但最后几条没了"，
+    ///   不报错、只是少内容）
+    /// - 两个都没有 → 真到头
+    enum BotHistoryNextPage: Equatable {
+        case sameSegment(beforeSeq: Int)
+        case previousSegment(String)
+        case finished
+    }
+
+    nonisolated static func botHistoryNextPage(
+        hasMore: Bool, nextBeforeSeq: Int?, previousSessionId: String?, currentSegment: String?
+    ) -> BotHistoryNextPage {
+        if hasMore {
+            guard let nextBeforeSeq else { return .finished }   // 说还有却不给游标：宁可停，不瞎猜
+            return .sameSegment(beforeSeq: nextBeforeSeq)
+        }
+        if let previousSessionId, !previousSessionId.isEmpty, previousSessionId != currentSegment {
+            return .previousSegment(previousSessionId)
+        }
+        return .finished
     }
 
     /// 跨段聚合成一条时间线。
