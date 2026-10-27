@@ -345,11 +345,14 @@ final class TeamGlyphTests: XCTestCase {
         let steps = TeamAvatarView.blinkSteps(working: false)
         // 落在第二次眨眼闭眼窗口内的相位：3.59 + 0.02
         let resume = TeamAvatarView.blinkResume(steps: steps, phase: 3.61)
-        XCTAssertEqual(resume.index, 4, "整段跳过前 4 档（1.61 + 0.08 + 0.06 + 1.84）")
-        XCTAssertEqual(resume.hold, 0.06, accuracy: 0.0001, "只等当前档位的剩余部分")
+        // 9 档逐段表：相位 3.61 落在第二次闭眼后的 1.06 过冲档（3.59–3.67）内，
+        // 跳过前 6 档（1.48 + 0.13 + 0.08 + 0.06 + 1.71 + 0.13 = 3.59）。
+        // 旧断言 4 是 4 档合并表的残留值——QA 与开发共算共错，模拟器实跑才暴露。
+        XCTAssertEqual(resume.index, 6, "整段跳过前 6 档，落在 1.06 过冲档内")
+        XCTAssertEqual(resume.hold, 0.06, accuracy: 0.0001, "只等当前档位的剩余部分（3.67 − 3.61）")
 
         let fromStart = TeamAvatarView.blinkResume(steps: steps, phase: 0)
         XCTAssertEqual(fromStart.index, 0, "相位 0 从第一档开始")
-        XCTAssertEqual(fromStart.hold, 1.61, accuracy: 0.0001)
+        XCTAssertEqual(fromStart.hold, 1.48, accuracy: 0.0001, "9 档表首档 1.48（29.6% × 5s）")
     }
 }
