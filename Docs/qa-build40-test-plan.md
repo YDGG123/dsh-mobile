@@ -229,3 +229,23 @@ xcodebuild test-without-building \
 - 绿灯依赖 `KONAN_DATA_DIR` 环境变量（根治前，见 §5 顶部红字账）
 - UITests 层：守卫用 `XCTSkip`（iOS 16.4 以下跳过是**设计**，不是失败）
 - 本机构建（Xcode 26.3 本地）与云 runner 构建的包不能做二进制级对比（工具链不同）
+
+### 首次全量 XCTest 实跑的结果与发现（2026-10-27，build 40 树 `0035e97`，600 条）
+
+**数字**：600 用例 / **40 失败** / 8 设计性跳过 / 0 崩溃吞例（ChunkGuard 两例已修，见 `0035e97`）。
+
+**失败分类（待 iOSCoder/Chief 排期，不是 QA 单方结论）**：
+| 类 | 条数 | 初判 |
+|---|---|---|
+| HistoryViewportControlledPresentationTests | 19 | 视口呈现层，疑似模拟器渲染时序，需真机对照 |
+| InlineImageTaskIsolationTests | 6 | MainActor 隔离，与 app-host 并发相关 |
+| TeamRosterCacheTests | 4 | **app-host 污染**：用例与宿主 App 共享 `UserDefaults.standard`，宿主启动写的真实缓存污染用例（QA 预判命中） |
+| FrameReassemblerTests | 2 | 上限拒绝语义，需对拍 `/info` 公布值 |
+| InlineCodeRendererFastPathTests / WorkspaceDrawerUITests | 2+2 | 待分类 |
+| GatewayForegroundRecovery / HistoryPreviousSessionDecode / MarkdownRenderProduct / PluginIconRendering | 各 1 | 待分类 |
+| TeamGlyphTests（blink phase） | 1 | **测试期望值错误**：`blinkResume(3.61)` 正确值 = (index 6, hold 0.06)（第二次闭眼窗 3.59–3.67 内），断言写的 (4, 0.06) 是手算错——QA 复核时也跟着算错并背书，此处更正 |
+
+**方法论教训（本轮最重要的收获）**：
+1. **app-hosted 测试里 `Task.yield()` 自旋不可靠**——yield 只是"暂时让一下"，宿主 App 的 SwiftUI churn 会长期挤占 MainActor（一个用例挂死 14 分钟实证）；异步等待必须用真休眠 + 有界 deadline（修复 `0035e97`）。
+2. **测试期望值的手算必须复核者独立重算**——blink phase 断言 (4, 0.06) 由开发手算、QA 复核时沿用了同一处算错；正确值 (6, 0.06) 在模拟器实跑中暴露。两人共算 ≠ 两人复核。
+3. **app-host 污染**：与宿主 App 共享 `UserDefaults.standard` 的测试会被宿主真实启动写入的数据污染——此类测试必须用独立 `UserDefaults(suiteName:)` 或注入内存实例。
