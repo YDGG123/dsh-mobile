@@ -162,8 +162,18 @@ final class GatewayTeamFeed: ObservableObject {
     private var generation = 0
     private let log: (String) -> Void
 
+    private var backgroundSaveObserver: NSObjectProtocol?
+
     init(log: @escaping (String) -> Void = { _ in }) {
         self.log = log
+        // 用户要求（与普通会话区一致）：断连/重启也能看到上次的 Bot 列表。
+        // 快照本来就随 applySnapshot/卡片回写落盘，但都是 queue.async 异步写——
+        // 启动后几秒内切走/杀掉 App 可能来不及完成。进后台时**同步**补写一次最稳。
+        backgroundSaveObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.willResignActiveNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.saveRosterForBackground() }
+        }
         // 头像解码失败要能被看见：写进最近错误（界面会显示）+ 日志，但不含 data URL 原文。
         Self.onAvatarDiagnostic = { [weak self] message in
             self?.log(message)
@@ -175,13 +185,19 @@ final class GatewayTeamFeed: ObservableObject {
 
     func start() {
         wantLive = true
+        // **缓存水合不依赖凭证有效性**（与普通会话区 persistedSessions 同一原则）：
+        // access token 15 分钟就过期，过期 ≠ 未配对；旧列表仍应显示。
+        if let base = Self.storedServerBase(fromJSON: BridgeKeychainSessionStore().loadJson()) {
+            resumeKey = Self.resumeKey(forServerBase: base)
+            hydrateRosterCacheIfNeeded()
+        }
         guard let resource = sessionResource() else {
-            phase = .needsPairing
+            // 凭证过期/未配对：有缓存行就显示旧列表（.connecting + rows 非空 = ready），
+            // 等刷新链路换新凭证后 connect() 会接上；真未配对才走 .needsPairing
+            phase = rows.isEmpty ? .needsPairing : .connecting
             return
         }
         resumeKey = Self.resumeKey(for: resource)
-        // 先喂缓存（同步读，几百 KB），再连网 —— Bot 页与会话页一样"启动即有内容"。
-        hydrateRosterCacheIfNeeded()
         connect()
     }
 
@@ -189,10 +205,25 @@ final class GatewayTeamFeed: ObservableObject {
     /// 由真实快照/续连接管），只喂 `rows` 并把 phase 置成 `.connecting`，
     /// 这样 UI 的 `gatewayTeamReady`（要求 rows 非空）立刻成立。
     private func hydrateRosterCacheIfNeeded() {
-        guard rows.isEmpty, !resumeKey.isEmpty else { return }
-        guard let payload = rosterStore.load(serverKey: resumeKey) else { return }
+        // 每个 return 点都留痕（2026-10-27 缓存排障：用户反馈"每次重启都空"，
+        // 不加日志就只能靠猜是 key 对不上还是真没写过）。
+        guard rows.isEmpty else {
+            Self.chunkLog.notice("roster cache skipped: rows non-empty (\(self.rows.count, privacy: .public))")
+            return
+        }
+        guard !self.resumeKey.isEmpty else {
+            Self.chunkLog.notice("roster cache skipped: resumeKey empty")
+            return
+        }
+        guard let payload = rosterStore.load(serverKey: self.resumeKey) else {
+            Self.chunkLog.notice("roster cache miss: key=\(self.resumeKey, privacy: .public)")
+            return
+        }
         let cachedRows = Self.rosterRows(from: payload.snapshot)
-        guard !cachedRows.isEmpty else { return }
+        guard !cachedRows.isEmpty else {
+            Self.chunkLog.notice("roster cache skipped: cachedRows empty")
+            return
+        }
         rows = cachedRows
         if let counts = payload.snapshot["_cardCounts"] as? [String: Int], !counts.isEmpty {
             for index in rows.indices {
@@ -287,11 +318,20 @@ final class GatewayTeamFeed: ObservableObject {
         StartupTimeline.mark("bots.rendered(\(source))")
     }
 
+    /// 进后台时的同步落盘（见 init 里的观察者说明）。
+    private func saveRosterForBackground() {
+        guard !resumeKey.isEmpty, !rows.isEmpty, let snapshot = lastSnapshotObject else { return }
+        rosterStore.saveNow(serverKey: resumeKey, snapshot: snapshot, instanceId: instanceId)
+    }
+
     /// 对象直接销毁（没有走 stop/handleDisconnect）时的最后兜底。
     /// 注意：@MainActor 类的 deinit 是非隔离上下文，所以这里只做"释放即取消"，
     /// 不调用任何隔离方法（心跳任务与清扫器都在自己的 deinit 里取消）。
     deinit {
         heartbeatTask?.cancel()
+        if let backgroundSaveObserver {
+            NotificationCenter.default.removeObserver(backgroundSaveObserver)
+        }
     }
 
     func stop() {
@@ -555,8 +595,23 @@ final class GatewayTeamFeed: ObservableObject {
 
     /// resume 存储键：按服务器地址区分（一台手机可能连过多个宿主）。
     /// `private`：`Resource` 是类的私有嵌套类型。
+    private static func resumeKey(forServerBase base: String) -> String {
+        "team-feed-resume." + base
+    }
+
     private static func resumeKey(for resource: Resource) -> String {
         "team-feed-resume." + resource.baseURL.absoluteString
+    }
+
+    /// 从 Keychain 会话里取**服务器基址**（与 `sessionResource` 同一解析），但**不看 token 是否过期**。
+    /// 缓存是本地数据，不该被"凭证过期"挡住（Chief 2026-10-27：access token 15 分钟就过期，
+    /// 原来过期 → `sessionResource()` 返回 nil → `resumeKey` 不设 → 缓存根本不读 → Bot 页空等联网）。
+    static func storedServerBase(fromJSON json: String?) -> String? {
+        guard let json, let data = json.data(using: .utf8) else { return nil }
+        struct Wire: Decodable { let serverUrl: String? }
+        guard let wire = try? JSONDecoder().decode(Wire.self, from: data) else { return nil }
+        let raw = (wire.serverUrl?.isEmpty == false ? wire.serverUrl! : "https://127.0.0.1")
+        return URL(string: raw)?.absoluteString
     }
 
     /// 落盘 `{instanceId, seq}`；失败也不影响功能（下次退化成整帧快照）。
@@ -701,6 +756,11 @@ final class GatewayTeamFeed: ObservableObject {
     }
 
     private func applyOrder(_ object: [String: Any]) {
+        // ⚠️ order 帧也要同步 degraded（网关 `team-feed.mjs:233` 每帧显式带）：
+        // 它常是**缓存水合（degraded=true）之后最先到的帧**，且只在排序变化时才发——
+        // 漏了这行，「实时状态不可用」会在启动窗口里一直挂着，直到某个 delta 恰好到来。
+        // 与 applyDelta 同一纯函数；放在 guard 之前（sessions 缺失也必须更新标志）。
+        degraded = Self.degradedAfter(current: degraded, frame: object)
         guard let sessions = object["sessions"] as? [String: Any] else { return }
         var next: [String: Int64] = [:]
         for (key, value) in sessions {

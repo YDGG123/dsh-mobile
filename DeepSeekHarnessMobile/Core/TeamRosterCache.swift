@@ -34,7 +34,7 @@ struct TeamRosterCache {
         }
     }
 
-    private static let log = Logger(subsystem: "ai.dsh.mobile.ios", category: "team-cache")
+    static let log = Logger(subsystem: "ai.dsh.mobile.ios", category: "team-cache")   // store 侧也要打点，放宽为 internal
 
     // MARK: - 写（裁剪）
 
@@ -151,7 +151,8 @@ final class TeamRosterCacheStore {
     func save(serverKey: String, snapshot: [String: Any], instanceId: String, now: Date = Date()) {
         guard !serverKey.isEmpty else { return }
         if let lastSavedAt, now.timeIntervalSince(lastSavedAt) < 5 {
-            return   // 节流：频繁 delta 不反复落盘
+            TeamRosterCache.log.notice("roster cache save throttled")   // 可观测：每次 return 都留痕（2026-10-27 缓存排障）
+            return
         }
         lastSavedAt = now
         let key = key(serverKey)
@@ -164,6 +165,21 @@ final class TeamRosterCacheStore {
             }
             defaults.set(payload, forKey: key)
         }
+    }
+
+    /// **同步**写（App 进后台时用）：`queue.async` 的异步写可能在进程被杀前来不及完成。
+    /// `queue.sync` 与挂起的异步写串行，不会互相覆盖；绕过 5 秒节流（最后一次机会必须写）。
+    func saveNow(serverKey: String, snapshot: [String: Any], instanceId: String, now: Date = Date()) {
+        guard !serverKey.isEmpty else { return }
+        lastSavedAt = now
+        let key = key(serverKey)
+        queue.sync {
+            guard let trimmedData = TeamRosterCache.trimmedSnapshot(from: snapshot),
+                  let trimmedObject = (try? JSONSerialization.jsonObject(with: trimmedData)) as? [String: Any],
+                  let payload = TeamRosterCache.encode(snapshot: trimmedObject, instanceId: instanceId, savedAt: now) else { return }
+            defaults.set(payload, forKey: key)
+        }
+        TeamRosterCache.log.notice("roster cache saved on background (sync)")
     }
 
     func clear(serverKey: String) {
