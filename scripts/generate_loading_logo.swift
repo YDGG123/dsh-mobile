@@ -83,22 +83,30 @@ func frame(_ phase: Double) -> CGImage {
     context.saveGState()
     context.translateBy(x: 92, y: 92 + sin(angle) * 5)
     context.rotate(by: sin(angle) * 0.055)
-    let scale = 0.155 * (1 + sin(angle) * 0.018)
+    // 缩放**从 path 包围盒推导**，不再硬编码 0.155（那是按旧 SVG 882×832 调的；
+    // 换 1024×1024 新矢量后没重算 → 图形溢出画布、残缺——2026-10-27 返工教训：
+    // 换数据源第一件事是找硬编码的几何参数）。
+    let box = path.boundingBoxOfPath
+    let fit = 150.0 / max(box.width, box.height)   // 目标占 192 画布约 150pt，四边留白
+    let scale = fit * (1 + sin(angle) * 0.018)
     context.scaleBy(x: scale, y: scale)
-    context.translateBy(x: -441 + 627, y: -416 + 94)
+    // 包围盒中心平移到画布中心（长宽比保持：两轴同一 scale，不拉变形）
+    context.translateBy(x: -(box.minX + box.width / 2), y: -(box.minY + box.height / 2))
     context.addPath(path)
     context.clip()
     let gradient = CGGradient(colorsSpace: colorSpace, colors: [
         CGColor(red: 0.16, green: 0.39, blue: 0.80, alpha: 1),
         CGColor(red: 0.36, green: 0.67, blue: 0.99, alpha: 1)
     ] as CFArray, locations: [0, 1])!
-    context.drawLinearGradient(gradient, start: CGPoint(x: -520, y: 700), end: CGPoint(x: 180, y: -70),
-                               options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
-    let shimmerX = -750 + phase * 1450
+    // 渐变坐标同样从包围盒推导（旧坐标 -520,700 是旧画布的）
+    context.drawLinearGradient(gradient,
+        start: CGPoint(x: box.minX, y: box.maxY), end: CGPoint(x: box.maxX, y: box.minY),
+        options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
+    let shimmerX = box.minX - 150 + phase * (box.width + 300)
     let shimmer = CGGradient(colorsSpace: colorSpace, colors: [
         CGColor(gray: 1, alpha: 0), CGColor(gray: 1, alpha: 0.50), CGColor(gray: 1, alpha: 0)
     ] as CFArray, locations: [0, 0.5, 1])!
-    context.drawLinearGradient(shimmer, start: CGPoint(x: shimmerX, y: 0), end: CGPoint(x: shimmerX + 230, y: 130), options: [])
+    context.drawLinearGradient(shimmer, start: CGPoint(x: shimmerX, y: box.minY), end: CGPoint(x: shimmerX + box.width * 0.18, y: box.maxY), options: [])
     context.restoreGState()
     return context.makeImage()!
 }
