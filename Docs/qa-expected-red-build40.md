@@ -62,7 +62,9 @@ WorkspaceDrawerUITests.testMarkdownLongPressOpensFullScreenSelectionAndRestoresR
 
 ---
 
-## B. 已修复待重验确认（6 条）—— 修复提交在 0035e97 之后，重验时应转绿
+## B. 已修复待重验确认（6 条）—— **重验时若再红 = 回归，必须查（不是环境噪声）**
+> 修复提交在 `0035e97` 之后（blink `36402b6`、cache helper + fixture `c4db4ef`）。
+> 下次全量（更新的树）这 6 条**应当转绿**；若仍红 → 先确认修复提交是否在树上，在树上仍红 = 回归，逐条查。
 
 ### B1. 测试期望值错（1 条）—— "共算共错"失效模式（开发手算 + QA 复核沿用同一处算错）
 ```
