@@ -1140,6 +1140,9 @@ final class AppStore: ObservableObject {
         return sortedOlder + current
     }
 
+    /// 多段 Bot 的旧段登记/翻完状态（见 `BotHistorySegments` 注释）
+    var botSegments = BotHistorySegments()
+
     var selectedEvents: [SessionEvent] {
         guard let selectedSessionId else { return [] }
         return isShowingSearchContext ? searchContextRecords : events[selectedSessionId, default: []]
@@ -3674,6 +3677,28 @@ final class AppStore: ObservableObject {
             )
         case .history(let payload):
             applyHistoryRebased(payload)
+            // 分段历史（网关 debc076）：本段到头且带 `previousSessionId` →
+            // 登记旧段（segmentVersion 同方法递增）并**继续发下一段请求——
+            // 绝不带 beforeSeq / historyFormatVersion**（带了会从上一段中间开始翻）。
+            // 两字段都没有 = 真到头，登记"翻完"防止重复请求。
+            // 单段会话两个都不会出现 → 此分支不触发，行为与 40 逐字节一致。
+            if payload.previousSegmentID != nil || (payload.hasMore == false && payload.nextBeforeSequence == nil) {
+                let current = payload.sessionID ?? selectedSessionId ?? ""
+                let decision = Self.botHistoryNextPage(hasMore: payload.hasMore,
+                                                       nextBeforeSeq: payload.nextBeforeSequence,
+                                                       previousSessionId: payload.previousSegmentID,
+                                                       currentSegment: current)
+                switch decision {
+                case .previousSegment(let prev):
+                    botSegments.register(previousSessionId: prev, current: current)
+                    gateway.requestHistory(sessionId: prev, maxMessages: 80,
+                                           maxBytes: 256 * 1024, view: "conversation")
+                case .finished:
+                    botSegments.markFinished(current: current)
+                case .sameSegment:
+                    break   // 本段续翻走既有 beforeSeq 路径，不在这里发
+                }
+            }
         case .attachment(let payload):
             handleImageAttachment(payload)
         case .search(let received, let hasMore):

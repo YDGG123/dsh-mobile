@@ -13703,3 +13703,15 @@ final class TeamOrderDegradedWiringTests: XCTestCase {
         XCTAssertTrue(feed.degradedForTesting)
     }
 }
+
+/// markFinished / 重复登记的收尾语义（42 翻页钩子）。
+final class BotSegmentsFinishTests: XCTestCase {
+    func testMarkFinishedIsIdempotent() {
+        var registry = AppStore.BotHistorySegments()
+        registry.register(previousSessionId: "s2", current: "s3")
+        registry.markFinished(current: "s3")
+        XCTAssertTrue(registry.isFinished("s3"))
+        registry.markFinished(current: "s3")
+        XCTAssertTrue(registry.isFinished("s3"), "重复到头不报错")
+    }
+}
