@@ -5,6 +5,14 @@ import UIKit
 enum HarnessBackgroundStyle {
     case phone
     case pad
+
+    /// 按容器尺寸推断构图：展开后的折叠屏与平板共享宽幅构图。
+    /// 不读设备型号，分屏 / 台前调度同样成立。
+    static func resolve(size: CGSize, isPad: Bool) -> HarnessBackgroundStyle {
+        // Duo 展开约 626×890，旋转后短边不变；普通手机横屏仍使用手机背景。
+        // iPad 的窄窗口保留原有平板背景，不随分屏切换风格。
+        isPad || min(size.width, size.height) >= 600 ? .pad : .phone
+    }
 }
 
 /// The native counterpart of the DeepSeek Harness landing-page background.
@@ -12,6 +20,8 @@ enum HarnessBackgroundStyle {
 /// independent, so each layer can be tuned or disabled without touching UI.
 struct HarnessAnimatedBackground: View {
     let style: HarnessBackgroundStyle
+    /// iOS 27.1+ 竖向工具栏时，顶部光弧让步于工具栏（上游新增，默认关闭）。
+    var prefersOpenLightArcs = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.colorScheme) private var colorScheme

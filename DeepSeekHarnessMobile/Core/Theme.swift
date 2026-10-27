@@ -220,8 +220,20 @@ struct DSHPalette {
 /// 具体形态由 `HarnessAnimatedBackground` 按 `colorScheme` 分支处理。
 /// B4：被子页覆盖时（`BackgroundAnimationPause`）自动暂停逐帧重绘，避免推入卡死。
 struct DeepOceanBackground: View {
+    /// iOS 27.1+ 竖向工具栏：顶部光弧让位给工具栏（上游新增，默认关闭）。
+    var prefersOpenLightArcs = false
+
     var body: some View {
-        HarnessAnimatedBackground(style: UIDevice.current.userInterfaceIdiom == .pad ? .pad : .phone)
+        GeometryReader { geometry in
+            HarnessAnimatedBackground(
+                style: HarnessBackgroundStyle.resolve(
+                    size: geometry.size,
+                    isPad: UIDevice.current.userInterfaceIdiom == .pad
+                ),
+                prefersOpenLightArcs: prefersOpenLightArcs
+            )
+        }
+        .ignoresSafeArea()
     }
 }
 

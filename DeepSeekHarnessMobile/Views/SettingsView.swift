@@ -1015,6 +1015,73 @@ private struct PendingDefaultModelChange: Identifiable {
     }
 }
 
+private struct DefaultModelCard: View {
+    let group: GatewayModelGroup
+    let model: GatewayModelItem
+    let isSelected: Bool
+    let currentEffort: String?
+    let isBusy: Bool
+    let onSelectModel: () -> Void
+    let onSelectEffort: (GatewayReasoningEffort) -> Void
+
+    private var efforts: [GatewayReasoningEffort] { model.reasoning?.efforts ?? [] }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(model.name)
+                    .appFont(.headline)
+                    .foregroundStyle(.primary)
+                Spacer()
+                if isSelected {
+                    Text("当前使用")
+                        .appFont(.caption.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(.black, in: Capsule())
+                }
+            }
+            .contentShape(Rectangle())
+            .onTapGesture { if !isBusy { onSelectModel() } }
+
+            if !efforts.isEmpty {
+                HStack(spacing: 8) {
+                    Text("思考等级")
+                        .appFont(.caption)
+                        .foregroundStyle(.secondary)
+                    ForEach(efforts) { effort in
+                        let isCurrentEffort = isSelected && effort.id == currentEffort
+                        Button {
+                            onSelectEffort(effort)
+                        } label: {
+                            Text(effort.name)
+                                .appFont(.caption.weight(.medium))
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 5)
+                                .background(isCurrentEffort ? Color.primary : Color.secondary.opacity(0.12), in: Capsule())
+                                .foregroundStyle(isCurrentEffort ? Color(uiColor: .systemBackground) : .primary)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(isBusy)
+                    }
+                    Spacer(minLength: 0)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .background(Color(uiColor: .secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(isSelected ? Color.primary : Color.secondary.opacity(0.18), lineWidth: isSelected ? 1.5 : 1)
+        }
+        .opacity(isBusy ? 0.7 : 1)
+    }
+}
+
+
 private struct BundledAppReleaseInfo: Decodable {
     let version: String
     let minimumGatewayVersion: String

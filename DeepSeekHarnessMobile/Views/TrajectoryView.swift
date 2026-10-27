@@ -235,22 +235,8 @@ private struct TimelineOverviewCanvas: View {
                 } else {
                     .tool
                 }
-                for entry in layoutEntries {
-                    let node = entry.node
-                    let height: CGFloat = node.kind == .assistant ? 9 : 7
-                    let startX = entry.startFraction * size.width
-                    let naturalWidth = (entry.endFraction - entry.startFraction) * size.width
-                    let barWidth = max(node.kind == .input ? 2 : 1.5, naturalWidth)
-                    let rect = CGRect(
-                        x: max(0, min(size.width - barWidth, startX)),
-                        y: node.kind.laneY - height / 2,
-                        width: barWidth,
-                        height: height
-                    )
-                    context.fill(
-                        Path(roundedRect: rect, cornerRadius: 1),
-                        with: .color(node.kind.color(in: colorScheme))
-                    )
+                if let node = layout.nearestNode(x: value.location.x, width: width, lane: targetKind) {
+                    onSelect(node)
                 }
             }
         )

@@ -85,12 +85,12 @@
 		CF2010000000000000000003 /* ChatHistoryCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF2010000000000000000004 /* ChatHistoryCacheTests.swift */; };
 		CF2020000000000000000001 /* ChatSessionPrefetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF2020000000000000000002 /* ChatSessionPrefetcher.swift */; };
 		CF2030000000000000000001 /* ChatSessionPrefetcherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF2030000000000000000002 /* ChatSessionPrefetcherTests.swift */; };
-		CF204000000000000000001 /* RealSessionScrollPerformanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF204000000000000000002 /* RealSessionScrollPerformanceTests.swift */; };
-		CF205000000000000000001 /* DebugHistoryScrollMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF205000000000000000002 /* DebugHistoryScrollMetrics.swift */; };
-		CF205000000000000000011 /* HistoryPresentationAdmission.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF205000000000000000012 /* HistoryPresentationAdmission.swift */; };
-		CF206000000000000000001 /* FileUploadController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF206000000000000000002 /* FileUploadController.swift */; };
-		CF225000000000000000001 /* MarkdownTableCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF225000000000000000002 /* MarkdownTableCard.swift */; };
-		CF225000000000000000011 /* DocumentPageChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF225000000000000000012 /* DocumentPageChrome.swift */; };
+		CF2040000000000000000010 /* RealSessionScrollPerformanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF2040000000000000000020 /* RealSessionScrollPerformanceTests.swift */; };
+		CF2050000000000000000010 /* DebugHistoryScrollMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF2050000000000000000020 /* DebugHistoryScrollMetrics.swift */; };
+		CF2050000000000000000110 /* HistoryPresentationAdmission.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF2050000000000000000120 /* HistoryPresentationAdmission.swift */; };
+		CF2060000000000000000010 /* FileUploadController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF2060000000000000000020 /* FileUploadController.swift */; };
+		CF2250000000000000000010 /* MarkdownTableCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF2250000000000000000020 /* MarkdownTableCard.swift */; };
+		CF2250000000000000000110 /* DocumentPageChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF2250000000000000000120 /* DocumentPageChrome.swift */; };
 		D3A40BFC0B9C8D4B1C8FAA95 /* DeepSeekHarnessMobileApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 430CA64DF207C7EF58574336 /* DeepSeekHarnessMobileApp.swift */; };
 		E20191A4C7B1C0A8FF57CAC1 /* Glass.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCF581253EBCFEB43865AB51 /* Glass.swift */; };
 		AA6100000000000000000011 /* TeamGlyph.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA6100000000000000000010 /* TeamGlyph.swift */; };
@@ -102,7 +102,7 @@
 		E73A2DB9D678DA4B8C01E349 /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = 4CE3D78565179C422C796509 /* MarkdownUI */; };
 		E7585B9F7F89A3084B6E0182 /* WorkspaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D610757C1FF81FD953A9D000 /* WorkspaceView.swift */; };
 		EAAE88B94CBECC20963D9646 /* AdaptiveLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D3FFEFFB831B9A6454ECA0E /* AdaptiveLayoutTests.swift */; };
-		CF227000000000000000001 /* TrajectoryOverviewLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF227000000000000000002 /* TrajectoryOverviewLayoutTests.swift */; };
+		CF2270000000000000000010 /* TrajectoryOverviewLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF2270000000000000000020 /* TrajectoryOverviewLayoutTests.swift */; };
 		F1A000000000000000000001 /* AgentActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A000000000000000000011 /* AgentActivityAttributes.swift */; };
 		F1A000000000000000000002 /* AgentActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A000000000000000000011 /* AgentActivityAttributes.swift */; };
 		F1A000000000000000000003 /* AgentApprovalIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A000000000000000000012 /* AgentApprovalIntents.swift */; };
@@ -172,7 +172,7 @@
 		59B069578BB7F31AD35F601A /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		5A37B43613D712F252BA91D7 /* RootView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		5D3FFEFFB831B9A6454ECA0E /* AdaptiveLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdaptiveLayoutTests.swift; sourceTree = "<group>"; };
-		CF227000000000000000002 /* TrajectoryOverviewLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrajectoryOverviewLayoutTests.swift; sourceTree = "<group>"; };
+		CF2270000000000000000020 /* TrajectoryOverviewLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrajectoryOverviewLayoutTests.swift; sourceTree = "<group>"; };
 		61A1F439244BA594BF547C92 /* AppStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppStore.swift; sourceTree = "<group>"; };
 		65009160A0642089906B54DF /* TrajectoryView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TrajectoryView.swift; sourceTree = "<group>"; };
 		65B6B2953247E15BDA40F0BB /* GatewaySwitcherView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GatewaySwitcherView.swift; sourceTree = "<group>"; };
@@ -219,12 +219,12 @@
 		CF2010000000000000000004 /* ChatHistoryCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatHistoryCacheTests.swift; sourceTree = "<group>"; };
 		CF2020000000000000000002 /* ChatSessionPrefetcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatSessionPrefetcher.swift; sourceTree = "<group>"; };
 		CF2030000000000000000002 /* ChatSessionPrefetcherTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatSessionPrefetcherTests.swift; sourceTree = "<group>"; };
-		CF204000000000000000002 /* RealSessionScrollPerformanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RealSessionScrollPerformanceTests.swift; sourceTree = "<group>"; };
-		CF205000000000000000002 /* DebugHistoryScrollMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugHistoryScrollMetrics.swift; sourceTree = "<group>"; };
-		CF205000000000000000012 /* HistoryPresentationAdmission.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryPresentationAdmission.swift; sourceTree = "<group>"; };
-		CF206000000000000000002 /* FileUploadController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileUploadController.swift; sourceTree = "<group>"; };
-		CF225000000000000000002 /* MarkdownTableCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownTableCard.swift; sourceTree = "<group>"; };
-		CF225000000000000000012 /* DocumentPageChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentPageChrome.swift; sourceTree = "<group>"; };
+		CF2040000000000000000020 /* RealSessionScrollPerformanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RealSessionScrollPerformanceTests.swift; sourceTree = "<group>"; };
+		CF2050000000000000000020 /* DebugHistoryScrollMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugHistoryScrollMetrics.swift; sourceTree = "<group>"; };
+		CF2050000000000000000120 /* HistoryPresentationAdmission.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryPresentationAdmission.swift; sourceTree = "<group>"; };
+		CF2060000000000000000020 /* FileUploadController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileUploadController.swift; sourceTree = "<group>"; };
+		CF2250000000000000000020 /* MarkdownTableCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownTableCard.swift; sourceTree = "<group>"; };
+		CF2250000000000000000120 /* DocumentPageChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentPageChrome.swift; sourceTree = "<group>"; };
 		D610757C1FF81FD953A9D000 /* WorkspaceView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WorkspaceView.swift; sourceTree = "<group>"; };
 		D98111628697EC1C4FF9878B /* SettingsView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		DCB5E4921392A6503AD87B74 /* ConversationSidebar.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ConversationSidebar.swift; sourceTree = "<group>"; };
@@ -356,7 +356,7 @@
 				AF18C0000000000000000004 /* WorkspacePreviewCacheTests.swift */,
 				CF2010000000000000000004 /* ChatHistoryCacheTests.swift */,
 				5D3FFEFFB831B9A6454ECA0E /* AdaptiveLayoutTests.swift */,
-				CF227000000000000000002 /* TrajectoryOverviewLayoutTests.swift */,
+				CF2270000000000000000020 /* TrajectoryOverviewLayoutTests.swift */,
 				CF2030000000000000000002 /* ChatSessionPrefetcherTests.swift */,
 				CA11E0000000000000000011 /* LocalizationCatalogTests.swift */,
 				FEABDA4B6DAF199B320B1BA1 /* MultiGatewayTests.swift */,
@@ -444,8 +444,8 @@
 			isa = PBXGroup;
 			children = (
 				AA6200000000000000000010 /* TeamAvatarView.swift */,
-				CF225000000000000000012 /* DocumentPageChrome.swift */,
-				CF225000000000000000002 /* MarkdownTableCard.swift */,
+				CF2250000000000000000120 /* DocumentPageChrome.swift */,
+				CF2250000000000000000020 /* MarkdownTableCard.swift */,
 				8B77DEC008C0209D814CD7BE /* VoiceRipplePanel.swift */,
 				FCF581253EBCFEB43865AB51 /* Glass.swift */,
 				AF17C0000000000000000002 /* FileTypeIcon.swift */,
@@ -527,7 +527,7 @@
 			isa = PBXGroup;
 			children = (
 				F2B000000000000000000002 /* WorkspaceDrawerUITests.swift */,
-				CF204000000000000000002 /* RealSessionScrollPerformanceTests.swift */,
+				CF2040000000000000000020 /* RealSessionScrollPerformanceTests.swift */,
 			);
 			path = DeepSeekHarnessMobileUITests;
 			sourceTree = "<group>";
@@ -750,7 +750,7 @@
 				AF18C0000000000000000003 /* WorkspacePreviewCacheTests.swift in Sources */,
 				CF2010000000000000000003 /* ChatHistoryCacheTests.swift in Sources */,
 				EAAE88B94CBECC20963D9646 /* AdaptiveLayoutTests.swift in Sources */,
-				CF227000000000000000001 /* TrajectoryOverviewLayoutTests.swift in Sources */,
+				CF2270000000000000000010 /* TrajectoryOverviewLayoutTests.swift in Sources */,
 				CF2030000000000000000001 /* ChatSessionPrefetcherTests.swift in Sources */,
 				CA11E000000000000000000F /* LocalizationCatalogTests.swift in Sources */,
 				75392054CB69B9596796C57A /* MultiGatewayTests.swift in Sources */,
@@ -803,8 +803,8 @@
 				A0C0FFEE0000000000000001 /* ConversationViewport.swift in Sources */,
 				B0C0FFEE0000000000000001 /* HarnessAnimatedBackground.swift in Sources */,
 				B0A10000000000000000000F /* BackgroundAnimationPause.swift in Sources */,
-				CF225000000000000000001 /* MarkdownTableCard.swift in Sources */,
-				CF225000000000000000011 /* DocumentPageChrome.swift in Sources */,
+				CF2250000000000000000010 /* MarkdownTableCard.swift in Sources */,
+				CF2250000000000000000110 /* DocumentPageChrome.swift in Sources */,
 				605DCE79952E970820A95606 /* ConversationView.swift in Sources */,
 				605DCE79952E970820A95607 /* HumanQuestionView.swift in Sources */,
 				B0A100000000000000000001 /* BridgeTransport.swift in Sources */,
@@ -841,7 +841,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				F2B000000000000000000001 /* WorkspaceDrawerUITests.swift in Sources */,
-				CF204000000000000000001 /* RealSessionScrollPerformanceTests.swift in Sources */,
+				CF2040000000000000000010 /* RealSessionScrollPerformanceTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

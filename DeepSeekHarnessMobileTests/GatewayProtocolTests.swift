@@ -14485,6 +14485,9 @@ final class ConversationSegmentsSourceTests: XCTestCase {
         let store = AppStore(preferences: UserDefaultsAppPreferences(userDefaults: UserDefaults(suiteName: "seg-src2")!, gatewayID: "t"),
                              gatewayClient: GatewayClient(credentials: nil), gatewayLocalID: "t")
         XCTAssertEqual(store.conversationSegments(for: "s1"), ["s1"], "无来源（普通会话）→ 只有当前段")
+    }
+}
+
 @MainActor
 final class MarkdownTableRenderingTests: XCTestCase {
     private let source = "| 编号 | 任务名称 | 负责人 | 部门 | 优先级 | 开始日期 | 截止日期 | 状态 | 交付物 | 备注 |\n"

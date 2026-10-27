@@ -58,9 +58,22 @@ cat > "$DEPS/MarkdownUI.swift" <<'STUB'
 import SwiftUI
 import UIKit
 
+/// 上游 Vendor（MarkdownTableCard）：表格列的水平对齐。
+@frozen public enum TextTableColumnAlignment {
+    case leading, center, trailing
+}
+
 public struct MarkdownContent {
     public init(_ text: String) {}
     public func linkingInlineCode(_ destinations: [String: String]) -> MarkdownContent { self }
+    /// 上游 Vendor（MarkdownTableCard）：表格单元格、纯文本行、列对齐。
+    /// MarkdownTableCard 只读这三个访问器，桩按真实签名补即可，不需要实现。
+    public var tableCells: [[MarkdownContent]]? { nil }
+    public var tablePlainTextRows: [[String]] { [] }
+    public var tableColumnAlignments: [TextTableColumnAlignment] { [] }
+    /// 上游 Vendor（ConversationView）：判断是否含表格 / 复制选择区段的 HTML。
+    public var containsTable: Bool { false }
+    public func renderSelectionHTML() -> String { "" }
     /// 上游 Vendor 新增：复制消息用纯文本 / 可选中富文本（全屏选择页）。
     public func renderPlainText() -> String { "" }
     /// 文件引用链接（`dsh-file-reference:///`）的 HTML 输出，测试用它断言顺序/去重。
@@ -103,6 +116,19 @@ public struct Theme {
     public func listItem(_ content: @escaping (ListItemConfiguration) -> some View) -> Theme { self }
     public func codeBlock(_ content: @escaping (CodeBlockConfiguration) -> some View) -> Theme { self }
     public func thematicBreak(@ViewBuilder _ content: () -> some View) -> Theme { self }
+    /// 上游 Vendor：表格样式（MarkdownTableCard 走这条）。
+    public func table(@ViewBuilder _ content: @escaping (BlockConfiguration) -> some View) -> Theme { self }
+    public func tableCell(@ViewBuilder _ content: @escaping (TableCellConfiguration) -> some View) -> Theme { self }
+}
+
+public struct BlockConfiguration {
+    /// 表格块的 MarkdownContent（MarkdownTableCard 用它取 cells / alignments）。
+    public var content: MarkdownContent { MarkdownContent("") }
+    public var label: AnyView { AnyView(EmptyView()) }
+}
+
+public struct TableCellConfiguration {
+    public var label: AnyView { AnyView(EmptyView()) }
 }
 
 public struct ParagraphConfiguration { public var label: AnyView { AnyView(EmptyView()) } }

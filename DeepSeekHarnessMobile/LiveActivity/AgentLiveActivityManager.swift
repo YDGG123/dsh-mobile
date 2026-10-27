@@ -983,6 +983,9 @@ enum AgentLiveActivityAlertPolicy {
 // `ActivityContent` / `activity.content` / `update(_:alertConfiguration:)` /
 // `end(_:dismissalPolicy:)` 均为 iOS 16.2 起可用；iOS 16.1 走 contentState 版 API。
 
+/// 整个兼容层都建立在 `AgentActivityAttributes`（iOS 16.1+）之上，
+/// 部署目标是 16.0，所以这里必须显式标注可用性，否则 16.0 上类型不存在。
+@available(iOS 16.1, *)
 private extension Activity where Attributes == AgentActivityAttributes {
     static func requestCompat(
         attributes: AgentActivityAttributes,

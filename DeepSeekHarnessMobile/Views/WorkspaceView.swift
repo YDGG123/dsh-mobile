@@ -38,6 +38,11 @@ struct WorkspaceView: View {
 
     @ViewBuilder
     var body: some View {
+        // iOS 27.1 竖向工具栏：`#available` 只保护运行时，保护不了编译期。
+        // 当前 Xcode 26.3 / SDK 26.2 里没有 `toolbarVerticalEdge` / `axisBehavior` 符号，
+        // 所以这段必须用编译器版本隔离——代码保留，等升到 Xcode 27+ 自动启用。
+        // 详见 Docs/ios-27.1-api-pending.md。
+        #if compiler(>=6.3)
         if #available(iOS 27.1, *) {
             WorkspaceVerticalToolbarLayout { usesVerticalToolbar in
                 workspaceBody(usesVerticalToolbar: usesVerticalToolbar)
@@ -58,6 +63,10 @@ struct WorkspaceView: View {
         } else {
             workspaceBody(usesVerticalToolbar: false)
         }
+        #else
+        // Xcode 26.3 / SDK 26.2 及更早：没有 27.1 的工具栏 API，直接走成熟路径。
+        workspaceBody(usesVerticalToolbar: false)
+        #endif
     }
 
     private func workspaceBody(usesVerticalToolbar: Bool) -> some View {
@@ -71,46 +80,28 @@ struct WorkspaceView: View {
             let fullHeight = geometry.size.height + topInset + safeArea.bottom
             let fullWidth = geometry.size.width + safeArea.leading + safeArea.trailing
 
-            ZStack(alignment: .leading) {
-                (colorScheme == .dark
-                    ? Color(red: 36.0 / 255, green: 36.0 / 255, blue: 38.0 / 255)
-                    : Color.white)
-                drawerContent(progress: progress, topInset: topInset, width: drawerWidth)
-                    .padding(.leading, safeArea.leading)
-                    .frame(width: drawerWidth, height: fullHeight, alignment: .topLeading)
-                    .highPriorityGesture(drawerClosingGesture(width: drawerWidth))
+            // 显式拆成三个局部量：单个 ViewBuilder 表达式过复杂时，
+            // 测试目标（-enable-testing）会触发 "unable to type-check in reasonable time"。
+            let drawerLayer: some View = drawerContent(
+                progress: progress, topInset: topInset, width: drawerWidth
+            )
+                .padding(.leading, safeArea.leading)
+                .frame(width: drawerWidth, height: fullHeight, alignment: .topLeading)
+                .highPriorityGesture(drawerClosingGesture(width: drawerWidth))
 
-                workspaceContent(
-                    openDrawer: { openDrawer(width: drawerWidth) },
-                    size: geometry.size,
-                    safeArea: safeArea,
-                    drawerWidth: drawerWidth,
+            let backdrop: Color = colorScheme == .dark
+                ? Color(red: 36.0 / 255, green: 36.0 / 255, blue: 38.0 / 255)
+                : Color.white
+
+            ZStack(alignment: .leading) {
+                backdrop
+                drawerLayer
+
+                contentLayer(
+                    size: geometry.size, safeArea: safeArea, drawerWidth: drawerWidth,
+                    fullHeight: fullHeight, dimOpacity: dimOpacity, progress: progress,
                     usesVerticalToolbar: usesVerticalToolbar
                 )
-                    .frame(width: geometry.size.width, height: fullHeight)
-                    .padding(.leading, safeArea.leading)
-                    .padding(.trailing, safeArea.trailing)
-                    // 先扩展到窗口四边，再绘制和裁剪背景；正文仍留在安全区内。
-                    .background { DeepOceanBackground(prefersOpenLightArcs: usesVerticalToolbar) }
-                    .overlay {
-                        Color.black.opacity(dimOpacity)
-                            .allowsHitTesting(false)
-                    }
-                    // B4 候选 2：这组「剪裁 + 离屏合成 + 双层实时阴影」会在呈现（push/Menu）
-                    // 强制对来源做快照时把主线程拖住；sheet 呈现不走这条快照路径，正好解释
-                    // 「sheet 不卡、push 与 Menu 都卡」。诊断开关可整体关掉（进度为 0 时视觉等价）。
-                    .modifier(WorkspaceCardComposition(progress: progress))
-                    .overlay(alignment: .leading) {
-                        if progress > 0.98 || drawerDragStart != nil {
-                            Color.clear
-                                .contentShape(Rectangle())
-                                .onTapGesture { closeDrawer() }
-                                .highPriorityGesture(drawerClosingGesture(width: drawerWidth))
-                                .accessibilityLabel("关闭侧边栏")
-                                .accessibilityAddTraits(.isButton)
-                        }
-                    }
-                    .offset(x: drawerOffset)
             }
             .frame(width: fullWidth, height: fullHeight)
             .offset(x: -safeArea.leading, y: -topInset)
@@ -205,6 +196,48 @@ struct WorkspaceView: View {
                 return true
             }
         }
+    }
+
+    /// `workspaceBody` 里的主体层。抽出来是为了把一条长修饰符链从 `body` 的
+    /// 类型推导里拿开——测试目标（-enable-testing）会对复杂 ViewBuilder 报
+    /// "unable to type-check this expression in reasonable time"。
+    @ViewBuilder
+    private func contentLayer(
+        size: CGSize, safeArea: EdgeInsets, drawerWidth: CGFloat,
+        fullHeight: CGFloat, dimOpacity: Double, progress: CGFloat,
+        usesVerticalToolbar: Bool
+    ) -> some View {
+        workspaceContent(
+            openDrawer: { openDrawer(width: drawerWidth) },
+            size: size,
+            safeArea: safeArea,
+            drawerWidth: drawerWidth,
+            usesVerticalToolbar: usesVerticalToolbar
+        )
+            .frame(width: size.width, height: fullHeight)
+            .padding(.leading, safeArea.leading)
+            .padding(.trailing, safeArea.trailing)
+            // 先扩展到窗口四边，再绘制和裁剪背景；正文仍留在安全区内。
+            .background { DeepOceanBackground(prefersOpenLightArcs: usesVerticalToolbar) }
+            .overlay {
+                Color.black.opacity(dimOpacity)
+                    .allowsHitTesting(false)
+            }
+            // B4 候选 2：这组「剪裁 + 离屏合成 + 双层实时阴影」会在呈现（push/Menu）
+            // 强制对来源做快照时把主线程拖住；sheet 呈现不走这条快照路径，正好解释
+            // 「sheet 不卡、push 与 Menu 都卡」。诊断开关可整体关掉（进度为 0 时视觉等价）。
+            .modifier(WorkspaceCardComposition(progress: progress))
+            .overlay(alignment: .leading) {
+                if progress > 0.98 || drawerDragStart != nil {
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .onTapGesture { closeDrawer() }
+                        .highPriorityGesture(drawerClosingGesture(width: drawerWidth))
+                        .accessibilityLabel("关闭侧边栏")
+                        .accessibilityAddTraits(.isButton)
+                }
+            }
+            .offset(x: drawerOffset)
     }
 
     private func workspaceContent(
@@ -735,7 +768,7 @@ struct WorkspaceView: View {
         bridgeChat = BridgeChatTarget(row: row, engine: engine)
     }
 
-    private func header(openDrawer: @escaping () -> Void) -> some View {
+    private func header(openDrawer: @escaping () -> Void, usesVerticalToolbar: Bool = false) -> some View {
         HStack {
             Button(action: openDrawer) {
                 // B6：品牌字标以前默认 onDarkBackground=true（白字 + 白色反相字标），
@@ -748,12 +781,16 @@ struct WorkspaceView: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("打开侧边栏")
             Spacer()
-            // U5：原版连接入口常驻——扫码 / 手动输入配对信息（已连接时也可重新配对）。
-            authenticationMenu
-                .padding(.trailing, 6)
-            settingsButton
-                // Match the outer glass circle to the workspace cards' trailing edge.
-                .padding(.trailing, -4)
+            // iOS 27.1+ 系统把工具栏排成竖向时，认证菜单/设置已挂到 toolbar 上，
+            // header 里不再重复一份；16/17/26 走 else 分支，入口照旧常驻。
+            if !usesVerticalToolbar {
+                // U5：原版连接入口常驻——扫码 / 手动输入配对信息（已连接时也可重新配对）。
+                authenticationMenu()
+                    .padding(.trailing, 6)
+                settingsButton
+                    // Match the outer glass circle to the workspace cards' trailing edge.
+                    .padding(.trailing, -4)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -923,6 +960,7 @@ struct WorkspaceView: View {
         headerButton(systemName: "gearshape.fill", accessibilityLabel: String(localized: "设置"), action: onSettings)
     }
 
+    #if compiler(>=6.3)
     @available(iOS 27.1, *)
     private var toolbarSettingsButton: some View {
         Button(action: onSettings) {
@@ -932,21 +970,24 @@ struct WorkspaceView: View {
         .buttonStyle(.plain)
         .accessibilityLabel(String(localized: "设置"))
     }
+    #endif
 
     @ViewBuilder
     private func headerButton(systemName: String, accessibilityLabel: String, action: @escaping () -> Void) -> some View {
         let label = headerButtonLabel(systemName: systemName)
-        if #available(iOS 26.0, *) {
-            Button(action: action) { label }
-                .buttonStyle(.glass)
-                .buttonBorderShape(.circle)
-                .accessibilityLabel(accessibilityLabel)
-        } else {
-            Button(action: action) { label }
-                .buttonStyle(.plain)
-                .background(.ultraThinMaterial, in: Circle())
-                .overlay(Circle().stroke(palette.stroke(0.25), lineWidth: 0.8))
-                .accessibilityLabel(accessibilityLabel)
+        Group {
+            if #available(iOS 26.0, *) {
+                Button(action: action) { label }
+                    .buttonStyle(.glass)
+                    .buttonBorderShape(.circle)
+                    .accessibilityLabel(accessibilityLabel)
+            } else {
+                Button(action: action) { label }
+                    .buttonStyle(.plain)
+                    .background(.ultraThinMaterial, in: Circle())
+                    .overlay(Circle().stroke(palette.stroke(0.25), lineWidth: 0.8))
+                    .accessibilityLabel(accessibilityLabel)
+            }
         }
         .glassCircleButton(onDarkBackground: true)
         .accessibilityLabel(accessibilityLabel)
@@ -1291,6 +1332,7 @@ struct WorkspaceView: View {
 }
 
 /// 根据系统栏的方向选择入口位置，不按设备型号或横竖屏推测。
+#if compiler(>=6.3)
 @available(iOS 27.1, *)
 private struct WorkspaceVerticalToolbarLayout<Content: View, Toolbar: ToolbarContent>: View {
     @Environment(\.toolbarVerticalEdge) private var verticalEdge
@@ -1307,6 +1349,7 @@ private struct WorkspaceVerticalToolbarLayout<Content: View, Toolbar: ToolbarCon
             .toolbarBackground(.hidden, for: .navigationBar)
     }
 }
+#endif
 
 /// 拖拽开始预热，松手同步反馈；取消和后续动画均不补震。
 @MainActor
