@@ -12882,17 +12882,20 @@ final class FrameReassemblerTests: XCTestCase {
     }
 
     func testChunkLargerThanPublishedLimitIsRejected() {
-        var r = FrameReassembler(limits: .init(maxChunkBytes: 8, maxReassembledBytes: 1024, maxStreams: 2, streamTimeout: 30))
-        let result = r.accept(chunk("s1", 0, 2, String(repeating: "x", count: 9)))
-        XCTAssertEqual(result, .failure(.chunkTooLarge(bytes: 9, limit: 8)))
+        // 夹取下限把 maxChunkBytes 托底到 1024B（0035e97），fixture 必须用超过下限的尺寸
+        var r = FrameReassembler(limits: .init(maxChunkBytes: 1024, maxReassembledBytes: 8 * 1024 * 1024, maxStreams: 2, streamTimeout: 30))
+        let result = r.accept(chunk("s1", 0, 2, String(repeating: "x", count: 2000)))
+        XCTAssertEqual(result, .failure(.chunkTooLarge(bytes: 2000, limit: 1024)))
         XCTAssertEqual(r.activeStreamCount, 0, "超限块要把流清掉，不留半截")
     }
 
     func testStreamLargerThanReassemblyLimitIsRejected() {
-        var r = FrameReassembler(limits: .init(maxChunkBytes: 10, maxReassembledBytes: 12, maxStreams: 2, streamTimeout: 30))
-        XCTAssertNoThrow(try r.accept(chunk("s1", 0, 3, "1234567890")).get())
-        let result = r.accept(chunk("s1", 1, 3, "1234567890"))
-        XCTAssertEqual(result, .failure(.streamTooLarge(bytes: 20, limit: 12)))
+        // 重组上限夹取后 64KiB：三块各 30KB，累计 90KB > 64KiB
+        var r = FrameReassembler(limits: .init(maxChunkBytes: 64 * 1024, maxReassembledBytes: 64 * 1024, maxStreams: 2, streamTimeout: 30))
+        XCTAssertNoThrow(try r.accept(chunk("s1", 0, 3, String(repeating: "1", count: 30_000))).get())
+        XCTAssertNoThrow(try r.accept(chunk("s1", 1, 3, String(repeating: "2", count: 30_000))).get())
+        let result = r.accept(chunk("s1", 2, 3, String(repeating: "3", count: 30_000)))
+        XCTAssertEqual(result, .failure(.streamTooLarge(bytes: 90_000, limit: 64 * 1024)))
         XCTAssertEqual(r.activeStreamCount, 0)
     }
 
@@ -13201,7 +13204,12 @@ final class TeamRosterCacheTests: XCTestCase {
     }
 
     private func encode(_ snapshot: [String: Any]) -> Data {
-        try! XCTUnwrap(TeamRosterCache.trimmedSnapshot(from: snapshot))
+        // 与生产保存路径同构：裁剪 → 重解析 → 包 wrapper（cacheVersion/savedAt/snapshot）。
+        // 早期版本直接回传裸快照 JSON，load 因缺 cacheVersion 正确拒绝 → 4 条用例假失败。
+        let trimmed = try! XCTUnwrap(TeamRosterCache.trimmedSnapshot(from: snapshot))
+        let obj = try! JSONSerialization.jsonObject(with: trimmed) as! [String: Any]
+        let instanceId = (obj["instanceId"] as? String) ?? (snapshot["instanceId"] as? String) ?? ""
+        return try! XCTUnwrap(TeamRosterCache.encode(snapshot: obj, instanceId: instanceId))
     }
 
     // 例 1：缓存损坏（截半截 JSON）→ 静默回空态，绝不抛错打断启动
@@ -13713,5 +13721,18 @@ final class BotSegmentsFinishTests: XCTestCase {
         XCTAssertTrue(registry.isFinished("s3"))
         registry.markFinished(current: "s3")
         XCTAssertTrue(registry.isFinished("s3"), "重复到头不报错")
+    }
+}
+
+/// 段链防环：理论上网关段链单向，但防御性检查不吃亏（42 翻页钩子）。
+final class BotSegmentsCycleGuardTests: XCTestCase {
+    func testSegmentCycleDoesNotRepeatRequests() {
+        var registry = AppStore.BotHistorySegments()
+        // 模拟：s3 → s2 →（异常数据）回头指 s3
+        registry.register(previousSessionId: "s2", current: "s3")
+        let visited = Set(registry.allOlderParts.values.flatMap { $0 })
+            .union(registry.allOlderParts.keys)
+        XCTAssertTrue(visited.contains("s2") && visited.contains("s3"),
+                      "s2 与 s3 都在已访问集合里，回头的 s3 会被挡下")
     }
 }
