@@ -718,6 +718,13 @@ final class GatewayTeamFeed: ObservableObject {
     /// 纯函数便于单测；`statusText` 里「实时状态暂不可用」的兜底依赖它不被假值填掉。
     nonisolated static func inheritsVolatileState(degraded: Bool) -> Bool { !degraded }
 
+    /// 帧里的 `degraded` 如何更新当前状态：**带字段才改、缺字段不动**。
+    /// 缺字段 ≠ 恢复（那是另一种谎报）；网关降级帧（`team-feed.mjs:534` 的
+    /// `kind:'delta' ... degraded:true`）每次都带，恢复靠 snapshot 或显式 `degraded:false`。
+    nonisolated static func degradedAfter(current: Bool, frame: [String: Any]) -> Bool {
+        (frame["degraded"] as? Bool) ?? current
+    }
+
     nonisolated static func cardOwner(_ card: [String: Any]) -> String? {
         let owner = (card["roomId"] as? String) ?? (card["botId"] as? String) ?? ""
         return owner.isEmpty ? nil : owner
@@ -856,6 +863,10 @@ final class GatewayTeamFeed: ObservableObject {
             return
         }
         let newSeq = (object["seq"] as? NSNumber)?.intValue ?? seq
+        // ⚠️ 降级**主要靠 delta 帧维持**（网关 `pollFallback` 只发 delta 且每帧带 degraded:true）。
+        // 原来这里一个字节都没读 → `degraded` 永远 false → `inheritsVolatileState` 照常沿用旧值，
+        // 「空闲显示正在干活」的修复在降级期间是空转的。必须在这里同步。
+        degraded = Self.degradedAfter(current: degraded, frame: object)
         guard let ops = object["ops"] as? [[String: Any]] else { return }
         var table = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0) })
         var order = rows.map(\.id)

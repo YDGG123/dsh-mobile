@@ -13562,3 +13562,71 @@ final class TeamDegradedStateTests: XCTestCase {
         XCTAssertNil(feed.statusText(for: row), "无 activity 且未降级时不显示具体状态")
     }
 }
+
+/// 网关 `debc076` 的翻页语义（第二步接线前的语义层，纯函数）。
+final class BotHistoryNextPageTests: XCTestCase {
+    // 本段还有更早内容 → 用 nextBeforeSeq 继续翻本段
+    func testHasMoreContinuesSameSegment() {
+        XCTAssertEqual(AppStore.botHistoryNextPage(hasMore: true, nextBeforeSeq: 42,
+                                                   previousSessionId: nil, currentSegment: "s3"),
+                       .sameSegment(beforeSeq: 42))
+    }
+
+    // 本段到头 + 有入口 → 换段（调用方必须不带 beforeSeq）
+    func testSegmentEndJumpsToPreviousSegment() {
+        XCTAssertEqual(AppStore.botHistoryNextPage(hasMore: false, nextBeforeSeq: nil,
+                                                   previousSessionId: "s2", currentSegment: "s3"),
+                       .previousSegment("s2"))
+    }
+
+    // 两个都没有 → 真到头（翻到最旧正常收尾）
+    func testNothingLeftFinishes() {
+        XCTAssertEqual(AppStore.botHistoryNextPage(hasMore: false, nextBeforeSeq: nil,
+                                                   previousSessionId: nil, currentSegment: "s3"),
+                       .finished)
+    }
+
+    // 说还有更早却不给游标：宁可停，也不猜
+    func testHasMoreWithoutCursorStops() {
+        XCTAssertEqual(AppStore.botHistoryNextPage(hasMore: true, nextBeforeSeq: nil,
+                                                   previousSessionId: "s2", currentSegment: "s3"),
+                       .finished, "不依赖两字段互斥的假设：缺游标就不能瞎翻")
+    }
+
+    // 入口指向当前段（防御）→ 当成到头，不重复登记
+    func testPreviousSessionPointingAtItselfIsIgnored() {
+        XCTAssertEqual(AppStore.botHistoryNextPage(hasMore: false, nextBeforeSeq: nil,
+                                                   previousSessionId: "s3", currentSegment: "s3"),
+                       .finished)
+    }
+
+    // 登记判据：收到 previousSessionId 才登记，发现顺序优先
+    func testRegisterFromPreviousSessionIdKeepsDiscoveryOrder() {
+        var registry = AppStore.BotHistorySegments()
+        registry.register(previousSessionId: "s2", current: "s3")
+        registry.register(previousSessionId: "s1", current: "s3")
+        registry.register(previousSessionId: "s2", current: "s3")   // 重复不二次登记
+        XCTAssertEqual(registry.allOlderParts["s3"] ?? [], ["s2", "s1"])
+    }
+}
+
+/// 降级状态必须从 **delta 帧**也能进入（2026-10-27 漏路径：降级主要靠 delta 维持）。
+/// 反向：删掉 `applyDelta` 里那行 `degraded = degradedAfter(...)` → 本组用例变红。
+final class TeamDegradedDeltaTests: XCTestCase {
+    func testDeltaFrameWithDegradedTrueFlipsState() {
+        XCTAssertTrue(GatewayTeamFeed.degradedAfter(current: false, frame: ["degraded": true]),
+                      "降级 delta 帧必须让状态置真，否则沿用旧值 = 继续谎报")
+    }
+
+    func testMissingFieldDoesNotChangeState() {
+        XCTAssertFalse(GatewayTeamFeed.degradedAfter(current: false, frame: [:]),
+                       "缺字段 ≠ 恢复；不能因为没写就当恢复了")
+        XCTAssertTrue(GatewayTeamFeed.degradedAfter(current: true, frame: ["seq": 7]),
+                      "缺字段时保持当前降级态")
+    }
+
+    func testExplicitFalseRestores() {
+        XCTAssertFalse(GatewayTeamFeed.degradedAfter(current: true, frame: ["degraded": false]),
+                       "显式 false 才恢复（双相兜底）")
+    }
+}
