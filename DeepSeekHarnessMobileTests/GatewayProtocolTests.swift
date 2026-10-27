@@ -13696,3 +13696,26 @@ final class HistoryPreviousSessionDecodeTests: XCTestCase {
         XCTAssertNil(frame.nextBeforeSeq)
     }
 }
+
+/// 接线用例：order 帧的 degraded 更新**真的接上了**（纯函数用例测不到这层）。
+/// 反向：删掉 `applyOrder` 里 `degraded = Self.degradedAfter(...)` 那行 → 两条断言变红。
+final class TeamOrderDegradedWiringTests: XCTestCase {
+    @MainActor
+    func testOrderFrameClearsDegradedFlag() {
+        let feed = GatewayTeamFeed()
+        // 先用一帧 degraded:true 把标志置真（模拟缓存水合后的降级态）
+        feed.applyOrder(["sessions": [:], "degraded": true])
+        XCTAssertTrue(feed.degradedForTesting, "前置：降级态已建立")
+        // 再来一帧显式 degraded:false → 必须清掉（启动后「实时状态不可用」挂着的根因）
+        feed.applyOrder(["sessions": [:], "degraded": false])
+        XCTAssertFalse(feed.degradedForTesting, "order 帧显式 false 必须清掉降级标记")
+    }
+
+    @MainActor
+    func testOrderFrameWithoutFieldKeepsCurrentState() {
+        let feed = GatewayTeamFeed()
+        feed.applyOrder(["sessions": [:], "degraded": true])
+        feed.applyOrder(["sessions": [:]])   // 缺字段：不动（缺字段 ≠ 恢复）
+        XCTAssertTrue(feed.degradedForTesting)
+    }
+}

@@ -146,6 +146,8 @@ final class GatewayTeamFeed: ObservableObject {
     private var lastPersistedResume: TeamFeedResumeStore.Resume?
     @Published private(set) var rows: [Row] = []
     @Published private(set) var degraded = false
+    /// 只读测试钩子：验证「帧 → degraded」的**接线**（纯函数用例测不到这层）
+    var degradedForTesting: Bool { degraded }
     @Published private(set) var lastError: String?
     @Published private(set) var seq: Int = 0
     @Published private(set) var hasMainBot: Bool = false
@@ -559,6 +561,9 @@ final class GatewayTeamFeed: ObservableObject {
         case "delta":
             applyDelta(object)
             persistResume()
+        // ⚠️ 新增帧类型时：问一次「它会不会改变『实时态是否可用』」。
+        // 会 → 同步 degradedAfter；不会 → 明确跳过（写下理由）。
+        // 历史：order 帧漏过这条（build 41→42 修），症状是启动后长时间显示「实时状态不可用」。
         case "order": applyOrder(object)
         case "card", "card-snapshot": applyCards(object)
         case "avatar": applyAvatarBatches(object)
@@ -755,7 +760,8 @@ final class GatewayTeamFeed: ObservableObject {
         }
     }
 
-    private func applyOrder(_ object: [String: Any]) {
+    /// internal 仅为接线测试：degraded 更新这层"接线漏没漏"只有实例能测（order 帧漏网教训）。
+    func applyOrder(_ object: [String: Any]) {
         // ⚠️ order 帧也要同步 degraded（网关 `team-feed.mjs:233` 每帧显式带）：
         // 它常是**缓存水合（degraded=true）之后最先到的帧**，且只在排序变化时才发——
         // 漏了这行，「实时状态不可用」会在启动窗口里一直挂着，直到某个 delta 恰好到来。
