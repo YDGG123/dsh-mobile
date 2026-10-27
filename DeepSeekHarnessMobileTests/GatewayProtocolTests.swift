@@ -13424,3 +13424,58 @@ final class TeamCardTextTests: XCTestCase {
         XCTAssertEqual(list.map(\.kind), ["view", "secret"])
     }
 }
+
+/// 卡片增量帧的状态维护（2026-10-26 真机「ReleaseBot 在等你回答」删不掉）。
+/// 根因：`card.answered` / `card.cleared` 帧**不带 `card` 字段**，
+/// 早期只捞 `card` 的实现会把整帧跳过 → 红点只能等快照刷新才清。
+final class TeamCardOpsTests: XCTestCase {
+    private func shown(_ id: String, bot: String) -> [String: Any] {
+        ["op": "card.shown", "id": id, "card": ["id": id, "kind": "question", "botId": bot,
+                                              "questions": [["id": "q-\(id)", "question": "要选哪个？"]]]]
+    }
+
+    // ① shown 是增量：后一张卡不能把前一张冲掉
+    func testShownOpsAccumulatePerOwner() {
+        var live = GatewayTeamFeed.cardTable(from: [])
+        live = GatewayTeamFeed.applyingCardOps([shown("c1", bot: "b1")], to: live)
+        live = GatewayTeamFeed.applyingCardOps([shown("c2", bot: "b1")], to: live)
+        let state = GatewayTeamFeed.cardState(from: live)
+        XCTAssertEqual(state.counts["b1"], 2, "增量 shown 必须累加，不能每帧重算")
+        XCTAssertEqual(state.questions["b1"]?.count, 2)
+    }
+
+    // ② cleared / answered 立刻生效（这两帧不带 card）
+    func testClearedAndAnsweredRemoveImmediately() {
+        var live = GatewayTeamFeed.cardTable(from: [
+            ["id": "c1", "kind": "question", "botId": "b1", "questions": [["id": "q", "question": "A"]]],
+            ["id": "c2", "kind": "view", "roomId": "r1", "view": ["title": "确认部署"]],
+        ])
+        XCTAssertEqual(GatewayTeamFeed.cardState(from: live).counts["b1"], 1)
+
+        live = GatewayTeamFeed.applyingCardOps([["op": "card.cleared", "id": "c1"]], to: live)
+        XCTAssertNil(GatewayTeamFeed.cardState(from: live).counts["b1"], "cleared 必须立刻清掉 b1 的红点")
+
+        live = GatewayTeamFeed.applyingCardOps([["op": "card.answered", "id": "c2"]], to: live)
+        XCTAssertNil(GatewayTeamFeed.cardState(from: live).counts["r1"], "answered 同样按 id 摘掉")
+    }
+
+    // ③ 未知 op / 缺字段不崩、不误删
+    func testUnknownOpsAreIgnored() {
+        let live = GatewayTeamFeed.cardTable(from: [
+            ["id": "c1", "kind": "question", "botId": "b1", "questions": [["id": "q", "question": "A"]]],
+        ])
+        let after = GatewayTeamFeed.applyingCardOps(
+            [["op": "card.unknown", "id": "c1"], ["op": "card.cleared"], ["id": "c1"]], to: live)
+        XCTAssertEqual(GatewayTeamFeed.cardState(from: after).counts["b1"], 1, "无效 op 不能被当成清除")
+    }
+
+    // ④ 快照整体替换：掉线的卡不残留
+    func testSnapshotReplacesWholeTable() {
+        let live = GatewayTeamFeed.cardTable(from: [
+            ["id": "old", "kind": "question", "botId": "b1", "questions": [["id": "q", "question": "旧"]]],
+        ])
+        XCTAssertEqual(GatewayTeamFeed.cardState(from: live).counts["b1"], 1)
+        let replaced = GatewayTeamFeed.cardTable(from: [])
+        XCTAssertTrue(GatewayTeamFeed.cardState(from: replaced).counts.isEmpty)
+    }
+}

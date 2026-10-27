@@ -119,6 +119,13 @@ final class GatewayTeamFeed: ObservableObject {
     private let rosterStore = TeamRosterCacheStore()
     /// 首次水合/首次实时渲染各打一条启动时间轴。
     private var didMarkBotsRendered = false
+    /// 卡片帧是**增量 op**（`card.shown` / `card.answered` / `card.cleared`），
+    /// 必须自己维护一份"当前活着的卡"，否则：
+    /// - 每个 shown 帧只带那几张卡 → 重算会把别的卡当"消失"，红点抖；
+    /// - answered/cleared 帧**不带 card 字段** → 旧代码直接整帧跳过，
+    ///   于是"ReleaseBot 在等你回答"永远消不掉（真机反馈）。
+    private var liveCards: [String: [String: [String: Any]]] = [:]
+
     /// 最近一次真实快照的原始 JSON：卡片帧到达时用它重算并回写缓存（含卡片计数）。
     private var lastSnapshotObject: [String: Any]?
 
@@ -706,6 +713,60 @@ final class GatewayTeamFeed: ObservableObject {
     /// 止血要点：正文**必须留下来**，否则用户看到「等你回答」点进去是空白
     /// （真机反馈）。这里按 owner（roomId 优先，其次 botId）归集，
     /// 同时给出计数，供断网缓存 `_cardCounts` 使用。
+    /// 卡片归属键：`roomId` 优先，其次 `botId`（与网关 `normalizeCard` 的字段一致）。
+    nonisolated static func cardOwner(_ card: [String: Any]) -> String? {
+        let owner = (card["roomId"] as? String) ?? (card["botId"] as? String) ?? ""
+        return owner.isEmpty ? nil : owner
+    }
+
+    /// 把一帧 `ops` 应用到"当前活着的卡"上（纯函数，便于单测）。
+    /// `card.shown` 增/覆盖，`card.answered` / `card.cleared` 按 id 删——
+    /// **后两种不带 `card` 字段**，早期只捞 `card` 的实现会把整帧跳过，红点就永远清不掉。
+    nonisolated static func applyingCardOps(
+        _ ops: [[String: Any]], to live: [String: [String: [String: Any]]]
+    ) -> [String: [String: [String: Any]]] {
+        var next = live
+        for op in ops {
+            guard let name = op["op"] as? String, let id = op["id"] as? String else { continue }
+            switch name {
+            case "card.shown":
+                guard let card = op["card"] as? [String: Any],
+                      let owner = cardOwner(card) else { continue }
+                next[owner, default: [:]][id] = card
+            case "card.answered", "card.cleared":
+                for owner in next.keys {
+                    next[owner]?[id] = nil
+                    if next[owner]?.isEmpty == true { next[owner] = nil }
+                }
+            default:
+                continue
+            }
+        }
+        return next
+    }
+
+    /// 整帧快照 → live 表（纯函数）。
+    nonisolated static func cardTable(from cards: [[String: Any]]) -> [String: [String: [String: Any]]] {
+        var next: [String: [String: [String: Any]]] = [:]
+        for card in cards {
+            guard let owner = cardOwner(card), let id = card["id"] as? String else { continue }
+            next[owner, default: [:]][id] = card
+        }
+        return next
+    }
+
+    /// 从"当前活着的卡"归一成计数 + 正文（纯函数，便于单测）。
+    nonisolated static func cardState(from live: [String: [String: [String: Any]]])
+        -> (counts: [String: Int], questions: [String: [CardQuestion]]) {
+        var counts: [String: Int] = [:]
+        var questions: [String: [CardQuestion]] = [:]
+        for (owner, cards) in live where !cards.isEmpty {
+            counts[owner] = cards.count
+            questions[owner] = cards.values.compactMap { cardQuestion(from: $0) }
+        }
+        return (counts, questions)
+    }
+
     nonisolated static func cardOwners(from cards: [[String: Any]])
         -> (counts: [String: Int], questions: [String: [CardQuestion]]) {
         var counts: [String: Int] = [:]
@@ -757,13 +818,13 @@ final class GatewayTeamFeed: ObservableObject {
     }
 
     func applyCards(_ object: [String: Any]) {
-        let cards: [[String: Any]]
-        if let list = object["cards"] as? [[String: Any]] {
-            cards = list
+        // 两种形态：整帧快照（`cards`）与增量（`ops`：card.shown/answered/cleared）。
+        if let cards = object["cards"] as? [[String: Any]] {
+            liveCards = Self.cardTable(from: cards)            // 快照：整体替换
         } else {
-            cards = ((object["ops"] as? [[String: Any]]) ?? []).compactMap { $0["card"] as? [String: Any] }
+            liveCards = Self.applyingCardOps((object["ops"] as? [[String: Any]]) ?? [], to: liveCards)
         }
-        let parsed = Self.cardOwners(from: cards)
+        let parsed = Self.cardState(from: liveCards)
         for index in rows.indices {
             let key = pendingKey(rows[index])
             rows[index].placeholderCards = parsed.counts[key] ?? 0
