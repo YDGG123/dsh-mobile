@@ -1124,11 +1124,19 @@ final class AppStore: ObservableObject {
     /// 超出部分按发现顺序（最旧的）截掉，不影响新段。
     nonisolated static let maxMergedSegments = 16
 
+    /// 段列表来源（优先级）：**feed 快照的 `parts`（服务端顺序，权威）** ∪ 翻页发现的旧段
+    /// （发现顺序）。后者在钩子未跑过时为空——修复"用户翻不到底 → 永远发现不了旧段"。
+    /// 由 WorkspaceView 注入 `botSegmentSource`（feed 归 GatewayTeamFeed 所有）。
+    var botSegmentSource: ((String) -> [String])?
+
     func conversationSegments(for current: String) -> [String] {
         guard !current.isEmpty else { return [] }
         var ids = [current]
-        for older in botSegments.allOlderParts[current] ?? [] where !ids.contains(older) {
-            ids.append(older)
+        // 服务端顺序优先（权威）；botSegments 的发现顺序追加在后（不与前者重复）
+        for source in [botSegmentSource?(current) ?? [], botSegments.allOlderParts[current] ?? []] {
+            for id in source where !id.isEmpty && !ids.contains(id) {
+                ids.append(id)
+            }
         }
         return Array(ids.prefix(Self.maxMergedSegments))
     }
@@ -1830,10 +1838,11 @@ final class AppStore: ObservableObject {
     /// （每段进自己的桶，seq 不冲突；渲染聚合在 `selectedConversationItems`）。
     /// 不发网络请求——网络兜底仍由既有 `loadHistory` 链路负责。
     func hydrateConversationSegmentsCache(for sessionId: String) async {
-        guard let chatHistoryCache, events[sessionId, default: []].isEmpty,
-              conversationSegments(for: sessionId).count > 1 else { return }
+        guard let chatHistoryCache, events[sessionId, default: []].isEmpty else { return }
+        let segments = conversationSegments(for: sessionId)
+        guard segments.count > 1 else { return }   // 没有已知旧段：等快照 parts 或翻页发现
         let generation = chatCacheSelectionGeneration
-        for segment in conversationSegments(for: sessionId).dropFirst() {
+        for segment in segments.dropFirst() {
             guard selectedSessionId == sessionId, generation == chatCacheSelectionGeneration,
                   events[segment, default: []].isEmpty else { continue }
             if let window = await chatHistoryCache.loadTyped(gatewayID: gatewayLocalID, sessionID: segment) {

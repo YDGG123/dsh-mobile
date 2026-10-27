@@ -106,6 +106,9 @@ final class GatewayTeamFeed: ObservableObject {
         /// ds-bot 调色板 key（契约明写「手机端需同名映射」），默认块颜色优先用它。
         var colorKey: String?
         var placeholderCards: Int = 0
+        /// Bot 的历史分段列表（网关快照 `parts`，**服务端顺序即权威顺序**）。
+        /// 段 = 长会话被切开的历史桶；读取聚合按它跨段读缓存。普通会话/群聊为 nil。
+        var parts: [String]? = nil
         /// card 帧带来的正文（止血方案）。空 = 只有计数没有正文。
         var cardQuestions: [CardQuestion] = []
     }
@@ -972,6 +975,7 @@ final class GatewayTeamFeed: ObservableObject {
                         if row.waiting == nil { row.waiting = existing.waiting }
                     }
                     row.placeholderCards = existing.placeholderCards
+                    row.parts = row.parts ?? existing.parts
                 }
                 if table[row.id] == nil { order.append(row.id) }
                 table[row.id] = row
@@ -1074,6 +1078,11 @@ final class GatewayTeamFeed: ObservableObject {
     }
 
     var bots: [Row] { sortedRows.filter { $0.kind == .bot } }
+
+    /// 某会话（段）归属 Bot 的分段列表（服务端顺序）。找不到行 → 空数组。
+    func rowParts(forSessionId sessionId: String) -> [String] {
+        rows.first { $0.sessionId == sessionId || $0.id == sessionId }?.parts ?? []
+    }
     var rooms: [Row] { sortedRows.filter { $0.kind == .room } }
 
     /// 需求 4：名字下面那行实时状态。`nil` 表示这一行没有要显示的状态。

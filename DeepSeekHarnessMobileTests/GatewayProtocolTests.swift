@@ -13767,3 +13767,22 @@ final class ConversationSegmentsTests: XCTestCase {
         XCTAssertEqual(segments.first, "s3", "当前段永不被截")
     }
 }
+
+/// 段列表来源优先级（44 翻页钩子的"发现顺序"补上快照权威顺序）。
+@MainActor
+final class ConversationSegmentsSourceTests: XCTestCase {
+    func testFeedPartsTakePriorityAndDiscoveredPartsAppend() {
+        let store = AppStore(preferences: UserDefaultsAppPreferences(userDefaults: UserDefaults(suiteName: "seg-src")!, gatewayID: "t"),
+                             gatewayClient: GatewayClient(credentials: nil), gatewayLocalID: "t")
+        store.botSegmentSource = { _ in ["p2", "p3"] }       // 快照 parts（权威顺序）
+        store.botSegments.register(previousSessionId: "p1", current: "s3")   // 翻页发现
+        XCTAssertEqual(store.conversationSegments(for: "s3"), ["s3", "p2", "p3", "p1"],
+                       "快照 parts 在前（服务端顺序权威），翻页发现的追加在后")
+    }
+
+    func testNoSourcesFallsBackToCurrentOnly() {
+        let store = AppStore(preferences: UserDefaultsAppPreferences(userDefaults: UserDefaults(suiteName: "seg-src2")!, gatewayID: "t"),
+                             gatewayClient: GatewayClient(credentials: nil), gatewayLocalID: "t")
+        XCTAssertEqual(store.conversationSegments(for: "s1"), ["s1"], "无来源（普通会话）→ 只有当前段")
+    }
+}
