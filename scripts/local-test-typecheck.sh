@@ -81,9 +81,14 @@ build_app_module() {
   return 0
 }
 
-if [ ! -f "$MOD/DeepSeekHarnessMobile.swiftmodule" ] \
-   || [ -n "$(find DeepSeekHarnessMobile -name '*.swift' -newer "$MOD/DeepSeekHarnessMobile.swiftmodule" -print -quit)" ]; then
+# 缓存判据用**内容指纹**（路径+mtime+大小），别只比 mtime：
+# 2026-10-27 踩过——源码与模块在同一秒内变动时 `find -newer` 判不出来，
+# 结果拿着旧模块去编测试，报出"AppStore has no member ..."这种假红。
+STAMP="$MOD/.sources-stamp"
+FINGERPRINT=$(find DeepSeekHarnessMobile -name '*.swift' -exec stat -f '%m %z %N' {} + | sort | shasum -a 256 | cut -d' ' -f1)
+if [ ! -f "$MOD/DeepSeekHarnessMobile.swiftmodule" ] || [ "$(cat "$STAMP" 2>/dev/null)" != "$FINGERPRINT" ]; then
   build_app_module || exit 1
+  printf '%s' "$FINGERPRINT" > "$STAMP"
 fi
 
 # ---- 测试源码 typecheck ----

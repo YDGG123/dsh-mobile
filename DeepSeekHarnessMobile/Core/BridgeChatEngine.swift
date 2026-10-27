@@ -2,6 +2,15 @@ import DeepSeekHarnessShared
 import Foundation
 import SwiftUI
 
+/// ## 为什么不把主聊天窗整窗切到这条通道（2026-10-27 定论，别再重新评估一遍）
+/// 这条通道**确实能跨段**：REST 的 cursor 由服务端顺着 `parts` 翻
+/// （`adapter.mjs:200 cursorFor`，带归属校验 `:139 requireSession`），所以"多段 Bot 看不到
+/// 旧历史"看起来可以直接复用这里。**但它只输出气泡文本**（`BridgeChatItem`：user/assistant
+/// 文本 + 流式状态），没有工具卡、审批卡、推理段、附件预览——而主聊天窗的价值恰恰在这些
+/// 结构化条目上，切过来等于降级。所以跨段能力要回到**主聊天窗自己的数据流**里做
+/// （网关补 WS 跨段 + 客户端多桶聚合，见 `AppStore.BotHistorySegments`），
+/// 这条引擎继续只服务 Bot/团队页的轻量聊天。
+///
 /// bridge 会话的实时聊天引擎（§2.6）：历史 + submissions + WS 事件。
 /// 归并与对账全部在 KMP（chatApplyEvent / chatAppendLocalSubmission / chatApplySubmissionReceipt），
 /// Swift 只做 HTTP/WS 执行、重连与状态发布。
