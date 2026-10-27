@@ -13006,12 +13006,18 @@ final class ChunkGuardEffectivenessTests: XCTestCase {
 
         var droppedBatches: [[String]] = []
         let sweeper = ChunkStreamSweeper(interval: 5,
-                                         sleep: { _ in clock = clock.addingTimeInterval(5) }) {
+                                         sleep: { _ in clock = clock.addingTimeInterval(5); try? await Task.sleep(for: .milliseconds(1)) }) {
             // 与 GatewayTeamFeed.startChunkSweeperIfNeeded 的 onTick 同构
             droppedBatches.append(box.value.expire())
         }
         sweeper.start()
-        for _ in 0..<2_000 where sweeper.ticks < 7 { await Task.yield() }
+        // app-hosted 测试里 `Task.yield()` 自旋不可靠（宿主 App 的 SwiftUI churn 会挤占
+        // MainActor，2000 次也等不到 tick——真机已实证挂死 14 分钟）。改用真实时限等待：
+        // 10ms 真休眠让出主线程，5s deadline 兜底。断言完全不变。
+        let deadline1 = ContinuousClock.now + .seconds(5)
+        while sweeper.ticks < 7 && ContinuousClock.now < deadline1 {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
         sweeper.stop()
 
         XCTAssertGreaterThanOrEqual(sweeper.ticks, 7, "清扫必须真的跑起来")
@@ -13030,11 +13036,14 @@ final class ChunkGuardEffectivenessTests: XCTestCase {
 
         var droppedBatches: [[String]] = []
         let sweeper = ChunkStreamSweeper(interval: 5,
-                                         sleep: { _ in clock = clock.addingTimeInterval(60) }) {
+                                         sleep: { _ in clock = clock.addingTimeInterval(60); try? await Task.sleep(for: .milliseconds(1)) }) {
             droppedBatches.append(box.value.expire())
         }
         sweeper.start()
-        for _ in 0..<2_000 where sweeper.ticks < 3 { await Task.yield() }
+        let deadline2 = ContinuousClock.now + .seconds(5)
+        while sweeper.ticks < 3 && ContinuousClock.now < deadline2 {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
         sweeper.stop()
         XCTAssertEqual(droppedBatches.flatMap { $0 }, [], "没有活跃流时不该报超时")
     }
