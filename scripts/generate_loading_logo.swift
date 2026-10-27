@@ -6,30 +6,44 @@ import ImageIO
 import UniformTypeIdentifiers
 
 let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-let source = root.appendingPathComponent("Design/whaleness-orca-mark/whaleness-orca-dark.svg")
+// 2026-10-27：数据源换成用户新虎鲸矢量（build 37 的 `DshOrcaMark`）。
+// 它有 **8 条 path**（旧版只有 1 条），且用了 **Q 二次曲线** —— 旧解析只取 firstMatch
+// 且只支持 M/C/Z，照搬会画出残缺形状/直接崩。这里改成：遍历全部 path，按序并入同一个
+// CGPath；指令支持 M/L/H/V/C/Q/Z（H/V 是 1 参数的直线）。
+let source = root.appendingPathComponent("DeepSeekHarnessMobile/Resources/Assets.xcassets/DshOrcaMark.imageset/dsh-orca-mark.svg")
 let svg = try String(contentsOf: source, encoding: .utf8)
 let pathRegex = try NSRegularExpression(pattern: #"<path d="([^"]+)""#)
-let match = pathRegex.firstMatch(in: svg, range: NSRange(svg.startIndex..., in: svg))!
-let pathData = String(svg[Range(match.range(at: 1), in: svg)!])
-let tokenRegex = try NSRegularExpression(pattern: #"[MCZ]|[-+]?(?:\d*\.\d+|\d+\.?\d*)"#)
-let tokens = tokenRegex.matches(in: pathData, range: NSRange(pathData.startIndex..., in: pathData)).map {
-    String(pathData[Range($0.range, in: pathData)!])
-}
+let matches = pathRegex.matches(in: svg, range: NSRange(svg.startIndex..., in: svg))
+precondition(!matches.isEmpty, "SVG 里没有 path")
+let tokenRegex = try NSRegularExpression(pattern: #"[MCQZLHV]|[-+]?(?:\d*\.\d+|\d+\.?\d*)"#)
 let path = CGMutablePath()
-var index = 0
-func number() -> CGFloat { defer { index += 1 }; return CGFloat(Double(tokens[index])!) }
-while index < tokens.count {
-    let command = tokens[index]
-    index += 1
-    switch command {
-    case "M": path.move(to: CGPoint(x: number(), y: number()))
-    case "C":
-        let a = CGPoint(x: number(), y: number())
-        let b = CGPoint(x: number(), y: number())
-        let end = CGPoint(x: number(), y: number())
-        path.addCurve(to: end, control1: a, control2: b)
-    case "Z": path.closeSubpath()
-    default: fatalError("不支持的 SVG 路径指令：\(command)")
+for match in matches {
+    let pathData = String(svg[Range(match.range(at: 1), in: svg)!])
+    let tokens = tokenRegex.matches(in: pathData, range: NSRange(pathData.startIndex..., in: pathData)).map {
+        String(pathData[Range($0.range, in: pathData)!])
+    }
+    var index = 0
+    func number() -> CGFloat { defer { index += 1 }; return CGFloat(Double(tokens[index])!) }
+    while index < tokens.count {
+        let command = tokens[index]
+        index += 1
+        switch command {
+        case "M": path.move(to: CGPoint(x: number(), y: number()))
+        case "L": path.addLine(to: CGPoint(x: number(), y: number()))
+        case "H": path.addLine(to: CGPoint(x: number(), y: path.currentPoint.y))
+        case "V": path.addLine(to: CGPoint(x: path.currentPoint.x, y: number()))
+        case "C":
+            let a = CGPoint(x: number(), y: number())
+            let b = CGPoint(x: number(), y: number())
+            let end = CGPoint(x: number(), y: number())
+            path.addCurve(to: end, control1: a, control2: b)
+        case "Q":
+            let c = CGPoint(x: number(), y: number())
+            let end = CGPoint(x: number(), y: number())
+            path.addQuadCurve(to: end, control: c)
+        case "Z": path.closeSubpath()
+        default: fatalError("不支持的 SVG 路径指令：\(command)")
+        }
     }
 }
 
