@@ -1,4 +1,5 @@
 import SwiftUI
+import os
 import UniformTypeIdentifiers
 import DeepSeekHarnessShared
 
@@ -3688,9 +3689,11 @@ final class AppStore: ObservableObject {
                                                        nextBeforeSeq: payload.nextBeforeSequence,
                                                        previousSessionId: payload.previousSegmentID,
                                                        currentSegment: current)
+                // 分段历史钩子。防环：请求过的段不再发第二次（理论上网关段链单向，防御不吃亏）。
+                let visited = Set(botSegments.allOlderParts.values.flatMap { $0 })
+                    .union(botSegments.allOlderParts.keys)
                 switch decision {
-                case .previousSegment(let prev):
-                    botSegments.register(previousSessionId: prev, current: current)
+                case .previousSegment(let prev) where !visited.contains(prev):
                     // ★ 让旧段响应能过 `applyHistoryRebased` 的两道门
                     //   （:4184 historyLoadingSessionIds + historySyncEngine.isActive）——
                     //   **照抄 requestHistoryPage 对 selectedSessionId 的那一套**，不自创：
@@ -3698,11 +3701,15 @@ final class AppStore: ObservableObject {
                     //   ② historySyncEngine.beginRequest + 超时（beginHistoryRequestTimeout）
                     //   ③ 再发请求——**不带 beforeSeq / historyFormatVersion**
                     //      （带了会从上一段中间开始翻：不报错、只少内容）
+                    Logger(subsystem: "ai.dsh.mobile.ios", category: "history")
+                        .debug("history previous-segment continue from=\(current) to=\(prev)")
+                    botSegments.register(previousSessionId: prev, current: current)
                     startHistorySync(for: prev)
                     beginHistoryRequestTimeout(for: prev)
                     gateway.requestHistory(sessionId: prev, maxMessages: 80,
                                            maxBytes: 256 * 1024, view: "conversation")
-                case .finished:
+                case .previousSegment, .finished:
+                    // 已访问过的段（防环）或真到头：登记收尾，不再发请求
                     botSegments.markFinished(current: current)
                 case .sameSegment:
                     break   // 本段续翻走既有 beforeSeq 路径，不在这里发
