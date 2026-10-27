@@ -25,7 +25,9 @@ final class RealSessionScrollPerformanceTests: XCTestCase {
             app.launch()
             XCTAssertTrue(app.staticTexts["已连接"].waitForExistence(timeout: 20), "需要真实网关连接")
             // 显式目标 App 的公开测试 API，避免系统 URL 确认框遮挡滚动。
-            app.open(url)
+            // `XCUIApplication.open(_:)` 是 **iOS 16.4+**，而 UITests 目标部署目标仍是 16.0：
+            // 裸调会让 `build-for-testing` 整体失败（所有自动化测试永远跑不起来）。
+            try openDeepLink(url, in: app)
         } else {
             XCTAssertNotEqual(app.state, .notRunning, "请先打开已存在的真实会话")
             app.activate()
@@ -157,7 +159,7 @@ final class ControlledHistoryPresentationPerformanceTests: XCTestCase {
         app.launchArguments += ["-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
         app.launch()
         XCTAssertTrue(app.staticTexts["已连接"].waitForExistence(timeout: 20), "需要真实网关连接")
-        app.open(url)
+        try openDeepLink(url, in: app)
         let viewport = app.collectionViews["conversation-history-viewport"]
         XCTAssertTrue(viewport.waitForExistence(timeout: 10), "必须打开既有会话详情")
         XCTAssertGreaterThan(viewport.cells.count, 0)
@@ -261,5 +263,18 @@ final class RealSessionDirectoryLinkUITests: XCTestCase {
         screenshot.name = "子 Agent 目录链接打开工作区文件"
         screenshot.lifetime = .keepAlways
         add(screenshot)
+    }
+
+}
+
+/// 深链打开：iOS 16.4+ 走原生 `XCUIApplication.open(_:)`；
+/// 16.0–16.3 没有等价 API（从测试进程无法唤起目标 App 的 URL），**跳过**而不是删掉新生路径。
+/// 放文件级：本文件有多个测试类，放类里只有那一个类能用（踩过一次）。
+/// 这样 UITests 目标在 16.0 部署目标下也能 `build-for-testing`。
+private func openDeepLink(_ url: URL, in app: XCUIApplication) throws {
+    if #available(iOS 16.4, *) {
+        app.open(url)
+    } else {
+        throw XCTSkip("XCUIApplication.open 需要 iOS 16.4+；当前系统版本不支持从测试进程打开深链")
     }
 }
