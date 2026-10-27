@@ -13479,3 +13479,65 @@ final class TeamCardOpsTests: XCTestCase {
         XCTAssertTrue(GatewayTeamFeed.cardState(from: replaced).counts.isEmpty)
     }
 }
+
+/// 多段 Bot 历史聚合（build 40 一单的纯逻辑部分）。
+/// 纪律：**单段 Bot 不变是主用例**（全体既有用户都在单段上），多段是次要。
+final class BotHistorySegmentsTests: XCTestCase {
+
+    private func item(_ id: String, at seconds: Double) -> ConversationItem {
+        ConversationItem(id: id, kind: .assistant, title: "", text: id, isError: false,
+                         date: Date(timeIntervalSince1970: seconds))
+    }
+
+    // 主用例：只有当前段（单段 Bot）→ 原序列一字不动
+    func testSingleSegmentIsUnchanged() {
+        let items = [item("a", at: 3), item("b", at: 1), item("c", at: 2)]
+        let merged = AppStore.mergedHistory(currentSegment: "s1", segments: [("s1", items)])
+        XCTAssertEqual(merged.map(\.id), ["a", "b", "c"], "单段必须完全不变（不重排、不丢）")
+    }
+
+    // 旧段内部按 seq 顺序保留，段之间按时间合并
+    func testOlderSegmentsMergeByTimeKeepingInnerOrder() {
+        let part1 = [item("p1-1", at: 10), item("p1-2", at: 40)]   // 段内顺序 = seq
+        let part2 = [item("p2-1", at: 20), item("p2-2", at: 30)]
+        let current = [item("cur-1", at: 50)]
+        let merged = AppStore.mergedHistory(currentSegment: "s3",
+                                            segments: [("p1", part1), ("p2", part2), ("s3", current)])
+        XCTAssertEqual(merged.map(\.id), ["p1-1", "p2-1", "p2-2", "p1-2", "cur-1"],
+                       "跨段按 date；段内保持 seq 顺序；当前段固定末尾")
+    }
+
+    // 当前段永远在末尾：即使旧段时间戳更"新"，也不能插到当前段后面
+    func testCurrentSegmentAlwaysLast() {
+        let older = [item("old-new-date", at: 999)]
+        let current = [item("cur", at: 1)]
+        let merged = AppStore.mergedHistory(currentSegment: "s2",
+                                            segments: [("s1", older), ("s2", current)])
+        XCTAssertEqual(merged.map(\.id), ["old-new-date", "cur"], "当前段整块置于末尾，保证新消息不被插进历史中间")
+    }
+
+    // 跨段无重复：同一 id 只出现一次（先到先得）
+    func testDuplicateIdsAcrossSegmentsAppearOnce() {
+        let merged = AppStore.mergedHistory(currentSegment: "s2", segments: [
+            ("s1", [item("dup", at: 1)]),
+            ("s2", [item("dup", at: 1), item("new", at: 2)]),
+        ])
+        XCTAssertEqual(merged.map(\.id), ["dup", "new"], "跨段去重，且当前段仍最后")
+    }
+
+    // 登记：页内 sessionId 全是当前段 → 不登记（第一页必然如此，防重复）
+    func testPagesOfCurrentSegmentAreNotRegistered() {
+        var registry = AppStore.BotHistorySegments()
+        registry.register(pageSessionIds: ["s3", "s3"], current: "s3")
+        XCTAssertEqual(registry.allOlderParts["s3"] ?? [], [], "当前段的页不能登记为旧段")
+    }
+
+    // 登记：按发现顺序追加，重复页不二次登记，不排序不推断
+    func testOlderPartsRegisterInDiscoveryOrder() {
+        var registry = AppStore.BotHistorySegments()
+        registry.register(pageSessionIds: ["s3", "s2"], current: "s3")   // 第 1 页先发现 s2
+        registry.register(pageSessionIds: ["s2", "s1"], current: "s3")   // 第 2 页发现 s1；s2 已登记
+        XCTAssertEqual(registry.allOlderParts["s3"] ?? [], ["s2", "s1"],
+                       "发现顺序即权威顺序：不按 id 排序、不按时间推断")
+    }
+}

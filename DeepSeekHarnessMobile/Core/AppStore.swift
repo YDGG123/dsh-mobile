@@ -966,6 +966,62 @@ final class AppStore: ObservableObject {
         }
     }
 
+    /// 多段 Bot 的「旧段登记」与「跨段聚合」——**纯逻辑，单独可测**。
+    ///
+    /// 为什么需要：主聊天窗原来只有单桶视角（`events[当前段]` + 渲染只读当前段），
+    /// 而网关把长会话切成多段（`state.json` 的 `segments`），每段各占一个桶。
+    /// 这里只做两件不依赖网络的事：
+    /// 1. 按**发现顺序**登记旧段（游标是 opaque 串，服务端给的顺序是唯一真相，
+    ///    绝不按 id/时间戳推断——猜错不会报错，只会让历史乱序）
+    /// 2. 聚合排序：跨段按 `date`（= createdAt），**同段内保持原顺序**（= seq 顺序），
+    ///    当前段固定排最后（否则新消息会被"按时间"插到历史中间）
+    struct BotHistorySegments {
+        /// 当前段 → 旧段 id 列表（**发现顺序**）
+        private(set) var olderParts: [String: [String]] = [:]
+
+        var allOlderParts: [String: [String]] { olderParts }
+
+        /// 用一页实际返回的 sessionId 登记旧段。
+        /// 判据（防重复登记）：**页内 id ≠ 当前段** 才登记；等于当前段的页（第一页必然如此）直接忽略。
+        /// 已登记的段不重复追加。
+        mutating func register(pageSessionIds: [String], current: String) {
+            guard !current.isEmpty else { return }
+            for id in pageSessionIds where !id.isEmpty && id != current {
+                if olderParts[current, default: []].contains(id) { continue }
+                olderParts[current, default: []].append(id)   // 发现顺序即权威顺序
+            }
+        }
+
+        mutating func reset(current: String) { olderParts[current] = nil }
+    }
+
+    /// 跨段聚合成一条时间线。
+    /// - 旧段：各段内部顺序原样保留（seq 序），段之间按 `date` 合并；同 `date` 时保持
+    ///   段内先后与段的发现顺序（稳定合并，不做二次排序）
+    /// - 当前段：**整块放到最后**，绝不参与跨段排序
+    nonisolated static func mergedHistory(
+        currentSegment: String,
+        segments: [(id: String, items: [ConversationItem])]
+    ) -> [ConversationItem] {
+        var older: [ConversationItem] = []
+        var current: [ConversationItem] = []
+        var seenIds = Set<String>()
+        for segment in segments {
+            let targetIsCurrent = segment.id == currentSegment
+            // 段内顺序即 seq 顺序，必须原样保留 → 逐条按序追加，仅做跨段归并
+            for item in segment.items where !seenIds.contains(item.id) {
+                seenIds.insert(item.id)
+                if targetIsCurrent { current.append(item) } else { older.append(item) }
+            }
+        }
+        // 稳定合并：按 date 升序；相同 date 保留原有相对顺序（跨段 = 发现顺序，段内 = seq）
+        let sortedOlder = older.enumerated().sorted { lhs, rhs in
+            if lhs.element.date != rhs.element.date { return lhs.element.date < rhs.element.date }
+            return lhs.offset < rhs.offset
+        }.map(\.element)
+        return sortedOlder + current
+    }
+
     var selectedEvents: [SessionEvent] {
         guard let selectedSessionId else { return [] }
         return isShowingSearchContext ? searchContextRecords : events[selectedSessionId, default: []]
