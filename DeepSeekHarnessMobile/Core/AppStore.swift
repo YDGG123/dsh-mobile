@@ -1169,7 +1169,14 @@ final class AppStore: ObservableObject {
     }
     var selectedConversationItems: [ConversationItem] {
         guard let selectedSessionId else { return [] }
-        return isShowingSearchContext ? searchContextTimeline?.currentSnapshot.items ?? [] : renderedConversationItems[selectedSessionId, default: []]
+        if isShowingSearchContext { return searchContextTimeline?.currentSnapshot.items ?? [] }
+        let current = renderedConversationItems[selectedSessionId, default: []]
+        // 多段 Bot：把已发现旧段的桶与当前段合并（跨段 createdAt、同段 seq、当前段末尾）。
+        // **单段/普通会话 parts.count == 1 → 原样返回**（与 40 逐字节一致，主用例）。
+        let parts = conversationSegments(for: selectedSessionId)
+        guard parts.count > 1 else { return current }
+        return Self.mergedHistory(currentSegment: selectedSessionId,
+                                  segments: parts.map { ($0, renderedConversationItems[$0, default: []]) })
     }
     var selectedNotices: [GatewayNotice] {
         Array(protocolNotices.filter { $0.sessionId == nil || $0.sessionId == selectedSessionId }.suffix(20))
@@ -1819,6 +1826,23 @@ final class AppStore: ObservableObject {
         if gateway.state.isConnected, !assistantStreamState.hasBaseline(sessionId: id) { loadHistory(for: id) }
     }
 
+    /// 46 第二笔：打开会话时，若当前段本地为空，**自动把已知旧段的缓存窗口水合进各自桶**
+    /// （每段进自己的桶，seq 不冲突；渲染聚合在 `selectedConversationItems`）。
+    /// 不发网络请求——网络兜底仍由既有 `loadHistory` 链路负责。
+    func hydrateConversationSegmentsCache(for sessionId: String) async {
+        guard let chatHistoryCache, events[sessionId, default: []].isEmpty,
+              conversationSegments(for: sessionId).count > 1 else { return }
+        let generation = chatCacheSelectionGeneration
+        for segment in conversationSegments(for: sessionId).dropFirst() {
+            guard selectedSessionId == sessionId, generation == chatCacheSelectionGeneration,
+                  events[segment, default: []].isEmpty else { continue }
+            if let window = await chatHistoryCache.loadTyped(gatewayID: gatewayLocalID, sessionID: segment) {
+                _ = try? kmpHistoryStore.hydrateCachedWindow(sessionID: segment, window: window)
+                drainKMPEventDeliveries()
+            }
+        }
+    }
+
     func refreshScheduledTasks() {
         guard gateway.state.isConnected else {
             scheduledTasksLoading = false
@@ -2163,6 +2187,10 @@ final class AppStore: ObservableObject {
     }
 
     private func startHistorySync(for sessionId: String, older: Bool = false, presentationOperationID: UUID? = nil) {
+        // 46 第二笔：打开会话且本地为空时，先把旧段的缓存窗口读出来（断网也有历史）
+        if events[sessionId, default: []].isEmpty {
+            Task { [weak self] in await self?.hydrateConversationSegmentsCache(for: sessionId) }
+        }
         historyLoadErrors[sessionId] = nil
         do {
             try kmpHistoryStore.start(

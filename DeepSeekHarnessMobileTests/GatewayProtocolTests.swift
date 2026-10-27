@@ -13738,6 +13738,7 @@ final class BotSegmentsCycleGuardTests: XCTestCase {
 }
 
 /// conversationSegments（读取聚合的段顺序，选 B：首次只读当前段）。
+@MainActor
 final class ConversationSegmentsTests: XCTestCase {
     func testFirstOpenReturnsOnlyCurrent() {
         let store = AppStore(preferences: UserDefaultsAppPreferences(userDefaults: UserDefaults(suiteName: "conv-seg1")!, gatewayID: "t"),
