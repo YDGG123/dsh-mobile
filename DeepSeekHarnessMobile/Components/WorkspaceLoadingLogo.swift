@@ -1,79 +1,45 @@
 import SwiftUI
-import UIKit
-import ImageIO
 
-/// APNG 在后台解码一次，多个文件预览复用同一组图片。
-final class WorkspaceLoadingLogoAnimation: @unchecked Sendable {
-    let frames: [UIImage]
-    let duration: TimeInterval
-
-    init?(data: Data) {
-        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
-              CGImageSourceGetCount(source) > 1 else { return nil }
-        var images: [UIImage] = []
-        var duration: TimeInterval = 0
-        for index in 0..<CGImageSourceGetCount(source) {
-            guard let image = CGImageSourceCreateImageAtIndex(source, index, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary) else { return nil }
-            let properties = CGImageSourceCopyPropertiesAtIndex(source, index, nil) as? [CFString: Any]
-            let png = properties?[kCGImagePropertyPNGDictionary] as? [CFString: Any]
-            duration += (png?[kCGImagePropertyAPNGUnclampedDelayTime] as? Double)
-                ?? (png?[kCGImagePropertyAPNGDelayTime] as? Double) ?? 0.05
-            images.append(UIImage(cgImage: image, scale: 3, orientation: .up))
-        }
-        self.frames = images
-        self.duration = duration
-    }
-
-    static let shared: WorkspaceLoadingLogoAnimation? = {
-        guard let data = NSDataAsset(name: "OrcarnessLoading")?.data else { return nil }
-        return WorkspaceLoadingLogoAnimation(data: data)
-    }()
-}
-
+/// 启动/加载标识（2026-10-27 重做）：**不再用 APNG 自绘**。
+///
+/// 为什么：加载图的鲸形由 `generate_loading_logo.swift` 从 SVG 手写解析生成
+/// （只支持部分指令 + 手调缩放/渐变坐标），换矢量后连续两次产出"残缺/不像鲸"的图
+/// ——几何计算和填充规则是两层问题，自绘管线修一处漏一处。
+/// 而资源目录里的 `DshOrcaMark`（用户新矢量）由**系统渲染器**画，
+/// 空态页已验证形状正确。所以这里直接用矢量 + SwiftUI 原生动画（呼吸缩放 + 渐变着色），
+/// **形状永远正确**，动效交给 SwiftUI。
+///
+/// 遗留：Android 侧 `orcarness_loading.png` 仍是旧鲸（生成脚本已换源但 swift 生成链
+/// 未跑通），等 Android 单独处理；`OrcarnessLoading` dataset 暂留但不再被 iOS 引用。
 struct WorkspaceLoadingLogo: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
-    @State private var animation: WorkspaceLoadingLogoAnimation?
+    @State private var pulse = false
 
     var body: some View {
-        Group {
-            if let animation {
-                WorkspaceLoadingLogoPlayer(animation: animation, plays: !reduceMotion && scenePhase == .active)
-            } else {
-                Image("OrcarnessLoadingPoster").resizable().scaledToFit()
+        Image("DshOrcaMark")
+            .renderingMode(.template)
+            .resizable()
+            .scaledToFit()
+            .foregroundStyle(LinearGradient(
+                colors: [Color(red: 0.16, green: 0.39, blue: 0.80),
+                         Color(red: 0.36, green: 0.67, blue: 0.99)],
+                startPoint: .bottomLeading, endPoint: .topTrailing))
+            .frame(width: 72, height: 72)
+            .scaleEffect(pulse ? 1.06 : 0.96)
+            .opacity(pulse ? 1.0 : 0.72)
+            .accessibilityHidden(true)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.9).repeatForever(autoreverses: true),
+                       value: pulse)
+            .task(id: animate) {
+                guard animate else { pulse = false; return }
+                while !Task.isCancelled {
+                    withAnimation(.easeInOut(duration: 0.9)) { pulse.toggle() }
+                    try? await Task.sleep(for: .seconds(0.9))
+                }
             }
-        }
-        .frame(width: 72, height: 72)
-        .accessibilityHidden(true)
-        .task {
-            let decoded = await Task.detached(priority: .userInitiated) { WorkspaceLoadingLogoAnimation.shared }.value
-            guard !Task.isCancelled else { return }
-            animation = decoded
-        }
-    }
-}
-
-struct WorkspaceLoadingLogoPlayer: UIViewRepresentable {
-    let animation: WorkspaceLoadingLogoAnimation
-    let plays: Bool
-
-    func makeUIView(context: Context) -> UIImageView {
-        let view = UIImageView(image: animation.frames.first)
-        view.contentMode = .scaleAspectFit
-        view.animationImages = animation.frames
-        view.animationDuration = animation.duration
-        view.animationRepeatCount = 0
-        view.accessibilityIdentifier = "workspace-loading-logo-player"
-        return view
     }
 
-    func updateUIView(_ view: UIImageView, context: Context) {
-        if plays && !view.isAnimating { view.startAnimating() }
-        else if !plays && view.isAnimating { view.stopAnimating() }
-    }
-
-    static func dismantleUIView(_ view: UIImageView, coordinator: ()) {
-        view.stopAnimating()
-        view.animationImages = nil
-    }
+    /// 前台且未开启"减弱动态效果"时才呼吸；后台/省电模式静止。
+    private var animate: Bool { !reduceMotion && scenePhase == .active }
 }

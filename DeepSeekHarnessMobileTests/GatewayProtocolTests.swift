@@ -9616,14 +9616,9 @@ final class WorkspaceFilePreviewPresentationTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(450))
         XCTAssertTrue(store.conversationFileIsOpening, "弹窗展示不能触发父页面消失后误取消")
         XCTAssertNil(store.completedWorkspaceFile)
-        for _ in 0..<100 {
-            if logoPlayer(in: sheet.view) != nil { break }
-            try await Task.sleep(for: .milliseconds(20))
-        }
-        let player = try XCTUnwrap(logoPlayer(in: sheet.view))
-        XCTAssertEqual(player.animationImages?.count, 48)
-        XCTAssertEqual(player.animationDuration, 2.4, accuracy: 0.001)
-        XCTAssertTrue(player.isAnimating)
+        // 2026-10-27：加载标识已从 APNG 播放器改为矢量 `WorkspaceLoadingLogo`，
+        // 不再有 UIImageView 播放器可断言；"加载面板先出现、完成后更新"仍由
+        // 下面的 completedWorkspaceFile 断言覆盖。
         let loading = XCTAttachment(image: UIGraphicsImageRenderer(size: window.bounds.size).image { _ in
             window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
         })
@@ -9637,7 +9632,6 @@ final class WorkspaceFilePreviewPresentationTests: XCTestCase {
         try await waitForCompletion(store)
         try await Task.sleep(for: .milliseconds(250))
         XCTAssertTrue(host.presentedViewController === sheet, "加载完成应更新内容，不能重新弹出面板")
-        XCTAssertFalse(player.isAnimating, "预览就绪后应停止 Logo 动画")
         XCTAssertEqual(store.workspaceFilePreviewRequest?.id, request.id)
         store.cancelWorkspaceFileDownload()
         XCTAssertNil(store.workspaceFilePreviewRequest)
@@ -9662,35 +9656,16 @@ final class WorkspaceFilePreviewPresentationTests: XCTestCase {
         XCTAssertNil(store.completedWorkspaceFile)
     }
 
-    func testLogoApngKeepsAlphaTimingAndStopsWhenPlaybackDisabled() async throws {
-        let animation = try XCTUnwrap(WorkspaceLoadingLogoAnimation.shared)
-        XCTAssertEqual(animation.frames.count, 48)
-        XCTAssertEqual(animation.duration, 2.4, accuracy: 0.001)
-        XCTAssertEqual(animation.frames.first?.cgImage?.width, 192)
-        XCTAssertEqual(animation.frames.first?.cgImage?.height, 192)
-        XCTAssertNotEqual(animation.frames[0].pngData(), animation.frames[12].pngData())
-        let host = UIHostingController(rootView: WorkspaceLoadingLogoPlayer(animation: animation, plays: false))
-        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
-        let previous = scene.windows.first(where: \.isKeyWindow)
-        let window = UIWindow(windowScene: scene)
-        window.rootViewController = host
-        window.makeKeyAndVisible()
-        defer { window.isHidden = true; window.rootViewController = nil; previous?.makeKeyAndVisible() }
-        host.view.layoutIfNeeded()
-        for _ in 0..<100 {
-            if logoPlayer(in: host.view) != nil { break }
-            try await Task.sleep(for: .milliseconds(20))
-        }
-        let player = try XCTUnwrap(logoPlayer(in: host.view))
-        XCTAssertFalse(player.isAnimating)
+    func testLogoUsesVectorInsteadOfApng() {
+        // 2026-10-27 重做：加载标识从 APNG 自绘改为矢量（`DshOrcaMark`）。
+        // 理由见 WorkspaceLoadingLogo 头注释——自绘管线换矢量后连续两次产出不像鲸的图。
+        // 这里钉住两件事：① 不再引用 APNG dataset ② 模板渲染保证形状与空态一致。
+        XCTAssertNil(NSDataAsset(name: "OrcarnessLoading") ?? nil)
+        XCTAssertTrue(UIImage(named: "DshOrcaMark") != nil, "矢量资源必须在位")
+        // reduceMotion 下不做呼吸动画（防闪）——行为由 SwiftUI `.animation(value:)` 保证，
+        // 这类纯视图动画无法在无宿主窗口下断言，真机验收覆盖。
     }
 
-    private func logoPlayer(in view: UIView) -> UIImageView? {
-        if let image = view as? UIImageView, image.accessibilityIdentifier == "workspace-loading-logo-player" {
-            return image
-        }
-        return view.subviews.lazy.compactMap { self.logoPlayer(in: $0) }.first
-    }
 
     private func makeStore(timeout: Duration = .seconds(20)) async -> AppStore {
         let session = SessionSummary(id: "preview-session", title: "Preview", lastActivity: Date(),
