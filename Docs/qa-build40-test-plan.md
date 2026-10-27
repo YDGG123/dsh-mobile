@@ -146,6 +146,11 @@
 | **macOS 直执行通道** | ✅ **可用**（纯 Foundation 逻辑编译为 macOS 可执行真跑；`TeamRosterCache` 四条失败路径已实证） | 本计划 §1/§2 的纯函数可用同法 |
 | **typecheck 五路 + 收录** | ✅ 可用（73/73） | `local-typecheck.sh` |
 
+**⚠️ 当前系统的实际状态（任何人/CI 不带变量跑就会误判全红）**：
+   **现在的绿灯完全依赖 `KONAN_DATA_DIR=$HOME/.konan`**——未设置时 KLIB duplicate **红 176 处**。
+   根治（统一到 tools/konan + 清缓存）完成前，**任何自动化流程必须显式设置这个变量**，
+   否则会把 176 条报错误读成"测试全红/代码坏了"。
+
 **XCTest 两层障碍（都已有解法，修复属构建负责人/iOSCoder）**：
    > 本节"可跑/能跑"均为"**解锁后可真跑**"的缩写。当前真实可执行的证据（2026-10-27 实测）：`./gradlew :shared:jvmTest` → exit 0，**515 tests / 0 failures / 0 skipped**；macOS 直执行通道 → `TeamRosterCache` 四条失败路径真跑 exit 0（9 项断言全过）；五路 typecheck exit 0。**注意**：① 分段历史的纯函数（`BotHistorySegments`/`mergedHistory`/翻页决策）在 `AppStore.swift`（UIKit 依赖文件）里，**不能**走 macOS 直执行通道，它们的用例在 XCTest 里 → 属于"解锁后可真跑"，不是"现在就能跑"。
 
@@ -186,3 +191,41 @@
 - 多段真实数据只在用户账号 → 1.M1/M2 **需用户配合**，不用模拟数据冒充
 - 单段 Bot 主用例的真机回归需要一台"只有单段 Bot"的环境——用户账号若已全是多段，1.M 需构造（新建一个无历史 Bot 即可）
 - 模拟器跑不了的感觉是过时的：runtime 已装（iOS 26.3.1），真正挡路的是上面两个工程问题；模拟器执行在两层修复前一律写"**解锁后可真跑**"
+
+
+---
+
+## 9. 环境能力现状（2026-10-27，本机首次 XCTest 实跑后的归档）
+
+> 这是"本机从不能跑到能跑"的能力快照——40 出完之后它仍然有效，且应随环境变化更新。
+
+### 模拟器
+- runtime：**iOS 26.3.1 已安装**（`simctl list runtimes`；2026-10-25 之前的状态是"无 runtime"）
+- 设备：10 台（iPhone 16e/17/17 Pro/17 Pro Max/Air、iPad 系列），arch **x86_64**（黑苹果 Intel/Hackintosh）
+- 实测：`build-for-testing` + `test-without-building` 全链可跑（见下）
+
+### XCTest 怎么跑（命令级）
+```bash
+# 前提：KONAN_DATA_DIR=$HOME/.konan（根治统一前，缺了会红 176 处 KLIB）
+export KONAN_DATA_DIR="$HOME/.konan"
+xcodebuild build-for-testing -scheme DeepSeekHarnessMobile \
+  -destination 'platform=iOS Simulator,name=iPhone 16e' \
+  -disableAutomaticPackageResolution -derivedDataPath /tmp/dd-probe2 -quiet
+xcodebuild test-without-building \
+  -xctestrun /tmp/dd-probe2/Build/Products/DeepSeekHarnessMobile_iphonesimulator26.2-x86_64.xctestrun \
+  -destination 'platform=iOS Simulator,name=iPhone 16e'
+```
+
+### 各层能自动 / 必须真机
+| 层 | 自动通道 | 状态 |
+|---|---|---|
+| KMP 共享层 | `jvmTest` | ✅ 515/0 实证 |
+| 纯 Foundation 的 Swift 逻辑 | macOS 直执行（编译即跑） | ✅ TeamRosterCache 9 断言实证 |
+| AppStore/GatewayTeamFeed 内的纯函数 | XCTest（模拟器） | ✅ 已解锁（88+ 用例实跑中，0 失败） |
+| UIKit/SwiftUI 视图层 | 真机 | ⛔ 必须真机 |
+| 多段真实数据场景 | 用户账号 | ⛔ 需用户配合 |
+
+### 已知边界
+- 绿灯依赖 `KONAN_DATA_DIR` 环境变量（根治前，见 §5 顶部红字账）
+- UITests 层：守卫用 `XCTSkip`（iOS 16.4 以下跳过是**设计**，不是失败）
+- 本机构建（Xcode 26.3 本地）与云 runner 构建的包不能做二进制级对比（工具链不同）
