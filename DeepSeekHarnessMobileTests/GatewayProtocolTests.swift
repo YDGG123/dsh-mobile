@@ -13756,15 +13756,16 @@ final class ConversationSegmentsTests: XCTestCase {
                        "当前段在最前（渲染层当前段固定末尾由 mergedHistory 负责），旧段按发现顺序")
     }
 
-    func testSegmentCapTruncatesOldestDiscovered() {
+    func testSegmentCapKeepsRecentPartsDropsOldest() {
         let store = AppStore(preferences: UserDefaultsAppPreferences(userDefaults: UserDefaults(suiteName: "conv-seg3")!, gatewayID: "t"),
                              gatewayClient: GatewayClient(credentials: nil), gatewayLocalID: "t")
-        for i in stride(from: 20, through: 1, by: -1) {
-            store.botSegments.register(previousSessionId: "p\(i)", current: "s3")
-        }
+        // 快照 parts 时间正序（最早在前）：p1 最旧 … p20 最近
+        store.botSegmentSource = { _ in (1...20).map { "p\($0)" } }
         let segments = store.conversationSegments(for: "s3")
-        XCTAssertEqual(segments.count, AppStore.maxMergedSegments, "段数双保险上限生效")
+        XCTAssertEqual(segments.count, AppStore.maxOlderSegments + 1, "当前段 + 16 个最近旧段")
         XCTAssertEqual(segments.first, "s3", "当前段永不被截")
+        XCTAssertEqual(segments.last, "p16", "保住的是最近的旧段（p16…p20 在尾部）")
+        XCTAssertFalse(segments.contains("p1"), "最早的最先被丢")
     }
 }
 

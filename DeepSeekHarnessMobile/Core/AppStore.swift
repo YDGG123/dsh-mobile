@@ -1122,7 +1122,7 @@ final class AppStore: ObservableObject {
     /// 截断用**双保险**：段数上限（防段数失控）+ 条数上限在聚合层裁（防超长段）。
     /// 段数 16 的依据：当前真实数据 2 段；16 段 ≈ 数月量级，且只是"参与合并的上限"，
     /// 超出部分按发现顺序（最旧的）截掉，不影响新段。
-    nonisolated static let maxMergedSegments = 16
+    nonisolated static let maxOlderSegments = 16
 
     /// 段列表来源（优先级）：**feed 快照的 `parts`（服务端顺序，权威）** ∪ 翻页发现的旧段
     /// （发现顺序）。后者在钩子未跑过时为空——修复"用户翻不到底 → 永远发现不了旧段"。
@@ -1131,14 +1131,16 @@ final class AppStore: ObservableObject {
 
     func conversationSegments(for current: String) -> [String] {
         guard !current.isEmpty else { return [] }
-        var ids = [current]
-        // 服务端顺序优先（权威）；botSegments 的发现顺序追加在后（不与前者重复）
+        var older: [String] = []
+        // 服务端顺序优先（权威，**不反转不排序**）；botSegments 的发现顺序追加在后（不重复）
         for source in [botSegmentSource?(current) ?? [], botSegments.allOlderParts[current] ?? []] {
-            for id in source where !id.isEmpty && !ids.contains(id) {
-                ids.append(id)
+            for id in source where !id.isEmpty && id != current && !older.contains(id) {
+                older.append(id)
             }
         }
-        return Array(ids.prefix(Self.maxMergedSegments))
+        // 超上限取 **suffix**（最近的旧段）——用户更想看到刚过去的，不是最早的
+        let trimmed = older.count > Self.maxOlderSegments ? Array(older.suffix(Self.maxOlderSegments)) : older
+        return [current] + trimmed
     }
 
     /// 跨段聚合成一条时间线。
