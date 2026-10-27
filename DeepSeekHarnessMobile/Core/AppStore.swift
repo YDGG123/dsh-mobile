@@ -3691,6 +3691,15 @@ final class AppStore: ObservableObject {
                 switch decision {
                 case .previousSegment(let prev):
                     botSegments.register(previousSessionId: prev, current: current)
+                    // ★ 让旧段响应能过 `applyHistoryRebased` 的两道门
+                    //   （:4184 historyLoadingSessionIds + historySyncEngine.isActive）——
+                    //   **照抄 requestHistoryPage 对 selectedSessionId 的那一套**，不自创：
+                    //   ① kmpHistoryStore.start（loading 集合由 KMP 推送回填 :5099）
+                    //   ② historySyncEngine.beginRequest + 超时（beginHistoryRequestTimeout）
+                    //   ③ 再发请求——**不带 beforeSeq / historyFormatVersion**
+                    //      （带了会从上一段中间开始翻：不报错、只少内容）
+                    startHistorySync(for: prev)
+                    beginHistoryRequestTimeout(for: prev)
                     gateway.requestHistory(sessionId: prev, maxMessages: 80,
                                            maxBytes: 256 * 1024, view: "conversation")
                 case .finished:
