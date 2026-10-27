@@ -13683,3 +13683,16 @@ final class BridgeQuestionIngestTests: XCTestCase {
         XCTAssertTrue(store.bridgeQuestionStatuses.isEmpty, "已离队的卡不留状态尾巴")
     }
 }
+
+/// 解码层：history 帧的 previousSessionId（网关 debc076）。
+final class HistoryPreviousSessionDecodeTests: XCTestCase {
+    func testPayloadCarriesPreviousSegmentID() throws {
+        let json = """
+        {"sessionId":"s3","hasMore":false,"previousSessionId":"s2","events":[]}
+        """
+        let frame = try JSONDecoder().decode(GatewayFrame.self, from: Data(json.utf8))
+        XCTAssertEqual(frame.previousSessionId, "s2")
+        XCTAssertEqual(frame.hasMore, false)
+        XCTAssertNil(frame.nextBeforeSeq)
+    }
+}

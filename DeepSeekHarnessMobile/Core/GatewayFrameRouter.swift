@@ -30,6 +30,8 @@ struct GatewayHistoryPayload: Sendable {
     var rawEvents: [RawSessionEvent]
     var hasMore: Bool
     var nextBeforeSequence: Int?
+    /// 本段到头时的上一段入口（debc076）；与 nextBeforeSequence 互斥
+    var previousSegmentID: String?
     var byteCount: Int
     var projections: JSONValue?
 }
@@ -201,6 +203,7 @@ enum GatewayFrameRouter {
                 rawEvents: frame.events ?? [],
                 hasMore: frame.hasMore ?? false,
                 nextBeforeSequence: frame.nextBeforeSeq,
+                previousSegmentID: frame.previousSessionId,
                 byteCount: frame.bytes ?? 0,
                 projections: frame.projections
             )))

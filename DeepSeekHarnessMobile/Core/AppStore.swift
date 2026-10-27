@@ -1049,6 +1049,9 @@ final class AppStore: ObservableObject {
     /// 那个键不会变，缓存就是旧的，表现为"翻页到位了但最后几条没出来"，且极难复现。
     /// 键要带两维：**段集合版本 + 每个参与合并的桶的末位 seq**，任一变化就重建。
     /// 重建阈值也别用绝对毫秒（开发机永远达标）：按"连续多次重建叠加超过一帧预算(16ms)"判断是否挪后台。
+    /// 多段翻页状态：本段到头（hasMore=false）且网关给了 `previousSessionId` 时，
+    /// 记住"该往哪个段继续发 history（**不带 beforeSeq**）"。
+    /// `segmentVersion` 在**登记旧段的同一个方法里**递增（缓存键两维之一），别分开。
     struct BotHistorySegments {
         /// 当前段 → 旧段 id 列表（**发现顺序**）
         private(set) var olderParts: [String: [String]] = [:]
@@ -1068,8 +1071,16 @@ final class AppStore: ObservableObject {
 
         /// 按网关语义登记：**只在收到 `previousSessionId` 时**登记，
         /// 不从页内容推断（页内 sessionId 属于哪段由服务端说了算）。
+        /// 是否已翻过所有段（网关两字段都缺）
+        mutating func markFinished(current: String) { finished.insert(current) }
+        func isFinished(_ current: String) -> Bool { finished.contains(current) }
+        private(set) var finished: Set<String> = []
+        var segmentVersion: [String: Int] = [:]
+        func version(_ current: String) -> Int { segmentVersion[current] ?? 0 }
+
         mutating func register(previousSessionId: String, current: String) {
             register(pageSessionIds: [previousSessionId], current: current)
+            segmentVersion[current, default: 0] += 1   // 登记与版本递增**同一个方法**，防止缓存漏失效
         }
 
         mutating func reset(current: String) { olderParts[current] = nil }

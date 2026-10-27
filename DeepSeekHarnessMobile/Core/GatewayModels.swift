@@ -245,6 +245,8 @@ struct GatewayFrame: Codable, Sendable {
     var events: [RawSessionEvent]?
     var hasMore: Bool?
     var nextBeforeSeq: Int?
+    /// 本段到头时的上一段入口（网关 `debc076`；与 `nextBeforeSeq` 互斥）
+    var previousSessionId: String?
     var bytes: Int?
     var view: String?
     var query: String?
