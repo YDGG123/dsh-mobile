@@ -13680,7 +13680,7 @@ final class BridgeQuestionIngestTests: XCTestCase {
 final class HistoryPreviousSessionDecodeTests: XCTestCase {
     func testPayloadCarriesPreviousSegmentID() throws {
         let json = """
-        {"sessionId":"s3","hasMore":false,"previousSessionId":"s2","events":[]}
+        {"kind":"history","sessionId":"s3","hasMore":false,"previousSessionId":"s2","events":[]}
         """
         let frame = try JSONDecoder().decode(GatewayFrame.self, from: Data(json.utf8))
         XCTAssertEqual(frame.previousSessionId, "s2")
