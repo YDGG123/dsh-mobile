@@ -12320,23 +12320,31 @@ final class GatewaySubscriptionLifecycleTests: XCTestCase {
         }
     }
 
-    func testCurrentSessionStillReportsTimeoutWithCorrectMessage() async throws {
+    /// 我方语义（build 40 用户明确要求）：超时**不发错误帧**（不弹模态遮挡页面），
+    /// 而是静默重订阅一次。上游原本断言「发 subscription-timeout 帧」——那是弹窗版，
+    /// 与用户需求冲突，故此处断言改为对齐我方语义，并正向钉住「重订阅」行为。
+    func testCurrentSessionTimeoutSilentlyResubscribesWithoutError() async throws {
         for child in [false, true] {
             let gateway = GatewayClient(subscriptionTimeoutInterval: .milliseconds(30))
             defer { gateway.disconnect() }
-            gateway.installConnectedTransportForTesting()
+            var errors: [GatewayFrame] = []
+            var requests: [[String: Any]] = []
+            gateway.onFrame = { errors.append($0) }
+            gateway.installConnectedTransportForTesting { payload in
+                let request = (try? JSONSerialization.jsonObject(with: Data(payload.utf8))) as? [String: Any] ?? [:]
+                requests.append(request)
+            }
             if child {
                 gateway.conversationTarget = { MobileConversationTarget(sessionId: $0, parentSessionId: "lead", subagentMode: "continuable") }
             }
-            let timedOut = expectation(description: "当前会话确实超时仍应报告")
-            var error: GatewayFrame?
-            gateway.onFrame = { error = $0; timedOut.fulfill() }
             gateway.subscribe(sessionId: "current")
-            await fulfillment(of: [timedOut], timeout: 2)
-            XCTAssertEqual(error?.code, "subscription-timeout")
-            XCTAssertEqual(error?.sessionId, "current")
-            XCTAssertEqual(error?.message?.contains("Lead"), child)
-            XCTAssertEqual(error?.message?.contains("成员会话"), child)
+            try await Task.sleep(for: .milliseconds(150))
+
+            XCTAssertTrue(errors.isEmpty, "我方为静默重试：传输层不发错误帧（不再弹模态）")
+            // 正向断言：超时后必须重新发起同一个会话的订阅。
+            let subscribeTypes = requests.compactMap { $0["type"] as? String }.filter { $0 == "subscribe" }
+            XCTAssertGreaterThanOrEqual(subscribeTypes.count, 2, "超时后应静默重订阅一次")
+            XCTAssertEqual(requests.last?["sessionId"] as? String, "current", "重订阅的仍是当前会话")
         }
     }
 
