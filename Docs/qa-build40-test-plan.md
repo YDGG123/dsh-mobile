@@ -155,7 +155,7 @@
    - **清缓存必须**：统一后把 `shared/build/`（至少 KMP 增量缓存）清掉重建一次——两边的绝对路径都已被增量缓存记住，不清就会继续互相污染；
    - **本 QA 的探针只证明了"分叉会红、收敛后这一次会绿"**——它是在 `KONAN_DATA_DIR=$HOME/.konan` 会话里做的，不代表统一到 `tools/konan` 后天然绿；根治以"清理重建后的第一根绿色构建"为准。
 2. **UITests 目标真代码错误**：`RealSessionScrollPerformanceTests.swift` 两处 `app.open(url)` 是 **iOS 16.4+ API**，UITests 部署目标 16.0 且无 `#available` 守卫 → `build-for-testing` 整体失败（`-only-testing` 不缩小构建范围）。修法：两处加守卫，或 UITests 目标部署目标升 16.4（该文件本来就是 build 34 批的，归 iOSCoder）。
-3. **措辞纪律**：本文凡涉模拟器执行一律用"**解锁后可真跑**"，不写"已可跑"——runtime 已装 ≠ 全链绿灯，等真有绿色 XCTest 结果再升级措辞。
+3. **措辞纪律 → 已升级为实测结论（2026-10-27）**：runtime 已装 + 两层修复落地后，本 QA 实测全链打通——`build-for-testing` **exit 0** 产出 xctestrun；`test-without-building` 在 iPhone 16e (iOS 26.3.1) 上**实跑 88 条单元用例全过、0 失败**（项目历史上首次 XCTest 实跑）。**前提与边界**：(a) 必须 `KONAN_DATA_DIR=$HOME/.konan`——默认 `tools/konan` 仍会 KLIB duplicate 红 176 处，待构建方统一 konan 目录；(b) UITests 守卫已提交（`203059a`，`openDeepLink` 统一入口）；(c) 88 条为单元测试层，UITests 层的收尾结果见运行日志留档。
 
 **量化结论**：修复这两层后，XCTest 可在模拟器（iPhone 16e，iOS 26.3.1，x86_64）真跑——届时 §1–§4 的全部自动用例都能上 XCTest；修复前，自动验收 = jvmTest + macOS 直执行 + typecheck 三通道，覆盖所有**纯函数**用例（§1.3–1.6、§2.1–2.3、§3.1–3.5、§4.1–4.3 全部是纯函数，**都能自动**），WS 接线层用例需要 XCTest 恢复或真机。
 
