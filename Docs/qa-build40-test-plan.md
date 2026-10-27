@@ -174,6 +174,28 @@
 - 因此 §2 的自动用例全绿 ≠ "卡片问题清零"——它们只覆盖 `card.shown/answered/cleared` 的**计数与红点**层
 - 40 验收结论里必须写明"点进去无可点卡片 = 已知未修，另行派单"
 
+## 6.5 第一批修复结果（2026-10-27，`c4db4ef`+`36402b6`，模拟器实跑验证）
+
+| 类 | 修复 | 结果 |
+|---|---|---|
+| TeamGlyphTests blink phase | 断言对齐 9 档逐段表（index 6、fromStart 1.48）| **24/24 ✓** |
+| TeamRosterCacheTests 4 条 | helper 漏 wrapper → 改走生产 `TeamRosterCache.encode` | **8/8 ✓** |
+| FrameReassemblerTests 2 条 | fixture 尺寸被 clamped 下限穿透 → 调大到 2000B/90KB | **11/11 ✓** |
+
+（FrameReassembler 2 条是 `0035e97` 夹取下限的连带破坏，随本批一并修复。）
+
+## 6.6 第二批分类表（待 Chief 裁决，未动手）
+
+| 类.用例 | 条数 | 分类 | 依据（失败消息实锤） |
+|---|---|---|---|
+| HistoryViewportControlledPresentationTests | 19 | **环境** | 全部 `XCTUnwrap failed: UIWindowScene`——测试基建需要真实 window scene，模拟器单元测试环境不给 |
+| InlineImageTaskIsolationTests | 6 | **未知（疑真 bug）** | MainActor 隔离相关，需逐条读 |
+| GatewayForegroundRecoveryTests.testForegroundProbesStaleConnection | 1 | **未知（疑真 bug）** | 前台探测陈旧连接——0b84115 心跳清理新代码区域 |
+| HistoryPreviousSessionDecodeTests.testPayloadCarriesPreviousSegmentID | 1 | **期望错/fixture 错** | `keyNotFound "kind"`——测试 fixture 缺 kind 键 |
+| MarkdownRenderProductTests.testJSONKeyWhitespace… | 1 | **环境/期望** | UIKitPlatformColorProvider ≠ #F07D14FF（动态色解析差异）|
+| PluginIconRenderingTests.testSVGColorScheme… | 1 | **环境** | 渲染计数 0 vs 335（模拟器图形上下文）|
+| WorkspaceDrawerUITests（字体 125/150 持久化、长按全屏） | 2 | **环境/需真机** | UITests 真机向断言 |
+
 ## 7. 建议执行顺序
 
 0. **卡片体验项**（用户当前最痛，若 40 前有 hotfix 批则按 §6 处理；否则排 40 后第一优先）
