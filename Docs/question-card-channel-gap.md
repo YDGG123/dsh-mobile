@@ -178,6 +178,43 @@ BridgeTransport.requestURL(origin: origin, path: "/mobile/v1/actions")
 `POST /mobile/v1/mobile/v1/actions` 才是铁证——**先看网关日志里的实际请求行，
 再谈字段语义**。字段推断得再自洽，也抵不过一行真实日志。
 
+#### 5.4.1 真机已验证（48 包，2026-10-28）
+
+> **用户实测：404 已消失。** 提交后界面显示「服务端已接收，正在恢复 Agent…」，
+> 说明答复真到达网关（不再被 `/mobile/v1/mobile/v1/actions` 的 404 拦下）。
+> 这条是端到端确认，不是本地推断——**路径修复到此收口**。
+
+#### 5.4.2 紧接着暴露的下一个 bug：答完卡不收起
+
+同一轮真机实测又暴露一个问题：**提交成功后卡片一直挂着，退出会话页再进才消失**。
+
+根因不在 404，而在「收卡通知」链路：`AppStore.bridgeCardAnswerAccepted` 原来只把状态
+置为 `.accepted`，本地卡**等卡片流的 `card.answered` 帧**才删。而这条回推要穿过
+
+```
+App → POST /mobile/v1/actions → 网关 callTeam → ds-bot channel.js:497
+    → cardFeed.answered(id) → card-feed.js flush() diff
+    → 网关 card-frames.mjs ingest()（`if (seq <= head) return` 防重）
+    → /team WS 下发
+```
+
+**任一环断，卡就永久挂着**。退出重进有效，是因为重进重发 `card-snapshot`，
+而服务端早已没有这张 pending —— 这反证了「服务端结束了，只是本地不知道」。
+
+修法（`f721370`）：accepted 之后排一次**本地兜底收尾**（1.5s），
+给 `card.answered` 先到的机会；到点卡还在就本地移除。
+**只删卡、不删 `.accepted` 状态**（「服务端已接收」是用户已看到的反馈）；
+失败时取消兜底、留卡让用户重答。
+
+> 一个容易踩的坑：守卫**不能用 `isAnswerInFlight`**（它把 `.accepted` 也算在飞，
+> 用了兜底永远不执行），只能用 `if case .submitting`。
+> 这条是反向测试发现的：去掉该守卫后原有两条用例都不变红，说明它原本没有覆盖，
+> 已补用例 ⑩ 钉住。
+
+**通用教训**：「HTTP 受理」≠「界面可以收尾」。凡是依赖**另一条推送通道**来收尾的本地状态，
+都要问一句「那条通道断了我怎么知道」。答案通常是**本地兜底 + 幂等收尾**，
+不能把收尾权完全交给一条自己不可控的推送。
+
 
 ## 6. 排查中走的弯路（记下来省下次）
 
