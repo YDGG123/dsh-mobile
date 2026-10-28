@@ -14382,6 +14382,46 @@ final class BridgeQuestionIngestTests: XCTestCase {
         XCTAssertTrue(store.bridgePendingQuestions.isEmpty)
         XCTAssertTrue(store.bridgeQuestionStatuses.isEmpty, "已离队的卡不留状态尾巴")
     }
+
+    // ⑤ 409 QUESTION_IN_FLIGHT（连点）→ 按已受理，不得置 rejected（文档 answer-question-v1.md §6：不要提示失败、不重试）
+    func testAnswer409InFlightIsAcceptedNotRejected() {
+        let store = AppStore(preferences: UserDefaultsAppPreferences(userDefaults: UserDefaults(suiteName: "bridge-409-1")!, gatewayID: "t"),
+                             gatewayClient: GatewayClient(credentials: nil), gatewayLocalID: "t")
+        store.ingestBridgeQuestionCards([card(id: "card-1")], answerEnabled: true)
+        let rpcId = AppStore.bridgeCardRpcPrefix + "card-1"
+        store.bridgeCardAnswer409(rpcId: rpcId, status: 409,
+                                  body: #"{"error":{"code":"QUESTION_IN_FLIGHT","message":"This question is already being answered."}}"#)
+        guard case .accepted = store.bridgeQuestionStatuses[rpcId] else {
+            return XCTFail("连点必须按已受理处理（第一条结果自己回来），不得置 rejected")
+        }
+    }
+
+    // ⑥ 409 bot/stale + 卡片在位 → 状态错位分支：状态清回（等刷新重放卡片帧），卡片保留、不标失败（§4 第 2 条）
+    func testAnswer409StaleWithCardPresentResetsForRefresh() {
+        let store = AppStore(preferences: UserDefaultsAppPreferences(userDefaults: UserDefaults(suiteName: "bridge-409-2")!, gatewayID: "t"),
+                             gatewayClient: GatewayClient(credentials: nil), gatewayLocalID: "t")
+        store.ingestBridgeQuestionCards([card(id: "card-1")], answerEnabled: true)
+        let rpcId = AppStore.bridgeCardRpcPrefix + "card-1"
+        store.bridgeCardAnswer409(rpcId: rpcId, status: 409,
+                                  body: #"{"error":{"code":"bot/stale","message":"This question is no longer open"}}"#)
+        XCTAssertNil(store.bridgeQuestionStatuses[rpcId], "卡片还在 → 判状态错位：状态清回，等 refreshTeam 重放，不重试不标失败")
+        XCTAssertNotNil(store.bridgeCardsByRpcId[rpcId], "在位分支卡片保留")
+        XCTAssertEqual(store.bridgePendingQuestions.count, 1, "在位分支不删卡")
+    }
+
+    // ⑦ 409 bot/stale + 卡片不在位 → 按已答收尾：移除本地残留，不留状态尾巴（§4 第 3 条）
+    func testAnswer409StaleWithoutCardFinishes() {
+        let store = AppStore(preferences: UserDefaultsAppPreferences(userDefaults: UserDefaults(suiteName: "bridge-409-3")!, gatewayID: "t"),
+                             gatewayClient: GatewayClient(credentials: nil), gatewayLocalID: "t")
+        store.ingestBridgeQuestionCards([card(id: "card-1")], answerEnabled: true)
+        let rpcId = AppStore.bridgeCardRpcPrefix + "card-1"
+        // 模拟「卡片流已删卡、本地残留还在」的时序窗口：抽掉卡片（internal 字段，测试可写）
+        store.bridgeCardsByRpcId.removeValue(forKey: rpcId)
+        store.bridgeCardAnswer409(rpcId: rpcId, status: 409,
+                                  body: #"{"error":{"code":"bot/stale","message":"This question is no longer open"}}"#)
+        XCTAssertTrue(store.bridgePendingQuestions.isEmpty, "卡已不在 → 按已答收尾，本地卡移除")
+        XCTAssertNil(store.bridgeQuestionStatuses[rpcId], "收尾不留状态尾巴")
+    }
 }
 
 /// 解码层：history 帧的 previousSessionId（网关 debc076）。

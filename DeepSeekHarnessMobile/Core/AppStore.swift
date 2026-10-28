@@ -496,6 +496,7 @@ final class AppStore: ObservableObject {
     var bridgeCardsByRpcId: [String: GatewayTeamFeed.CardQuestion] = [:]
 
     static let bridgeCardRpcPrefix = "bridge-card:"
+    private static let bridgeCardsLog = Logger(subsystem: "ai.dsh.mobile.ios", category: "bridge-cards")
 
     /// 卡片正文 → `HumanQuestionView` 能吃的请求。**能力不含时给空表（fail-closed）**：
     /// 没有答复通道就不给可点数据，UI 自然回落到"只读正文"。
@@ -547,6 +548,38 @@ final class AppStore: ObservableObject {
 
     func bridgeCardAnswerFailed(rpcId: String, message: String) {
         bridgeQuestionStatuses[rpcId] = .rejected(message)
+    }
+
+    /// 409 分族处置（KMP 信封解码，文档 answer-question-v1.md §4/§6）：
+    /// `QUESTION_IN_FLIGHT`=连点按已受理（第一条结果自己回来，不提示失败、不重试）；
+    /// `bot/stale`=先判后处置（§4）；其余 wire 码=fail-closed 失败（显示原文）。
+    /// 错误码比对用信封 `code` 原样，不靠 `error.localizedDescription`（BridgeResponseStatus 的描述只有状态码）。
+    func bridgeCardAnswer409(rpcId: String, status: Int, body: String) {
+        let envelope = BridgeErrorsKt.decodeBridgeErrorEnvelope(status: Int32(status), body: body)
+        switch envelope.code {
+        case "QUESTION_IN_FLIGHT":
+            bridgeCardAnswerAccepted(rpcId: rpcId)
+        case "bot/stale":
+            bridgeCardAnswerStale(rpcId: rpcId)
+        default:
+            bridgeCardAnswerFailed(rpcId: rpcId, message: envelope.message ?? "服务器返回 \(status)")
+        }
+    }
+
+    /// 409 `bot/stale` 先判后处置（answer-question-v1.md §4）：
+    /// 卡片流里 id 还在 = 状态错位（刷新卡片帧 + 诊断日志，**不重试**）；不在 = 按已答收尾（移除本地残留）。
+    func bridgeCardAnswerStale(rpcId: String) {
+        if bridgeCardsByRpcId[rpcId] != nil {
+            // 例外要留痕（§4 第 5 条）：卡片还在、用户确实点了选项、却收到 stale——诊断日志。
+            Self.bridgeCardsLog.error("bot/stale with card present (rpcId=\(rpcId, privacy: .public)); refreshing cards")
+            bridgeQuestionStatuses[rpcId] = nil
+            refreshTeam()
+        } else {
+            // 卡已不在（已答/被撤/被用户消息取代）：正常收尾，移除本地残留。
+            bridgeCardsByRpcId.removeValue(forKey: rpcId)
+            bridgePendingQuestions.removeAll { $0.rpcId == rpcId }
+            bridgeQuestionStatuses[rpcId] = nil
+        }
     }
     @Published private(set) var questionRequestStatuses: [String: GatewayQuestionRequestStatus] = [:]
     @Published private(set) var pendingApprovalRequests: [GatewayPendingApprovalRequest] = []

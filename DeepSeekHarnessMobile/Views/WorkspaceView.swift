@@ -526,11 +526,13 @@ struct WorkspaceView: View {
                     try await team.answerCardQuestion(sessionId: sessionId, questionId: questionId,
                                                       selected: selected, custom: custom)
                     store.bridgeCardAnswerAccepted(rpcId: rpcId)
+                } catch let status as BridgeResponseStatus where status.status == 409 {
+                    // 409 分族（KMP 信封解码，AppStore.bridgeCardAnswer409）：
+                    // QUESTION_IN_FLIGHT=连点按已受理（第一条结果自己回来）；bot/stale=先判后处置；其余=fail-closed 失败。
+                    // 判据是解码出的 code，不是 error.localizedDescription（BridgeResponseStatus 的描述只有状态码）。
+                    store.bridgeCardAnswer409(rpcId: rpcId, status: status.status, body: status.body)
                 } catch {
-                    // 409 QUESTION_IN_FLIGHT（连点）按"已受理"处理；其余给失败状态
-                    let text = error.localizedDescription
-                    if text.contains("QUESTION_IN_FLIGHT") { store.bridgeCardAnswerAccepted(rpcId: rpcId) }
-                    else { store.bridgeCardAnswerFailed(rpcId: rpcId, message: text) }
+                    store.bridgeCardAnswerFailed(rpcId: rpcId, message: error.localizedDescription)
                 }
             }
         }
