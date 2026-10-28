@@ -3778,6 +3778,16 @@
         }
       }
     },
+    "会话统计": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session statistics"
+          }
+        }
+      }
+    },
     "会话状态": {
       "extractionState": "stale",
       "localizations": {

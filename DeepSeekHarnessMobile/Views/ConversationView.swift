@@ -3168,7 +3168,7 @@ private struct SessionStatsSheet: View {
                 .padding(DSHSpacing.xl)
                 .readableContentWidth()
             }
-            .navigationTitle("会话状态")
+            .navigationTitle("会话统计")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
