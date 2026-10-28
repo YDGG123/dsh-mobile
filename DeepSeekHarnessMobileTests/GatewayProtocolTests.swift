@@ -14422,6 +14422,93 @@ final class BridgeQuestionIngestTests: XCTestCase {
         XCTAssertTrue(store.bridgePendingQuestions.isEmpty, "卡已不在 → 按已答收尾，本地卡移除")
         XCTAssertNil(store.bridgeQuestionStatuses[rpcId], "收尾不留状态尾巴")
     }
+
+    // ⑧ 提交成功（服务端已受理）后本地卡**必须**收掉，不依赖 `card.answered` 帧。
+    //
+    //    真机 bug（48 包）：答完宿主 ask_user 卡后卡片一直挂着，退出会话页再进才消失。
+    //    根因：`.accepted` 之后只等卡片流的 `card.answered`，这条通知在 bridge 链路上
+    //    到不了（网关转发 / seq 防重 / 重连订阅窗口任一环断，卡就永久挂着）。
+    //    退出重进之所以有效，是因为重进重发 `card-snapshot`，服务端已无这张 pending。
+    //
+    //    断言意图：**没有 card.answered、没有再 ingest 任何快照**，卡也得消失。
+    @MainActor
+    func testAcceptedAnswerRemovesLocalCardWithoutAnsweredFrame() async {
+        let store = AppStore(preferences: UserDefaultsAppPreferences(userDefaults: UserDefaults(suiteName: "bridge-accept-dismiss")!, gatewayID: "t"),
+                             gatewayClient: GatewayClient(credentials: nil), gatewayLocalID: "t")
+        store.ingestBridgeQuestionCards([card(id: "card-1")], answerEnabled: true)
+        let rpcId = AppStore.bridgeCardRpcPrefix + "card-1"
+        XCTAssertEqual(store.bridgePendingQuestions.count, 1, "前置：卡在")
+
+        store.acceptedCardDismissDelayOverride = 0   // 测试不真的等 1.5s
+        store.bridgeCardAnswerAccepted(rpcId: rpcId)
+
+        // 兜底是一个 Task：让出几次让它跑完。
+        for _ in 0..<20 where !store.bridgePendingQuestions.isEmpty {
+            await Task.yield()
+        }
+
+        XCTAssertTrue(store.bridgePendingQuestions.isEmpty,
+                      "提交成功（服务端已受理）后本地卡必须收掉——不能只等 card.answered")
+        XCTAssertNil(store.bridgeCardsByRpcId[rpcId], "卡片映射也要清")
+        guard case .accepted = store.bridgeQuestionStatuses[rpcId] else {
+            return XCTFail("状态保留 accepted，UI 的「服务端已接收」反馈不该被抹掉")
+        }
+    }
+
+    // ⑨ 失败时**绝不能**收卡：用户还得重答
+    @MainActor
+    func testRejectedAnswerKeepsLocalCardForRetry() async {
+        let store = AppStore(preferences: UserDefaultsAppPreferences(userDefaults: UserDefaults(suiteName: "bridge-reject-keep")!, gatewayID: "t"),
+                             gatewayClient: GatewayClient(credentials: nil), gatewayLocalID: "t")
+        store.ingestBridgeQuestionCards([card(id: "card-1")], answerEnabled: true)
+        let rpcId = AppStore.bridgeCardRpcPrefix + "card-1"
+
+        store.acceptedCardDismissDelayOverride = 0
+        store.bridgeCardAnswerAccepted(rpcId: rpcId)                        // 先排一个兜底
+        store.bridgeCardAnswerFailed(rpcId: rpcId, message: "服务端拒绝")    // 紧接着失败
+
+        for _ in 0..<20 { await Task.yield() }
+
+        XCTAssertEqual(store.bridgePendingQuestions.count, 1, "失败时卡必须留着让用户重答")
+        guard case .rejected = store.bridgeQuestionStatuses[rpcId] else {
+            return XCTFail("失败要显示 rejected，不能被兜底收尾吞掉")
+        }
+    }
+
+    // ⑩ 兜底不能抢删「又回到提交中」的卡（连点场景）。
+    //
+    //    反向测试发现过缺口：去掉 `dismissAcceptedCard` 里的 `.submitting` 守卫，
+    //    上面 ⑧⑨ 两条都不变红 —— 说明这个守卫原本没有测试覆盖。
+    //    注意不能用 `isAnswerInFlight` 做守卫：它把 `.accepted` **也算在飞**，
+    //    用了它兜底会永远不执行（accepted 正是要收尾的状态）。
+    //
+    //    这里用公开入口 `answerQuestion` 造出 `.submitting`（不碰 private(set) 字段）：
+    //    accepted 之后用户又点了一次，提交重新开始 → 兜底必须让路。
+    @MainActor
+    func testDismissSkipsCardThatWentBackToSubmitting() async {
+        let store = AppStore(preferences: UserDefaultsAppPreferences(userDefaults: UserDefaults(suiteName: "bridge-dismiss-submitting")!, gatewayID: "t"),
+                             gatewayClient: GatewayClient(credentials: nil), gatewayLocalID: "t")
+        store.ingestBridgeQuestionCards([card(id: "card-1")], answerEnabled: true)
+        let rpcId = AppStore.bridgeCardRpcPrefix + "card-1"
+        // 让提交「挂住」不回：状态停在 submitting（这才是连点的真实动力学）。
+        store.bridgeCardAnswerSender = { _, _, _, _, _ in }
+
+        store.acceptedCardDismissDelayOverride = 0
+        store.bridgeCardAnswerAccepted(rpcId: rpcId)
+        guard let request = store.bridgePendingQuestions.first(where: { $0.rpcId == rpcId }),
+              let question = request.questions.first else {
+            return XCTFail("前置：卡与问题都在")
+        }
+        store.answerQuestion(request, answers: [GatewayQuestionAnswer(id: question.id, selected: ["A"])])
+        guard case .submitting = store.bridgeQuestionStatuses[rpcId] else {
+            return XCTFail("前置：answerQuestion 必须把状态置回 submitting")
+        }
+
+        for _ in 0..<20 { await Task.yield() }
+
+        XCTAssertEqual(store.bridgePendingQuestions.count, 1,
+                       "卡已回到 submitting → 兜底必须让路，不能删掉正在提交的那张")
+    }
 }
 
 /// 解码层：history 帧的 previousSessionId（网关 debc076）。
