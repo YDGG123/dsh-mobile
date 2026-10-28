@@ -42,10 +42,18 @@ import sys
 
 ROOT = os.environ.get("BUNDLE_GATE_ROOT") or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROJECT = os.path.join(ROOT, "DeepSeekHarnessMobile.xcodeproj")
-# 2026-10-28：xcodebuild 因系统层损坏（AppleSystemInfo 等系统框架二进制被删，
-# 见 Docs/history-multi-segment-notes.md）对任何输入都 SIGBUS，本闸门改为
+# 2026-10-28：xcodebuild 在本机对任何输入都 SIGBUS（EXIT=138），本闸门改为
 # **解析 pbxproj + xcconfig 展开**。展开语义保留：$(LOCAL_BUNDLE_IDENTIFIER) 从
 # config/*.xcconfig（含 include 链）解析；47 包正是 xcconfig 覆盖导致占位值，解析器必须覆盖它。
+#
+# 崩溃根因（2026-10-28 定案。别再往「系统文件被删」查——那是误判，已撤回）：
+#   EXC_BAD_ACCESS/SIGBUS + KERN_MEMORY_ERROR，崩溃地址三次完全一致（0x…1c43），
+#   落在 dyld 共享缓存的 AppleSystemInfo __TEXT +0x1c43。同一框架用 ctypes.CDLL
+#   能正常加载（文件是好的）；-help/-showsdks 正常而 -list/无参数必崩；同日早晚
+#   表现不同——即**内存压力（swap 近 2GB、pagein 2400 万）下 dyld 缓存页映射失败**。
+#   系统文件本身完好：macOS 自 Big Sur 起系统库只在 dyld 缓存里，磁盘上的
+#   framework 目录本就没有二进制，这是正常形态，不是被删。
+#   软件层无法根治（缓存重建需 sudo+重启、收益不确定），重启可缓解内存压力。
 XCODEBUILD = None
 
 def _pbxproj_text() -> str | None:
@@ -59,6 +67,16 @@ WIDGET_TARGET = os.environ.get("BUNDLE_GATE_WIDGET_TARGET", "AgentLiveActivityWi
 
 failures: list[str] = []
 input_errors: list[str] = []
+
+def _skip_if_requested() -> None:
+    """显式跳过开关：BUNDLE_GATE_SKIP=1 才生效（不认 true/yes/空串）。
+    放最前面：连 pbxproj 都不读，排障时不需要文件可读。"""
+    if os.environ.get("BUNDLE_GATE_SKIP") == "1":
+        print("⚠️ Bundle ID 前缀闸门被 BUNDLE_GATE_SKIP=1 跳过（未校验！构建前请确认已恢复）")
+        sys.exit(0)
+
+
+_skip_if_requested()
 
 PLACEHOLDERS = ("com.example.", "com.example")
 IDENTIFIER_KEY = "PRODUCT_BUNDLE_IDENTIFIER"
@@ -146,20 +164,29 @@ def resolve(target: str, configuration: str) -> str | None:
     assignments = _read_pbxproj_assignments(target)
     raw = assignments.get((configuration, IDENTIFIER_KEY))
     if raw is None:
+        # configuration/target 名字写错（如 BUNDLE_GATE_* 反向测试传错值）→ exit 2：
+        # "没读到该看的东西"，排查方向是调用方传参，不是 bundle id 本身
         input_errors.append(f"{target}/{configuration} 的 build settings 里没有 {IDENTIFIER_KEY}")
         return None
     if "$(" in raw:
         expanded = _resolve_variable(raw, configuration)
         if "$(" in expanded:
-            input_errors.append(f"{target}/{configuration} 的 {IDENTIFIER_KEY} 变量无法解析：{raw}")
+            # 未知变量 = **读到了但值不合法**（pbxproj 里确实写了 $(NO_SUCH_VARIABLE)）
+            # → exit 1（指向"pbxproj 里的 bundle id 写错了"），
+            #    不是 exit 2（那会让人去查文件路径/target 名，方向错）。
+            failures.append(f"[{configuration}] {target} 的 Bundle ID 引用了未定义变量：{raw}"
+                             "（xcconfig 里找不到，展开后仍是 $(…)）")
             return None
         return expanded
     return raw
 
 
 resolved: dict[tuple[str, str], str] = {}
+# BUNDLE_GATE_CONFIGURATION：反向测试用，可指定单个配置名（写错的名字 → exit 2）
+CONFIGURATIONS = (os.environ.get("BUNDLE_GATE_CONFIGURATION"),) \
+    if os.environ.get("BUNDLE_GATE_CONFIGURATION") else ("Release", "Debug")
 for target in (APP_TARGET, WIDGET_TARGET):
-    for configuration in ("Release", "Debug"):
+    for configuration in CONFIGURATIONS:
         value = resolve(target, configuration)
         if value is not None:
             resolved[(target, configuration)] = value
