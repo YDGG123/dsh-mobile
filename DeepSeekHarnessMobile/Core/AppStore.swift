@@ -539,8 +539,10 @@ final class AppStore: ObservableObject {
         // ②定位日志（长期 debug）：卡片在总表里却没被选中 = sessionId 不匹配被过滤，
         // 这就是"新卡要退出重进才显示"的可观测判据（2026-10-28 真机报告）。
         if bridgePendingQuestions.isEmpty == false, picked == nil {
+            // 显式 `self.`：日志字符串插值是闭包上下文，Xcode 测试目标的 Swift 5 语言模式
+            // 要求显式捕获语义（四路 typecheck 不报、只有测试模块编时才暴露）。
             Logger(subsystem: "ai.dsh.mobile.ios", category: "history")
-                .debug("bridge cards present but none matches selectedSessionId=\(selectedSessionId ?? "nil", privacy: .public); card sessions=\(bridgePendingQuestions.map(\.sessionId), privacy: .public)")
+                .debug("bridge cards present but none matches selectedSessionId=\(self.selectedSessionId ?? "nil", privacy: .public); card sessions=\(self.bridgePendingQuestions.map(\.sessionId), privacy: .public)")
         }
         return picked
     }
