@@ -303,8 +303,17 @@ final class BridgeTransport {
         return try await request(path: path, method: method, token: token, body: body)
     }
 
+    /// 拼请求 URL：`origin + "mobile/v1" + path`，其中 **path 必须是相对路径**。
+    ///
+    /// 抽成 `static` 纯函数是为了能单测：曾经 `answerCardQuestion` 传了
+    /// `"/mobile/v1/actions"`（完整路径），拼出来 `.../mobile/v1/mobile/v1/actions`，
+    /// 网关回 404 NOT_FOUND。这类"重复前缀"只有断言拼出的 URL 才能守住。
+    static func requestURL(origin: URL, path: String) -> URL {
+        origin.appendingPathComponent("mobile/v1" + path)
+    }
+
     private func request(path: String, method: String, token: String?, body: Data?) async throws -> String {
-        let url = config.origin.appendingPathComponent("mobile/v1" + path)
+        let url = Self.requestURL(origin: config.origin, path: path)
         guard BridgeOriginValidation.meetsBinding(url, origin: config.origin) else {
             throw BridgeTransportError.boundOriginMismatch
         }

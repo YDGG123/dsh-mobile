@@ -375,7 +375,11 @@ final class BridgeTeamAdapter: ObservableObject {
         }
         var answer: [String: Any] = ["selected": selected]   // 逐字原样：不 trim、不去重
         if let custom, !custom.isEmpty { answer["custom"] = custom }
-        _ = try await transport.post(path: "/mobile/v1/actions", token: token, jsonBody: [
+        // path 必须是**相对**路径：`BridgeTransport.request()` 自己会拼
+        // `config.origin + "mobile/v1" + path`（BridgeTransport.swift:310）。
+        // 这里曾写 "/mobile/v1/actions" → 实际请求 /mobile/v1/mobile/v1/actions
+        // → 网关 404 NOT_FOUND。这是全项目唯一一处传完整路径的调用。
+        _ = try await transport.post(path: "/actions", token: token, jsonBody: [
             "endpoint": "answer-question",
             "payload": ["sessionId": sessionId, "questionId": questionId, "answer": answer],
         ])

@@ -80,6 +80,44 @@ final class BridgeTransportTests: XCTestCase {
         )
     }
 
+    /// 回归护栏：请求 URL 只能有**一个** `/mobile/v1` 前缀。
+    ///
+    /// 47/48 包真机 bug：`answerCardQuestion` 传了完整路径 `"/mobile/v1/actions"`，
+    /// 而 `requestURL` 自己也会加 `mobile/v1` → 实际请求
+    /// `/mobile/v1/mobile/v1/actions` → 网关 404 NOT_FOUND（用户看到「选了之后报 404」）。
+    /// 光改不测，下次还会有人在别处传完整路径。
+    func testRequestURLKeepsSingleBridgePrefix() {
+        let origin = URL(string: "https://host.ts.net")!
+        // 正确用法：相对路径。
+        XCTAssertEqual(
+            BridgeTransport.requestURL(origin: origin, path: "/actions").absoluteString,
+            "https://host.ts.net/mobile/v1/actions"
+        )
+        // 所有真实用到的相对端点都不该出现双前缀。
+        for path in ["/info", "/state", "/conversations", "/actions", "/pairings", "/submissions"] {
+            let url = BridgeTransport.requestURL(origin: origin, path: path)
+            XCTAssertEqual(
+                url.absoluteString.components(separatedBy: "mobile/v1").count - 1, 1,
+                "\(path) 拼出 \(url.absoluteString)：/mobile/v1 只能出现一次"
+            )
+            XCTAssertTrue(
+                BridgeOriginValidation.meetsBinding(url, origin: origin),
+                "\(path) 拼出的 URL 必须通过 origin 绑定校验"
+            )
+        }
+    }
+
+    /// 传完整路径时的确诊证据：拼出来是双前缀（这就是真机 404 的那个 URL）。
+    func testRequestURLRevealsDoublePrefixWhenGivenFullPath() {
+        let origin = URL(string: "https://host.ts.net")!
+        let url = BridgeTransport.requestURL(origin: origin, path: "/mobile/v1/actions")
+        XCTAssertEqual(
+            url.absoluteString,
+            "https://host.ts.net/mobile/v1/mobile/v1/actions",
+            "这就是网关日志里 404 的那个 URL —— 调用方必须传相对路径"
+        )
+    }
+
     func testBackoffCapsAtFifteenSeconds() {
         XCTAssertEqual(BridgeBackoff.delay(attempt: 0), 0.75, accuracy: 0.001)
         XCTAssertEqual(BridgeBackoff.delay(attempt: 1), 1.5, accuracy: 0.001)

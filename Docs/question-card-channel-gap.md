@@ -52,26 +52,32 @@
 
 **这就是历史遗留**：正文通道当初走旧协议，主连接迁到 bridge 后，正文通道没跟着迁。
 
-## 5. 修法成本（关键约束：bridge 没有"回答"通道）
+## 5. 修法成本（**已过时，2026-10-28 更新：A 已实现，见 §5.4**）
 
-查 `lib/mobile-v1/actions.mjs` 的完整白名单：
+> ⚠️ **本节原文写于 2026-10-27 02:31，当时 bridge 确实没有答复通道。**
+> 两小时后网关就加了 `answer-question`（`09d66ad`，10:35），中午 iOS 侧也接通了
+> （`3b18ea2`，12:08）。**下面这段历史记录保留，但结论已不成立**——现状见 §5.4。
+
+当时查 `lib/mobile-v1/actions.mjs` 的完整白名单：
 
 ```
 models / efforts / update-bot / set-flags / usage /
 memory-view / memory-forget / schedules / schedule-create / schedule-delete
 ```
 
-**没有「回答提问」这个动作**（正确名字是 `answer-question`，见 §5.3——它必须与 ds-bot 的 dispatch key 一致）。
+**当时没有「回答提问」这个动作**（正确名字是 `answer-question`，见 §5.3——它必须与 ds-bot 的 dispatch key 一致）。
 `adapter.mjs` 里 `questions: {}` 只是恒空占位，`server.mjs` 里 question 相关 0 命中。
 
-所以「手机端直接用 card 正文渲染」**不够**——能显示，但**答了发不回去**。
+所以当时「手机端直接用 card 正文渲染」**不够**——能显示，但**答了发不回去**。
 
 | 方案 | 内容 | 成本 | 归属 |
 | --- | --- | --- | --- |
 | **A 完整** | 网关加 `answer-question` action（写回 `state.questions`，可复用 `channel.js` 的 `answer-question` 逻辑）+ 手机端 `applyCards` 保留正文、渲染 `HumanQuestionView`、答复走新 action | 网关 0.5–1 天 + iOS 1–1.5 天 | DSBotDev + iOSCoder |
 | **B 止血** | 有 pending/card 但无正文时，**显示「有 1 个提问待回答，请在电脑端处理」**，不做成可点击卡片；红点保留 | iOS 半天 | iOSCoder |
 
-**建议**：先做 B（立刻不再骗用户），再排 A（根治）。A 不能为它拖住止血。
+**当时建议**：先做 B（立刻不再骗用户），再排 A（根治）。A 不能为它拖住止血。
+**实际执行**：B 于 02:54 落地（`ef11019`），A 于 12:08 落地（`3b18ea2`）。两者都已完成。
+
 
 ### 5.1 答复被拒的语义：`bot/stale` 覆盖两种不同情况（别一律当已答）
 
@@ -126,11 +132,52 @@ if (question === undefined || question.id !== body.questionId) return fail('This
 
 入参形状也随之固定（`channel.js:438/449/450`）：`{ sessionId, questionId, answer }`，其中 `answer = { selected: [选项 label 原文], custom?: string }`（`parts.js:69-87`，**label 是答案的身份，不是 id**）。
 
-实现时还有三件必做（等排期，不在本文范围内）：
+实现时还有三件必做（**均已在网关落地，见 §5.4**）：
 
 1. **归属校验**：`sessionId` 必须属于可见团队里某个 bot/room（`adapter` 的 `ownedSession` 语义），否则 `TARGET_DENIED`——否则一台设备能答别人的题
 2. **in-flight 守卫**：同一 `questionId` 并发只放一条（只优化连点，正确性靠 §5.2 的原子认领）
 3. **反向自证要看对地方**：`/info` 的 actions 由 `adapter.actionCapabilities()` 出，前提是 `description.version === 1 && redactedText === true`；删白名单的变异与该前置条件是两回事，别混判
+
+### 5.4 现状（2026-10-28）：A 已实现，闭环通了
+
+| 环节 | 落点 | 提交 |
+| --- | --- | --- |
+| 网关白名单 `answer-question` | `lib/mobile-v1/actions.mjs:8`，带归属校验（`TARGET_DENIED`）、`QUESTION_IN_FLIGHT` 守卫、label 原文不 trim/不归一化 | `09d66ad`（10-27 10:35） |
+| iOS 卡片正文 → 可点卡片 | `AppStore.ingestBridgeQuestionCards(_:answerEnabled:)`（能力不含则 **fail-closed**，清空可点数据） | `3b18ea2`（10-27 12:08） |
+| iOS 提交 | `BridgeTeamAdapter.answerCardQuestion` → `POST /mobile/v1/actions` | `3b18ea2` |
+| 行内只读正文（止血 B） | `WorkspaceView` + `GatewayTeamFeed.statusText` | `ef11019`（10-27 02:54） |
+
+**⚠️ 这里踩过一个真机 bug（务必别再犯）：**
+
+`BridgeTeamAdapter.answerCardQuestion` 当初传的是**完整路径** `"/mobile/v1/actions"`，
+而 `BridgeTransport.request()` 自己会拼 `origin + "mobile/v1" + path` → 实际请求
+
+```
+/mobile/v1/mobile/v1/actions      → 404 NOT_FOUND
+```
+
+网关日志原文：`mobile-v1 POST /mobile/v1/mobile/v1/actions rejected (404 NOT_FOUND)`。
+
+**这是全项目唯一一处传完整路径的调用**（`/info`、`/state`、`/pairings`、`/submissions`
+和 KMP 下发的 path 全是相对路径）。判断「路径到底错没错」唯一可靠的办法是
+**断言最终拼出的 URL**，不能只看调用点写了什么：
+
+```swift
+BridgeTransport.requestURL(origin: origin, path: "/actions")
+// → https://host.ts.net/mobile/v1/actions          ✅ 单前缀
+BridgeTransport.requestURL(origin: origin, path: "/mobile/v1/actions")
+// → https://host.ts.net/mobile/v1/mobile/v1/actions ❌ 双前缀，这就是 404 那个
+```
+
+回归护栏：`BridgeTransportTests.testRequestURLKeepsSingleBridgePrefix`
++ `testRequestURLRevealsDoublePrefixWhenGivenFullPath`。
+
+**排查弯路记录（省下次）**：这个 404 曾被误判为「群卡传了 bot 的 sessionId 导致
+`TARGET_DENIED`」。误判来源是网关**确实**有一条 `ownedSession` 归属规则
+（群卡要求 `sessionId === room.id`），看起来完全对得上症状。但网关日志的
+`POST /mobile/v1/mobile/v1/actions` 才是铁证——**先看网关日志里的实际请求行，
+再谈字段语义**。字段推断得再自洽，也抵不过一行真实日志。
+
 
 ## 6. 排查中走的弯路（记下来省下次）
 
@@ -162,5 +209,12 @@ if (question === undefined || question.id !== body.questionId) return fail('This
 
 ### 7.2 当前状态
 
-> 当前状态（2026-10-27）：② 止血已落地（`ef11019`，build 38）；
-> ③ 根治未开始（等网关 `answer-question` action）。
+> **当前状态（2026-10-28 更新）：③ 已根治，手机上能看能答。**
+>
+> - ② 止血：`ef11019`（10-27 02:54，build 38）
+> - ③ 根治：网关 `09d66ad`（10:35）+ iOS `3b18ea2`（12:08）
+> - 真机 404 已修：`BridgeTeamAdapter.answerCardQuestion` 的路径由完整路径
+>   `"/mobile/v1/actions"` 改为相对 `"/actions"`（见 §5.4）——**这是最后一处断点**
+>
+> 按 §7.1 三态判据复核：`actions.mjs` 的 `fields` 里**已有** `answer-question`
+> → 不是「只止血」，是③。
