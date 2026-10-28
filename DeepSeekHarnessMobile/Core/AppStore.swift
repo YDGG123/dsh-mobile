@@ -489,8 +489,6 @@ final class AppStore: ObservableObject {
     @Published private(set) var bridgePendingQuestions: [GatewayPendingQuestionRequest] = []
     /// bridge 卡片提交状态（idle/提交中/已受理/失败），UI 优先读它
     @Published private(set) var bridgeQuestionStatuses: [String: GatewayQuestionRequestStatus] = [:]
-    /// 「已受理 → 本地收卡」的兜底任务（`card.answered` 到不了时不至于永久挂卡）。
-    private var acceptedCardDismissTasks: [String: Task<Void, Never>] = [:]
     /// 提交执行器：WorkspaceView 用 bridgeTeam 注入（POST /mobile/v1/actions）
     var bridgeCardAnswerSender: ((_ rpcId: String, _ sessionId: String, _ questionId: String,
                                   _ selected: [String], _ custom: String?) -> Void)?
@@ -526,11 +524,6 @@ final class AppStore: ObservableObject {
         bridgePendingQuestions = requests
         bridgeCardsByRpcId = byId
         bridgeQuestionStatuses = bridgeQuestionStatuses.filter { byId[$0.key] != nil }
-        // 卡片流已经把卡撤了（含 `card.answered`）：对应的兜底任务没必要再跑。
-        for key in acceptedCardDismissTasks.keys where byId[key] == nil {
-            acceptedCardDismissTasks[key]?.cancel()
-            acceptedCardDismissTasks[key] = nil
-        }
     }
 
     var selectedBridgeQuestionRequest: GatewayPendingQuestionRequest? {
@@ -548,74 +541,57 @@ final class AppStore: ObservableObject {
         bridgeQuestionStatuses[request.rpcId] ?? questionRequestStatuses[request.rpcId] ?? .idle
     }
 
+    /// 提交成功（HTTP 200）→ **立刻**移除本地卡。不要定时器、不要延迟。
+    ///
+    /// 为什么 200 就等于"真的做完了"：ds-bot `channel.js` 的 `answer-question` 顺序是
+    ///
+    /// ```
+    /// delete state.questions[sessionId]          // 1 认领（先删，第二次答会被拒）
+    /// await rt.ensureCapabilities(sessionId)     // 2 准备能力
+    /// const agent = await rt.resolveAgent(...)   // 3 拿 agent
+    /// agent.followup(...)                        // 4 投递答案
+    /// await ctx.sessions.flush(agent.session)    // 5 等真的落地
+    /// rt.cardFeed?.answered(question.id)         // 6 通知卡片流（附带）
+    /// await rt.save()                            // 7 落盘
+    /// return ok(true)                            // 8 才返回
+    /// ```
+    ///
+    /// 网关 `actions.mjs` 是 `await callTeam(...)` —— **8 步全跑完才回 200**。
+    /// 第 2–5 步任何一步抛错都会 `state.questions[sessionId] ??= question` 回滚并抛给调用方，
+    /// 那种情况拿到的是错误、不是 200。所以 200 ⇒ 答案已投递并落盘。
+    ///
+    /// `card.answered`（第 6 步）只是**附带通知**：它到不了也不改变"已经答完"这个事实，
+    /// 所以收卡**不能**把主路径交给它。真机 48 包「答完卡一直挂着、退出重进才消失」
+    /// 就是这个错误设计的结果（重进重发 card-snapshot，服务端早已没有这张 pending）。
+    ///
+    /// **状态与卡解耦**：`.accepted` 保留，UI 的「服务端已接收，正在恢复 Agent…」
+    /// 是用户已看到的反馈，不该随卡一起消失。
     func bridgeCardAnswerAccepted(rpcId: String) {
         bridgeQuestionStatuses[rpcId] = .accepted(.answer)
-        // 本地卡**不能只等**卡片流的 `card.answered`（HTTP 200 只是已受理）。
-        //
-        // 真机 bug（48 包）：答完宿主 ask_user 卡后，卡片一直挂着不收起，要退出会话页再进才消失。
-        // 根因：`card.answered` 这条通知在实际链路里到不了 ——
-        // `BridgeTeamAdapter.answerCardQuestion` 打的是 `/mobile/v1/actions`，
-        // 而 `card.answered` 要靠 ds-bot 的 `cardFeed.answered()` 推回卡片流；
-        // 这条回推只要任何一环没接上（网关转发/seq 防重/重连订阅窗口），卡就永久挂着。
-        // 退出重进之所以有效，是因为重进时重发 `card-snapshot`，服务端已经没有这张 pending。
-        //
-        // 所以这里补一条**本地兜底收尾**：给 `card.answered` 一个很短的机会先到，
-        // 到点如果卡还在就本地移除（服务端已确认受理，留着只会骗用户「还有一张卡等你答」）。
-        scheduleAcceptedCardDismissal(rpcId: rpcId)
-    }
-
-    /// 兜底收尾的等待时长：够 `card.answered` 先到（正常链路是毫秒级），
-    /// 又不至于让用户觉得卡死了。
-    static let acceptedCardDismissDelay: TimeInterval = 1.5
-
-    /// 测试用：0 表示不真的等（直接执行收尾）。
-    var acceptedCardDismissDelayOverride: TimeInterval?
-
-    private func scheduleAcceptedCardDismissal(rpcId: String) {
-        acceptedCardDismissTasks[rpcId]?.cancel()
-        let delay = acceptedCardDismissDelayOverride ?? Self.acceptedCardDismissDelay
-        acceptedCardDismissTasks[rpcId] = Task { [weak self] in
-            if delay > 0 {
-                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-            }
-            guard !Task.isCancelled, let self else { return }
-            self.dismissAcceptedCard(rpcId: rpcId)
-        }
-    }
-
-    /// 收尾一张「服务端已受理」的本地卡。
-    ///
-    /// **只删本地卡，不删状态记录**：`.accepted` 要留着给 UI 显示
-    /// 「服务端已接收，正在恢复 Agent…」（那是用户已经看到的反馈，不该突然消失）。
-    /// 卡片流随后真收到 `card.answered` 时走的是同一条移除路径，幂等。
-    private func dismissAcceptedCard(rpcId: String) {
-        acceptedCardDismissTasks[rpcId] = nil
-        // 判据只能用 `.submitting`：`isAnswerInFlight` **把 `.accepted` 也算在飞**，
-        // 用它做守卫会让兜底永远不执行（accepted 正是我们要收尾的状态）。
-        if case .submitting = bridgeQuestionStatuses[rpcId] {
-            // 连点时后一条又开始了：交给那一条自己的收尾，别抢先删。
-            return
-        }
+        // 幂等：卡已因 `card.answered` 先到而不在时，这里空转即可。
         bridgeCardsByRpcId.removeValue(forKey: rpcId)
         bridgePendingQuestions.removeAll { $0.rpcId == rpcId }
     }
 
+    /// 失败**绝不收卡**：用户必须能重新答。卡留着，状态显示 rejected。
     func bridgeCardAnswerFailed(rpcId: String, message: String) {
-        // 失败要留着卡让用户重答：撤掉可能已排队的兜底收尾。
-        acceptedCardDismissTasks[rpcId]?.cancel()
-        acceptedCardDismissTasks[rpcId] = nil
         bridgeQuestionStatuses[rpcId] = .rejected(message)
     }
 
     /// 409 分族处置（KMP 信封解码，文档 answer-question-v1.md §4/§6）：
-    /// `QUESTION_IN_FLIGHT`=连点按已受理（第一条结果自己回来，不提示失败、不重试）；
+    /// `QUESTION_IN_FLIGHT`=连点，**只标记已受理、绝不收卡**（见下）；
     /// `bot/stale`=先判后处置（§4）；其余 wire 码=fail-closed 失败（显示原文）。
     /// 错误码比对用信封 `code` 原样，不靠 `error.localizedDescription`（BridgeResponseStatus 的描述只有状态码）。
     func bridgeCardAnswer409(rpcId: String, status: Int, body: String) {
         let envelope = BridgeErrorsKt.decodeBridgeErrorEnvelope(status: Int32(status), body: body)
         switch envelope.code {
         case "QUESTION_IN_FLIGHT":
-            bridgeCardAnswerAccepted(rpcId: rpcId)
+            // 连点：**第一条还在飞**，这次请求是被 in-flight 守卫挡下的。
+            // 所以"200 已落地"的前提在这里**不成立** —— 绝不能走 `bridgeCardAnswerAccepted`
+            // （那个现在会立刻删卡），否则用户会以为答完了，而第一条可能还没落地。
+            // 只把状态标成已受理（UI 与「连点不提示失败」的既有语义一致），卡留着；
+            // 第一条自己的 200 / 错误回来时再决定收不收。
+            bridgeQuestionStatuses[rpcId] = .accepted(.answer)
         case "bot/stale":
             bridgeCardAnswerStale(rpcId: rpcId)
         default:

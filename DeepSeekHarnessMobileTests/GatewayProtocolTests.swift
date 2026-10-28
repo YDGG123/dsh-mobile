@@ -14423,32 +14423,28 @@ final class BridgeQuestionIngestTests: XCTestCase {
         XCTAssertNil(store.bridgeQuestionStatuses[rpcId], "收尾不留状态尾巴")
     }
 
-    // ⑧ 提交成功（服务端已受理）后本地卡**必须**收掉，不依赖 `card.answered` 帧。
+    // ⑧ 提交成功（HTTP 200）后本地卡**立刻**消失 —— 同步断言，不给任何等待。
     //
-    //    真机 bug（48 包）：答完宿主 ask_user 卡后卡片一直挂着，退出会话页再进才消失。
-    //    根因：`.accepted` 之后只等卡片流的 `card.answered`，这条通知在 bridge 链路上
-    //    到不了（网关转发 / seq 防重 / 重连订阅窗口任一环断，卡就永久挂着）。
-    //    退出重进之所以有效，是因为重进重发 `card-snapshot`，服务端已无这张 pending。
+    //    真机 bug（48 包）：答完卡片一直挂着，退出会话页再进才消失。
+    //    根因：收卡原来把主路径交给了卡片流的 `card.answered`（ds-bot channel.js 的**第 6 步**，
+    //    只是附带通知），它一旦到不了卡就永久挂着。而网关 `await callTeam(...)` 意味着
+    //    200 是**第 8 步**返回的：删问题→准备→拿 agent→投递→flush 落地→落盘全做完了。
+    //    所以 200 ⇒ 已经答完，收卡必须当场做，不能等通知、不能加延迟。
     //
-    //    断言意图：**没有 card.answered、没有再 ingest 任何快照**，卡也得消失。
+    //    这里**故意不用 Task.yield**：收了就是收了，任何"等一会儿才收"的实现都该红。
     @MainActor
-    func testAcceptedAnswerRemovesLocalCardWithoutAnsweredFrame() async {
+    func testAcceptedAnswerRemovesLocalCardImmediately() {
         let store = AppStore(preferences: UserDefaultsAppPreferences(userDefaults: UserDefaults(suiteName: "bridge-accept-dismiss")!, gatewayID: "t"),
                              gatewayClient: GatewayClient(credentials: nil), gatewayLocalID: "t")
         store.ingestBridgeQuestionCards([card(id: "card-1")], answerEnabled: true)
         let rpcId = AppStore.bridgeCardRpcPrefix + "card-1"
         XCTAssertEqual(store.bridgePendingQuestions.count, 1, "前置：卡在")
 
-        store.acceptedCardDismissDelayOverride = 0   // 测试不真的等 1.5s
         store.bridgeCardAnswerAccepted(rpcId: rpcId)
 
-        // 兜底是一个 Task：让出几次让它跑完。
-        for _ in 0..<20 where !store.bridgePendingQuestions.isEmpty {
-            await Task.yield()
-        }
-
+        // 同步断言：调用返回后立刻检查，不给定时器/任务任何机会。
         XCTAssertTrue(store.bridgePendingQuestions.isEmpty,
-                      "提交成功（服务端已受理）后本地卡必须收掉——不能只等 card.answered")
+                      "200 回来就必须当场收卡（8 步都已落地），不能等 card.answered")
         XCTAssertNil(store.bridgeCardsByRpcId[rpcId], "卡片映射也要清")
         guard case .accepted = store.bridgeQuestionStatuses[rpcId] else {
             return XCTFail("状态保留 accepted，UI 的「服务端已接收」反馈不该被抹掉")
@@ -14457,17 +14453,14 @@ final class BridgeQuestionIngestTests: XCTestCase {
 
     // ⑨ 失败时**绝不能**收卡：用户还得重答
     @MainActor
-    func testRejectedAnswerKeepsLocalCardForRetry() async {
+    func testRejectedAnswerKeepsLocalCardForRetry() {
         let store = AppStore(preferences: UserDefaultsAppPreferences(userDefaults: UserDefaults(suiteName: "bridge-reject-keep")!, gatewayID: "t"),
                              gatewayClient: GatewayClient(credentials: nil), gatewayLocalID: "t")
         store.ingestBridgeQuestionCards([card(id: "card-1")], answerEnabled: true)
         let rpcId = AppStore.bridgeCardRpcPrefix + "card-1"
 
-        store.acceptedCardDismissDelayOverride = 0
-        store.bridgeCardAnswerAccepted(rpcId: rpcId)                        // 先排一个兜底
-        store.bridgeCardAnswerFailed(rpcId: rpcId, message: "服务端拒绝")    // 紧接着失败
-
-        for _ in 0..<20 { await Task.yield() }
+        // 只走失败路径：**绝不能**因为失败把卡删掉（用户还得重答）。
+        store.bridgeCardAnswerFailed(rpcId: rpcId, message: "服务端拒绝")
 
         XCTAssertEqual(store.bridgePendingQuestions.count, 1, "失败时卡必须留着让用户重答")
         guard case .rejected = store.bridgeQuestionStatuses[rpcId] else {
@@ -14475,39 +14468,28 @@ final class BridgeQuestionIngestTests: XCTestCase {
         }
     }
 
-    // ⑩ 兜底不能抢删「又回到提交中」的卡（连点场景）。
+    // ⑩ 409 QUESTION_IN_FLIGHT（连点）**只标已受理，绝不收卡**。
     //
-    //    反向测试发现过缺口：去掉 `dismissAcceptedCard` 里的 `.submitting` 守卫，
-    //    上面 ⑧⑨ 两条都不变红 —— 说明这个守卫原本没有测试覆盖。
-    //    注意不能用 `isAnswerInFlight` 做守卫：它把 `.accepted` **也算在飞**，
-    //    用了它兜底会永远不执行（accepted 正是要收尾的状态）。
-    //
-    //    这里用公开入口 `answerQuestion` 造出 `.submitting`（不碰 private(set) 字段）：
-    //    accepted 之后用户又点了一次，提交重新开始 → 兜底必须让路。
+    //    这是本次修复最容易踩塌的一处：`bridgeCardAnswerAccepted` 现在会**立刻删卡**，
+    //    而 409 in-flight 原本也走它 —— 那样一来"被 in-flight 守卫挡下的那次"会把卡删掉，
+    //    可**第一条请求还在飞**，用户会以为答完了而实际还没落地。
+    //    "200 已落地"的前提在 in-flight 分支根本不成立，所以它必须单独处理。
     @MainActor
-    func testDismissSkipsCardThatWentBackToSubmitting() async {
-        let store = AppStore(preferences: UserDefaultsAppPreferences(userDefaults: UserDefaults(suiteName: "bridge-dismiss-submitting")!, gatewayID: "t"),
+    func testInFlight409AcceptsWithoutRemovingCard() {
+        let store = AppStore(preferences: UserDefaultsAppPreferences(userDefaults: UserDefaults(suiteName: "bridge-inflight-no-dismiss")!, gatewayID: "t"),
                              gatewayClient: GatewayClient(credentials: nil), gatewayLocalID: "t")
         store.ingestBridgeQuestionCards([card(id: "card-1")], answerEnabled: true)
         let rpcId = AppStore.bridgeCardRpcPrefix + "card-1"
-        // 让提交「挂住」不回：状态停在 submitting（这才是连点的真实动力学）。
-        store.bridgeCardAnswerSender = { _, _, _, _, _ in }
 
-        store.acceptedCardDismissDelayOverride = 0
-        store.bridgeCardAnswerAccepted(rpcId: rpcId)
-        guard let request = store.bridgePendingQuestions.first(where: { $0.rpcId == rpcId }),
-              let question = request.questions.first else {
-            return XCTFail("前置：卡与问题都在")
-        }
-        store.answerQuestion(request, answers: [GatewayQuestionAnswer(id: question.id, selected: ["A"])])
-        guard case .submitting = store.bridgeQuestionStatuses[rpcId] else {
-            return XCTFail("前置：answerQuestion 必须把状态置回 submitting")
-        }
-
-        for _ in 0..<20 { await Task.yield() }
+        store.bridgeCardAnswer409(rpcId: rpcId, status: 409,
+                                  body: #"{"error":{"code":"QUESTION_IN_FLIGHT","message":"This question is already being answered."}}"#)
 
         XCTAssertEqual(store.bridgePendingQuestions.count, 1,
-                       "卡已回到 submitting → 兜底必须让路，不能删掉正在提交的那张")
+                       "连点被 in-flight 挡下时不能收卡：第一条还在飞，收了会误导用户")
+        XCTAssertNotNil(store.bridgeCardsByRpcId[rpcId], "卡片映射也必须留着")
+        guard case .accepted = store.bridgeQuestionStatuses[rpcId] else {
+            return XCTFail("状态仍按已受理处理（既有语义：连点不提示失败）")
+        }
     }
 }
 
