@@ -2649,9 +2649,8 @@ private struct ConversationDefaultModelSummary: View {
                     .truncationMode(.tail)
                     .layoutPriority(1)
             }
-            Image(systemName: "chevron.down")
-                .font(.system(size: 8, weight: .semibold))
-                .foregroundStyle(p.ink(0.4))
+            // 新会话没有 session，`store.selectModel` 会直接 return —— 这里只读展示，
+            // 不给下拉箭头，避免「按了没反应」的假入口（真能改模型要等会话建立）
         }
         .padding(.horizontal, DSHSpacing.sm)
         .frame(minHeight: 28)
@@ -3034,15 +3033,26 @@ private struct WindowBottomSafeAreaReader: UIViewRepresentable {
 
 private struct ContextUsageRing: View {
     let progress: Double
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
+        let p = DSHPalette.resolve(colorScheme)
         ZStack {
+            // 底环用 ink 档（深色下是白色叠加），比 secondaryLabel 22% 明显，0 进度时也看得出是环
             Circle()
-                .stroke(Color.secondary.opacity(0.22), lineWidth: 3)
-            Circle()
-                .trim(from: 0, to: progress)
-                .stroke(DSHColor.ocean, style: StrokeStyle(lineWidth: 3, lineCap: .round))
-                .rotationEffect(.degrees(-90))
+                .stroke(p.ink(0.30), lineWidth: 3)
+            if progress > 0.001 {
+                Circle()
+                    .trim(from: 0, to: min(1, progress))
+                    .stroke(p.brand, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+            } else {
+                // 0 进度：画起点小圆点，说明这是「进度环的起点」，而不是一个装饰空心圈
+                Circle()
+                    .fill(p.brand)
+                    .frame(width: 4.5, height: 4.5)
+                    .offset(y: -9)
+            }
         }
         .frame(width: 18, height: 18)
         .padding(2)
