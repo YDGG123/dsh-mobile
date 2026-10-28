@@ -34,3 +34,12 @@ case "failed":  historySyncEngine.finish(sessionID: change.sessionID)
 
 聚合入口 `AppStore.mergedHistory`（跨段 createdAt、同段 seq、当前段末尾）+ 缓存键两维
 （segmentVersion + 各桶末位 seq）。等 ④ 自检（旧段桶真有 events）后提交。
+
+## UI 改造勘误（feat/ui-redesign-tokens，2026-10-28）
+
+1. **主题三选不照搬设计稿的 `DSHThemeMode`/`.dshTheme`** —— 工程已有 `InterfaceStyle`
+   （system/light/dark，AppStore 持久化 + 根视图 preferredColorScheme），两套并存会互踩。
+   设置页第二刀直接读写 `store.interfaceStyle`。
+2. **`DSHType` 全走 `AppFont` 是白赚的一层**：设计稿的绝对字号（11/13/15/18/28）如果写死，
+   用户调大系统字号会顶破布局；走 AppFont 把「设计档位」与「用户可调」解开。
+   这条建议写回 handoff 文档（设计侧不知道工程有用户字号倍率）。
