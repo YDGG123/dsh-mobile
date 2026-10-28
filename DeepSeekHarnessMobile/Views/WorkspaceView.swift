@@ -12,6 +12,8 @@ struct WorkspaceView: View {
     let onOpenSession: (SessionSummary) -> Void
     let onNewSession: () -> Void
     let onSettings: () -> Void
+    /// 02 屏（全部会话）push 入口：由 RootView 的导航路由接管。
+    let onAllSessions: () -> Void
     let onPlugins: () -> Void
     let onScheduledTasks: () -> Void
     /// 团队页与 bridge 聊天：App 级单例（MultiGatewayStore 持有），这里只观察。
@@ -1150,16 +1152,31 @@ struct WorkspaceView: View {
     }
 
     private var sessionsHeader: some View {
-        // 2/5-a：按参考实现 RefListHead——标题 meta 半透明，右侧「全部 N 个」同为 meta 灰
-        //（参考实现里它**不可点**：02 屏全量页未建，建成后再接跳转，不做成假按钮）。
+        // 2/5-a：按参考实现 RefListHead——标题 meta 半透明，右侧「全部 N 个」同为 meta 灰。
+        // 02 屏建成后已接上跳转（原注释「不可点」已过时）：没会话时不渲染成假按钮。
         HStack {
             Text("最近会话")
                 .appFont(DSHType.meta.weight(.semibold))
                 .foregroundStyle(palette.ink(0.55))
             Spacer()
-            Text("全部 \(displayedSessions.count) 个")
-                .appFont(DSHType.meta)
-                .foregroundStyle(palette.ink(0.4))
+            if displayedSessions.isEmpty {
+                Text("全部 \(displayedSessions.count) 个")
+                    .appFont(DSHType.meta)
+                    .foregroundStyle(palette.ink(0.4))
+            } else {
+                Button(action: onAllSessions) {
+                    HStack(spacing: DSHSpacing.xxs) {
+                        Text("全部 \(displayedSessions.count) 个")
+                            .appFont(DSHType.meta)
+                        Image(systemName: "chevron.forward")
+                            .appFont(DSHType.meta.weight(.semibold))
+                    }
+                    .foregroundStyle(palette.ink(0.55))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(String(localized: "全部会话"))
+            }
         }
     }
 
@@ -1367,72 +1384,19 @@ struct WorkspaceView: View {
         }
     }
 
-    /// 会话行右列状态分流（参考实现 RefSessionRow）：只有「等你动手」的用胶囊 + 呼吸，
-    /// 运行中用蓝圆点，其余显示相对时间。判定数据：审批/问答两条 pending 通道。
-    private func pendingQuestionKind(for session: SessionSummary) -> DSHStatusKind? {
-        let id = session.id
-        if store.pendingApprovalRequests.contains(where: { $0.sessionId == id }) { return .waiting }
-        if store.pendingQuestionRequests.contains(where: { $0.sessionId == id }) { return .question }
-        if store.bridgePendingQuestions.contains(where: { $0.sessionId == id }) { return .question }
-        return nil
-    }
-
-    /// 次要信息位 = 「模式 · 轮次 · 步数」，**不给 sessionID**（设计决策）。
-    /// 数据可得性：模式来自 agentPreset（会话列表自带）；轮次/步数来自统计快照
-    /// （只有本机打开过的会话有）——缺哪段就省哪段，全缺则整行不显示，绝不编 0。
-    private func sessionSecondaryText(_ session: SessionSummary) -> String? {
-        var parts: [String] = []
-        if let preset = session.agentPreset {
-            parts.append(store.agentPresets.first { $0.id == preset }?.displayName ?? L10n.presetModeName(for: preset))
-        }
-        if let stats = store.sessionStatsSnapshots[session.id]?.stats {
-            if let turns = stats.turns { parts.append("\(turns) 轮") }
-            if let steps = stats.steps { parts.append("\(steps) 步") }
-        }
-        return parts.isEmpty ? nil : parts.joined(separator: " · ")
-    }
-
     private func sessionRow(_ session: SessionSummary) -> some View {
-        // 2/5-a：按参考实现 RefSessionRow 重排。前导圆点取消（参考行没有，状态在右列表达）；
-        // 「…」菜单按参考实现属于 02 屏的行（showsMenu），01 行保留长按 contextMenu。
-        HStack(spacing: DSHSpacing.md) {
-            VStack(alignment: .leading, spacing: DSHSpacing.xxs) {
-                Text(session.title)
-                    .appFont(DSHType.body.weight(.semibold))
-                    .foregroundStyle(palette.ink(0.92))
-                    .lineLimit(1)
-                if !searchQuery.isEmpty, let hit = store.searchResults.first(where: { $0.sessionId == session.id }) {
-                    Text(hit.snippet).lineLimit(2).appFont(DSHType.footnote).foregroundStyle(palette.ink(0.5))
-                } else if let secondary = sessionSecondaryText(session) {
-                    Text(secondary).appFont(DSHType.footnote).foregroundStyle(palette.ink(0.5)).lineLimit(1)
-                }
-            }
-            Spacer(minLength: DSHSpacing.sm)
-
-            // 右列状态分流（参考实现 RefSessionRow）：只有「等你动手」的用胶囊 + 呼吸。
-            let pending = pendingQuestionKind(for: session)
-            if pending == .waiting {
-                DSHStatus(kind: .waiting, text: String(localized: "等你审批"), pulsing: true)
-                Image(systemName: "chevron.forward")
-                    .appFont(DSHType.meta.weight(.semibold))
-                    .foregroundStyle(palette.caution)
-            } else if pending == .question {
-                DSHStatus(kind: .question, text: String(localized: "等你回答"), pulsing: true)
-                Image(systemName: "chevron.forward")
-                    .appFont(DSHType.meta.weight(.semibold))
-                    .foregroundStyle(palette.brand)
-            } else if session.isRunning {
-                DSHStatus(kind: .running, text: String(localized: "运行中"))
-            } else {
-                Text(session.lastActivity.formatted(.relative(presentation: .named)))
-                    .appFont(DSHType.meta)
-                    .foregroundStyle(palette.ink(0.45))
-            }
-        }
-        // 行高：参考实现是 8pt，但真机 390pt 宽下「15pt 标题 + 13pt 副行」两行压在
-        // 8pt 上下留白里显得太挤（用户实测反馈）。按 Chief 裁定提到 12pt。
-        .padding(.vertical, DSHSpacing.md)
-        .contentShape(Rectangle())
+        // 2/5-a：行组件与 02 屏共用 `DSHSessionRow`（上移进设计系统），保证两屏行内容一致。
+        // 01 行不带「…」（参考实现明确区分：showsMenu 属 02），长按 contextMenu 保留。
+        DSHSessionRow(
+            title: session.title,
+            secondary: sessionRowSecondaryText(for: session, store: store),
+            status: sessionRowStatusKind(for: session.id, store: store),
+            timeText: session.lastActivity.formatted(.relative(presentation: .named)),
+            searchSnippet: searchQuery.isEmpty
+                ? nil
+                : store.searchResults.first(where: { $0.sessionId == session.id })?.snippet,
+            showsMenu: false
+        )
     }
 
     // 2/5-a：全宽「新建会话」按钮退役——新建入口移到顶部字标右侧的圆形「+」（设计稿 01 顶栏）。

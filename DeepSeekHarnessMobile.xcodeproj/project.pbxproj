@@ -116,6 +116,7 @@
 		AB0170000000000000000002 /* release-notes.md in Resources */ = {isa = PBXBuildFile; fileRef = AB0170000000000000000004 /* release-notes.md */; };
 		AB0170000000000000000011 /* index.html in Resources */ = {isa = PBXBuildFile; fileRef = AB0170000000000000000012 /* index.html */; };
 		F5CD0CFD51B8D80944F87550 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BE407E6C6512836EB108990D /* Foundation.framework */; };
+		5C2623A65CA29883AA2333DF /* AllSessionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7ED9271A9B9E27A37AD53BA3 /* AllSessionsView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -264,6 +265,7 @@
 		AB0170000000000000000003 /* release-info.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "../../AppRelease/release-info.json"; sourceTree = "<group>"; };
 		AB0170000000000000000004 /* release-notes.md */ = {isa = PBXFileReference; lastKnownFileType = text; path = "../../AppRelease/release-notes.md"; sourceTree = "<group>"; };
 		AB0170000000000000000012 /* index.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = "../../privacy/index.html"; sourceTree = "<group>"; };
+		7ED9271A9B9E27A37AD53BA3 /* AllSessionsView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AllSessionsView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -465,6 +467,7 @@
 				A1B2C3D4E5F60718293A4B5D /* ApprovalRequestView.swift */,
 				5A37B43613D712F252BA91D7 /* RootView.swift */,
 				B10000000000000000000002 /* PluginsView.swift */,
+				7ED9271A9B9E27A37AD53BA3 /* AllSessionsView.swift */,
 				D98111628697EC1C4FF9878B /* SettingsView.swift */,
 				65009160A0642089906B54DF /* TrajectoryView.swift */,
 				D610757C1FF81FD953A9D000 /* WorkspaceView.swift */,
@@ -816,6 +819,7 @@
 				A1B2C3D4E5F60718293A4B5C /* ApprovalRequestView.swift in Sources */,
 				8891D9FBE23CCC096061416E /* RootView.swift in Sources */,
 				B10000000000000000000001 /* PluginsView.swift in Sources */,
+				5C2623A65CA29883AA2333DF /* AllSessionsView.swift in Sources */,
 				7B8DAA4E77DE3665B7E1C087 /* SettingsView.swift in Sources */,
 				C5F737EBF5077A9BF35E9F64 /* TrajectoryView.swift in Sources */,
 				E7585B9F7F89A3084B6E0182 /* WorkspaceView.swift in Sources */,

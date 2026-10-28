@@ -894,3 +894,126 @@ struct DSHTabBar: View {
     }
 }
 
+
+// MARK: - 11. 二级页页头（参考实现 ScreensShared · 按其要求上移进设计系统）
+//
+// 所有 push 页共用：返回 + 标题 + 可选 trailing。返回键是 chipFill 圆底，
+// 与 tab bar / 工作区卡的语义一致（可点 = 有明确形状）。
+
+struct DSHPageHeader<Trailing: View>: View {
+    @Environment(\.colorScheme) private var scheme
+    let title: String
+    var onBack: (() -> Void)?
+    @ViewBuilder var trailing: () -> Trailing
+
+    init(title: String, onBack: (() -> Void)? = nil,
+         @ViewBuilder trailing: @escaping () -> Trailing = { EmptyView() }) {
+        self.title = title
+        self.onBack = onBack
+        self.trailing = trailing
+    }
+
+    var body: some View {
+        let p = DSHPalette(scheme: scheme)
+        HStack(spacing: DSHSpacing.md) {
+            Button { onBack?() } label: {
+                Image(systemName: "chevron.left")
+                    .appFont(DSHType.body.weight(.semibold))
+                    .foregroundStyle(p.ink(0.75))
+                    .frame(width: 34, height: 34)
+                    .background(p.chipFill, in: Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(String(localized: "返回"))
+
+            Text(title)
+                .appFont(DSHType.title)
+                .foregroundStyle(p.ink(0.92))
+                .lineLimit(1)
+
+            Spacer(minLength: DSHSpacing.sm)
+            trailing()
+        }
+    }
+}
+
+// MARK: - 12. 会话行（参考实现 RefSessionRow · 上移进设计系统，01/02 共用同一套）
+//
+// 右列按状态分流是「要不要动手」规则的直接体现：
+//   等你审批/等你回答 → 胶囊 + 呼吸 + 箭头（要你动手）
+//   运行中 → 蓝圆点（不需要你管）
+//   其余 → 相对时间
+// `showsMenu`：02 全量页显示「…」，01 首页不显示（参考实现明确区分）。
+// 长按菜单由调用方挂 contextMenu，两种入口不冲突。
+
+struct DSHSessionRow: View {
+    @Environment(\.colorScheme) private var scheme
+    let title: String
+    /// 「模式 · N 轮 · M 步」；缺数据时传 nil，整行不显示（不编 0）
+    let secondary: String?
+    /// nil = 无待办；.waiting/.question 走胶囊，.running 走圆点
+    let status: DSHStatusKind?
+    /// 无待办无运行时显示的相对时间
+    let timeText: String
+    /// 搜索命中片段：非空时替换 secondary（保留既有搜索体验）
+    var searchSnippet: String? = nil
+    var showsMenu: Bool = false
+    var onRename: (() -> Void)?
+    var onArchive: (() -> Void)?
+
+    var body: some View {
+        let p = DSHPalette(scheme: scheme)
+        HStack(spacing: DSHSpacing.md) {
+            VStack(alignment: .leading, spacing: DSHSpacing.xxs) {
+                Text(title)
+                    .appFont(DSHType.body.weight(.semibold))
+                    .foregroundStyle(p.ink(0.92))
+                    .lineLimit(1)
+                if let snippet = searchSnippet, !snippet.isEmpty {
+                    Text(snippet).lineLimit(2).appFont(DSHType.footnote).foregroundStyle(p.ink(0.5))
+                } else if let secondary, !secondary.isEmpty {
+                    Text(secondary).appFont(DSHType.footnote).foregroundStyle(p.ink(0.5)).lineLimit(1)
+                }
+            }
+            Spacer(minLength: DSHSpacing.sm)
+
+            if status == .waiting {
+                DSHStatus(kind: .waiting, text: String(localized: "等你审批"), pulsing: true)
+                Image(systemName: "chevron.forward")
+                    .appFont(DSHType.meta.weight(.semibold)).foregroundStyle(p.caution)
+            } else if status == .question {
+                DSHStatus(kind: .question, text: String(localized: "等你回答"), pulsing: true)
+                Image(systemName: "chevron.forward")
+                    .appFont(DSHType.meta.weight(.semibold)).foregroundStyle(p.brand)
+            } else if status == .running {
+                DSHStatus(kind: .running, text: String(localized: "运行中"))
+            } else {
+                Text(timeText).appFont(DSHType.meta).foregroundStyle(p.ink(0.45)).lineLimit(1)
+            }
+
+            if showsMenu, onRename != nil || onArchive != nil {
+                Menu {
+                    if let onRename {
+                        Button { onRename() } label: { Label("重命名", systemImage: "pencil") }
+                    }
+                    if let onArchive {
+                        Button(role: .destructive) { onArchive() } label: {
+                            Label("删除（归档）", systemImage: "archivebox")
+                        }
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .appFont(DSHType.footnote.weight(.semibold))
+                        .foregroundStyle(p.ink(0.4))
+                        .frame(width: 24)
+                        .contentShape(Rectangle())
+                }
+                .menuStyle(.borderlessButton)
+                .accessibilityLabel(String(localized: "会话操作"))
+            }
+        }
+        // 行高：参考实现 8pt，真机 390pt 宽下太挤，按真机反馈提到 12pt（与 01 一致）
+        .padding(.vertical, DSHSpacing.md)
+        .contentShape(Rectangle())
+    }
+}

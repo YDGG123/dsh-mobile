@@ -80,6 +80,10 @@ private struct RootNavigationHost: View, Equatable {
                     newConversationTask?.cancel()
                     navigate(to: .settings)
                 },
+                onAllSessions: {
+                    newConversationTask?.cancel()
+                    navigate(to: .allSessions)
+                },
                 onPlugins: {
                     navigate(to: .plugins)
                 },
@@ -137,6 +141,20 @@ private struct RootNavigationHost: View, Equatable {
             }
         case .settings:
             SettingsView()
+        case .allSessions:
+            AllSessionsView(
+                sessions: store.workspaceScopedSessions,
+                onOpen: { session in
+                    // 与首页 onOpenSession 同一条路径（准备会话 → push 对话），不另开后门。
+                    newConversationTask?.cancel()
+                    let header = conversationHeader(for: session)
+                    Task { @MainActor in
+                        guard await store.prepareConversation(for: session),
+                              !Task.isCancelled else { return }
+                        navigate(to: .conversation(header))
+                    }
+                }
+            )
         case .plugins:
             PluginsView(store: store)
         case .scheduledTasks:
@@ -258,6 +276,8 @@ private struct RootNavigationHost: View, Equatable {
         case settings
         case plugins
         case scheduledTasks
+        /// 02 屏：全部会话（首页「全部 N 个」的落点；push 而非 sheet——内容页不是浮层）
+        case allSessions
     }
 }
 
