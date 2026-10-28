@@ -1,5 +1,5 @@
 {
-  "originHash" : "fdf29c3887f60b9d2a111bd1c50bf3a075ffdc0a60ae3b8c00e3acb690a4bc01",
+  "originHash" : "69d8575881ce28613f2f89892a9d7962473f34edcac55df8b0775e1c0a762b10",
   "pins" : [
     {
       "identity" : "chatlayout",
@@ -24,8 +24,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/swiftlang/swift-cmark",
       "state" : {
-        "revision" : "924936d0427cb25a61169739a7660230bffa6ea6",
-        "version" : "0.8.0"
+        "revision" : "08ddb528923cc1a6527e02b7a1aee9e516ca749a",
+        "version" : "0.9.0"
       }
     }
   ],
