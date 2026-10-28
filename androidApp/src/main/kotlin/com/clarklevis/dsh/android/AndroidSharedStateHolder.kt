@@ -68,7 +68,18 @@ class AndroidSharedStateHolder(
     var teamSnapshot by mutableStateOf(com.clarklevis.dsh.shared.facade.TeamSnapshot())
         private set
     private var teamLeadSessionId: String? = null
+    var childSessionIds: Set<String> by mutableStateOf(emptySet())
+        private set
     private var persistedTeamRouting = "[]"
+        set(value) {
+            field = value
+            childSessionIds = kotlinx.serialization.json.Json
+                .decodeFromString<List<com.clarklevis.dsh.shared.facade.ConversationTarget>>(value)
+                .filter { it.parentSessionId != null }.mapTo(mutableSetOf()) { it.sessionId }
+        }
+
+    fun isSubagentSession(sessionId: String): Boolean =
+        sessionId in childSessionIds || snapshot.sessions.any { it.id == sessionId && it.isSubagent }
     private var persistedTeamAvatars = "[]"
     private var switchingTeamMember = false
     private val teamDrafts = mutableMapOf<String, Pair<String, List<AndroidPreparedImage>>>()

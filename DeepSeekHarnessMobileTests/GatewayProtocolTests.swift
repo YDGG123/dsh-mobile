@@ -8,6 +8,7 @@ import Combine
 #else
 import MarkdownUI
 #endif
+import class DeepSeekHarnessShared.MarkdownTableExport
 import class DeepSeekHarnessShared.SharedQueueStore
 import UIKit
 import SwiftUI
@@ -29,6 +30,219 @@ import class DeepSeekHarnessShared.KotlinInt
 import class DeepSeekHarnessShared.KotlinDouble
 import class DeepSeekHarnessShared.WorkspaceCodePreviewSupport
 @testable import DeepSeekHarnessMobile
+
+@MainActor
+final class ImagePreprocessorTests: XCTestCase {
+    // 系统编码器生成的 32 × 16 纯红 HEIC，无用户照片或隐私元数据。
+    private let heic = Data(base64Encoded: """
+        AAAAJGZ0eXBoZWljAAAAAG1pZjFNaVBybWlhZk1pSEJoZWljAAABhm1ldGEAAAAAAAAAIWhkbHIAAAAAAAAAAHBpY3QAAAAAAAAA
+        AAAAAAAAAAAAJGRpbmYAAAAcZHJlZgAAAAAAAAABAAAADHVybCAAAAABAAAADnBpdG0AAAAAAAEAAAAjaWluZgAAAAAAAQAAABVp
+        bmZlAgAAAAABAABodmMxAAAAAOZpcHJwAAAAxWlwY28AAAATY29scm5jbHgAAgACAAaAAAAADGNsbGkAywBAAAAAFGlzcGUAAAAA
+        AAAAIAAAABAAAAAJaXJvdAAAAAAQcGl4aQAAAAADCAgIAAAAcWh2Y0MBA3AAAACwAAAAAAAe8AD8/fj4AAALA6AAAQAXQAEMAf//
+        A3AAAAMAsAAAAwAAAwAecCShAAEAI0IBAQNwAAADALAAAAMAAAMAHqAUIEHAgwziHuRZVNwICBgCogABAAlEAcBhcshEU2QAAAAZ
+        aXBtYQAAAAAAAAABAAEGgQIDBYaEAAAAHmlsb2MAAAAARAAAAQABAAAAAQAAAboAAAA/AAAAAW1kYXQAAAAAAAAATwAAADsoAa+i
+        +kaBfP/92s//9uX7L9AKPVf/tCfI+buy/6ZQ90yyZ/og+cI53hzw5nPv9uVCL2FfgrcISbIrgA==
+        """, options: .ignoreUnknownCharacters)!
+    private let webp = Data(base64Encoded: "UklGRhwAAABXRUJQVlA4TA8AAAAvH8ADAAcQ/Y/+ByKi/wEA")!
+    private let gif = Data(base64Encoded: "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7")!
+
+    private func image(width: Int = 32, height: Int = 16, transparent: Bool = false) -> UIImage {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        return UIGraphicsImageRenderer(size: CGSize(width: width, height: height), format: format).image { context in
+            if !transparent {
+                UIColor.red.setFill()
+                context.fill(CGRect(x: 0, y: 0, width: width / 2, height: height))
+                UIColor.blue.setFill()
+                context.fill(CGRect(x: width / 2, y: 0, width: width - width / 2, height: height))
+            }
+        }
+    }
+
+    private func actualMediaType(_ data: Data) throws -> String {
+        let source = try XCTUnwrap(CGImageSourceCreateWithData(data as CFData, nil))
+        let type = try XCTUnwrap(CGImageSourceGetType(source))
+        return try XCTUnwrap(UTType(type as String)?.preferredMIMEType)
+    }
+
+    private func assertJpeg(_ prepared: GatewayPreparedImage, width: Int, height: Int) throws {
+        XCTAssertEqual(prepared.mediaType, "image/jpeg")
+        XCTAssertEqual(try actualMediaType(prepared.data), "image/jpeg")
+        XCTAssertEqual(prepared.dimensions, GatewayImageDimensions(width: width, height: height))
+        XCTAssertEqual(GatewayImageInspector.dimensions(of: prepared.data), prepared.dimensions)
+        XCTAssertEqual(GatewayImageInspector.orientation(of: prepared.data), 1)
+        XCTAssertLessThanOrEqual(prepared.data.count, GatewayImagePreprocessor.maximumBytes)
+    }
+
+    func testSupportedFormatsPreserveOriginalBytes() throws {
+        let source = image()
+        let inputs = [try XCTUnwrap(source.jpegData(compressionQuality: 0.9)), try XCTUnwrap(source.pngData()), webp, gif]
+        for input in inputs {
+            let prepared = try GatewayImagePreprocessor.prepare(data: input)
+            XCTAssertEqual(prepared.mediaType, try actualMediaType(input))
+            XCTAssertEqual(prepared.data, input)
+        }
+    }
+
+    func testHeicIsIdentifiedFromBytesAndTranscoded() throws {
+        XCTAssertEqual(try actualMediaType(heic), "image/heic")
+        try assertJpeg(GatewayImagePreprocessor.prepare(data: heic), width: 32, height: 16)
+    }
+
+    func testTiffIsTranscoded() throws {
+        let data = NSMutableData()
+        let destination = try XCTUnwrap(CGImageDestinationCreateWithData(data, UTType.tiff.identifier as CFString, 1, nil))
+        CGImageDestinationAddImage(destination, try XCTUnwrap(image().cgImage), nil)
+        XCTAssertTrue(CGImageDestinationFinalize(destination))
+        try assertJpeg(GatewayImagePreprocessor.prepare(data: data as Data), width: 32, height: 16)
+    }
+
+    func testInvalidDataIsRejected() {
+        XCTAssertThrowsError(try GatewayImagePreprocessor.prepare(data: Data("not an image".utf8)))
+    }
+
+    func testAllExifOrientationsAreNormalized() throws {
+        let cgImage = try XCTUnwrap(image().cgImage)
+        for orientation in 2...8 {
+            let data = NSMutableData()
+            let destination = try XCTUnwrap(CGImageDestinationCreateWithData(data, UTType.jpeg.identifier as CFString, 1, nil))
+            CGImageDestinationAddImage(destination, cgImage, [kCGImagePropertyOrientation: orientation] as CFDictionary)
+            XCTAssertTrue(CGImageDestinationFinalize(destination))
+            let prepared = try GatewayImagePreprocessor.prepare(data: data as Data)
+            try assertJpeg(prepared, width: orientation >= 5 ? 16 : 32, height: orientation >= 5 ? 32 : 16)
+            // 与 UIKit 按原始方向绘制的参考图比较，校验旋转和镜像后的像素位置。
+            let oriented = try XCTUnwrap(UIImage(data: data as Data))
+            let format = UIGraphicsImageRendererFormat()
+            format.scale = 1
+            let size = CGSize(width: prepared.dimensions.width, height: prepared.dimensions.height)
+            let reference = UIGraphicsImageRenderer(size: size, format: format).image { _ in
+                oriented.draw(in: CGRect(origin: .zero, size: size))
+            }
+            let actualPixels = try pixels(UIImage(data: prepared.data))
+            let expectedPixels = try pixels(reference)
+            XCTAssertEqual(actualPixels.count, expectedPixels.count)
+            let averageDifference = zip(actualPixels, expectedPixels).reduce(0.0) { $0 + abs(Double($1.0) - Double($1.1)) }
+                / Double(actualPixels.count)
+            XCTAssertLessThan(averageDifference, 12, "EXIF orientation \(orientation)")
+        }
+    }
+
+    func testLargeTransparentImageResizesWithWhiteBackground() throws {
+        let source = try XCTUnwrap(image(width: 3_000, height: 1_500, transparent: true).pngData())
+        let prepared = try GatewayImagePreprocessor.prepare(data: source)
+        try assertJpeg(prepared, width: 2_000, height: 1_000)
+        let rgba = try pixels(UIImage(data: prepared.data))
+        XCTAssertGreaterThan(rgba[0], 245)
+        XCTAssertGreaterThan(rgba[1], 245)
+        XCTAssertGreaterThan(rgba[2], 245)
+    }
+
+    private func pixels(_ image: UIImage?) throws -> [UInt8] {
+        let cgImage = try XCTUnwrap(image?.cgImage)
+        var bytes = [UInt8](repeating: 0, count: cgImage.width * cgImage.height * 4)
+        try bytes.withUnsafeMutableBytes { buffer in
+            let context = try XCTUnwrap(CGContext(data: buffer.baseAddress, width: cgImage.width, height: cgImage.height,
+                bitsPerComponent: 8, bytesPerRow: cgImage.width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue))
+            context.draw(cgImage, in: CGRect(x: 0, y: 0, width: cgImage.width, height: cgImage.height))
+        }
+        return bytes
+    }
+
+    func testPreparedImagesKeepMediaTypeAndBytesWhenSending() async throws {
+        let gateway = GatewayClient()
+        var message: [String: Any]?
+        gateway.installConnectedTransportForTesting { payload in
+            message = (try? JSONSerialization.jsonObject(with: Data(payload.utf8))) as? [String: Any]
+        }
+        let prepared = try GatewayImagePreprocessor.prepare(data: heic)
+        gateway.sendMessage(text: "图片测试", images: [GatewayOutgoingImage(mediaType: prepared.mediaType, data: prepared.data)],
+            sessionId: "image-test")
+        for _ in 0..<100 where message == nil { try await Task.sleep(for: .milliseconds(10)) }
+        let sent = try XCTUnwrap((message?["images"] as? [[String: Any]])?.first)
+        XCTAssertEqual(sent["mediaType"] as? String, "image/jpeg")
+        XCTAssertEqual((sent["data"] as? String).flatMap { Data(base64Encoded: $0) }, prepared.data)
+    }
+
+    // 显式开启才连接真实网关；复用调试应用的既有配对凭证，不输出 token。
+    func testRealGatewayAcceptsTwentyImagesAndReturnsAttachments() async throws {
+        guard ProcessInfo.processInfo.environment["DSH_REAL_IMAGE_GATEWAY"] == "1" else {
+            throw XCTSkip("设置 DSH_REAL_IMAGE_GATEWAY=1 才进行真实网关图片测试")
+        }
+        let profileID = try XCTUnwrap(UserDefaults.standard.string(forKey: "gateway.activeID"))
+        let endpoint = UserDefaultsAppPreferences(gatewayID: profileID).endpoint
+        let gateway = GatewayClient()
+        gateway.credentialID = profileID
+        let hasCredential = await gateway.hasStoredCredential(for: endpoint)
+        guard hasCredential else {
+            throw NSError(domain: "ImageGatewayTest", code: 2,
+                userInfo: [NSLocalizedDescriptionKey: "测试进程无法读取当前主机的配对凭证，请使用已签名的测试构建"])
+        }
+        var frames: [GatewayFrame] = []
+        gateway.onFrame = { frames.append($0) }
+        addTeardownBlock { @MainActor in gateway.disconnect() }
+        gateway.connect(to: endpoint)
+        _ = try await waitForFrame(in: { frames }) { $0.kind == "hello" }
+        let sessionID = try await gateway.createSession(workspaceId: nil)
+        gateway.renameSession(sessionId: sessionID, title: "iOS 图片格式回归测试")
+        addTeardownBlock { @MainActor in
+            gateway.cancelSession(sessionId: sessionID)
+            gateway.archiveSession(sessionId: sessionID)
+            try await Task.sleep(for: .milliseconds(500))
+        }
+        let input = [heic, try XCTUnwrap(image().pngData()), webp, gif]
+        let images = try (0..<20).map { index in
+            let prepared = try GatewayImagePreprocessor.prepare(data: input[index % input.count])
+            return GatewayOutgoingImage(mediaType: prepared.mediaType, data: prepared.data, name: "ios-image-test-\(index)")
+        }
+        let requestID = UUID().uuidString
+        gateway.sendMessage(text: "图片上传兼容性测试，请仅回复“测试完成”，不要调用任何工具。", images: images,
+            sessionId: sessionID, requestId: requestID)
+        let sent = try await waitForFrame(in: { frames }) {
+            $0.requestId == requestID && ($0.kind == "sent" || $0.kind == "error")
+        }
+        XCTAssertEqual(sent.kind, "sent", "网关拒绝图片请求：\(sent.code ?? "unknown")")
+        guard sent.kind == "sent" else { return }
+        // sent 确认的是入队；等图片消息进入历史后再取消，避免取消尚未执行的队列项。
+        var references: [GatewayImageAttachment] = []
+        let deadline = Date().addingTimeInterval(20)
+        while references.isEmpty, Date() < deadline {
+            frames.removeAll()
+            gateway.requestHistory(sessionId: sessionID)
+            let history = try await waitForFrame(in: { frames }) { $0.kind == "history" && $0.sessionId == sessionID }
+            references = (history.events ?? []).filter { $0.type == "user/message" }.flatMap {
+                ($0.data["content"]?.arrayValue ?? []).compactMap { $0["attachment"]?.decode(GatewayImageAttachment.self) }
+            }
+            if references.isEmpty { try await Task.sleep(for: .milliseconds(200)) }
+        }
+        gateway.cancelSession(sessionId: sessionID)
+        XCTAssertEqual(references.count, 20)
+        guard references.count == 20 else { return }
+        for reference in references.prefix(4) {
+            frames.removeAll()
+            gateway.requestAttachment(sessionId: sessionID, attachmentId: reference.attachmentId)
+            let response = try await waitForFrame(in: { frames }) {
+                $0.kind == "attachment" && $0.attachment?.attachmentId == reference.attachmentId
+            }
+            let data = try XCTUnwrap(response.data.flatMap { Data(base64Encoded: $0) })
+            XCTAssertEqual(try actualMediaType(data), reference.mediaType)
+            XCTAssertEqual(data.count, reference.bytes)
+        }
+        print("IOS_IMAGE_GATEWAY_PASS images=20 attachmentRoundTrips=4")
+        gateway.archiveSession(sessionId: sessionID)
+        try await Task.sleep(for: .milliseconds(500))
+    }
+
+    private func waitForFrame(in frames: () -> [GatewayFrame], matching predicate: (GatewayFrame) -> Bool) async throws -> GatewayFrame {
+        let deadline = Date().addingTimeInterval(20)
+        while Date() < deadline {
+            if let frame = frames().first(where: predicate) { return frame }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        throw NSError(domain: "ImageGatewayTest", code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "等待图片测试响应超时"])
+    }
+}
 
 private enum GatewayProtocolParityFixtures {
     // 这些样本与 shared/commonTest/GatewayProtocolFixtures.kt 逐字保持一致。
@@ -124,8 +338,8 @@ final class AgentLiveActivityLifecycleTests: XCTestCase {
         var requestedDetails: [String?] = []
         let manager = AgentLiveActivityManager(
             applicationState: { appState },
-            requestActivity: { _, content in
-                requestedDetails.append(content.state.detail)
+            requestActivity: { _, state, _ in
+                requestedDetails.append(state.detail)
                 throw URLError(.unknown)
             },
             restoresSystemActivities: false
@@ -153,7 +367,7 @@ final class AgentLiveActivityLifecycleTests: XCTestCase {
         var requestCount = 0
         let manager = AgentLiveActivityManager(
             applicationState: { appState },
-            requestActivity: { _, _ in
+            requestActivity: { _, _, _ in
                 requestCount += 1
                 throw URLError(.unknown)
             },
@@ -171,7 +385,7 @@ final class AgentLiveActivityLifecycleTests: XCTestCase {
         var requestCount = 0
         let manager = AgentLiveActivityManager(
             applicationState: { appState },
-            requestActivity: { _, _ in
+            requestActivity: { _, _, _ in
                 requestCount += 1
                 throw URLError(.unknown)
             },
@@ -2859,6 +3073,100 @@ final class GatewayProtocolTests: XCTestCase {
     }
 
     @MainActor
+    func testAuthoritativeAppendSkipsHistoryWorkerAndStillAcceptsRevisions() async throws {
+        let (store, session) = try await makeRc2HistoryLoadingStore()
+        defer { store.deactivateGateway() }
+        try await deliverHistoryLoadingFrame(store,
+            #"{"kind":"subscribed","sessionId":"mask-session","subscriptionId":"sub","assistantStream":true}"#)
+        try sendStaticHistorySnapshot(store, texts: ["one"])
+        await store.awaitConversationProjectionForTesting(sessionID: session.id, expectedText: "one")
+        store.conversationHistoryPreparationForTesting = { _ in
+            XCTFail("仅追加的快照不能重新准备完整历史")
+            throw NSError(domain: "unexpected-rebuild", code: 1)
+        }
+        try sendStaticHistorySnapshot(store, texts: ["one", "two"])
+        await store.awaitPendingKMPEventDeliveriesForTesting()
+        await store.awaitConversationProjectionForTesting(sessionID: session.id, expectedText: "two")
+        XCTAssertEqual(store.renderedConversationItems[session.id]?.map(\.text), ["one", "two"])
+        XCTAssertEqual(store.conversationHistoryWorkerCountForTesting, 0)
+        XCTAssertFalse(store.isPreparingConversation(session.id))
+        store.conversationHistoryPreparationForTesting = nil
+        try sendStaticHistorySnapshot(store, texts: ["修订后的正文"])
+        await store.awaitPendingKMPEventDeliveriesForTesting()
+        await store.awaitConversationProjectionForTesting(sessionID: session.id, expectedText: "修订后的正文")
+        XCTAssertEqual(store.renderedConversationItems[session.id]?.map(\.text), ["修订后的正文"])
+        XCTAssertNil(store.lastError)
+    }
+
+    @MainActor
+    func testCoveredCachedWorkerIsReusedWhenAuthoritativeWindowArrivesBeforeCommit() async throws {
+        let (store, session) = try await makeRc2HistoryLoadingStore()
+        defer { store.deactivateGateway() }
+        try await deliverHistoryLoadingFrame(store,
+            #"{"kind":"subscribed","sessionId":"mask-session","subscriptionId":"sub","assistantStream":true}"#)
+        let entered = expectation(description: "缓存投影等待提交")
+        let gate = ConversationHistoryPreparationGate(entered: entered)
+        store.conversationHistoryPreparationForTesting = { input in
+            await gate.pause()
+            return try KMPConversationStoreAdapter.prepareHistory(input)
+        }
+        func deliver(_ range: ClosedRange<Int>) throws {
+            let records: [[String: Any]] = range.map { seq in
+                ["type": "user/message", "seq": seq, "time": seq,
+                 "data": ["content": [["type": "text", "text": "正文 \(seq)"]]]]
+            }
+            store.gateway.onFrame?(try GatewayWireDecoder.decode(JSONSerialization.data(withJSONObject: [
+                "kind": "session-snapshot", "sessionId": session.id, "subscriptionId": "sub", "streamId": "stream",
+                "historyFormatVersion": 3, "cursor": range.upperBound, "events": records, "hasMore": false
+            ])))
+        }
+        try deliver(2...81)
+        await fulfillment(of: [entered], timeout: 3)
+        try deliver(1...81)
+        await store.awaitPendingKMPEventDeliveriesForTesting(includingHistoryPreparation: false)
+        store.conversationHistoryPreparationForTesting = nil
+        await gate.release()
+        await store.awaitPendingKMPEventDeliveriesForTesting()
+        await store.awaitConversationProjectionForTesting(sessionID: session.id, expectedText: "正文 81")
+        XCTAssertEqual(store.conversationHistoryReusedPreparationCountForTesting, 1)
+        XCTAssertEqual(store.renderedConversationItems[session.id]?.count, 81)
+        XCTAssertEqual(store.renderedConversationItems[session.id]?.first?.text, "正文 1")
+        XCTAssertNil(store.lastError)
+    }
+
+    @MainActor
+    func testSupersededWorkerCannotReuseCorrectedOrDeletedHistory() async throws {
+        for authoritative in [[], ["修订正文"]] as [[String]] {
+            let (store, session) = try await makeRc2HistoryLoadingStore()
+            try await deliverHistoryLoadingFrame(store,
+                #"{"kind":"subscribed","sessionId":"mask-session","subscriptionId":"sub","assistantStream":true}"#)
+            let entered = expectation(description: "旧投影等待提交")
+            let gate = ConversationHistoryPreparationGate(entered: entered)
+            store.conversationHistoryPreparationForTesting = { input in
+                await gate.pause()
+                return try KMPConversationStoreAdapter.prepareHistory(input)
+            }
+            try sendStaticHistorySnapshot(store, texts: ["不得复活的旧正文"])
+            await fulfillment(of: [entered], timeout: 3)
+            try sendStaticHistorySnapshot(store, texts: authoritative)
+            await store.awaitPendingKMPEventDeliveriesForTesting(includingHistoryPreparation: false)
+            store.conversationHistoryPreparationForTesting = nil
+            await gate.release()
+            await store.awaitPendingKMPEventDeliveriesForTesting()
+            for _ in 0..<200 where store.isPreparingConversation(session.id) {
+                try await Task.sleep(for: .milliseconds(5))
+            }
+            if let text = authoritative.last {
+                await store.awaitConversationProjectionForTesting(sessionID: session.id, expectedText: text)
+            }
+            XCTAssertEqual(store.conversationHistoryReusedPreparationCountForTesting, 0)
+            XCTAssertEqual(store.renderedConversationItems[session.id, default: []].map(\.text), authoritative)
+            XCTAssertNil(store.lastError)
+            store.deactivateGateway()
+        }
+    }
+
+    @MainActor
     private func makeReadingWindowFixture() async throws -> (AppStore, SessionSummary, UUID, HistoryReadingProbe) {
         let (store, session) = try await makeRc2HistoryLoadingStore()
         try await deliverHistoryLoadingFrame(store,
@@ -4684,7 +4992,7 @@ final class GatewayProtocolTests: XCTestCase {
             context.fill(CGRect(x: 0, y: 0, width: 3_000, height: 1_500))
         }
         let source = try XCTUnwrap(image.pngData())
-        let prepared = try GatewayImagePreprocessor.prepare(data: source, mediaType: "image/png")
+        let prepared = try GatewayImagePreprocessor.prepare(data: source)
 
         XCTAssertEqual(prepared.mediaType, "image/jpeg")
         XCTAssertLessThanOrEqual(prepared.data.count, GatewayImagePreprocessor.maximumBytes)
@@ -4726,7 +5034,7 @@ final class GatewayProtocolTests: XCTestCase {
         let input = orientedData as Data
         XCTAssertEqual(GatewayImageInspector.dimensions(of: input), GatewayImageDimensions(width: 20, height: 40))
 
-        let prepared = try GatewayImagePreprocessor.prepare(data: input, mediaType: "image/jpeg")
+        let prepared = try GatewayImagePreprocessor.prepare(data: input)
 
         XCTAssertEqual(prepared.dimensions, GatewayImageDimensions(width: 20, height: 40))
         XCTAssertEqual(GatewayImageInspector.dimensions(of: prepared.data), GatewayImageDimensions(width: 20, height: 40))
@@ -5667,6 +5975,100 @@ final class GatewayProtocolTests: XCTestCase {
             transition.snapshot.sessionPermissions["session-1"]?.options?.map(\.value),
             ["read-only", "future"]
         )
+    }
+
+    @MainActor
+    func testKMPSessionControlPermissionDescriptionKeepsAdapterOperational() throws {
+        for descriptionJSON in ["", #","description":null"#, #","description":"只允许读取工作区文件""#] {
+            let adapter = KMPSessionControlStoreAdapter()
+            let started = adapter.reduce(.requestPermissionOptions(sessionID: "session-1", isConnected: true))
+            XCTAssertNil(started.error)
+            let frame = try GatewayWireDecoder.decode(Data("""
+                {"kind":"permission-options","sessionId":"session-1","sessionPermissions":{
+                  "options":[{"value":"read-only","name":"只读"\(descriptionJSON)}],"currentValue":"read-only"}}
+                """.utf8))
+            let permissions = try XCTUnwrap(frame.sessionPermissions)
+            let accepted = adapter.reduce(.action(.permissionsReceived(sessionID: "session-1", permissions: permissions)))
+            XCTAssertNil(accepted.error)
+            XCTAssertTrue(adapter.isOperational)
+            XCTAssertEqual(accepted.snapshot.sessionPermissions["session-1"], permissions)
+            XCTAssertEqual(accepted.snapshot.sessionPermissions["session-1"]?.options?.first?.description,
+                           permissions.options?.first?.description)
+            XCTAssertFalse(accepted.snapshot.loadingKinds.contains("permission-options"))
+            // description 不能使 SessionControl 定格，后续模型请求和响应应正常提交。
+            let models = adapter.reduce(.requestModels(sessionID: "session-1", isConnected: true))
+            XCTAssertNil(models.error)
+            XCTAssertEqual(models.effects.first?.kind, "models")
+            let selected = GatewayModelSelection(provider: "provider", model: "model")
+            let refreshed = adapter.reduce(.action(.modelsReceived(sessionID: "session-1", current: selected,
+                routable: true, groups: [], isGlobalRequest: false)))
+            XCTAssertNil(refreshed.error)
+            XCTAssertTrue(adapter.isOperational)
+            XCTAssertEqual(refreshed.snapshot.modelCatalogs["session-1"]?.current, selected)
+        }
+    }
+
+    @MainActor
+    func testKMPSessionControlPermissionOptionStillRejectsUnknownFields() throws {
+        var patch = KMPSessionControlPatch.empty
+        patch.sessionPermissionsUpsert = ["session-1": GatewaySessionPermissions(
+            options: [GatewayPermissionOption(value: "read-only", name: "只读", description: "只允许读取文件")],
+            currentValue: "read-only")]
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(patch)) as? [String: Any])
+        var permissions = try XCTUnwrap(object["sessionPermissionsUpsert"] as? [String: Any])
+        var session = try XCTUnwrap(permissions["session-1"] as? [String: Any])
+        var options = try XCTUnwrap(session["options"] as? [[String: Any]])
+        options[0]["futureAuthority"] = true
+        session["options"] = options
+        permissions["session-1"] = session
+        object["sessionPermissionsUpsert"] = permissions
+        let payload = String(decoding: try JSONSerialization.data(withJSONObject: object), as: UTF8.self)
+        let adapter = KMPSessionControlStoreAdapter(bridge: RawPatchSessionControlBridge(payload: payload))
+        let original = adapter.snapshot
+        let transition = adapter.reduce(.projection(.contextReceived(sessionID: "session-1", asOfSequence: 1,
+            tokenUsage: nil, pressure: nil, breakdown: nil)))
+        guard case .invalidPatch(let message) = transition.error else {
+            return XCTFail("权限选项只新增已知 description 字段，未知字段仍须拒绝")
+        }
+        XCTAssertTrue(message.contains("futureAuthority"))
+        XCTAssertTrue(message.contains("options[0]"))
+        XCTAssertFalse(adapter.isOperational)
+        XCTAssertEqual(transition.snapshot, original)
+        XCTAssertTrue(transition.effects.isEmpty)
+    }
+
+    @MainActor
+    func testKMPSessionControlPreservesTokenCountsAboveInt32Max() throws {
+        let json = #"{"kind":"context-usage","sessionId":"session-1","asOfSeq":42,"tokenUsage":{"outputTokens":8235762,"uncachedInputTokens":22506251,"cacheWriteTokens":0,"cacheReadTokens":2284347716}}"#
+        let frame = try GatewayWireDecoder.decode(Data(json.utf8))
+        let usage = try XCTUnwrap(frame.tokenUsage)
+        let adapter = KMPSessionControlStoreAdapter()
+        let context = adapter.reduce(.projection(.contextReceived(
+            sessionID: "session-1", asOfSequence: frame.asOfSeq,
+            tokenUsage: usage, pressure: nil, breakdown: nil
+        )))
+
+        XCTAssertTrue(adapter.isOperational)
+        XCTAssertNil(context.error)
+        XCTAssertTrue(context.applied)
+        XCTAssertEqual(context.snapshot.contextSnapshots["session-1"]?.tokenUsage, usage)
+        XCTAssertEqual(usage.cacheReadTokens, 2_284_347_716)
+
+        let totals = GatewaySessionTokenUsageTotals(
+            inputTokens: 2_284_347_716, outputTokens: 2_284_347_717,
+            cacheReadTokens: 2_284_347_718, cacheWriteTokens: 2_284_347_719,
+            reasoningTokens: 2_284_347_720
+        )
+        let stats = adapter.reduce(.projection(.statsReceived(
+            sessionID: "session-1", asOfSequence: 43, stats: nil,
+            tokenUsageTotals: totals, contextPressure: nil
+        )))
+
+        XCTAssertTrue(adapter.isOperational)
+        XCTAssertNil(stats.error)
+        XCTAssertTrue(stats.applied)
+        XCTAssertEqual(stats.snapshot.sessionStatsSnapshots["session-1"]?.tokenUsage?.totals, totals)
+        XCTAssertEqual(stats.snapshot.contextSnapshots["session-1"]?.tokenUsage, usage)
     }
 
     @MainActor
@@ -9117,6 +9519,48 @@ final class ScheduledTaskCardPresentationTests: XCTestCase {
 
 final class SessionHistoryVisibilityTests: XCTestCase {
     @MainActor
+    func testTeamDiscoveryHidesLegacyChildRowWithoutDeletingTeamMember() async throws {
+        let rows = ["lead", "child"].map {
+            SessionSummary(id: $0, title: $0, lastActivity: .now, isRunning: false, hasUnread: false)
+        }
+        let store = AppStore(preferences: AppPreferencesSpy(endpoint: "", selectedWorkspaceID: nil, sessions: rows))
+        defer { store.deactivateGateway() }
+        XCTAssertEqual(store.historySessions.count, 2)
+        store.gateway.onFrame?(try GatewayWireDecoder.decode(Data(
+            #"{"kind":"hello","capabilities":["subagent-conversations-v1"]}"#.utf8)))
+        store.gateway.onFrame?(try GatewayWireDecoder.decode(Data(
+            #"{"kind":"subagents-updated","sessionId":"lead","subagentCatalog":[{"id":"child","label":"审查员","mode":"continuable"}]}"#.utf8)))
+        await store.awaitPendingKMPEventDeliveriesForTesting()
+        XCTAssertEqual(store.ungroupedSessions.map(\.id), ["lead"])
+        XCTAssertTrue(store.isSubagentSession("child"), "搜索结果也不能重新引入已确认的子会话")
+        XCTAssertTrue(store.teamStore.snapshot(leadSessionId: "lead").members.contains { $0.id == "child" && $0.canOpen })
+    }
+
+    @MainActor
+    func testSubagentsStayOutOfUngroupedBeforeOpeningLeadAndAfterCacheRestore() async throws {
+        let store = AppStore(preferences: AppPreferencesSpy(endpoint: "", selectedWorkspaceID: nil, sessions: []))
+        defer { store.deactivateGateway() }
+        store.gateway.onFrame?(try GatewayWireDecoder.decode(Data(#"""
+        {"kind":"sessions","items":[
+            {"sessionId":"lead","updatedAt":3,"running":false,"blank":false},
+            {"sessionId":"child","updatedAt":2,"running":true,"blank":false,"parentSessionId":"lead","origin":"subagent"},
+            {"sessionId":"fork","updatedAt":1,"running":false,"blank":false,"parentSessionId":"lead","origin":"fork"}
+        ]}
+        """#.utf8)))
+        await store.awaitPendingKMPEventDeliveriesForTesting()
+        store.selectUngroupedWorkspace()
+        XCTAssertEqual(store.ungroupedSessions.map(\.id), ["lead", "fork"])
+        XCTAssertTrue(store.sessions.contains { $0.id == "child" }, "子会话数据继续供团队入口使用")
+        XCTAssertTrue(store.isSubagentSession("child"))
+        let restored = KMPSessionListStoreAdapter(sessions: try JSONDecoder().decode([SessionSummary].self,
+            from: JSONEncoder().encode(store.sessions)))
+        XCTAssertEqual(restored.snapshot.persistedSessions.filter(\.isVisibleInHistory).map(\.id), ["lead", "fork"])
+        let updated = try restored.reduce(.messageSent(sessionID: "child", agentPreset: nil))
+        XCTAssertFalse(try XCTUnwrap(updated.persistedSessions.first { $0.id == "child" }).isVisibleInHistory)
+        XCTAssertEqual(updated.persistedSessions.first { $0.id == "child" }?.parentSessionId, "lead")
+    }
+
+    @MainActor
     func testBlankSessionRemainsAvailableForConfigurationButNotHistory() async throws {
         let store = AppStore(preferences: AppPreferencesSpy(endpoint: "", selectedWorkspaceID: nil, sessions: []))
         defer { store.deactivateGateway() }
@@ -11847,6 +12291,123 @@ final class HistoryReadingBatchTests: XCTestCase {
 }
 
 @MainActor
+final class GatewaySubscriptionLifecycleTests: XCTestCase {
+    func testTimedOutOldSubscriptionDrainsExitOrNewSelectionWithoutAlert() async throws {
+        for latest: String? in [nil, "greeting"] {
+            let gateway = GatewayClient(subscriptionTimeoutInterval: .milliseconds(100))
+            defer { gateway.disconnect() }
+            var errors: [GatewayFrame] = []
+            var requests: [[String: Any]] = []
+            let forwarded = expectation(description: "旧订阅超时后执行最新导航意图")
+            gateway.onFrame = { if $0.code == "subscription-timeout" { errors.append($0) } }
+            gateway.installConnectedTransportForTesting { payload in
+                let request = (try? JSONSerialization.jsonObject(with: Data(payload.utf8))) as? [String: Any] ?? [:]
+                requests.append(request)
+                if (latest == nil && request["type"] as? String == "unsubscribe") ||
+                    (latest != nil && request["sessionId"] as? String == latest) { forwarded.fulfill() }
+            }
+            gateway.subscribe(sessionId: "child")
+            gateway.subscribe(sessionId: nil)
+            if let latest { gateway.subscribe(sessionId: latest) }
+            XCTAssertEqual(requests.count, 1)
+            await fulfillment(of: [forwarded], timeout: 2)
+            XCTAssertTrue(errors.isEmpty, "旧成员会话不能对退出后的页面弹错")
+            XCTAssertEqual(requests.count, 2, "排队中的退出或新会话订阅不能丢失")
+            XCTAssertFalse(gateway.acceptSubscriptionAck(sessionID: "child"), "旧订阅的迟到确认不能覆盖新意图")
+            XCTAssertTrue(gateway.acceptSubscriptionAck(sessionID: latest))
+            try await Task.sleep(for: .milliseconds(150))
+            XCTAssertTrue(errors.isEmpty)
+        }
+    }
+
+    /// 我方语义（build 40 用户明确要求）：超时**不发错误帧**（不弹模态遮挡页面），
+    /// 而是静默重订阅一次。上游原本断言「发 subscription-timeout 帧」——那是弹窗版，
+    /// 与用户需求冲突，故此处断言改为对齐我方语义，并正向钉住「重订阅」行为。
+    func testCurrentSessionTimeoutSilentlyResubscribesWithoutError() async throws {
+        for child in [false, true] {
+            let gateway = GatewayClient(subscriptionTimeoutInterval: .milliseconds(30))
+            defer { gateway.disconnect() }
+            var errors: [GatewayFrame] = []
+            var requests: [[String: Any]] = []
+            gateway.onFrame = { errors.append($0) }
+            gateway.installConnectedTransportForTesting { payload in
+                let request = (try? JSONSerialization.jsonObject(with: Data(payload.utf8))) as? [String: Any] ?? [:]
+                requests.append(request)
+            }
+            if child {
+                gateway.conversationTarget = { MobileConversationTarget(sessionId: $0, parentSessionId: "lead", subagentMode: "continuable") }
+            }
+            gateway.subscribe(sessionId: "current")
+            try await Task.sleep(for: .milliseconds(150))
+
+            XCTAssertTrue(errors.isEmpty, "我方为静默重试：传输层不发错误帧（不再弹模态）")
+            // 正向断言：超时后必须重新发起同一个会话的订阅。
+            let subscribeTypes = requests.compactMap { $0["type"] as? String }.filter { $0 == "subscribe" }
+            XCTAssertGreaterThanOrEqual(subscribeTypes.count, 2, "超时后应静默重订阅一次")
+            XCTAssertEqual(requests.last?["sessionId"] as? String, "current", "重订阅的仍是当前会话")
+        }
+    }
+
+    func testUnsubscribeTimeoutDoesNotReportAnErrorOrBlockNextSelection() async throws {
+        let gateway = GatewayClient(subscriptionTimeoutInterval: .milliseconds(30))
+        defer { gateway.disconnect() }
+        var errors: [GatewayFrame] = []
+        var requests: [String] = []
+        gateway.onFrame = { errors.append($0) }
+        gateway.installConnectedTransportForTesting { requests.append($0) }
+        gateway.subscribe(sessionId: nil)
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertTrue(errors.isEmpty)
+        gateway.subscribe(sessionId: "next")
+        XCTAssertEqual(requests.count, 2)
+        XCTAssertTrue(gateway.acceptSubscriptionAck(sessionID: "next"))
+    }
+
+    func testConnectionFailureCancelsOldSubscriptionTimer() async throws {
+        let server = try LocalRecoveryGateway(repliesToPing: { _ in true })
+        let gateway = GatewayClient(credentials: RecoveryTestCredentials(), subscriptionTimeoutInterval: .milliseconds(200))
+        defer { gateway.disconnect(); server.stop() }
+        let endpoint = try await server.start()
+        var errors: [GatewayFrame] = []
+        gateway.onFrame = { if $0.code == "subscription-timeout" { errors.append($0) } }
+        let connected = expectation(description: "本机 WebSocket 连接成功")
+        let connectedObserver = gateway.$state.sink { if $0.isConnected { connected.fulfill() } }
+        gateway.connect(to: endpoint)
+        await fulfillment(of: [connected], timeout: 3)
+        connectedObserver.cancel()
+        gateway.subscribe(sessionId: "child")
+        let failed = expectation(description: "真实连接断开")
+        let failedObserver = gateway.$state.sink { if case .failed = $0 { failed.fulfill() } }
+        server.dropConnections(nextGreeting: .silent)
+        await fulfillment(of: [failed], timeout: 3)
+        failedObserver.cancel()
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertTrue(errors.isEmpty, "断线已进入恢复流程，旧订阅计时器不能继续弹错")
+    }
+
+    func testTimeoutForClosedOrDifferentConversationDoesNotInterruptCurrentPage() async throws {
+        let session = SessionSummary(id: "current", title: "当前会话", lastActivity: .now, isRunning: false, hasUnread: false)
+        let gateway = GatewayClient()
+        let store = AppStore(preferences: AppPreferencesSpy(endpoint: "", selectedWorkspaceID: nil, sessions: [session]),
+                             gatewayClient: gateway, chatHistoryCache: nil)
+        defer { store.deactivateGateway() }
+        gateway.installConnectedTransportForTesting()
+        _ = await store.prepareConversation(for: session)
+        let error = GatewayFrame(kind: "error", sessionId: "old-child", code: "subscription-timeout",
+                                 message: "old subscription timed out", requestType: "subscribe")
+        gateway.onFrame?(error)
+        await store.awaitPendingKMPEventDeliveriesForTesting()
+        XCTAssertNil(store.lastError)
+        store.resumeWorkspace()
+        var closedError = error
+        closedError.sessionId = "current"
+        gateway.onFrame?(closedError)
+        await store.awaitPendingKMPEventDeliveriesForTesting()
+        XCTAssertNil(store.lastError, "即使仍保留选中会话，退出页面后也不能弹出旧订阅超时")
+    }
+}
+
+@MainActor
 final class TeamIntegrationTests: XCTestCase {
     func testChildDirectoryLinksRequestBrowserAtTargetPathWithoutFilePreview() async throws {
         let lead = SessionSummary(id: "lead", title: "团队目录", lastActivity: .now, isRunning: false, hasUnread: false)
@@ -12061,6 +12622,42 @@ final class TeamIntegrationTests: XCTestCase {
         XCTAssertEqual(teamQueryCount("lead"), 4, "显式重试保留刷新能力")
     }
 
+    func testTeamMenuFitsShortListsAndCapsLongLists() {
+        let defaults = UserDefaults.standard
+        let oldScale = defaults.object(forKey: AppFontScale.key)
+        let oldFollowsSystem = defaults.object(forKey: AppFontScale.followsSystemKey)
+        defaults.set(1.0, forKey: AppFontScale.key)
+        defaults.set(false, forKey: AppFontScale.followsSystemKey)
+        defer {
+            defaults.set(oldScale, forKey: AppFontScale.key)
+            defaults.set(oldFollowsSystem, forKey: AppFontScale.followsSystemKey)
+        }
+        func content(_ count: Int) -> TeamMemberPopover {
+            let members = (0..<count).map { index in
+                MobileTeamMember(id: index == 0 ? "lead" : "member-\(index)",
+                    name: index == 0 ? "lead" : "research-agent-\(index)",
+                    role: index == 0 ? "lead" : "teammate", phase: "active", mode: "continuable",
+                    parentSessionId: index == 0 ? nil : "lead", model: "deepseek-flash",
+                    detail: index == 0 ? nil : "调研手机品牌与产品差异，输出完整对比结论", running: false,
+                    error: nil, canOpen: true, avatarIndex: index)
+            }
+            return TeamMemberPopover(members: members, title: "国内手机品牌差距对比表格", selectedID: "lead",
+                                     select: { _ in }, showDetails: {})
+        }
+        let host = UIHostingController(rootView: content(2))
+        var heights: [CGFloat] = []
+        for count in [2, 3, 8, 12, 3] {
+            host.rootView = content(count)
+            // 与正式弹窗相同的预布局过程，不依赖 UIKit 连续呈现/退出的时序。
+            let size = host.sizeThatFits(in: CGSize(width: 300, height: 480))
+            heights.append(size.height)
+        }
+        XCTAssertLessThan(heights[0], heights[1], "未达到上限时随成员数量增长")
+        XCTAssertLessThan(heights[1], heights[2], "三人成员列表不应撑到最大高度")
+        XCTAssertEqual(heights[2], heights[3], accuracy: 1, "达到上限后增加成员只增加滚动内容")
+        XCTAssertEqual(heights[1], heights[4], accuracy: 1, "缓存成员变少后弹窗应重新收缩")
+    }
+
     func testEntryAppearsWhenLeadCreatesTeamDuringCurrentConversation() async throws {
         let lead = SessionSummary(id: "lead", title: "动态团队", lastActivity: .now, isRunning: false, hasUnread: false)
         let store = AppStore(preferences: AppPreferencesSpy(endpoint: "ws://127.0.0.1:3080/ws/mobile",
@@ -12250,12 +12847,77 @@ final class TeamIntegrationTests: XCTestCase {
 
 @MainActor
 final class MarkdownCopyInteractionTests: XCTestCase {
+    func testTableSelectionRendersCellsAndPreservesCrossParagraphSelection() async throws {
+        let source = "前文 **粗体** 😀\n\n| 品牌 | 结论 |\n| --- | --- |\n| 中文 | **清晰** `code` |\n| 第二行 | 可选择文字 |\n\n后文\n\n```python\n  print('😀')\n```"
+        let wideHeader = (1...18).map { "列\($0)" }.joined(separator: " | ")
+        let wideRule = Array(repeating: "---", count: 18).joined(separator: " | ")
+        let wideRow = (1...18).map { "内容\($0)" }.joined(separator: " | ")
+        let tableSource = source + "\n\n| " + wideHeader + " |\n| " + wideRule + " |\n| " + wideRow + " |"
+        let parsed = MarkdownUI.MarkdownContent(tableSource)
+        XCTAssertTrue(parsed.containsTable)
+        XCTAssertFalse(MarkdownUI.MarkdownContent("```md\n| a | b |\n| --- | --- |\n```").containsTable)
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        let controller = UIHostingController(rootView: MarkdownSelectionPage(document:
+            MarkdownSelectionDocument(text: tableSource, fontSize: 17)).environment(\.locale, Locale(identifier: "zh_Hans")))
+        window.rootViewController = controller
+        window.overrideUserInterfaceStyle = .light
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil }
+        func findWeb(_ view: UIView) -> WKWebView? {
+            if let web = view as? WKWebView { return web }
+            return view.subviews.lazy.compactMap(findWeb).first
+        }
+        var browser: WKWebView?
+        for _ in 0..<50 {
+            browser = findWeb(controller.view)
+            if let browser, (try? await browser.evaluateJavaScript("window.dshReady === true")) as? Bool == true { break }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        let web = try XCTUnwrap(browser)
+        XCTAssertGreaterThan(web.bounds.height, 300, "网页正文必须占据页头下方的可用高度")
+        let tableCount = try await web.evaluateJavaScript("document.querySelectorAll('table').length") as? Int
+        XCTAssertEqual(tableCount, 2)
+        let metricValue = try await web.evaluateJavaScript("""
+            (()=>{const t=document.querySelector('table'),c=t.rows[1].cells;return [c[0].getBoundingClientRect().width,c[1].getBoundingClientRect().width,t.offsetWidth,t.parentElement.clientWidth,getComputedStyle(c[0]).borderBottomStyle];})()
+            """)
+        let metrics = try XCTUnwrap(metricValue as? [Any])
+        XCTAssertGreaterThanOrEqual(try XCTUnwrap(metrics[0] as? Double), 96)
+        XCTAssertEqual(try XCTUnwrap(metrics[2] as? Double), try XCTUnwrap(metrics[3] as? Double), accuracy: 2)
+        XCTAssertEqual(metrics[4] as? String, "solid")
+        let wideValue = try await web.evaluateJavaScript("""
+            (()=>{const t=document.querySelectorAll('table')[1],w=t.parentElement;w.scrollLeft=100;return [t.offsetWidth>w.clientWidth,w.scrollLeft,document.documentElement.scrollWidth<=innerWidth];})()
+            """)
+        let wideMetrics = try XCTUnwrap(wideValue as? [Any])
+        XCTAssertEqual(wideMetrics[0] as? Bool, true)
+        XCTAssertGreaterThan(try XCTUnwrap(wideMetrics[1] as? Double), 0)
+        XCTAssertEqual(wideMetrics[2] as? Bool, true, "多列表格只在卡片内横向滚动")
+        _ = try await web.evaluateJavaScript("window.dshSelectAll();true")
+        let selectedValue = try await web.evaluateJavaScript("window.dshSelectedText()")
+        let selected = try XCTUnwrap(selectedValue as? String)
+        XCTAssertTrue(selected.contains("中文")); XCTAssertTrue(selected.contains("清晰"))
+        XCTAssertTrue(selected.contains("前文")); XCTAssertTrue(selected.contains("后文"))
+        XCTAssertTrue(selected.contains("  print('😀')"))
+        XCTAssertFalse(selected.contains("**")); XCTAssertFalse(selected.contains("---"))
+        window.overrideUserInterfaceStyle = .dark
+        try await Task.sleep(for: .milliseconds(300))
+        let after = try await web.evaluateJavaScript("window.dshSelectedText()") as? String
+        let theme = try await web.evaluateJavaScript("document.documentElement.dataset.theme") as? String
+        XCTAssertEqual(after, selected)
+        XCTAssertEqual(theme, "dark")
+        try await Task.sleep(for: .milliseconds(300))
+        let snapshot = try await web.takeSnapshot(configuration: nil)
+        let attachment = XCTAttachment(image: snapshot)
+        attachment.name = "选择页可选中的表格与正文"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
     func testSelectionPageSharedVisualFixture() async throws {
         // 与 Android selectionPageUsesSharedTypographyCardsAndBlueSelection 使用相同内容。
         let source = "下面按 **数据怎么流** 和 `palette.py` 两层讲。\n\n"
             + "# 整体流水线\n\n```python\nimage = load(\"你好 😀\")\n\n    print(image)\n```\n\n"
-            + "## 常量与字体\n\n- **亮度**：保留粗体和行内 `LUMA`。\n- 中文、emoji 😀 和跨段落选择。\n\n"
-            + "| 名称 | 值 |\n| --- | --- |\n| 中文 | 😀 |"
+            + "## 常量与字体\n\n- **亮度**：保留粗体和行内 `LUMA`。\n- 中文、emoji 😀 和跨段落选择。"
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let window = UIWindow(windowScene: scene)
         let controller = UIHostingController(rootView: MarkdownSelectionPage(document:
@@ -12482,11 +13144,13 @@ final class MarkdownCopyInteractionTests: XCTestCase {
 
 @MainActor
 final class NativeFileUploadIntegrationTests: XCTestCase {
-    private func finishUpload(_ controller: FileUploadController, sessionID: String) async throws -> (PresentedFile, Data) {
+    private func finishUpload(_ controller: FileUploadController, sessionID: String, accepted: Bool = true) async throws -> (PresentedFile, Data) {
         let bytes = Data("本机已发送附件预览".utf8)
-        let source = FileManager.default.temporaryDirectory.appendingPathComponent("preview-\(UUID()).txt")
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("upload-source-\(UUID())")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let source = directory.appendingPathComponent("报告.txt")
         try bytes.write(to: source)
-        defer { try? FileManager.default.removeItem(at: source) }
+        defer { try? FileManager.default.removeItem(at: directory) }
         let file = PresentedFile(attachmentId: "opaque-preview", name: "报告.txt", bytes: Int64(bytes.count))
         var digest = ""
         controller.connected(sessionID: sessionID, supported: true)
@@ -12511,9 +13175,53 @@ final class NativeFileUploadIntegrationTests: XCTestCase {
         for _ in 0..<100 where !controller.canSend { try await Task.sleep(for: .milliseconds(10)) }
         XCTAssertTrue(controller.canSend)
         // 立即模拟 sent，覆盖后台缓存尚未完成时清理草稿的竞争。
-        controller.accepted(controller.drafts.map(\.id))
-        XCTAssertTrue(controller.drafts.isEmpty)
+        if accepted {
+            controller.accepted(controller.drafts.map(\.id))
+            XCTAssertTrue(controller.drafts.isEmpty)
+        }
         return (file, bytes)
+    }
+
+    func testDirectLocalPreviewSurvivesCacheCleanupAndMissingMessageMetadata() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("direct-files-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let previews = directory.appendingPathComponent("previews")
+        let local = directory.appendingPathComponent("local")
+        let controller = FileUploadController(gatewayID: "local-host", previewCacheRoot: previews, localFilesRoot: local)
+        let (file, bytes) = try await finishUpload(controller, sessionID: "s1")
+        let firstURL = await controller.previewURL(for: file, sessionID: "s1")
+        let first = try XCTUnwrap(firstURL)
+        XCTAssertTrue(first.path.hasPrefix(local.path + "/"))
+        XCTAssertEqual(first.lastPathComponent, "报告.txt")
+        WorkspaceFileLifetime.shared.release(first)
+        controller.clear()
+        // 即使清空预览缓存、销毁上传容器，附件仍直接从持久化文件路径读取。
+        WorkspacePreviewCache(gatewayID: "local-host", root: previews).maintain(temporaryRoot: nil, clear: true)
+        let reopened = FileUploadController(gatewayID: "local-host", previewCacheRoot: previews, localFilesRoot: local)
+        let sparseReference = PresentedFile(attachmentId: file.attachmentId)
+        let reopenedURL = await reopened.previewURL(for: sparseReference, sessionID: "s1")
+        let restored = try XCTUnwrap(reopenedURL)
+        defer { WorkspaceFileLifetime.shared.release(restored) }
+        XCTAssertEqual(restored, first)
+        XCTAssertEqual(try Data(contentsOf: restored), bytes)
+    }
+
+    func testCancellingRepeatedUploadPreservesOriginalSentFilePath() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("repeated-upload-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let controller = FileUploadController(gatewayID: "host-a", previewCacheRoot: root)
+        let (file, bytes) = try await finishUpload(controller, sessionID: "s1")
+        let originalURL = await controller.previewURL(for: file, sessionID: "s1")
+        let original = try XCTUnwrap(originalURL)
+        WorkspaceFileLifetime.shared.release(original)
+        _ = try await finishUpload(controller, sessionID: "s1", accepted: false)
+        controller.clear()
+        let reopened = FileUploadController(gatewayID: "host-a", previewCacheRoot: root)
+        let afterCancelURL = await reopened.previewURL(for: file, sessionID: "s1")
+        let afterCancel = try XCTUnwrap(afterCancelURL)
+        defer { WorkspaceFileLifetime.shared.release(afterCancel) }
+        XCTAssertEqual(afterCancel, original)
+        XCTAssertEqual(try Data(contentsOf: afterCancel), bytes)
     }
 
     func testSentFileSurvivesDraftCleanupAndControllerRecreationWithHostSessionIsolation() async throws {
@@ -13785,5 +14493,194 @@ final class ConversationSegmentsSourceTests: XCTestCase {
         let store = AppStore(preferences: UserDefaultsAppPreferences(userDefaults: UserDefaults(suiteName: "seg-src2")!, gatewayID: "t"),
                              gatewayClient: GatewayClient(credentials: nil), gatewayLocalID: "t")
         XCTAssertEqual(store.conversationSegments(for: "s1"), ["s1"], "无来源（普通会话）→ 只有当前段")
+    }
+}
+
+@MainActor
+final class MarkdownTableRenderingTests: XCTestCase {
+    private let source = "| 编号 | 任务名称 | 负责人 | 部门 | 优先级 | 开始日期 | 截止日期 | 状态 | 交付物 | 备注 |\n"
+        + "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n"
+        + "| 001 | **新版官网首页改版** | 王晓明 | 设计部 | 高 | 2026-10-21 | 2026-11-05 | 进行中 | `design.pdf` | 需确认动效成本、支持深色模式 |"
+
+    func testParsedTableExportsOnlyCellTextAndUsesReadableColumnWidths() throws {
+        let content = MarkdownUI.MarkdownContent(source)
+        let model = MarkdownTableModel(content: content)
+        XCTAssertEqual(model.cells.count, 2)
+        XCTAssertEqual(model.plainRows[1][1], "新版官网首页改版")
+        XCTAssertEqual(model.plainRows[1][8], "design.pdf")
+        let widths = model.widths(fontSize: 17)
+        XCTAssertEqual(widths.count, 10)
+        XCTAssertTrue(widths.allSatisfy { $0 >= 96 && $0 <= 260 })
+        XCTAssertGreaterThan(widths.reduce(0, +), 960)
+        let csv = MarkdownTableExport.shared.csv(rows: model.plainRows)
+        XCTAssertTrue(csv.hasPrefix("\u{FEFF}编号,"))
+        XCTAssertFalse(csv.contains("**"))
+        XCTAssertFalse(csv.contains("`"))
+        let document = MarkdownTableCSVDocument(data: Data(csv.utf8))
+        XCTAssertEqual(document.data, Data(csv.utf8))
+        XCTAssertNil(MarkdownUI.MarkdownContent("```md\n\(source)\n```").tableCells)
+        let escaped = MarkdownUI.MarkdownContent("| 名称 | 值 |\n| --- | --- |\n| 转义\\|竖线 | [链接](https://example.com) |")
+        XCTAssertEqual(escaped.tablePlainTextRows[1], ["转义|竖线", "链接"])
+    }
+
+    func testFewColumnsFillViewportWithoutCompressingWideTables() {
+        let model = MarkdownTableModel(content: MarkdownUI.MarkdownContent(
+            "| 对比 | 结论 |\n| --- | --- |\n| 系统与生态 | iOS 一家独占；安卓阵营通过 AI 与影像工作流形成差异 |"))
+        let natural = model.widths(fontSize: 17)
+        for width: CGFloat in [320, 600, 984, 1326] {
+            let columns = model.widths(fontSize: 17, viewportWidth: width)
+            XCTAssertEqual(columns.reduce(0, +), max(width, natural.reduce(0, +)), accuracy: 0.5)
+            XCTAssertEqual(columns[0] / columns[1], natural[0] / natural[1], accuracy: 0.001)
+        }
+        let wide = MarkdownTableModel(content: MarkdownUI.MarkdownContent(source))
+        XCTAssertEqual(wide.widths(fontSize: 17, viewportWidth: 600), wide.widths(fontSize: 17))
+    }
+
+    func testFewColumnTableFillsIPadAndSplitViewContainersWithoutExtraHeight() async throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        let source = """
+            | 对比 | 结论 |
+            | --- | --- |
+            | 高端定价权 | 苹果 > 三星 > 华为 > 其他中国品牌。这是品牌溢价，不是参数。 |
+            | 供应链抗压 | 三星（上游自供）> 苹果（议价 + 库存）> 华为（自研 + 国内链）> OV 米荣（纯采购） |
+            | 折叠屏 | 中国产商领先做产品，但苹果一入场就拿到最高溢价；三星用矩阵守住全球。 |
+            | 系统与生态 | iOS 一家独占；安卓阵营通过 AI 与影像工作流形成差异。 |
+            | 小众品牌生存 | 外国品牌靠本土运营商与垂直场景；中国品牌靠出海、抱鸿蒙生态与电竞垂类。 |
+            """
+        let content = MarkdownUI.MarkdownContent(source)
+        defer { window.isHidden = true; window.rootViewController = nil }
+        func scrollViews(_ view: UIView) -> [UIScrollView] {
+            ((view as? UIScrollView).map { [$0] } ?? []) + view.subviews.flatMap(scrollViews)
+        }
+        func fixture(width: CGFloat) -> some View {
+            VStack(alignment: .leading, spacing: 12) {
+                DeepSeekHarnessMobile.MarkdownContent(source)
+                Text("后文")
+                Spacer(minLength: 0)
+            }.padding(20).frame(width: width, height: 1000, alignment: .topLeading)
+                .environment(\.locale, Locale(identifier: "zh_Hans"))
+        }
+        let controller = UIHostingController(rootView: fixture(width: 320))
+        window.rootViewController = controller
+        window.overrideUserInterfaceStyle = .light
+        window.makeKeyAndVisible()
+        for width: CGFloat in [320, 600, 984, 1326, 600, 320] {
+            controller.rootView = fixture(width: width)
+            try await Task.sleep(for: .milliseconds(300))
+            let scroll = try XCTUnwrap(scrollViews(controller.view).first)
+            XCTAssertEqual(scroll.bounds.width, width - 40, accuracy: 1)
+            let expected = MarkdownTableModel(content: content).widths(fontSize: 17, viewportWidth: width - 40).reduce(0, +)
+            XCTAssertEqual(scroll.contentSize.width, expected, accuracy: 1, "表格应跟随容器宽度，而非设备屏幕宽度")
+            XCTAssertGreaterThan(scroll.bounds.height, 100)
+            XCTAssertLessThan(scroll.bounds.height, 750, "表格高度应随内容测量，不应占满整个窗口")
+            if width >= 600 {
+                XCTAssertEqual(scroll.contentSize.width, scroll.bounds.width, accuracy: 1)
+                XCTAssertLessThan(scroll.bounds.height, 500)
+            }
+            if UIDevice.current.userInterfaceIdiom == .pad && width == 984 {
+                let attachment = XCTAttachment(image: UIGraphicsImageRenderer(size: window.bounds.size).image { _ in
+                    window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+                })
+                attachment.name = "ipad-few-column-table"
+                attachment.lifetime = .keepAlways
+                add(attachment)
+            }
+        }
+    }
+
+    func testFullScreenTableSharedHeaderMarginsDarkModeAndRotation() async throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        let visualSource = "| 品牌 | 强项 | 弱项 | 参考 |\n| --- | --- | --- | --- |\n" +
+            (1...8).map { "| 品牌\($0) | 信号稳定、系统流畅，支持多设备协同 | 需确认价格与续航表现 | 测试资料 |" }.joined(separator: "\n")
+        let model = MarkdownTableModel(content: MarkdownUI.MarkdownContent(visualSource))
+        let controller = UIHostingController(rootView: MarkdownTablePage(model: model, fontSize: 17)
+            .environment(\.locale, Locale(identifier: "zh_Hans")))
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil }
+        try await Task.sleep(for: .milliseconds(600))
+        XCTAssertTrue(DocumentRotationPolicy.tableIsOpen)
+        func scrollViews(_ view: UIView) -> [UIScrollView] {
+            ((view as? UIScrollView).map { [$0] } ?? []) + view.subviews.flatMap(scrollViews)
+        }
+        func capture(_ name: String) {
+            let image = UIGraphicsImageRenderer(size: window.bounds.size).image { _ in
+                window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+            }
+            let attachment = XCTAttachment(image: image)
+            attachment.name = name
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+        let scroll = try XCTUnwrap(scrollViews(controller.view).last)
+        let bounds = scroll.convert(scroll.bounds, to: controller.view)
+        XCTAssertEqual(bounds.minX, 20, accuracy: 1)
+        XCTAssertEqual(controller.view.bounds.width - bounds.maxX, 20, accuracy: 1)
+        for style: UIUserInterfaceStyle in [.light, .dark] {
+            window.overrideUserInterfaceStyle = style
+            try await Task.sleep(for: .milliseconds(200))
+            capture(style == .dark ? "table-page-ios-dark-portrait" : "table-page-ios-light-portrait")
+        }
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            // iPad 多窗口的窗口形状由系统管理；尺寸重排由上面的容器连续缩放测试覆盖。
+            XCTAssertEqual(scroll.contentSize.width,
+                max(scroll.bounds.width, model.widths(fontSize: 17).reduce(0, +)), accuracy: 1)
+            return
+        }
+        func rotationControllers(_ controller: UIViewController) -> [DocumentRotationSupport.Controller] {
+            ((controller as? DocumentRotationSupport.Controller).map { [$0] } ?? [])
+                + controller.children.flatMap(rotationControllers)
+        }
+        let rotation = try XCTUnwrap(rotationControllers(controller).first)
+        rotation.rotate()
+        for _ in 0..<30 {
+            if window.bounds.width > window.bounds.height { break }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        XCTAssertGreaterThan(window.bounds.width, window.bounds.height, "表格预览应允许横屏")
+        capture("table-page-ios-dark-landscape")
+        window.overrideUserInterfaceStyle = .light
+        try await Task.sleep(for: .milliseconds(200))
+        capture("table-page-ios-light-landscape")
+        rotation.rotate()
+        for _ in 0..<30 {
+            if window.bounds.height > window.bounds.width { break }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        XCTAssertGreaterThan(window.bounds.height, window.bounds.width, "旋转按钮应支持再次切回竖屏")
+    }
+
+    func testTableHasHorizontalViewportAndKeepsFiniteReadingHeight() async throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        let controller = UIHostingController(rootView: VStack(alignment: .leading) {
+            Text("前文")
+            DeepSeekHarnessMobile.MarkdownContent(source)
+            Text("后文")
+            Spacer()
+        }.padding(20).frame(width: min(430, scene.coordinateSpace.bounds.width))
+            .environment(\.locale, Locale(identifier: "zh_Hans")))
+        window.rootViewController = controller
+        window.overrideUserInterfaceStyle = .light
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+        controller.view.layoutIfNeeded()
+        try await Task.sleep(for: .milliseconds(500))
+        func scrollViews(_ view: UIView) -> [UIScrollView] {
+            (view as? UIScrollView).map { [$0] } ?? [] + view.subviews.flatMap(scrollViews)
+        }
+        let scroll = try XCTUnwrap(scrollViews(controller.view).first { $0.contentSize.width > $0.bounds.width + 500 })
+        XCTAssertGreaterThan(scroll.contentSize.width, 960)
+        XCTAssertGreaterThan(scroll.bounds.height, 40)
+        XCTAssertLessThan(scroll.bounds.height, 360)
+        let image = UIGraphicsImageRenderer(size: window.bounds.size).image { _ in
+            window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+        }
+        let attachment = XCTAttachment(image: image)
+        attachment.name = "markdown-ten-column-table-ios"
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 }

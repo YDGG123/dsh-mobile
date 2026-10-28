@@ -36,70 +36,89 @@ struct WorkspaceView: View {
     @GestureState private var drawerClosingGestureActive = false
     @FocusState private var sessionSearchIsFocused: Bool
 
+    @ViewBuilder
     var body: some View {
+        // iOS 27.1 竖向工具栏：`#available` 只保护运行时，保护不了编译期。
+        // 当前 Xcode 26.3 / SDK 26.2 里没有 `toolbarVerticalEdge` / `axisBehavior` 符号，
+        // 所以这段必须用编译器版本隔离——代码保留，等升到 Xcode 27+ 自动启用。
+        // 详见 Docs/ios-27.1-api-pending.md。
+        #if compiler(>=6.3)
+        if #available(iOS 27.1, *) {
+            WorkspaceVerticalToolbarLayout { usesVerticalToolbar in
+                workspaceBody(usesVerticalToolbar: usesVerticalToolbar)
+            } toolbar: {
+                ToolbarItem(placement: .topBarTrailing) {
+                    authenticationMenu(inToolbar: true)
+                        .foregroundStyle(.white)
+                }
+                .axisBehavior(.verticalPreferred)
+                .sharedBackgroundVisibility(.hidden)
+                ToolbarItem(placement: .topBarTrailing) {
+                    toolbarSettingsButton
+                        .foregroundStyle(.white)
+                }
+                .axisBehavior(.verticalPreferred)
+                .sharedBackgroundVisibility(.hidden)
+            }
+        } else {
+            workspaceBody(usesVerticalToolbar: false)
+        }
+        #else
+        // Xcode 26.3 / SDK 26.2 及更早：没有 27.1 的工具栏 API，直接走成熟路径。
+        workspaceBody(usesVerticalToolbar: false)
+        #endif
+    }
+
+    private func workspaceBody(usesVerticalToolbar: Bool) -> some View {
         GeometryReader { geometry in
-            let drawerWidth = min(geometry.size.width * 0.76, 360)
+            let safeArea = geometry.safeAreaInsets
+            let drawerWidth = min(geometry.size.width * 0.76, 360) + safeArea.leading
             let progress = min(max(drawerOffset / max(drawerWidth, 1), 0), 1)
             let dimProgress = min(max((progress - 0.45) / 0.55, 0), 1)
             let dimOpacity = 0.16 * dimProgress * dimProgress * (3 - 2 * dimProgress)
-            let topInset = geometry.safeAreaInsets.top
-            let fullHeight = geometry.size.height + topInset + geometry.safeAreaInsets.bottom
+            let topInset = safeArea.top
+            let fullHeight = geometry.size.height + topInset + safeArea.bottom
+            let fullWidth = geometry.size.width + safeArea.leading + safeArea.trailing
+
+            // 显式拆成三个局部量：单个 ViewBuilder 表达式过复杂时，
+            // 测试目标（-enable-testing）会触发 "unable to type-check in reasonable time"。
+            let drawerLayer: some View = drawerContent(
+                progress: progress, topInset: topInset, width: drawerWidth
+            )
+                .padding(.leading, safeArea.leading)
+                .frame(width: drawerWidth, height: fullHeight, alignment: .topLeading)
+                .highPriorityGesture(drawerClosingGesture(width: drawerWidth))
+
+            let backdrop: Color = colorScheme == .dark
+                ? Color(red: 36.0 / 255, green: 36.0 / 255, blue: 38.0 / 255)
+                : Color.white
 
             ZStack(alignment: .leading) {
-                (colorScheme == .dark
-                    ? Color(red: 36.0 / 255, green: 36.0 / 255, blue: 38.0 / 255)
-                    : Color.white)
-                drawerContent(progress: progress, topInset: topInset, width: drawerWidth)
-                    .frame(width: drawerWidth, height: fullHeight, alignment: .topLeading)
-                    .highPriorityGesture(drawerClosingGesture(width: drawerWidth))
+                backdrop
+                drawerLayer
 
-                workspaceContent(
-                    openDrawer: { openDrawer(width: drawerWidth) },
-                    size: geometry.size,
-                    safeArea: geometry.safeAreaInsets,
-                    drawerWidth: drawerWidth
+                contentLayer(
+                    size: geometry.size, safeArea: safeArea, drawerWidth: drawerWidth,
+                    fullHeight: fullHeight, dimOpacity: dimOpacity, progress: progress,
+                    usesVerticalToolbar: usesVerticalToolbar
                 )
-                    .frame(width: geometry.size.width, height: fullHeight)
-                    .background(DSHColor.navy)
-                    .overlay {
-                        Color.black.opacity(dimOpacity)
-                            .allowsHitTesting(false)
-                    }
-                    // B4 候选 2：这组「剪裁 + 离屏合成 + 双层实时阴影」会在呈现（push/Menu）
-                    // 强制对来源做快照时把主线程拖住；sheet 呈现不走这条快照路径，正好解释
-                    // 「sheet 不卡、push 与 Menu 都卡」。诊断开关可整体关掉（进度为 0 时视觉等价）。
-                    .modifier(WorkspaceCardComposition(progress: progress))
-                    .overlay(alignment: .leading) {
-                        if progress > 0.98 || drawerDragStart != nil {
-                            Color.clear
-                                .contentShape(Rectangle())
-                                .onTapGesture { closeDrawer() }
-                                .highPriorityGesture(drawerClosingGesture(width: drawerWidth))
-                                .accessibilityLabel("关闭侧边栏")
-                                .accessibilityAddTraits(.isButton)
-                        }
-                    }
-                    .offset(x: drawerOffset)
             }
-            .frame(width: geometry.size.width, height: fullHeight)
-            .offset(y: -topInset)
-            .onChange(of: geometry.size) { _ in
+            .frame(width: fullWidth, height: fullHeight)
+            .offset(x: -safeArea.leading, y: -topInset)
+            .onChangeCompat(of: geometry.size) { _, _ in
                 // 旋转或调整分屏后清理旧拖拽距离，避免侧栏停在半开位置。
                 drawerFeedback.endDrag(cancelled: true)
                 drawerDragStart = nil
                 drawerOffset = progress > 0.5 ? drawerWidth : 0
             }
-            .onChange(of: drawerClosingGestureActive) { active in
+            .onChangeCompat(of: drawerClosingGestureActive) { _, active in
                 if !active {
                     finishDrawerDrag(translation: 0, velocity: 0, cancelled: true, width: drawerWidth)
                 }
             }
         }
-        // B6：这里原来是 `.foregroundStyle(.white)`，浅色主题下会让所有「没显式指定颜色」的
-        // 文字/图标（Bot 列表行、空态文案、抽屉标题等）变成白字白底，直接看不见。
-        // 默认前景改走色板：深色仍是白色，浅色是近黑墨蓝。
-        .background(workspaceBackdrop.ignoresSafeArea())
-        .onChange(of: drawerOffset) { value in
+        .background(DSHColor.navy.ignoresSafeArea())
+        .onChangeCompat(of: drawerOffset) { _, value in
             if value > 0 { sessionSearchIsFocused = false }
         }
         .foregroundStyle(palette.ink(1))
@@ -143,7 +162,7 @@ struct WorkspaceView: View {
         } message: {
             Text("会话将被归档并从列表隐藏，历史记录会保留。")
         }
-        .onChange(of: searchQuery) { value in store.search(value) }
+        .onChangeCompat(of: searchQuery) { _, value in store.search(value) }
         .sheet(isPresented: $showsDirectoryBrowser) {
             DirectoryBrowserSheet()
                 .environmentObject(store)
@@ -179,23 +198,67 @@ struct WorkspaceView: View {
         }
     }
 
+    /// `workspaceBody` 里的主体层。抽出来是为了把一条长修饰符链从 `body` 的
+    /// 类型推导里拿开——测试目标（-enable-testing）会对复杂 ViewBuilder 报
+    /// "unable to type-check this expression in reasonable time"。
+    @ViewBuilder
+    private func contentLayer(
+        size: CGSize, safeArea: EdgeInsets, drawerWidth: CGFloat,
+        fullHeight: CGFloat, dimOpacity: Double, progress: CGFloat,
+        usesVerticalToolbar: Bool
+    ) -> some View {
+        workspaceContent(
+            openDrawer: { openDrawer(width: drawerWidth) },
+            size: size,
+            safeArea: safeArea,
+            drawerWidth: drawerWidth,
+            usesVerticalToolbar: usesVerticalToolbar
+        )
+            .frame(width: size.width, height: fullHeight)
+            .padding(.leading, safeArea.leading)
+            .padding(.trailing, safeArea.trailing)
+            // 先扩展到窗口四边，再绘制和裁剪背景；正文仍留在安全区内。
+            .background { DeepOceanBackground(prefersOpenLightArcs: usesVerticalToolbar) }
+            .overlay {
+                Color.black.opacity(dimOpacity)
+                    .allowsHitTesting(false)
+            }
+            // B4 候选 2：这组「剪裁 + 离屏合成 + 双层实时阴影」会在呈现（push/Menu）
+            // 强制对来源做快照时把主线程拖住；sheet 呈现不走这条快照路径，正好解释
+            // 「sheet 不卡、push 与 Menu 都卡」。诊断开关可整体关掉（进度为 0 时视觉等价）。
+            .modifier(WorkspaceCardComposition(progress: progress))
+            .overlay(alignment: .leading) {
+                if progress > 0.98 || drawerDragStart != nil {
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .onTapGesture { closeDrawer() }
+                        .highPriorityGesture(drawerClosingGesture(width: drawerWidth))
+                        .accessibilityLabel("关闭侧边栏")
+                        .accessibilityAddTraits(.isButton)
+                }
+            }
+            .offset(x: drawerOffset)
+    }
+
     private func workspaceContent(
         openDrawer: @escaping () -> Void,
         size: CGSize,
         safeArea: EdgeInsets,
-        drawerWidth: CGFloat
+        drawerWidth: CGFloat,
+        usesVerticalToolbar: Bool
     ) -> some View {
         let usesColumns = AdaptiveLayout.workspaceUsesColumns(
             size: size, accessibilityText: dynamicTypeSize.isAccessibilitySize
         )
         return ZStack {
-            DeepOceanBackground()
+            Color.clear
                 .contentShape(Rectangle())
                 .onTapGesture { sessionSearchIsFocused = false }
             ScrollView {
                 VStack(alignment: .leading, spacing: usesColumns ? 40 : 18) {
                     VStack(alignment: .leading, spacing: 6) {
-                        header(openDrawer: openDrawer).id("workspace-header")
+                        header(openDrawer: openDrawer, usesVerticalToolbar: usesVerticalToolbar)
+                            .id("workspace-header")
                         GatewaySwitcherBar()
                     }
                     if usesColumns {
@@ -211,9 +274,9 @@ struct WorkspaceView: View {
                         recentSessions
                     }
                 }
+                // GeometryReader 给出的宽度已经扣除左右安全区，不能再按 safeArea 补一次，
+                // 否则右侧有安全区时（如折叠屏侧边的状态栏）会空出一大条，左右不对称。
                 .padding(.horizontal, usesColumns ? 40 : 22)
-                .padding(.leading, safeArea.leading)
-                .padding(.trailing, safeArea.trailing)
                 .padding(.top, safeArea.top + 18)
                 .padding(.bottom, safeArea.bottom + 24)
                 .readableContentWidth(AdaptiveLayout.workspaceWidth)
@@ -705,7 +768,7 @@ struct WorkspaceView: View {
         bridgeChat = BridgeChatTarget(row: row, engine: engine)
     }
 
-    private func header(openDrawer: @escaping () -> Void) -> some View {
+    private func header(openDrawer: @escaping () -> Void, usesVerticalToolbar: Bool = false) -> some View {
         HStack {
             Button(action: openDrawer) {
                 // B6：品牌字标以前默认 onDarkBackground=true（白字 + 白色反相字标），
@@ -718,12 +781,16 @@ struct WorkspaceView: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("打开侧边栏")
             Spacer()
-            // U5：原版连接入口常驻——扫码 / 手动输入配对信息（已连接时也可重新配对）。
-            authenticationMenu
-                .padding(.trailing, 6)
-            settingsButton
-                // Match the outer glass circle to the workspace cards' trailing edge.
-                .padding(.trailing, -4)
+            // iOS 27.1+ 系统把工具栏排成竖向时，认证菜单/设置已挂到 toolbar 上，
+            // header 里不再重复一份；16/17/26 走 else 分支，入口照旧常驻。
+            if !usesVerticalToolbar {
+                // U5：原版连接入口常驻——扫码 / 手动输入配对信息（已连接时也可重新配对）。
+                authenticationMenu()
+                    .padding(.trailing, 6)
+                settingsButton
+                    // Match the outer glass circle to the workspace cards' trailing edge.
+                    .padding(.trailing, -4)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -744,7 +811,10 @@ struct WorkspaceView: View {
             }, action: { selectDrawerItem(onPlugins) })
             drawerItem("定时任务", icon: {
                 Image(systemName: "clock")
-                    .appFont(.system(size: 20, weight: .medium))
+                    .resizable()
+                    .scaledToFit()
+                    .fontWeight(.medium)
+                    .frame(width: 22, height: 22)
                     .frame(width: 24)
             }, action: { selectDrawerItem(onScheduledTasks) })
             // U 单：旧 gateway 连接降级为备用入口，主流程只走 bridge 一次配对。
@@ -870,9 +940,10 @@ struct WorkspaceView: View {
     }
 
     @ViewBuilder
-    private var authenticationMenu: some View {
+    private func authenticationMenu(inToolbar: Bool = false) -> some View {
         GatewayAuthenticationMenu(
             gateway: store.gateway,
+            inToolbar: inToolbar,
             onScan: {
                 store.lastError = nil
                 showsQRScanner = true
@@ -889,21 +960,37 @@ struct WorkspaceView: View {
         headerButton(systemName: "gearshape.fill", accessibilityLabel: String(localized: "设置"), action: onSettings)
     }
 
+    #if compiler(>=6.3)
+    @available(iOS 27.1, *)
+    private var toolbarSettingsButton: some View {
+        Button(action: onSettings) {
+            headerButtonLabel(systemName: "gearshape.fill")
+                .glassEffect(.clear.tint(DSHColor.navy.opacity(0.22)), in: .circle)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(String(localized: "设置"))
+    }
+    #endif
+
     @ViewBuilder
     private func headerButton(systemName: String, accessibilityLabel: String, action: @escaping () -> Void) -> some View {
         let label = headerButtonLabel(systemName: systemName)
-        if #available(iOS 26.0, *) {
-            Button(action: action) { label }
-                .buttonStyle(.glass)
-                .buttonBorderShape(.circle)
-                .accessibilityLabel(accessibilityLabel)
-        } else {
-            Button(action: action) { label }
-                .buttonStyle(.plain)
-                .background(.ultraThinMaterial, in: Circle())
-                .overlay(Circle().stroke(palette.stroke(0.25), lineWidth: 0.8))
-                .accessibilityLabel(accessibilityLabel)
+        Group {
+            if #available(iOS 26.0, *) {
+                Button(action: action) { label }
+                    .buttonStyle(.glass)
+                    .buttonBorderShape(.circle)
+                    .accessibilityLabel(accessibilityLabel)
+            } else {
+                Button(action: action) { label }
+                    .buttonStyle(.plain)
+                    .background(.ultraThinMaterial, in: Circle())
+                    .overlay(Circle().stroke(palette.stroke(0.25), lineWidth: 0.8))
+                    .accessibilityLabel(accessibilityLabel)
+            }
         }
+        .glassCircleButton(onDarkBackground: true)
+        .accessibilityLabel(accessibilityLabel)
     }
 
     private func headerButtonLabel(systemName: String) -> some View {
@@ -1126,7 +1213,9 @@ struct WorkspaceView: View {
         }
         let ids = Set(store.searchResults.map(\.sessionId))
         let known = Set(workspaceSessions.map(\.id))
-        let missing = store.searchResults.filter { !known.contains($0.sessionId) }.map {
+        let missing = store.searchResults.filter {
+            !known.contains($0.sessionId) && !store.isSubagentSession($0.sessionId)
+        }.map {
             SessionSummary(id: $0.sessionId, title: "已缓存聊天", lastActivity: .distantPast, isRunning: false, hasUnread: false)
         }
         return (workspaceSessions + missing).filter { !store.archivedSessionIds.contains($0.id) && (ids.contains($0.id) || $0.title.localizedCaseInsensitiveContains(query) || $0.id.localizedCaseInsensitiveContains(query)) }
@@ -1157,6 +1246,7 @@ struct WorkspaceView: View {
                     sessionRow(session)
                 }
                     .buttonStyle(.plain)
+                    .accessibilityIdentifier("workspace-session-\(session.id)")
                     .contextMenu {
                         Button {
                             renamedTitle = session.title
@@ -1240,6 +1330,26 @@ struct WorkspaceView: View {
         .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 }
+
+/// 根据系统栏的方向选择入口位置，不按设备型号或横竖屏推测。
+#if compiler(>=6.3)
+@available(iOS 27.1, *)
+private struct WorkspaceVerticalToolbarLayout<Content: View, Toolbar: ToolbarContent>: View {
+    @Environment(\.toolbarVerticalEdge) private var verticalEdge
+    @ViewBuilder let content: (Bool) -> Content
+    @ToolbarContentBuilder let toolbar: () -> Toolbar
+
+    var body: some View {
+        content(verticalEdge != nil)
+            .toolbar {
+                if verticalEdge != nil {
+                    toolbar()
+                }
+            }
+            .toolbarBackground(.hidden, for: .navigationBar)
+    }
+}
+#endif
 
 /// 拖拽开始预热，松手同步反馈；取消和后续动画均不补震。
 @MainActor
@@ -1455,10 +1565,10 @@ private struct DirectoryBrowserSheet: View {
                         Button("取消") { dismiss() }
                     }
                 }
-                .onChange(of: store.createdDirectoryPathToReveal) { _ in
+                .onChangeCompat(of: store.createdDirectoryPathToReveal) { _, _ in
                     revealCreatedDirectory(using: proxy)
                 }
-                .onChange(of: store.directoryEntries) { _ in
+                .onChangeCompat(of: store.directoryEntries) { _, _ in
                     revealCreatedDirectory(using: proxy)
                 }
                 .task(id: highlightedDirectoryPath) {
@@ -1477,7 +1587,7 @@ private struct DirectoryBrowserSheet: View {
             store.directoryEntries = []
             store.browseDirectories()
         }
-        .onChange(of: store.selectedWorkspaceId) { _ in
+        .onChangeCompat(of: store.selectedWorkspaceId) { _, _ in
             guard let creatingPath,
                   store.activeWorkspace?.path == creatingPath else { return }
             dismiss()
@@ -1614,14 +1724,14 @@ private struct GatewayAuthenticationMenu: View {
     /// 主题感知色板（浅色下墨色、深色下白色叠加）。
     private var palette: DSHPalette { DSHPalette.resolve(colorScheme) }
     @ObservedObject var gateway: GatewayClient
+    var inToolbar = false
     let onScan: () -> Void
     let onManualEntry: () -> Void
 
+    @ViewBuilder
     var body: some View {
-        if #available(iOS 26.0, *) {
-            menu
-                .buttonStyle(.glass)
-                .buttonBorderShape(.circle)
+        if inToolbar {
+            menu.buttonStyle(.plain)
         } else {
             menu
                 .buttonStyle(.plain)
@@ -1639,12 +1749,20 @@ private struct GatewayAuthenticationMenu: View {
                 Label("手动输入配对信息", systemImage: "keyboard")
             }
         } label: {
-            Image(systemName: "person.badge.key.fill")
-                .appFont(.system(size: 17, weight: .semibold))
-                .frame(width: 40, height: 40)
-                .contentShape(Circle())
+            if #available(iOS 27.1, *), inToolbar {
+                label.glassEffect(.clear.tint(DSHColor.navy.opacity(0.22)), in: .circle)
+            } else {
+                label
+            }
         }
         .accessibilityLabel(String(localized: "a11y.device-auth.state", defaultValue: "设备认证，\(gateway.state.label)"))
+    }
+
+    private var label: some View {
+        Image(systemName: "person.badge.key.fill")
+            .appFont(.system(size: 17, weight: .semibold))
+            .frame(width: 40, height: 40)
+            .contentShape(Circle())
     }
 
 }

@@ -743,14 +743,18 @@ final class AppStore: ObservableObject {
         do {
             if frame.kind == "session-queues", let queues = frame.queues {
                 for id in queueProjectionSessionIDs.union(queues.keys) {
+                    guard queueProjectionSessionIDs.contains(id) || !(queues[id] ?? []).isEmpty else { continue }
                     try flushPendingConversationHistory(sessionID: id)
                     try kmpConversationStore.replaceSteeringMessages(sessionID: id, items: queues[id] ?? [])
                 }
-                queueProjectionSessionIDs = Set(queues.keys)
+                queueProjectionSessionIDs = Set(queues.filter { !$0.value.isEmpty }.keys)
             } else if frame.kind == "session-queue", let id = frame.sessionId, let items = frame.items {
-                queueProjectionSessionIDs.insert(id)
-                try flushPendingConversationHistory(sessionID: id)
-                try kmpConversationStore.replaceSteeringMessages(sessionID: id, items: items)
+                if queueProjectionSessionIDs.contains(id) || !items.isEmpty {
+                    try flushPendingConversationHistory(sessionID: id)
+                    try kmpConversationStore.replaceSteeringMessages(sessionID: id, items: items)
+                }
+                if items.isEmpty { queueProjectionSessionIDs.remove(id) }
+                else { queueProjectionSessionIDs.insert(id) }
             }
         } catch {
             lastError = error.localizedDescription
@@ -1394,6 +1398,7 @@ final class AppStore: ObservableObject {
 
 #if DEBUG
     var conversationHistoryPreparationForTesting: (@Sendable (KMPConversationHistoryPreparation) async throws -> KMPPreparedConversationHistory)?
+    private(set) var conversationHistoryReusedPreparationCountForTesting = 0
     var conversationHistoryWorkerCountForTesting: Int { conversationHistoryWorkerIDs.count }
     /// XCTest 只等待生产使用的同一延迟交付队列，不提供同步发布旁路。
     var chatPrefetchRequestCountForTesting: Int { chatPrefetcher.requestCount }
@@ -1462,7 +1467,12 @@ final class AppStore: ObservableObject {
         let groupedSessionIds = Set(workspaces.flatMap(\.sessionIds))
         return historySessions.filter { !groupedSessionIds.contains($0.id) }
     }
-    var historySessions: [SessionSummary] { sessions.filter(\.isVisibleInHistory) }
+    func isSubagentSession(_ sessionID: String) -> Bool {
+        teamStore.isChild(sessionId: sessionID) || sessions.first { $0.id == sessionID }?.isSubagent == true
+    }
+    var historySessions: [SessionSummary] {
+        sessions.filter { $0.isVisibleInHistory && !teamStore.isChild(sessionId: $0.id) }
+    }
 
     /// 废弃整个业务容器，旧异步工作最多只能触达已断开的旧 GatewayClient。
     func deactivateGateway() {
@@ -2527,13 +2537,14 @@ final class AppStore: ObservableObject {
                 }
                 self.conversationFileIsOpening = false
                 guard let url else {
-                    self.failWorkspaceFilePreview(String(localized: "当前设备没有此文件的本地副本，当前网关尚不支持下载已发送附件。"))
+                    self.failWorkspaceFilePreview(String(localized: "找不到此文件的本地副本，文件可能已被移动或删除。"))
                     return
                 }
                 self.workspaceFilePreviewProgress = 1
+                let previewName = file.name ?? url.lastPathComponent
                 self.completedWorkspaceFile = WorkspaceLocalFile(url: url, sessionID: sessionID,
-                    remotePath: attachmentID, name: name,
-                    mediaType: UTType(filenameExtension: (name as NSString).pathExtension)?.preferredMIMEType
+                    remotePath: attachmentID, name: previewName,
+                    mediaType: UTType(filenameExtension: (previewName as NSString).pathExtension)?.preferredMIMEType
                         ?? "application/octet-stream", purpose: "preview")
             }
         }
@@ -3043,7 +3054,7 @@ final class AppStore: ObservableObject {
     private func subscribeToSession(_ sessionID: String?) {
         if conversationSearchTarget != nil, let sessionID,
            assistantStreamState.hasBaseline(sessionId: sessionID) { return }
-        if let previous = selectedSessionId {
+        if let previous = selectedSessionId, kmpConversationStore.hasAssistantChunks(sessionID: previous) {
             try? flushPendingConversationHistory(sessionID: previous)
             try? kmpConversationStore.clearAssistantChunks(sessionID: previous)
         }
@@ -3057,6 +3068,11 @@ final class AppStore: ObservableObject {
     }
 
     private func handle(_ frame: GatewayFrame) {
+        if frame.kind == "error", frame.code == "subscription-timeout",
+           frame.sessionId == nil || frame.sessionId != selectedSessionId || preparedConversationActivationKey == nil {
+            // 后台监控或已离开的会话不能通过旧订阅超时打断当前页面。
+            return
+        }
         if frame.kind.hasPrefix("file-upload-") || frame.requestType?.hasPrefix("file-upload-") == true {
             fileUploads.accept(frame)
             return
@@ -3084,6 +3100,7 @@ final class AppStore: ObservableObject {
             publishTeamSnapshot()
             let routing = teamStore.routingJson()
             if routing != persistedTeamRouting {
+                objectWillChange.send()
                 persistedTeamRouting = routing
                 persistOfflineCatalog()
             }
@@ -3186,7 +3203,8 @@ final class AppStore: ObservableObject {
                     taskProjections[id] = nil
                     goalProjections[id] = nil
                 }
-                if update.clearTransient, let id = update.sessionId {
+                if update.clearTransient, let id = update.sessionId,
+                   kmpConversationStore.hasAssistantChunks(sessionID: id) {
                     try flushPendingConversationHistory(sessionID: id)
                     try kmpConversationStore.clearAssistantChunks(sessionID: id)
                     if activeTrajectorySessionIDs.contains(id) { scheduleTrajectoryProjection(for: id) }
@@ -4454,7 +4472,9 @@ final class AppStore: ObservableObject {
                 guard !self.evictedConversationSessionIDs.contains(id),
                       self.conversationProjectionEpochs[id, default: 0] == request.epoch,
                       self.kmpHistoryStore.projectionSnapshot(for: id)?.eventSequence == request.snapshot.eventSequence else {
-                    NSLog("conversation-history-prepare-discard")
+                    if !self.reuseCoveredConversationHistory(prepared, request: request, sessionID: id) {
+                        NSLog("conversation-history-prepare-discard")
+                    }
                     continue
                 }
                 do {
@@ -4493,6 +4513,43 @@ final class AppStore: ObservableObject {
             }
         }
         return true
+    }
+
+    /// 新权威窗口完整保留旧输入时，已算好的缓存仍可作为展示基线；修订和删除必须丢弃旧 worker。
+    private func reuseCoveredConversationHistory(_ prepared: Result<KMPPreparedConversationHistory, Error>,
+        request: ConversationHistoryRequest, sessionID: String) -> Bool {
+        guard !evictedConversationSessionIDs.contains(sessionID),
+              sessions.first(where: { $0.id == sessionID })?.isRunning == false,
+              assistantStreamState.activeAttemptId() == nil,
+              !activeTrajectorySessionIDs.contains(sessionID),
+              let next = pendingConversationHistory[sessionID],
+              next.epoch == conversationProjectionEpochs[sessionID, default: 0],
+              next.snapshot.eventSequence == kmpHistoryStore.projectionSnapshot(for: sessionID)?.eventSequence,
+              let first = request.records.first,
+              let start = next.records.firstIndex(where: { $0.seq == first.seq }),
+              start + request.records.count <= next.records.count,
+              next.records[start..<(start + request.records.count)].elementsEqual(request.records) else { return false }
+        do {
+            guard try kmpConversationStore.commitPreparedHistory(prepared.get(), sessionID: sessionID,
+                lastSequence: request.records.last?.seq ?? -1) else { return false }
+            if try kmpConversationStore.appendHistory(sessionID: sessionID, snapshot: next.snapshot,
+                lastSequence: next.records.last?.seq ?? -1) {
+                pendingConversationHistory[sessionID] = nil
+                historyPresentationCommittedEpochs[sessionID] = historyPresentationRequiredEpochs[sessionID, default: 0]
+                try replayConversationTransientChunks(sessionID: sessionID)
+            } else if let input = kmpConversationStore.historyPreparation(sessionID: sessionID, snapshot: next.snapshot) {
+                // 差量基于刚提交的缓存行和新 revision，不能沿用排队时的空投影。
+                pendingConversationHistory[sessionID] = ConversationHistoryRequest(records: next.records,
+                    snapshot: next.snapshot, input: input, epoch: next.epoch)
+            }
+            // 中间缓存不推进最终呈现 epoch；只有最新窗口完成后才确认分页呈现。
+            scheduleConversationProjection(for: sessionID)
+#if DEBUG
+            conversationHistoryReusedPreparationCountForTesting += 1
+#endif
+            NSLog("conversation-history-prepare-reuse cached_events=%ld latest_events=%ld", request.records.count, next.records.count)
+            return true
+        } catch { return false }
     }
 
     private func replayConversationTransientChunks(sessionID: String) throws {
@@ -5217,8 +5274,19 @@ final class AppStore: ObservableObject {
                     rebaselined = true
                     conversationProjectionEpochs[change.sessionID, default: 0] &+= 1
                     requireHistoryPresentation(sessionID: change.sessionID, historyEventSequence: change.eventSequence)
-                    queuedHistory = enqueueStaticConversationHistory(change)
-                    if !queuedHistory {
+                    let appended: Bool
+                    if let snapshot = change.projectionSnapshot {
+                        appended = try kmpConversationStore.appendHistory(sessionID: change.sessionID,
+                            snapshot: snapshot, lastSequence: change.events.last?.seq ?? -1)
+                    } else { appended = false }
+                    if appended {
+                        discardPendingConversationHistory(sessionID: change.sessionID, cancelPresentation: false)
+                        historyPresentationCommittedEpochs[change.sessionID] = historyPresentationRequiredEpochs[change.sessionID, default: 0]
+                        try replayConversationTransientChunks(sessionID: change.sessionID)
+                    } else {
+                        queuedHistory = enqueueStaticConversationHistory(change)
+                    }
+                    if !appended && !queuedHistory {
                         discardPendingConversationHistory(sessionID: change.sessionID, cancelPresentation: false)
                         try kmpConversationStore.replace(sessionID: change.sessionID, events: change.events,
                             historySnapshot: change.projectionSnapshot)

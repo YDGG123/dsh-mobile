@@ -22,8 +22,11 @@ object GatewayWireDecoder {
         val path = rawPath?.let { candidate ->
             val first = candidate.removePrefix("\$.").substringBefore('.').substringBefore('[')
             val eventObject = root?.get("event") as? JsonObject
+            val statsObject = root?.get("sessionStats") as? JsonObject
             if (first !in root.orEmpty() && first in eventObject.orEmpty()) {
                 "\$.event${candidate.removePrefix("\$")}"
+            } else if (kind == "session-stats" && first !in root.orEmpty() && first in statsObject.orEmpty()) {
+                "\$.sessionStats${candidate.removePrefix("\$")}"
             } else candidate
         }
         val missingFields = (cause as? MissingFieldException)?.missingFields
@@ -38,6 +41,8 @@ object GatewayWireDecoder {
                 ?.let { if (it == "int") "integer" else it }
                 ?: when (path?.substringAfterLast('.')) {
                     "turn", "step", "seq", "sourceEventSeq", "shadowedItemCount", "shadowedTokenCount" -> "integer"
+                    "turns", "steps", "ttftSteps", "lastTurn" -> "integer"
+                    "llmMs", "toolMs", "ttftMs", "decodeMs", "decodeTokens", "startTime", "firstTokenTime" -> "number"
                     "isError", "interrupted", "replay", "accepted", "applied" -> "boolean"
                     else -> null
                 }
@@ -60,7 +65,9 @@ object GatewayWireDecoder {
             "tokenUsage", "contextPressure", "todos", "goal", "workspace", "presets", "groups",
             "current", "selection", "message", "source", "images", "attachment", "questions",
             "options", "sessionPermissions", "ui", "turn", "step", "text", "toolCalls", "arguments", "content",
-            "sessionId", "seq", "time", "kind", "type", "projections", "values")
+            "sessionId", "seq", "time", "kind", "type", "projections", "values",
+            "turns", "steps", "llmMs", "toolMs", "ttftMs", "ttftSteps", "decodeMs", "decodeTokens",
+            "lastTurn", "openStep", "pendingCalls", "startTime", "firstTokenTime")
         return Regex("[A-Za-z_][A-Za-z0-9_]*|\\[\\d+]").findAll(this)
             .map { token -> if (token.value.startsWith("[")) token.value else if (token.value in known) token.value else "?" }
             .joinToString(".") { it }

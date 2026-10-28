@@ -13,7 +13,6 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -66,6 +65,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.platform.LocalDensity
@@ -166,7 +166,7 @@ internal fun TeamEntryButton(holder: AndroidSharedStateHolder) {
         }
     }
     if (sheet) {
-        val dark = isSystemInDarkTheme()
+        val dark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
         ModalBottomSheet(
             modifier = Modifier.adaptiveSheetBounds(),
             sheetMaxWidth = adaptiveSheetWidth(),
@@ -399,7 +399,7 @@ internal fun TeamTaskFilter(
     selected: Int,
     onSelect: (Int) -> Unit,
 ) {
-    val dark = isSystemInDarkTheme()
+    val dark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
     Row(
         Modifier
             .fillMaxWidth()
@@ -409,7 +409,7 @@ internal fun TeamTaskFilter(
                 CircleShape,
             ).padding(2.dp),
     ) {
-        listOf("全部", "当前成员", "未分配").forEachIndexed { index, label ->
+        listOf(appText("全部"), appText("当前成员"), appText("未分配")).forEachIndexed { index, label ->
             Box(
                 Modifier
                     .weight(1f)
@@ -419,7 +419,12 @@ internal fun TeamTaskFilter(
                     .selectable(selected == index, role = Role.Tab, onClick = { onSelect(index) }),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(label, fontSize = 13.sp, fontWeight = if (selected == index) FontWeight.Medium else FontWeight.Normal)
+                Text(
+                    label,
+                    fontSize = 13.sp,
+                    fontWeight = if (selected == index) FontWeight.Medium else FontWeight.Normal,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
             }
         }
     }

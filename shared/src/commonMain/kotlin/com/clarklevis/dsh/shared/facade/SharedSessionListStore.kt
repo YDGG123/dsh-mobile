@@ -21,7 +21,9 @@ data class SharedSessionSummarySnapshot(
     val isRunning: Boolean,
     val hasUnread: Boolean,
     val agentPreset: String? = null,
-    val hasConversation: Boolean? = null
+    val hasConversation: Boolean? = null,
+    val parentSessionId: String? = null,
+    val origin: String? = null
 )
 
 /** iOS 发布和持久化适配器所需的完整会话列表快照。 */
@@ -204,7 +206,9 @@ private fun SharedSessionSummarySnapshot.toDomain(): SessionSummary = SessionSum
     isRunning = isRunning,
     hasUnread = hasUnread,
     agentPreset = agentPreset,
-    hasConversation = hasConversation
+    hasConversation = hasConversation,
+    parentSessionId = parentSessionId,
+    origin = origin
 )
 
 private fun SessionSummary.toSnapshot(): SharedSessionSummarySnapshot = SharedSessionSummarySnapshot(
@@ -214,7 +218,9 @@ private fun SessionSummary.toSnapshot(): SharedSessionSummarySnapshot = SharedSe
     isRunning = isRunning,
     hasUnread = hasUnread,
     agentPreset = agentPreset,
-    hasConversation = hasConversation
+    hasConversation = hasConversation,
+    parentSessionId = parentSessionId,
+    origin = origin
 )
 
 private fun SessionListState.toSnapshot(): SharedSessionListSnapshot = SharedSessionListSnapshot(

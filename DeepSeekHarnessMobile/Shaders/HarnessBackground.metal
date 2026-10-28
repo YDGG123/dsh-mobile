@@ -95,7 +95,8 @@ static float harnessPadRibbons(float2 uv, float2 safeSize, float t, float2 disto
     half4 currentColor,
     float2 size,
     float time,
-    float tabletStyle
+    float tabletStyle,
+    float prefersOpenLightArcs
 ) {
     float2 safeSize = max(size, float2(1.0));
     float2 uv = position / safeSize;
@@ -130,7 +131,8 @@ static float harnessPadRibbons(float2 uv, float2 safeSize, float t, float2 disto
     color = mix(color, mistBlue, smoothstep(0.74, 0.98, swirl) * 0.18);
 
     float2 distortion = (q - 0.5) * 0.085 + (r - 0.5) * 0.045;
-    float ribbon = tabletStyle > 0.5
+    // Duo 的侧边工具栏布局在闭合后仍保留开放光弧，点阵和流体配色继续按尺寸适配。
+    float ribbon = tabletStyle > 0.5 || prefersOpenLightArcs > 0.5
         ? harnessPadRibbons(uv, safeSize, t, distortion)
         : harnessPhoneRibbons(uv, aspect, t, q, r);
     color = mix(color, warmLight, ribbon * (0.48 + 0.24 * swirl));

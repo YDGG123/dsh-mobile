@@ -317,7 +317,10 @@ final class MultiGatewayStore: ObservableObject {
             ImageAttachmentCache.forgetGateway($0)
         }
         Task {
-            for id in knownIDs { await ChatHistoryCache.shared.forget(gatewayID: id) }
+            for id in knownIDs {
+                await ChatHistoryCache.shared.forget(gatewayID: id)
+                await Task.detached(priority: .utility) { LocalUploadedFileStore(gatewayID: id).forget() }.value
+            }
             await Task.detached(priority: .utility) {
                 WorkspacePreviewCache(gatewayID: "maintenance").maintain(clear: true)
             }.value

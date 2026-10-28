@@ -220,8 +220,20 @@ struct DSHPalette {
 /// 具体形态由 `HarnessAnimatedBackground` 按 `colorScheme` 分支处理。
 /// B4：被子页覆盖时（`BackgroundAnimationPause`）自动暂停逐帧重绘，避免推入卡死。
 struct DeepOceanBackground: View {
+    /// iOS 27.1+ 竖向工具栏：顶部光弧让位给工具栏（上游新增，默认关闭）。
+    var prefersOpenLightArcs = false
+
     var body: some View {
-        HarnessAnimatedBackground(style: UIDevice.current.userInterfaceIdiom == .pad ? .pad : .phone)
+        GeometryReader { geometry in
+            HarnessAnimatedBackground(
+                style: HarnessBackgroundStyle.resolve(
+                    size: geometry.size,
+                    isPad: UIDevice.current.userInterfaceIdiom == .pad
+                ),
+                prefersOpenLightArcs: prefersOpenLightArcs
+            )
+        }
+        .ignoresSafeArea()
     }
 }
 
@@ -266,5 +278,61 @@ private struct AdaptiveListWidth: ViewModifier {
                 content.padding(.horizontal, inset)
             }
         }
+    }
+}
+
+/// `ContentUnavailableView` 的 iOS 16.1 替代实现，覆盖项目内用到的三种构造形式。
+struct DshEmptyState: View {
+    private let label: AnyView
+    private let message: AnyView?
+    private let actions: AnyView?
+
+    init<L: View, D: View, A: View>(
+        @ViewBuilder label: () -> L,
+        @ViewBuilder description: () -> D,
+        @ViewBuilder actions: () -> A
+    ) {
+        self.label = AnyView(label())
+        self.message = AnyView(description())
+        self.actions = AnyView(actions())
+    }
+
+    init<L: View, D: View>(
+        @ViewBuilder label: () -> L,
+        @ViewBuilder description: () -> D
+    ) {
+        self.label = AnyView(label())
+        self.message = AnyView(description())
+        self.actions = nil
+    }
+
+    init(_ title: String, systemImage: String, description: Text? = nil) {
+        self.label = AnyView(
+            VStack(spacing: 10) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 40, weight: .light))
+                Text(title)
+                    .font(.headline)
+                    .multilineTextAlignment(.center)
+            }
+        )
+        self.message = description.map { AnyView($0.font(.subheadline).multilineTextAlignment(.center)) }
+        self.actions = nil
+    }
+
+    var body: some View {
+        VStack(spacing: 12) {
+            label
+            if let message {
+                message
+            }
+            if let actions {
+                actions
+                    .padding(.top, 4)
+            }
+        }
+        .foregroundStyle(.secondary)
+        .frame(maxWidth: .infinity)
+        .padding(24)
     }
 }

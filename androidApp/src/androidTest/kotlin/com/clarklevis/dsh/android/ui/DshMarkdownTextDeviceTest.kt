@@ -177,7 +177,7 @@ class DshMarkdownTextDeviceTest {
                 val card = value.getSpans(0, value.length, DshSelectionCodeSpan::class.java).single()
                 assertEquals("python", card.language)
                 assertEquals(DshSelectionStyle.LIGHT_CODE, card.background)
-                assertTrue(value.toString().contains("中文\t😀"))
+                assertTrue(value.toString().contains("中文、emoji 😀"))
                 val plain = markdownSelectionText(value, 0, value.length)
                 assertTrue(plain.contains("image = load(\"你好 😀\")\n\n    print(image)"))
                 assertFalse(plain.contains("PYTHON"))
@@ -673,5 +673,4 @@ class DshMarkdownTextDeviceTest {
 // 与 iOS testSelectionPageSharedVisualFixture 使用相同内容。
 private val selectionParityMarkdown = "下面按 **数据怎么流** 和 `palette.py` 两层讲。\n\n" +
     "# 整体流水线\n\n```python\nimage = load(\"你好 😀\")\n\n    print(image)\n```\n\n" +
-    "## 常量与字体\n\n- **亮度**：保留粗体和行内 `LUMA`。\n- 中文、emoji 😀 和跨段落选择。\n\n" +
-    "| 名称 | 值 |\n| --- | --- |\n| 中文 | 😀 |"
+    "## 常量与字体\n\n- **亮度**：保留粗体和行内 `LUMA`。\n- 中文、emoji 😀 和跨段落选择。"

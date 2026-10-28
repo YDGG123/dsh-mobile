@@ -83,6 +83,7 @@ class ConversationProjector(
     private val committedUserMessageIds = mutableSetOf<String>()
 
     val items: List<ConversationItem> get() = mutableItems.toList()
+    val hasAssistantChunks: Boolean get() = transientKeys.isNotEmpty()
     var lastSequence: Int = -1
         private set
 

@@ -14,6 +14,37 @@ import kotlinx.serialization.json.jsonObject
 
 class SharedOfflineCatalogTest {
     @Test
+    fun metadataChildSelectionReturnsToLeadButForkSelectionDoesNot() {
+        val rows = """{"sessions":[
+            {"id":"lead","title":"Lead","lastActivityEpochSeconds":1,"isRunning":false,"hasUnread":false},
+            {"id":"child","title":"Child","lastActivityEpochSeconds":1,"isRunning":false,"hasUnread":false,"origin":"subagent","parentSessionId":"lead"},
+            {"id":"fork","title":"Fork","lastActivityEpochSeconds":1,"isRunning":false,"hasUnread":false,"origin":"fork","parentSessionId":"lead"}
+        ],"selectedSessionId":"child"}"""
+        for ((selected, expected) in listOf("child" to "lead", "fork" to "fork")) {
+            val catalog = assertNotNull(codec.create(rows.replace("\"selectedSessionId\":\"child\"", "\"selectedSessionId\":\"$selected\""), "[]", null))
+            val saved = assertNotNull(codec.withConversationTargets(catalog, "[]"))
+            assertEquals(expected, SharedMobileStore().restoreOfflineCatalog(saved).selectedSessionId)
+        }
+    }
+
+    @Test
+    fun legacyChildRowsAreHiddenUsingDurableTeamRouting() {
+        val legacy = """{"sessions":[
+            {"id":"s","title":"Lead","lastActivityEpochSeconds":1,"isRunning":false,"hasUnread":false},
+            {"id":"child","title":"旧子会话","lastActivityEpochSeconds":2,"isRunning":false,"hasUnread":false}
+        ]}"""
+        val initial = assertNotNull(codec.create(legacy, "[]", null))
+        val catalog = assertNotNull(codec.withConversationTargets(initial,
+            """[{"sessionId":"child","parentSessionId":"s","subagentMode":"continuable"}]"""))
+        val restored = SharedMobileStore().restoreOfflineCatalog(catalog)
+        assertEquals(listOf("s"), restored.sessions.filter { it.isVisibleInHistory }.map { it.id })
+        assertEquals("subagent", restored.sessions.first { it.id == "child" }.origin)
+        val ios = SharedSessionListStore("新建", "远程", "空白")
+        ios.restore(assertNotNull(codec.sessionListJson(catalog)))
+        assertTrue(assertNotNull(ios.snapshot().snapshotJson).contains("\"origin\":\"subagent\""))
+    }
+
+    @Test
     fun avatarAssignmentsRoundTripWithoutBecomingConversationTargets() {
         val assignments = """[{"leadSessionId":"s","sessionId":"a","index":37}]"""
         val cached = assertNotNull(codec.withTeamAvatars(catalog(), assignments))

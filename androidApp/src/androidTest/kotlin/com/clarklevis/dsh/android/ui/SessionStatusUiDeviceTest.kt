@@ -117,7 +117,7 @@ class SessionStatusUiDeviceTest {
                 ttftMs = 1_941.0,
                 ttftSteps = 3,
                 decodeMs = 900.0,
-                decodeTokens = 100
+                decodeTokens = 100.0
             ),
             tokenUsage = GatewaySessionTokenUsage(
                 GatewaySessionTokenUsageTotals(

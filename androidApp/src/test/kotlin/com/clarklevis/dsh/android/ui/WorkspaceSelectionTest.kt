@@ -8,6 +8,23 @@ import org.junit.Test
 
 class WorkspaceSelectionTest {
     @Test
+    fun subagentsNeverAppearInWorkspaceUngroupedOrSearchButForksRemainVisible() {
+        val rows = listOf(
+            SessionSummary("lead", "lead", 1.0, false, false),
+            SessionSummary("child", "needle child", 2.0, false, false, parentSessionId = "lead", origin = "subagent"),
+            SessionSummary("legacy-child", "needle legacy", 2.0, false, false),
+            SessionSummary("fork", "needle fork", 3.0, false, false, parentSessionId = "lead", origin = "fork")
+        )
+        val groups = listOf(GatewayWorkspace("w", "/repo", "repo", rows.map { it.id }, "now", "now"))
+        val knownChildren = setOf("legacy-child")
+        val grouped = workspaceScopedSessions(rows, groups, "w", knownChildren)
+        val ungrouped = workspaceScopedSessions(rows, emptyList(), AndroidSharedStateHolder.UNGROUPED_WORKSPACE_ID, knownChildren)
+        assertEquals(listOf("lead", "fork"), grouped.map { it.id })
+        assertEquals(grouped, ungrouped)
+        assertEquals(listOf("fork"), filterSessionsByQuery(ungrouped, "needle", setOf("child", "legacy-child", "fork")).map { it.id })
+    }
+
+    @Test
     fun blankSessionsAreHiddenInWorkspaceAndUngroupedHistory() {
         val draftSessions = sessions.map { it.copy(hasConversation = false) }
         assertEquals(emptyList<SessionSummary>(), workspaceScopedSessions(draftSessions, workspaces, "w1"))

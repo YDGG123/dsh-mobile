@@ -15,7 +15,7 @@ final class WorkspaceDrawerUITests: XCTestCase {
 
     func testRightSwipeFromSettingsOpensDrawerWithoutOpeningSettings() {
         dragRight(from: app.buttons["设置"])
-        XCTAssertTrue(homeSettings.frame.minX > app.frame.width, "主界面未右移：\(homeSettings.frame)")
+        XCTAssertTrue(homeSettings.frame.minX > app.windows.firstMatch.frame.width, "主界面未右移：\(homeSettings.frame)")
         XCTAssertFalse(app.navigationBars["设置"].exists)
     }
 
@@ -24,7 +24,7 @@ final class WorkspaceDrawerUITests: XCTestCase {
         XCTAssertTrue(workspace.waitForExistence(timeout: 5))
         let originalY = workspace.frame.midY
         dragRight(from: workspace)
-        XCTAssertTrue(homeSettings.frame.minX > app.frame.width, "主界面未右移：\(homeSettings.frame)")
+        XCTAssertTrue(homeSettings.frame.minX > app.windows.firstMatch.frame.width, "主界面未右移：\(homeSettings.frame)")
         XCTAssertEqual(workspace.frame.midY, originalY, accuracy: 2, "右滑同时触发了纵向滚动")
         XCTAssertFalse(app.buttons["添加工作区"].exists)
     }
@@ -33,7 +33,7 @@ final class WorkspaceDrawerUITests: XCTestCase {
         let host = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "当前主机：")).firstMatch
         XCTAssertTrue(host.waitForExistence(timeout: 5))
         dragRight(from: host)
-        XCTAssertTrue(homeSettings.frame.minX > app.frame.width, "主界面未右移：\(homeSettings.frame)")
+        XCTAssertTrue(homeSettings.frame.minX > app.windows.firstMatch.frame.width, "主界面未右移：\(homeSettings.frame)")
         XCTAssertFalse(app.navigationBars["主机"].exists)
     }
 
@@ -41,7 +41,7 @@ final class WorkspaceDrawerUITests: XCTestCase {
         let newSession = app.buttons["新建会话"]
         XCTAssertTrue(newSession.waitForExistence(timeout: 5))
         dragRight(from: newSession)
-        XCTAssertTrue(homeSettings.frame.minX > app.frame.width, "主界面未右移：\(homeSettings.frame)")
+        XCTAssertTrue(homeSettings.frame.minX > app.windows.firstMatch.frame.width, "主界面未右移：\(homeSettings.frame)")
         XCTAssertFalse(app.navigationBars["新建会话"].exists)
     }
 
@@ -49,7 +49,7 @@ final class WorkspaceDrawerUITests: XCTestCase {
         let search = app.textFields.firstMatch
         XCTAssertTrue(search.waitForExistence(timeout: 5))
         dragRight(from: search)
-        XCTAssertTrue(homeSettings.frame.minX > app.frame.width, "主界面未右移：\(homeSettings.frame)")
+        XCTAssertTrue(homeSettings.frame.minX > app.windows.firstMatch.frame.width, "主界面未右移：\(homeSettings.frame)")
         XCTAssertFalse(app.keyboards.firstMatch.exists)
     }
 
@@ -57,14 +57,14 @@ final class WorkspaceDrawerUITests: XCTestCase {
         let authentication = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "设备认证")).firstMatch
         XCTAssertTrue(authentication.waitForExistence(timeout: 5))
         dragRight(from: authentication)
-        XCTAssertTrue(homeSettings.frame.minX > app.frame.width, "主界面未右移：\(homeSettings.frame)")
+        XCTAssertTrue(homeSettings.frame.minX > app.windows.firstMatch.frame.width, "主界面未右移：\(homeSettings.frame)")
     }
 
     func testVerticalSwipeDoesNotOpenDrawer() {
-        let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.45, dy: 0.68))
-        let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.45, dy: 0.35))
+        let start = app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.45, dy: 0.68))
+        let end = app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.45, dy: 0.35))
         start.press(forDuration: 0.05, thenDragTo: end)
-        XCTAssertTrue(homeSettings.frame.minX < app.frame.width, "纵向滑动误开侧栏：\(homeSettings.frame)")
+        XCTAssertTrue(homeSettings.frame.minX < app.windows.firstMatch.frame.width, "纵向滑动误开侧栏：\(homeSettings.frame)")
         XCTAssertTrue(app.buttons["设置"].exists)
     }
 
@@ -93,7 +93,7 @@ final class WorkspaceDrawerUITests: XCTestCase {
         let selection = app.textViews["markdown-text-selection"]
         XCTAssertTrue(selection.waitForExistence(timeout: 3))
         XCTAssertTrue(app.staticTexts["选择文字"].exists)
-        XCTAssertGreaterThan(selection.frame.height, app.frame.height * 0.5, "选择页应使用独立的全屏滚动区域")
+        XCTAssertGreaterThan(selection.frame.height, app.windows.firstMatch.frame.height * 0.5, "选择页应使用独立的全屏滚动区域")
         XCTAssertFalse(app.keyboards.firstMatch.exists, "只读选择页不能弹出键盘")
         let pageAttachment = XCTAttachment(screenshot: app.screenshot())
         pageAttachment.name = "独立全屏文字选择页"
@@ -175,26 +175,26 @@ final class WorkspaceDrawerUITests: XCTestCase {
         let workspace = app.buttons["选择工作区"]
         XCTAssertTrue(workspace.waitForExistence(timeout: 5))
         dragRight(from: workspace)
-        XCTAssertTrue(homeSettings.frame.minX > app.frame.width)
+        XCTAssertTrue(homeSettings.frame.minX > app.windows.firstMatch.frame.width)
 
-        let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5))
-        let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5))
+        let start = app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5))
+        let end = app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5))
         start.press(forDuration: 0.05, thenDragTo: end)
-        XCTAssertTrue(homeSettings.frame.minX < app.frame.width, "侧栏未关闭：\(homeSettings.frame)")
+        XCTAssertTrue(homeSettings.frame.minX < app.windows.firstMatch.frame.width, "侧栏未关闭：\(homeSettings.frame)")
     }
 
     func testDrawerItemRemainsTappableAfterSwipe() {
         let workspace = app.buttons["选择工作区"]
         XCTAssertTrue(workspace.waitForExistence(timeout: 5))
         dragRight(from: workspace)
-        XCTAssertTrue(homeSettings.frame.minX > app.frame.width)
+        XCTAssertTrue(homeSettings.frame.minX > app.windows.firstMatch.frame.width)
         app.buttons["插件"].tap()
         XCTAssertTrue(app.navigationBars["插件"].waitForExistence(timeout: 3))
     }
 
     func testLeftSwipeOnDrawerSurfaceClosesWithoutOpeningPlugin() {
         app.buttons["打开侧边栏"].tap()
-        XCTAssertTrue(homeSettings.frame.minX > app.frame.width)
+        XCTAssertTrue(homeSettings.frame.minX > app.windows.firstMatch.frame.width)
 
         let plugin = app.buttons["插件"]
         XCTAssertTrue(plugin.exists)
@@ -202,7 +202,7 @@ final class WorkspaceDrawerUITests: XCTestCase {
         let end = plugin.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.5))
         start.press(forDuration: 0.05, thenDragTo: end)
 
-        XCTAssertTrue(homeSettings.frame.minX < app.frame.width, "在侧栏上左滑未关闭")
+        XCTAssertTrue(homeSettings.frame.minX < app.windows.firstMatch.frame.width, "在侧栏上左滑未关闭")
         XCTAssertFalse(app.navigationBars["插件"].exists, "左滑误触发插件入口")
     }
 
@@ -211,9 +211,9 @@ final class WorkspaceDrawerUITests: XCTestCase {
         let closeControl = app.buttons["关闭侧边栏"]
         XCTAssertTrue(closeControl.exists)
         let openX = closeControl.frame.minX
-        XCTAssertTrue(openX > app.frame.width * 0.7)
+        XCTAssertTrue(openX > app.windows.firstMatch.frame.width * 0.7)
 
-        let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.6))
+        let start = app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.6))
         let end = start.withOffset(CGVector(dx: -16, dy: 0))
         start.press(forDuration: 0.05, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 0.5)
         let returnedToOpen = XCTNSPredicateExpectation(
@@ -229,22 +229,233 @@ final class WorkspaceDrawerUITests: XCTestCase {
         XCTAssertEqual(result, .completed, "短距离左滑应回到打开位置")
 
         app.buttons["关闭侧边栏"].tap()
-        XCTAssertTrue(homeSettings.frame.minX < app.frame.width, "拖动后关闭层丢失")
+        XCTAssertTrue(homeSettings.frame.minX < app.windows.firstMatch.frame.width, "拖动后关闭层丢失")
         homeSettings.tap()
         XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 3))
     }
 
+    // 拖到实际窗口边缘，避免平板右上角按钮只移动十余点而未达到开栏阈值。
     private func dragRight(from element: XCUIElement) {
         let start = element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-        let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.96, dy: start.screenPoint.y / app.frame.height))
+        let end = app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.995, dy: start.screenPoint.y / app.windows.firstMatch.frame.height))
         start.press(forDuration: 0.05, thenDragTo: end)
     }
 
     private var homeSettings: XCUIElement { app.buttons["设置"] }
 }
 
+final class ScheduledTasksToolbarUITests: XCTestCase {
+    func testSearchAndFilterUseSeparateToolbarItems() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments += ["-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
+        app.launch()
+        let alert = app.alerts.firstMatch
+        if alert.waitForExistence(timeout: 2) { alert.buttons.firstMatch.tap() }
+        XCTAssertTrue(app.buttons["打开侧边栏"].waitForExistence(timeout: 10))
+        app.buttons["打开侧边栏"].tap()
+        app.buttons["定时任务"].tap()
+        XCTAssertTrue(app.navigationBars["定时任务"].waitForExistence(timeout: 5))
+
+        let search = app.buttons["scheduled-tasks-search"]
+        let filter = app.buttons["scheduled-tasks-filter"]
+        XCTAssertTrue(search.waitForExistence(timeout: 5))
+        XCTAssertTrue(search.isHittable)
+        XCTAssertTrue(filter.isHittable)
+        XCTAssertFalse(search.frame.intersects(filter.frame), "搜索和筛选不能互相重叠")
+        let window = app.windows.firstMatch.frame
+        for button in [search, filter] {
+            XCTAssertGreaterThanOrEqual(button.frame.minX, window.minX)
+            XCTAssertLessThanOrEqual(button.frame.maxX, window.maxX)
+        }
+        if #available(iOS 27.1, *), UIDevice.current.name.contains("Duo"), window.width > window.height {
+            XCTAssertEqual(search.frame.midX, filter.frame.midX, accuracy: 3)
+            XCTAssertGreaterThan(abs(search.frame.midY - filter.frame.midY), 35)
+        }
+
+        filter.tap()
+        XCTAssertTrue(app.buttons["全部"].waitForExistence(timeout: 5))
+        app.buttons["全部"].tap()
+        search.tap()
+        let field = app.textFields["搜索定时任务"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        XCTAssertGreaterThan(field.frame.width, 80, "输入框需要保留横向输入空间")
+        XCTAssertGreaterThanOrEqual(field.frame.minX, window.minX)
+        XCTAssertLessThanOrEqual(field.frame.maxX, window.maxX)
+        app.buttons["关闭搜索"].tap()
+        XCTAssertTrue(search.waitForExistence(timeout: 5))
+        XCTAssertTrue(filter.isHittable)
+    }
+}
+
+final class WorkspaceSafeAreaUITests: XCTestCase {
+    func testHomeControlsAdaptToAvailableWindowAndRemainUsable() throws {
+        continueAfterFailure = false
+        // 姿态由 Device Hub 驱动，本用例检查当前真实窗口。
+        let isDuo = UIDevice.current.name.contains("Duo")
+        let app = XCUIApplication()
+        app.launchArguments += ["-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
+        app.launch()
+        let alert = app.alerts.firstMatch
+        if alert.waitForExistence(timeout: 2) { alert.buttons.firstMatch.tap() }
+        XCTAssertTrue(app.buttons["设置"].waitForExistence(timeout: 10))
+
+        // Duo 的根应用范围与实际窗口坐标不同，控件边界以窗口为准。
+        let window = app.windows.firstMatch.frame
+        let settings = app.buttons["设置"]
+        let authentication = app.buttons.matching(
+            NSPredicate(format: "label BEGINSWITH %@", "设备认证")
+        ).firstMatch
+        let workspace = app.buttons["选择工作区"]
+        let search = app.textFields.firstMatch
+        XCTAssertTrue(settings.waitForExistence(timeout: 5))
+        XCTAssertTrue(authentication.isHittable)
+        XCTAssertTrue(workspace.isHittable)
+        XCTAssertTrue(search.exists)
+        XCTAssertEqual(
+            app.buttons.matching(NSPredicate(format: "label == %@", "设置")).count,
+            1, "入口不能同时出现在页头和系统栏"
+        )
+        for element in [settings, authentication, workspace, search] {
+            XCTAssertGreaterThanOrEqual(element.frame.minX, window.minX)
+            XCTAssertLessThanOrEqual(element.frame.maxX, window.maxX)
+        }
+        if #available(iOS 27.1, *), isDuo, window.width > window.height {
+            XCTAssertEqual(settings.frame.midX, authentication.frame.midX, accuracy: 3)
+            XCTAssertGreaterThan(abs(settings.frame.midY - authentication.frame.midY), 35)
+            XCTAssertTrue(
+                settings.frame.minX >= max(workspace.frame.maxX, search.frame.maxX) ||
+                settings.frame.maxX <= min(workspace.frame.minX, search.frame.minX),
+                "竖向系统栏必须与正文分开，左右侧分别适配"
+            )
+        }
+        if !isDuo {
+            let image = XCTAttachment(screenshot: app.screenshot())
+            image.name = "首页安全区 \(UIDevice.current.name) \(window.size)"
+            image.lifetime = .keepAlways
+            add(image)
+        }
+
+        let settingsX = settings.frame.minX
+        app.buttons["打开侧边栏"].tap()
+        let close = app.buttons["关闭侧边栏"]
+        XCTAssertTrue(close.waitForExistence(timeout: 5))
+        close.tap()
+        XCTAssertTrue(NSPredicate { _, _ in
+            abs(settings.frame.minX - settingsX) <= 1
+        }.evaluateAfterWaiting(timeout: 5), "等待抽屉回位后再点击认证入口")
+        authentication.tap()
+        XCTAssertTrue(app.buttons["手动输入配对信息"].waitForExistence(timeout: 5))
+        app.buttons["手动输入配对信息"].tap()
+        XCTAssertTrue(app.navigationBars["设备认证"].waitForExistence(timeout: 5))
+        app.buttons["完成"].tap()
+        settings.tap()
+        let settingsBar = app.navigationBars["设置"]
+        XCTAssertTrue(settingsBar.waitForExistence(timeout: 5))
+        // Duo 的返回按钮位于竖向系统栏，不一定是 NavigationBar 的子元素。
+        let back = settingsBar.buttons.firstMatch.exists
+            ? settingsBar.buttons.firstMatch
+            : app.buttons.matching(NSPredicate(
+                format: "identifier == %@ OR identifier == %@ OR label == %@ OR label == %@",
+                "BackButton", "Back", "返回", "Back"
+            )).firstMatch
+        XCTAssertTrue(back.waitForExistence(timeout: 5), app.debugDescription)
+        back.tap()
+        XCTAssertTrue(app.buttons["选择工作区"].waitForExistence(timeout: 5))
+    }
+}
+
 /// 在 iPad 上检查实际控件边界和旋转后的重排，避免退回手机兼容窗口。
 final class TabletAdaptiveLayoutUITests: XCTestCase {
+    func testConversationSidebarFloatsAndSwitchesSessionsWithoutResizing() throws {
+        continueAfterFailure = false
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        app.launchArguments += ["-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
+        app.launch()
+        defer { XCUIDevice.shared.orientation = .portrait }
+        let alert = app.alerts.firstMatch
+        if alert.waitForExistence(timeout: 2) { alert.buttons.firstMatch.tap() }
+        XCTAssertTrue(app.buttons["设置"].waitForExistence(timeout: 10))
+        try XCTSkipIf(app.frame.width < 700, "此用例需要宽屏窗口")
+
+        // 只读取已有会话，不创建、发送、删除会话或修改网关配对。
+        let homeSessions = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "workspace-session-"))
+        try XCTSkipUnless(homeSessions.firstMatch.waitForExistence(timeout: 10), "需要至少一个已有会话")
+        let initialSession = homeSessions.firstMatch
+        let initialID = String(initialSession.identifier.dropFirst("workspace-session-".count))
+        initialSession.tap()
+
+        let viewport = app.collectionViews["conversation-history-viewport"]
+        let toggle = app.buttons["conversation-sidebar-toggle"]
+        let sidebar = app.otherElements["conversation-sidebar"].firstMatch
+        XCTAssertTrue(viewport.waitForExistence(timeout: 10))
+        XCTAssertTrue(toggle.waitForExistence(timeout: 5))
+        XCTAssertFalse(sidebar.exists, "进入会话时侧栏不应自动出现")
+        let originalFrame = viewport.frame
+
+        toggle.tap()
+        XCTAssertTrue(sidebar.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["收起侧边栏"].exists)
+        XCTAssertEqual(viewport.frame.minX, originalFrame.minX, accuracy: 1)
+        XCTAssertEqual(viewport.frame.width, originalFrame.width, accuracy: 1, "侧栏不能挤压会话正文")
+        XCTAssertGreaterThan(app.buttons["设置"].frame.maxY - sidebar.frame.minY,
+                             originalFrame.height * 0.85, "侧栏应撑满可用显示高度")
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "会话内悬浮侧栏，正文宽度保持不变"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        XCTAssertTrue(NSPredicate { _, _ in !sidebar.exists }.evaluateAfterWaiting(timeout: 5), "点击外部应关闭侧栏")
+        XCTAssertEqual(viewport.frame.width, originalFrame.width, accuracy: 1)
+
+        // 点击当前会话也应关闭浮层，不重复进入导航栈。
+        toggle.tap()
+        let currentRow = app.buttons["conversation-sidebar-session-\(initialID)"].firstMatch
+        XCTAssertTrue(currentRow.waitForExistence(timeout: 5))
+        currentRow.tap()
+        XCTAssertTrue(NSPredicate { _, _ in !sidebar.exists }.evaluateAfterWaiting(timeout: 5))
+        XCTAssertTrue(viewport.exists)
+
+        toggle.tap()
+        let otherRow = app.buttons.matching(NSPredicate(
+            format: "identifier BEGINSWITH %@ AND identifier != %@",
+            "conversation-sidebar-session-", "conversation-sidebar-session-\(initialID)"
+        )).firstMatch
+        if otherRow.waitForExistence(timeout: 3) {
+            let otherID = otherRow.identifier
+            let otherTitle = otherRow.staticTexts.firstMatch.label
+            otherRow.tap()
+            XCTAssertTrue(NSPredicate { _, _ in !sidebar.exists }.evaluateAfterWaiting(timeout: 5))
+            XCTAssertTrue(viewport.waitForExistence(timeout: 5))
+            XCTAssertTrue(app.navigationBars[otherTitle].waitForExistence(timeout: 5), "应切换到所选会话")
+            XCTAssertEqual(viewport.frame.width, originalFrame.width, accuracy: 1)
+            toggle.tap()
+            XCTAssertTrue(app.buttons[otherID].firstMatch.waitForExistence(timeout: 5))
+            app.buttons["conversation-sidebar-session-\(initialID)"].firstMatch.tap()
+            XCTAssertTrue(NSPredicate { _, _ in !sidebar.exists }.evaluateAfterWaiting(timeout: 5))
+        } else {
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        }
+
+        toggle.tap()
+        XCTAssertTrue(sidebar.waitForExistence(timeout: 5))
+        XCUIDevice.shared.orientation = .landscapeLeft
+        XCTAssertTrue(NSPredicate { _, _ in app.frame.width > app.frame.height }.evaluateAfterWaiting(timeout: 5))
+        XCTAssertTrue(sidebar.waitForExistence(timeout: 5))
+        XCTAssertTrue(sidebar.isHittable)
+        XCTAssertTrue(app.buttons["设置"].isHittable, "旋转后浮层底部仍应可访问")
+        XCTAssertGreaterThan(app.buttons["设置"].frame.maxY - sidebar.frame.minY,
+                             viewport.frame.height * 0.85, "旋转后侧栏高度应跟随可用区域")
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(app.buttons["新建会话"].waitForExistence(timeout: 5))
+        XCTAssertFalse(toggle.exists, "首页不应持有会话侧栏入口")
+        XCTAssertFalse(sidebar.exists)
+    }
+
     func testTabletWorkspaceRotationAndSecondaryPages() throws {
         continueAfterFailure = false
         XCUIDevice.shared.orientation = .portrait

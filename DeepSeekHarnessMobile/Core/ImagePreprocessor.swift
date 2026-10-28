@@ -1,4 +1,6 @@
 import UIKit
+import ImageIO
+import UniformTypeIdentifiers
 
 struct GatewayPreparedImage: Sendable {
     let mediaType: String
@@ -18,29 +20,39 @@ enum GatewayImagePreprocessorError: LocalizedError {
     }
 }
 
-/// Converts an oversized picker result into an attachment accepted by DSH.
-/// Valid originals retain their bytes and media type (including animated GIF
-/// and WebP). Oversized inputs are flattened to JPEG while preserving their
-/// full aspect ratio; this avoids silently cropping content from screenshots.
+/// 根据实际文件格式决定是否保留原图；需要转换时按目标尺寸解码并输出 JPEG。
+/// 合规的 GIF、WebP 保留动画，缩放和方向校正保留完整宽高比。
 enum GatewayImagePreprocessor {
     static let maximumBytes = 3_670_016
     static let maximumPixelSide = 2_000
     static let maximumPixels = 40_000_000
 
-    static func prepare(data: Data, mediaType: String) throws -> GatewayPreparedImage {
-        guard let originalDimensions = GatewayImageInspector.dimensions(of: data) else {
+    static func prepare(data: Data) throws -> GatewayPreparedImage {
+        let sourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
+        guard let source = CGImageSourceCreateWithData(data as CFData, sourceOptions),
+              let originalDimensions = GatewayImageInspector.dimensions(of: data) else {
             throw GatewayImagePreprocessorError.cannotDecode
         }
+        let mediaType = CGImageSourceGetType(source).flatMap { UTType($0 as String)?.preferredMIMEType }
         let orientation = GatewayImageInspector.orientation(of: data)
-        if ["image/png", "image/jpeg", "image/webp", "image/gif"].contains(mediaType),
+        if let mediaType, ["image/png", "image/jpeg", "image/webp", "image/gif"].contains(mediaType),
            accepts(data: data, dimensions: originalDimensions), orientation == 1 {
             return GatewayPreparedImage(mediaType: mediaType, data: data, dimensions: originalDimensions)
         }
-        guard let sourceImage = UIImage(data: data) else {
-            throw GatewayImagePreprocessorError.cannotDecode
-        }
 
         var targetSize = fittedSize(for: originalDimensions)
+        // 先按目标大小解码，同时应用 EXIF 旋转和镜像，避免展开超大原图。
+        let thumbnailOptions: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: Int(max(targetSize.width, targetSize.height)),
+            kCGImageSourceShouldCacheImmediately: true
+        ]
+        guard let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, thumbnailOptions as CFDictionary) else {
+            throw GatewayImagePreprocessorError.cannotDecode
+        }
+        let sourceImage = UIImage(cgImage: thumbnail)
+
         while targetSize.width >= 1, targetSize.height >= 1 {
             let rendered = renderJPEGSource(sourceImage, size: targetSize)
             for quality in stride(from: 0.9, through: 0.3, by: -0.1) {

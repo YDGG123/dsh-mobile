@@ -123,11 +123,18 @@ extension View {
 
     /// Button 与 Menu 共用原生圆形液态玻璃交互，旧系统沿用材质样式。
     @ViewBuilder
-    func glassCircleButton() -> some View {
+    func glassCircleButton(onDarkBackground: Bool = false) -> some View {
         if #available(iOS 26.0, *) {
-            self
-                .buttonStyle(.glass)
-                .buttonBorderShape(.circle)
+            if onDarkBackground {
+                // 深色动态背景使用透明玻璃，避免默认材质适配时出现浅色实心填充。
+                self
+                    .buttonStyle(.glass(.clear.tint(DSHColor.navy.opacity(0.22))))
+                    .buttonBorderShape(.circle)
+            } else {
+                self
+                    .buttonStyle(.glass)
+                    .buttonBorderShape(.circle)
+            }
         } else {
             self
                 .buttonStyle(.plain)

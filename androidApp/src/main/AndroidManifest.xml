@@ -36,6 +36,12 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <!-- 方向请求仅属于表格预览，聊天 Activity 不持有临时横屏状态。 -->
+        <activity
+            android:name=".ui.DshMarkdownTablePreviewActivity"
+            android:exported="false"
+            android:resizeableActivity="true"
+            android:theme="@style/Theme.DeepSeekHarness" />
         <service
             android:name=".GatewayConnectionService"
             android:exported="false"

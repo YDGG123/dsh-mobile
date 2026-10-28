@@ -5,6 +5,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import com.clarklevis.dsh.android.localization.appText
 import com.clarklevis.dsh.shared.facade.TeamMemberView
 import com.clarklevis.dsh.shared.facade.TeamTaskView
 import org.junit.Assert.assertEquals
@@ -27,17 +28,17 @@ class TeamTaskCardDeviceTest {
         compose.setContent {
             DshTheme { TeamTaskCard(task, owner, emptyList()) { selected += it.id } }
         }
-        compose.onNodeWithText("版本：3").assertDoesNotExist()
+        compose.onNodeWithText(appText("版本：%1\$s", 3)).assertDoesNotExist()
         compose.onNodeWithTag("team-task-toggle-task-1").performClick()
-        compose.onNodeWithText("版本：3").assertIsDisplayed()
+        compose.onNodeWithText(appText("版本：%1\$s", 3)).assertIsDisplayed()
         compose.runOnIdle { assertEquals(emptyList<String>(), selected) }
         compose.onNodeWithText("素材分析", useUnmergedTree = true).performClick()
-        compose.onNodeWithText("版本：3").assertDoesNotExist()
+        compose.onNodeWithText(appText("版本：%1\$s", 3)).assertDoesNotExist()
         compose.runOnIdle { assertEquals(emptyList<String>(), selected) }
         compose.onNodeWithText("素材分析", useUnmergedTree = true).performClick()
-        compose.onNodeWithText("版本：3").assertIsDisplayed()
+        compose.onNodeWithText(appText("版本：%1\$s", 3)).assertIsDisplayed()
         compose.onNodeWithTag("team-task-toggle-task-1").performClick()
-        compose.onNodeWithText("版本：3").assertDoesNotExist()
+        compose.onNodeWithText(appText("版本：%1\$s", 3)).assertDoesNotExist()
         compose.runOnIdle { assertEquals(emptyList<String>(), selected) }
     }
 
@@ -48,11 +49,11 @@ class TeamTaskCardDeviceTest {
             DshTheme { TeamTaskCard(task, owner, emptyList()) { selections++ } }
         }
         compose.onNodeWithTag("team-task-owner-task-1").performClick()
-        compose.onNodeWithText("版本：3").assertDoesNotExist()
+        compose.onNodeWithText(appText("版本：%1\$s", 3)).assertDoesNotExist()
         compose.runOnIdle { assertEquals(1, selections) }
         compose.onNodeWithTag("team-task-toggle-task-1").performClick()
         compose.onNodeWithTag("team-task-owner-task-1").performClick()
-        compose.onNodeWithText("版本：3").assertIsDisplayed()
+        compose.onNodeWithText(appText("版本：%1\$s", 3)).assertIsDisplayed()
         compose.runOnIdle { assertEquals(2, selections) }
     }
 
@@ -63,9 +64,9 @@ class TeamTaskCardDeviceTest {
             DshTheme { TeamTaskCard(task.copy(ownerName = null), null, emptyList()) { selections++ } }
         }
         compose.onNodeWithTag("team-task-toggle-task-1").performClick()
-        compose.onNodeWithText("版本：3").assertIsDisplayed()
+        compose.onNodeWithText(appText("版本：%1\$s", 3)).assertIsDisplayed()
         compose.onNodeWithText("素材分析", useUnmergedTree = true).performClick()
-        compose.onNodeWithText("版本：3").assertDoesNotExist()
+        compose.onNodeWithText(appText("版本：%1\$s", 3)).assertDoesNotExist()
         compose.runOnIdle { assertEquals(0, selections) }
     }
 }

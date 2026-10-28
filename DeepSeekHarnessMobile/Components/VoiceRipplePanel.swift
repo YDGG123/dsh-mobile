@@ -51,9 +51,16 @@ struct VoiceRipplePanel: View {
                     .animation(reduceMotion ? nil : .easeOut(duration: state.waveformActive ? 0.16 : 0.32), value: state.visualActivity)
                 }
                 .accessibilityHidden(true)
-                Text(LocalizedStringKey(state.status))
-                    .appFont(.system(size: 17, weight: .medium)).foregroundStyle(ink.opacity(0.9))
-                    .position(x: geometry.size.width / 2, y: contentHeight * 0.4)
+                VStack(spacing: 8) {
+                    Text(LocalizedStringKey(state.status))
+                        .appFont(.system(size: 17, weight: .medium))
+                    if state.phase == "recording" {
+                        Text(state.recordingTimeLabel)
+                            .appFont(.system(size: 15, weight: .medium)).monospacedDigit()
+                    }
+                }
+                .foregroundStyle(state.recordingLimitApproaching ? Color.red : ink.opacity(0.9))
+                .position(x: geometry.size.width / 2, y: contentHeight * 0.4)
 
             }
             .mask(VoiceEllipticalMask())

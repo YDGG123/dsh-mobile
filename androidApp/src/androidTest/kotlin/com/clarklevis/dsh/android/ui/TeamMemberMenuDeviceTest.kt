@@ -10,8 +10,11 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.unit.sp
+import com.clarklevis.dsh.android.localization.appText
 import com.clarklevis.dsh.shared.facade.TeamMemberView
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 
@@ -47,10 +50,10 @@ class TeamMemberMenuDeviceTest {
                 .fetchSemanticsNode()
                 .boundsInRoot.height
         assertEquals(leadHeight, scoutHeight)
-        // 固定高度不能以裁掉第三行来实现；描述与模型必须都保留完整行高。
+        // 英文与中文回退字体的实际字面高度不同；两行都应完整显示且不超出成员行。
         val metadataHeight =
             compose
-                .onNodeWithText("deepseek-flash · 状态同步中", useUnmergedTree = true)
+                .onNodeWithText("deepseek-flash · ${appText("状态同步中")}", useUnmergedTree = true)
                 .fetchSemanticsNode()
                 .boundsInRoot.height
         val detailHeight =
@@ -58,12 +61,19 @@ class TeamMemberMenuDeviceTest {
                 .onNodeWithText("很长的任务描述，仍然只能占用固定的一行内容", useUnmergedTree = true)
                 .fetchSemanticsNode()
                 .boundsInRoot.height
-        assertEquals(metadataHeight, detailHeight)
+        val minimumLineHeight = with(compose.density) { 16.sp.toPx() }
+        assertTrue(metadataHeight >= minimumLineHeight)
+        assertTrue(detailHeight >= minimumLineHeight)
+        val detailBounds = compose
+            .onNodeWithText("很长的任务描述，仍然只能占用固定的一行内容", useUnmergedTree = true)
+            .fetchSemanticsNode().boundsInRoot
+        val memberBounds = compose.onNodeWithTag("team-member-scout").fetchSemanticsNode().boundsInRoot
+        assertTrue(detailBounds.bottom <= memberBounds.bottom)
         compose.onNodeWithTag("team-member-scout").performClick()
         compose.onNodeWithTag("team-member-scout").assertIsSelected()
         compose.onNodeWithTag("team-member-selected-scout", useUnmergedTree = true).assertIsDisplayed()
         compose.onNodeWithTag("team-member-selected-lead", useUnmergedTree = true).assertDoesNotExist()
-        compose.onNodeWithText("当前会话", useUnmergedTree = true).assertIsDisplayed()
+        compose.onNodeWithText(appText("当前会话"), useUnmergedTree = true).assertIsDisplayed()
     }
 
     @Test
@@ -72,8 +82,8 @@ class TeamMemberMenuDeviceTest {
             var selected by mutableIntStateOf(0)
             DshTheme { TeamTaskFilter(selected) { selected = it } }
         }
-        compose.onNodeWithText("全部").assertIsSelected()
-        compose.onNodeWithText("当前成员").performClick().assertIsSelected()
-        compose.onNodeWithText("未分配").performClick().assertIsSelected()
+        compose.onNodeWithText(appText("全部")).assertIsSelected()
+        compose.onNodeWithText(appText("当前成员")).performClick().assertIsSelected()
+        compose.onNodeWithText(appText("未分配")).performClick().assertIsSelected()
     }
 }

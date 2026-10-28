@@ -58,9 +58,22 @@ cat > "$DEPS/MarkdownUI.swift" <<'STUB'
 import SwiftUI
 import UIKit
 
+/// 上游 Vendor（MarkdownTableCard）：表格列的水平对齐。
+@frozen public enum TextTableColumnAlignment {
+    case leading, center, trailing
+}
+
 public struct MarkdownContent {
     public init(_ text: String) {}
     public func linkingInlineCode(_ destinations: [String: String]) -> MarkdownContent { self }
+    /// 上游 Vendor（MarkdownTableCard）：表格单元格、纯文本行、列对齐。
+    /// MarkdownTableCard 只读这三个访问器，桩按真实签名补即可，不需要实现。
+    public var tableCells: [[MarkdownContent]]? { nil }
+    public var tablePlainTextRows: [[String]] { [] }
+    public var tableColumnAlignments: [TextTableColumnAlignment] { [] }
+    /// 上游 Vendor（ConversationView）：判断是否含表格 / 复制选择区段的 HTML。
+    public var containsTable: Bool { false }
+    public func renderSelectionHTML() -> String { "" }
     /// 上游 Vendor 新增：复制消息用纯文本 / 可选中富文本（全屏选择页）。
     public func renderPlainText() -> String { "" }
     /// 文件引用链接（`dsh-file-reference:///`）的 HTML 输出，测试用它断言顺序/去重。
@@ -103,6 +116,19 @@ public struct Theme {
     public func listItem(_ content: @escaping (ListItemConfiguration) -> some View) -> Theme { self }
     public func codeBlock(_ content: @escaping (CodeBlockConfiguration) -> some View) -> Theme { self }
     public func thematicBreak(@ViewBuilder _ content: () -> some View) -> Theme { self }
+    /// 上游 Vendor：表格样式（MarkdownTableCard 走这条）。
+    public func table(@ViewBuilder _ content: @escaping (BlockConfiguration) -> some View) -> Theme { self }
+    public func tableCell(@ViewBuilder _ content: @escaping (TableCellConfiguration) -> some View) -> Theme { self }
+}
+
+public struct BlockConfiguration {
+    /// 表格块的 MarkdownContent（MarkdownTableCard 用它取 cells / alignments）。
+    public var content: MarkdownContent { MarkdownContent("") }
+    public var label: AnyView { AnyView(EmptyView()) }
+}
+
+public struct TableCellConfiguration {
+    public var label: AnyView { AnyView(EmptyView()) }
 }
 
 public struct ParagraphConfiguration { public var label: AnyView { AnyView(EmptyView()) } }
@@ -397,6 +423,17 @@ WIDGET_DEBUG_ERRORS=${WIDGET_DEBUG_ERRORS:-0}
 # Widget 走 pbxproj 变量。只改一侧会出"主 App 停在旧 build 号"的包，云端照常构建成功。
 if ! python3 "$(dirname "${BASH_SOURCE[0]}")/verify-version-consistency.py"; then
   echo "   版本号必须同时改：Resources/Info.plist 的 CFBundleVersion + pbxproj 两处 CURRENT_PROJECT_VERSION"
+  exit 1
+fi
+
+# ---- Bundle ID 前缀闸门（2026-10-28 教训：47 包归档被 ValidateEmbeddedBinary 拒绝）----
+# 合并上游把 Widget target 的 Release 配置从硬编码改成了 "$(LOCAL_BUNDLE_IDENTIFIER).AgentLiveActivityWidget"，
+# 而 config/Debug.xcconfig 里该变量 = com.example.dshmobile（上游占位值）→ 嵌入二进制 ID 不再以主 App
+# com.ydgg123.orcarness 为前缀 → 真正 archive 时才炸。上面三闸门（typecheck/收录/版本）全绿也照样漏。
+# 判据必须用 xcodebuild 展开值：pbxproj 里看着有值，展开后才知道是不是占位符。
+if ! python3 "$(dirname "${BASH_SOURCE[0]}")/verify-bundle-prefix.py"; then
+  echo "   Widget 的 PRODUCT_BUNDLE_IDENTIFIER 必须硬编码 com.ydgg123.orcarness.AgentLiveActivityWidget（Release），"
+  echo "   不要用 \$(LOCAL_BUNDLE_IDENTIFIER) 占位——那会展开成上游的 com.example.dshmobile。"
   exit 1
 fi
 

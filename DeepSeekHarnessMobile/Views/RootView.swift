@@ -16,13 +16,7 @@ struct RootView: View {
             .alert("Orcarness", isPresented: Binding(get: { store.lastError != nil }, set: { if !$0 { store.lastError = nil } })) {
                 Button(String(localized: "好"), role: .cancel) { store.lastError = nil }
             } message: { Text(store.lastError ?? "") }
-            .onChange(of: scenePhase) { phase in
-                if phase == .active {
-                    hosts.bridgeTeam.ensureStarted()
-                    hosts.bridgeTeam.startPolling()
-                } else {
-                    hosts.bridgeTeam.stopPolling()
-                }
+            .onChangeCompat(of: scenePhase) { _, phase in
                 store.handleScenePhase(phase)
             }
             .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
@@ -45,6 +39,9 @@ private struct RootNavigationHost: View, Equatable {
     @EnvironmentObject private var hosts: MultiGatewayStore
     @State private var navigationPath: [AppRoute] = []
     @State private var newConversationTask: Task<Void, Never>?
+    /// 侧栏切换 / 新建会话的当前操作编号：被取消的旧任务收尾时，
+    /// 只有编号仍是自己的才清空 newConversationTask，避免误清掉新任务的句柄。
+    @State private var conversationOperationID = UUID()
     @State private var pendingLiveActivitySessionID: String?
 
     static func == (lhs: Self, rhs: Self) -> Bool {
@@ -65,8 +62,10 @@ private struct RootNavigationHost: View, Equatable {
                 },
                 onNewSession: {
                     guard newConversationTask == nil else { return }
+                    let operationID = UUID()
+                    conversationOperationID = operationID
                     newConversationTask = Task { @MainActor in
-                        defer { newConversationTask = nil }
+                        defer { if conversationOperationID == operationID { newConversationTask = nil } }
                         guard await store.prepareNewConversation(),
                               !Task.isCancelled else { return }
                         let header = ConversationNavigationHeader(
@@ -99,7 +98,7 @@ private struct RootNavigationHost: View, Equatable {
                 await store.connectOnColdLaunchIfPaired()
             }
         }
-        .onChange(of: navigationPath) { path in
+        .onChangeCompat(of: navigationPath) { _, path in
             if path.isEmpty { store.resumeWorkspace() }
         }
         .onOpenURL(perform: openLiveActivityURL)
@@ -129,6 +128,7 @@ private struct RootNavigationHost: View, Equatable {
                 header: header,
                 gateway: store.gateway,
                 store: store,
+                sidebarActions: sidebarActions,
                 onActivate: {
                     await store.activatePreparedConversation(sessionID: header.sessionID)
                 }
@@ -150,8 +150,10 @@ private struct RootNavigationHost: View, Equatable {
                 )
                 newConversationTask?.cancel()
                 let header = conversationHeader(for: session)
+                let operationID = UUID()
+                conversationOperationID = operationID
                 newConversationTask = Task { @MainActor in
-                    defer { newConversationTask = nil }
+                    defer { if conversationOperationID == operationID { newConversationTask = nil } }
                     guard await store.prepareConversation(for: session), !Task.isCancelled else { return }
                     navigationPath = [.conversation(header)]
                 }
@@ -196,12 +198,41 @@ private struct RootNavigationHost: View, Equatable {
         openLiveActivitySession(session)
     }
 
+    /// 会话页悬浮侧栏的导航动作；展示状态由会话页自己持有。
+    private var sidebarActions: ConversationSidebarActions {
+        ConversationSidebarActions(
+            openSession: { session in
+                // 已经停在这个会话页就不重复切换。
+                // 有切换还没完成时不能忽略（例如在 A 点了 B 又点回 A），交给 switchToSession 取消并重来。
+                if newConversationTask == nil,
+                   case .conversation(let header)? = navigationPath.last,
+                   header.sessionID == session.id {
+                    return
+                }
+                switchToSession(session)
+            },
+            openPlugins: { navigate(to: .plugins) },
+            openScheduledTasks: { navigate(to: .scheduledTasks) },
+            openSettings: {
+                newConversationTask?.cancel()
+                navigate(to: .settings)
+            }
+        )
+    }
+
     private func openLiveActivitySession(_ session: SessionSummary) {
         pendingLiveActivitySessionID = nil
+        switchToSession(session)
+    }
+
+    /// 在当前导航栈上直接换成另一个会话（Live Activity 深链接与侧栏点会话共用）。
+    private func switchToSession(_ session: SessionSummary) {
         newConversationTask?.cancel()
         let header = conversationHeader(for: session)
+        let operationID = UUID()
+        conversationOperationID = operationID
         newConversationTask = Task { @MainActor in
-            defer { newConversationTask = nil }
+            defer { if conversationOperationID == operationID { newConversationTask = nil } }
             guard await store.prepareConversation(for: session), !Task.isCancelled else { return }
             // Replace the route in one published mutation. Clearing the stack first
             // briefly made `onChange` call `resumeWorkspace()`, which sent an
@@ -307,7 +338,7 @@ private struct ScheduledTasksView: View {
                     .listRowSeparator(.hidden)
                     .listRowBackground(Color.clear)
             } else if let error = store.scheduledTasksError, store.scheduledTasks.isEmpty {
-                ContentUnavailableView {
+                DshEmptyState {
                     Label("无法显示定时任务", systemImage: "wifi.exclamationmark")
                 } description: {
                     Text(error)
@@ -318,12 +349,12 @@ private struct ScheduledTasksView: View {
                 .listRowSeparator(.hidden)
                 .listRowBackground(Color.clear)
             } else if store.scheduledTasks.isEmpty {
-                ContentUnavailableView("暂无定时任务", systemImage: "clock", description: Text("在会话中创建的定时任务会显示在这里"))
+                DshEmptyState("暂无定时任务", systemImage: "clock", description: Text("在会话中创建的定时任务会显示在这里"))
                     .padding(.top, 40)
                     .listRowSeparator(.hidden)
                     .listRowBackground(Color.clear)
             } else if visibleTasks.isEmpty {
-                ContentUnavailableView(
+                DshEmptyState(
                     "没有符合条件的定时任务",
                     systemImage: "line.3.horizontal.decrease.circle",
                     description: Text(searchQuery.isEmpty
@@ -366,16 +397,32 @@ private struct ScheduledTasksView: View {
         .listStyle(.plain)
         .adaptiveListWidth()
         .scrollContentBackground(.hidden)
+        .background(Color(uiColor: .systemBackground))
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if isSearching {
+                searchField
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 8)
+                    .readableContentWidth()
+                    .background(Color(uiColor: .systemBackground))
+            }
+        }
+        .navigationTitle(isSearching ? "" : String(localized: "定时任务"))
         .scrollBounceBehaviorCompat(.always)
         .refreshable { store.refreshScheduledTasks() }
         .background(Color(uiColor: .systemBackground))
-        .navigationTitle(isSearching ? "" : String(localized: "定时任务"))
         // B4：容器级推入页同样整屏盖住背景，推入期间暂停动画（与设置子页同一策略）。
         .pausesBackgroundAnimation()
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                searchAndFilterControl
+            if !isSearching {
+                // 独立工具栏项由系统按横向或竖向排列，不能共用固定宽度的 HStack。
+                ToolbarItem(placement: .topBarTrailing) {
+                    searchButton
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    statusFilterMenu
+                }
             }
         }
         .task {
@@ -389,7 +436,7 @@ private struct ScheduledTasksView: View {
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
         }
-        .onChange(of: store.scheduledTaskMutationError) { error in
+        .onChangeCompat(of: store.scheduledTaskMutationError) { _, error in
             if let error, editingTask == nil { activeAlert = .error(error) }
         }
         .alert(item: $activeAlert) { alert in
@@ -409,72 +456,71 @@ private struct ScheduledTasksView: View {
         }
     }
 
-    private var searchAndFilterControl: some View {
+    private var searchField: some View {
         HStack(spacing: 0) {
-            if isSearching {
-                Image(systemName: "magnifyingglass")
-                    .appFont(.system(size: 17, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .padding(.leading, 14)
-                TextField("搜索定时任务", text: $searchQuery)
-                    .appFont(.system(size: 15))
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .submitLabel(.search)
-                    .focused($searchIsFocused)
-                    .padding(.leading, 8)
-                    .accessibilityLabel("搜索定时任务")
-                    .onAppear { searchIsFocused = true }
-                Button {
-                    searchIsFocused = false
-                    withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
-                        searchQuery = ""
-                        isSearching = false
-                    }
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .appFont(.system(size: 18))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 40, height: 46)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("关闭搜索")
-            } else {
-                Button {
-                    withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
-                        isSearching = true
-                    }
-                } label: {
-                    Image(systemName: "magnifyingglass")
-                        .appFont(.system(size: 18, weight: .medium))
-                        .frame(width: 46, height: 46)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
+            Image(systemName: "magnifyingglass")
+                .appFont(.system(size: 17, weight: .medium))
+                .foregroundStyle(.secondary)
+                .padding(.leading, 14)
+            TextField("搜索定时任务", text: $searchQuery)
+                .appFont(.system(size: 15))
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .submitLabel(.search)
+                .focused($searchIsFocused)
+                .padding(.leading, 8)
                 .accessibilityLabel("搜索定时任务")
-                Menu {
-                    ForEach(ScheduledTaskStatusFilter.allCases, id: \.self) { option in
-                        Button {
-                            statusFilter = option
-                        } label: {
-                            if statusFilter == option {
-                                Label(option.title, systemImage: "checkmark")
-                            } else {
-                                Text(option.title)
-                            }
-                        }
-                    }
-                } label: {
-                    Image(systemName: "line.3.horizontal.decrease")
-                        .appFont(.system(size: 18, weight: .medium))
-                        .frame(width: 46, height: 46)
-                        .contentShape(Rectangle())
+                .onAppear { searchIsFocused = true }
+            Button {
+                searchIsFocused = false
+                withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+                    searchQuery = ""
+                    isSearching = false
                 }
-                .accessibilityLabel("筛选定时任务，当前\(statusFilter.title)")
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .appFont(.system(size: 18))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 40, height: 46)
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel("关闭搜索")
         }
-        .frame(width: isSearching ? 238 : 92, height: 46)
-        .animation(.spring(response: 0.32, dampingFraction: 0.86), value: isSearching)
+        .frame(maxWidth: .infinity, minHeight: 46, maxHeight: 46)
+        .background(Color(uiColor: .secondarySystemBackground), in: Capsule())
+    }
+
+    private var searchButton: some View {
+        Button {
+            withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+                isSearching = true
+            }
+        } label: {
+            Label("搜索定时任务", systemImage: "magnifyingglass")
+                .labelStyle(.iconOnly)
+        }
+        .accessibilityIdentifier("scheduled-tasks-search")
+    }
+
+    private var statusFilterMenu: some View {
+        Menu {
+            ForEach(ScheduledTaskStatusFilter.allCases, id: \.self) { option in
+                Button {
+                    statusFilter = option
+                } label: {
+                    if statusFilter == option {
+                        Label(option.title, systemImage: "checkmark")
+                    } else {
+                        Text(option.title)
+                    }
+                }
+            }
+        } label: {
+            Label("筛选定时任务", systemImage: "line.3.horizontal.decrease")
+                .labelStyle(.iconOnly)
+        }
+        .accessibilityLabel("筛选定时任务，当前\(statusFilter.title)")
+        .accessibilityIdentifier("scheduled-tasks-filter")
     }
 }
 
@@ -544,9 +590,7 @@ struct ScheduledTaskCard: View {
                         .appFont(.system(size: 14, weight: .semibold))
                         .foregroundStyle(.secondary)
                         .rotationEffect(.degrees(expanded ? 180 : 0))
-                        // animation(_:body:) 自 iOS 17 起可用；更早系统只做状态切换，
-                        // 图标角度仍会正确翻转，仅缺少过渡动画。
-                        .animationCompat(reduceMotion ? nil : .easeInOut(duration: 0.26))
+                        .animation(reduceMotion ? nil : .easeInOut(duration: 0.26), value: expanded)
                         .frame(width: 36, height: 34)
                 }
                 .frame(maxWidth: .infinity)
@@ -745,10 +789,10 @@ private struct ScheduledTaskEditSheet: View {
         }
         .background(Color(uiColor: .systemBackground))
         .interactiveDismissDisabled(pendingRequestID != nil)
-        .onChange(of: store.scheduledTaskCompletedRequestID) { completedID in
+        .onChangeCompat(of: store.scheduledTaskCompletedRequestID) { _, completedID in
             if completedID != nil && completedID == pendingRequestID { dismiss() }
         }
-        .onChange(of: store.scheduledTaskPendingID) { pendingID in
+        .onChangeCompat(of: store.scheduledTaskPendingID) { _, pendingID in
             if pendingRequestID != nil && pendingID == nil {
                 if store.scheduledTaskCompletedRequestID == pendingRequestID {
                     dismiss()
@@ -868,18 +912,58 @@ private struct ConversationNavigationShell<Content: View>: View {
     let header: ConversationNavigationHeader
     let gateway: GatewayClient
     let store: AppStore
+    let sidebarActions: ConversationSidebarActions
     let onActivate: () async -> Void
     @ViewBuilder let content: () -> Content
     @State private var workspaceFilesPresentation: WorkspaceFilesPresentation?
     @State private var liveTitle: String?
     @State private var livePresetTitle: String?
     @State private var showsTeamEntry = false
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+    @State private var showsSidebar = false
+    @State private var sidebarAvailableHeight: CGFloat = 0
+
+    /// 沿用宽屏导航栏入口；侧栏仅作为当前会话的悬浮面板展示。
+    private var showsSidebarToggle: Bool {
+        horizontalSizeClass == .regular && verticalSizeClass == .regular
+    }
 
     var body: some View {
         content()
             // B4：会话页是最重的一页（ChatLayout），推入/转场期间先停背景动画。
             .pausesBackgroundAnimation()
             .navigationTitle(liveTitle ?? header.title)
+            .toolbar {
+                if showsSidebarToggle {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button {
+                            showsSidebar.toggle()
+                        } label: {
+                            Image(systemName: "sidebar.left")
+                        }
+                        .accessibilityLabel("展开侧边栏")
+                        .accessibilityIdentifier("conversation-sidebar-toggle")
+                        .popover(isPresented: $showsSidebar, arrowEdge: .top) {
+                            ConversationSidebar(
+                                store: store,
+                                actions: dismissingSidebarActions
+                            )
+                            // 使用会话页的可用高度，旋转和分屏时随容器调整；不改变正文布局。
+                            .frame(idealHeight: sidebarAvailableHeight, maxHeight: sidebarAvailableHeight)
+                        }
+                    }
+                }
+            }
+            .onChangeCompat(of: showsSidebarToggle) { _, available in
+                if !available { showsSidebar = false }
+            }
+            .onChangeCompat(of: header.sessionID) { _, _ in
+                showsSidebar = false
+                liveTitle = nil
+                livePresetTitle = nil
+            }
+            .onDisappear { showsSidebar = false }
             .onReceive(store.$sessions) { sessions in
                 let sessionID = header.sessionID ?? store.selectedSessionId
                 liveTitle = sessions.first { $0.id == sessionID }?.title
@@ -943,6 +1027,28 @@ private struct ConversationNavigationShell<Content: View>: View {
             }
     }
 
+    /// 先关闭悬浮面板，再复用现有会话切换或导航操作；不改变正文宽度。
+    private var dismissingSidebarActions: ConversationSidebarActions {
+        ConversationSidebarActions(
+            openSession: { session in
+                showsSidebar = false
+                sidebarActions.openSession(session)
+            },
+            openPlugins: {
+                showsSidebar = false
+                sidebarActions.openPlugins()
+            },
+            openScheduledTasks: {
+                showsSidebar = false
+                sidebarActions.openScheduledTasks()
+            },
+            openSettings: {
+                showsSidebar = false
+                sidebarActions.openSettings()
+            }
+        )
+    }
+
     private var moreMenu: some View {
         Menu {
             Button(String(localized: "工作区文件"), systemImage: "folder") {
@@ -979,7 +1085,7 @@ private struct WorkspaceFilesSheet: View {
                     ProgressView("正在读取工作区文件…")
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if store.workspaceFileEntries.isEmpty {
-                    ContentUnavailableView(
+                    DshEmptyState(
                         "此目录为空",
                         systemImage: "folder",
                         description: Text(store.workspaceFilePath)
@@ -1040,10 +1146,10 @@ private struct WorkspaceFilesSheet: View {
             store.browseWorkspaceFiles(path: initialPath)
             refreshDownloadedPaths()
         }
-        .onChange(of: store.workspaceFileEntries) { _ in
+        .onChangeCompat(of: store.workspaceFileEntries) { _, _ in
             refreshDownloadedPaths()
         }
-        .onChange(of: scenePhase) { phase in
+        .onChangeCompat(of: scenePhase) { _, phase in
             if phase == .active { refreshDownloadedPaths() }
         }
         .onDisappear {
@@ -1406,7 +1512,7 @@ struct WorkspaceCodePreview: View {
             if let document {
                 WorkspaceCodeDocumentView(document: document)
             } else if let errorMessage {
-                ContentUnavailableView {
+                DshEmptyState {
                     Label("无法在应用内预览", systemImage: "doc.text.magnifyingglass")
                 } description: {
                     Text(errorMessage)

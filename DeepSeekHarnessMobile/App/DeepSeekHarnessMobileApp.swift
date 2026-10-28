@@ -2,6 +2,10 @@ import SwiftUI
 import OSLog
 
 private final class AgentNotificationAppDelegate: NSObject, UIApplicationDelegate {
+    func application(_ application: UIApplication, supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
+        DocumentRotationPolicy.orientations
+    }
+
     func applicationDidBecomeActive(_ application: UIApplication) {
         if #available(iOS 16.2, *) {
             AgentLiveActivityManager.shared.applicationDidBecomeActive()

@@ -35,7 +35,8 @@ class SharedOfflineCatalogCodec {
         val targets = wireJson.decodeFromString<List<ConversationTarget>>(targetsJson)
         require(validConversationTargets(targets))
         val catalog = decode(catalogJson)
-        val parents = targets.associate { it.sessionId to it.parentSessionId }
+        val parents = catalog.sessionList.sessions.filter { it.origin == "subagent" }
+            .associate { it.id to it.parentSessionId } + targets.associate { it.sessionId to it.parentSessionId }
         var selected = catalog.sessionList.selectedSessionId
         val visited = mutableSetOf<String>()
         while (selected != null && visited.add(selected)) {
@@ -69,7 +70,12 @@ class SharedOfflineCatalogCodec {
 
     internal fun decode(json: String): SharedOfflineCatalog {
         require(json.length <= MAXIMUM_BYTES && json.encodeToByteArray().size <= MAXIMUM_BYTES)
-        return wireJson.decodeFromString<SharedOfflineCatalog>(json).also(::validate)
+        val catalog = wireJson.decodeFromString<SharedOfflineCatalog>(json).also(::validate)
+        // 旧目录没有保存 origin；已确认的团队路由仍能识别子会话。
+        val parents = catalog.conversationTargets.associate { it.sessionId to it.parentSessionId }
+        return catalog.copy(sessionList = catalog.sessionList.copy(sessions = catalog.sessionList.sessions.map {
+            if (it.id in parents) it.copy(parentSessionId = parents[it.id], origin = "subagent") else it
+        }))
     }
 
     internal fun encode(catalog: SharedOfflineCatalog): String {
@@ -91,7 +97,9 @@ class SharedOfflineCatalogCodec {
                 validId(it.id) &&
                     it.title.length <= MAXIMUM_TEXT &&
                     it.lastActivityEpochSeconds.isFinite() &&
-                    (it.agentPreset == null || it.agentPreset.length <= MAXIMUM_TEXT)
+                    (it.agentPreset == null || it.agentPreset.length <= MAXIMUM_TEXT) &&
+                    (it.parentSessionId == null || validId(it.parentSessionId)) &&
+                    (it.origin == null || it.origin.length <= MAXIMUM_TEXT)
             }
         )
         require(list.archivedSessionIds.all(::validId))

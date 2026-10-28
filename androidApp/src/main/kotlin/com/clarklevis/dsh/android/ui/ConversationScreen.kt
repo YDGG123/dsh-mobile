@@ -203,7 +203,10 @@ internal fun ConversationScreen(
     stateHolder: AndroidSharedStateHolder,
     onPickImage: () -> Unit,
     onBack: () -> Unit,
-    onPickFile: () -> Unit = {}
+    onPickFile: () -> Unit = {},
+    onPlugins: () -> Unit = {},
+    onScheduledTasks: () -> Unit = {},
+    onSettings: () -> Unit = {}
 ) {
     val session = stateHolder.snapshot.sessions.firstOrNull { it.id == stateHolder.snapshot.selectedSessionId }
     val title = stateHolder.teamSnapshot.members.firstOrNull { it.id == stateHolder.snapshot.selectedSessionId && it.role != "lead" }?.name ?: session?.title ?: if (stateHolder.snapshot.selectedSessionId != null) appText("已缓存会话") else appText("新建 DeepSeek Harness")
@@ -215,6 +218,8 @@ internal fun ConversationScreen(
         ?.name
     val pagerState = rememberPagerState(pageCount = { 2 })
     val scope = rememberCoroutineScope()
+    val window = adaptiveWindowSize()
+    val showsSidebar = AdaptiveLayout.conversationSidebarAvailable(window.width.value, window.height.value)
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
     val dismissInput: () -> Unit = remember(focusManager, keyboardController) {
@@ -276,15 +281,32 @@ internal fun ConversationScreen(
                         )
                     },
                     navigationIcon = {
-                        TopBarCircleButton(
-                            iconRes = R.drawable.ic_back_chevron,
-                            description = appText("返回"),
-                            onClick = {
-                                dismissInput()
-                                onBack()
-                            },
-                            modifier = Modifier.padding(start = 8.dp, end = 14.dp)
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            TopBarCircleButton(
+                                iconRes = R.drawable.ic_back_chevron,
+                                description = appText("返回"),
+                                onClick = {
+                                    dismissInput()
+                                    onBack()
+                                },
+                                modifier = Modifier.padding(start = 8.dp, end = if (showsSidebar) 8.dp else 14.dp)
+                            )
+                            if (showsSidebar) {
+                                ConversationSidebarButton(
+                                    workspaces = stateHolder.snapshot.workspaces,
+                                    sessions = stateHolder.snapshot.sessions,
+                                    selectedSessionId = stateHolder.snapshot.selectedSessionId,
+                                    onOpen = dismissInput,
+                                    onSelectSession = { id ->
+                                        if (id != stateHolder.snapshot.selectedSessionId) stateHolder.selectSession(id)
+                                    },
+                                    onPlugins = onPlugins,
+                                    onScheduledTasks = onScheduledTasks,
+                                    onSettings = onSettings
+                                )
+                                Spacer(Modifier.width(14.dp))
+                            }
+                        }
                     },
                     actions = {
                         Row(
@@ -2664,7 +2686,7 @@ private fun ContextUsageRing(stateHolder: AndroidSharedStateHolder) {
                         fontWeight = FontWeight.SemiBold
                     )
                     Spacer(Modifier.weight(1f))
-                    Text("${contextTokenCount(pressure?.pressureTokens)} / ${contextTokenCount(contextWindow)}", fontSize = 12.sp)
+                    Text("${contextTokenCount(pressure?.pressureTokens?.toLong())} / ${contextTokenCount(contextWindow?.toLong())}", fontSize = 12.sp)
                 }
                 LinearProgressIndicator(
                     progress = { progress.coerceIn(0f, 1f) },
@@ -2674,9 +2696,9 @@ private fun ContextUsageRing(stateHolder: AndroidSharedStateHolder) {
                 val breakdown = snapshot?.breakdown
                 val usage = snapshot?.tokenUsage
                 if (breakdown != null) {
-                    ContextUsageRow(appText("系统提示词"), breakdown.systemTokens, Color.Gray)
-                    ContextUsageRow(appText("工具"), breakdown.toolsTokens, Color(0xFF8055CF))
-                    ContextUsageRow(appText("对话消息"), breakdown.messageTokens, DshColors.Ocean)
+                    ContextUsageRow(appText("系统提示词"), breakdown.systemTokens?.toLong(), Color.Gray)
+                    ContextUsageRow(appText("工具"), breakdown.toolsTokens?.toLong(), Color(0xFF8055CF))
+                    ContextUsageRow(appText("对话消息"), breakdown.messageTokens?.toLong(), DshColors.Ocean)
                 } else if (usage != null) {
                     ContextUsageRow(appText("未缓存输入"), usage.uncachedInputTokens, DshColors.Ocean)
                     ContextUsageRow(appText("缓存读取"), usage.cacheReadTokens, Color(0xFF8055CF))
@@ -2690,7 +2712,7 @@ private fun ContextUsageRing(stateHolder: AndroidSharedStateHolder) {
 }
 
 @Composable
-private fun ContextUsageRow(title: String, tokens: Int?, color: Color) {
+private fun ContextUsageRow(title: String, tokens: Long?, color: Color) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         Box(Modifier.size(11.dp).background(color, RoundedCornerShape(3.dp)))
         Text(title, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp)
@@ -2699,7 +2721,7 @@ private fun ContextUsageRow(title: String, tokens: Int?, color: Color) {
     }
 }
 
-private fun contextTokenCount(value: Int?): String = when {
+private fun contextTokenCount(value: Long?): String = when {
     value == null -> "—"
     value >= 1_000_000 -> "~" + String.format(java.util.Locale.ROOT, "%.1fM", value / 1_000_000.0)
     value >= 1_000 -> "~" + String.format(java.util.Locale.ROOT, "%.1fK", value / 1_000.0)

@@ -106,6 +106,7 @@ final class VoiceInputAdapter: ObservableObject {
     private func apply(_ transition: SharedVoiceInputTransition) {
         // 等值 snapshot 不重新发布，避免转写等待期的时钟重绘整个对话页面。
         let previousPhase = state.phase
+        captureRequests.setVoiceMode(transition.snapshot.voiceMode && !transition.snapshot.keyboardVisible)
         if state != transition.snapshot { state = transition.snapshot }
         if previousPhase != state.phase { traceVoiceInputLatency("state-\(state.phase)") }
         if let text = transition.draftUpdate { onDraftUpdate?(text) }
@@ -132,9 +133,13 @@ final class VoiceInputAdapter: ObservableObject {
                     self?.toastMessage = nil
                 }
             case "warmCapture":
-                if permissionGranted() {
+                if state.voiceMode && !state.keyboardVisible && permissionGranted() {
                     let recorder = self.recorder
-                    recorderQueue.async { try? recorder.prepare() }
+                    let captureRequests = self.captureRequests
+                    recorderQueue.async {
+                        guard captureRequests.allowsWarmup else { return }
+                        try? recorder.prepare()
+                    }
                 }
             case "releaseCapture":
                 captureRequests.invalidate()
@@ -230,6 +235,9 @@ final class VoiceInputAdapter: ObservableObject {
 private final class VoiceCaptureRequestGate: @unchecked Sendable {
     private let lock = NSLock()
     private var token: String?
+    private var voiceModeEnabled = false
+    var allowsWarmup: Bool { lock.lock(); defer { lock.unlock() }; return voiceModeEnabled }
+    func setVoiceMode(_ enabled: Bool) { lock.lock(); voiceModeEnabled = enabled; lock.unlock() }
     func schedule(_ token: String) { lock.lock(); self.token = token; lock.unlock() }
     func contains(_ token: String) -> Bool { lock.lock(); defer { lock.unlock() }; return self.token == token }
     func cancel(_ token: String) { lock.lock(); if self.token == token { self.token = nil }; lock.unlock() }
@@ -308,11 +316,12 @@ final class IOSVoiceRecorder: VoiceAudioCapturing, @unchecked Sendable {
 
     func prepare() throws {
         guard capture == nil else { return }
-        try prepareSession()
+        do { try prepareSession() }
+        catch { release(); throw error }
         // I/O 节点按需创建；空引擎 prepare 会抛出 Swift try? 无法捕获的 NSException。
         let input = engine.inputNode
         let hardwareFormat = input.inputFormat(forBus: 0)
-        guard hardwareFormat.sampleRate > 0, hardwareFormat.channelCount > 0 else { return }
+        guard hardwareFormat.sampleRate > 0, hardwareFormat.channelCount > 0 else { release(); return }
         engine.prepare()
     }
 
@@ -320,7 +329,7 @@ final class IOSVoiceRecorder: VoiceAudioCapturing, @unchecked Sendable {
         if let old = capture { _ = try? stop(id: old.id, discard: true) }
         engine.stop()
         engine.reset()
-        // 会话内保持激活但不空闲录音，离开页面/后台才完整释放。
+        // 切回文字输入或离开页面后，让系统听写和其他音频会话恢复。
         invalidateSessionPreparation()
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
@@ -329,7 +338,8 @@ final class IOSVoiceRecorder: VoiceAudioCapturing, @unchecked Sendable {
         let requestedAt = ProcessInfo.processInfo.systemUptime
         if let old = capture { _ = try? stop(id: old.id, discard: true) }
         let session = AVAudioSession.sharedInstance()
-        try prepareSession()
+        do { try prepareSession() }
+        catch { release(); throw error }
         let input = engine.inputNode
         let source = input.outputFormat(forBus: 0)
         guard source.sampleRate > 0, source.channelCount > 0,
@@ -356,8 +366,9 @@ final class IOSVoiceRecorder: VoiceAudioCapturing, @unchecked Sendable {
             guard status != .error, error == nil, let samples = output.int16ChannelData?[0] else { failure(); return }
             let count = Int(output.frameLength)
             guard count > 0 else { return }
-            guard current.bytes.count + count * 2 <= 4 * 1024 * 1024 else { failure(); return }
-            current.bytes.append(UnsafeRawPointer(samples).assumingMemoryBound(to: UInt8.self), count: count * 2)
+            // 定时停止与末尾采样可能交错；保留上限内的音频，不丢弃整段录音。
+            let retainedBytes = min(count * 2, Int(VoiceAudioFormat.shared.MAX_CAPTURE_BYTES) - current.bytes.count)
+            current.bytes.append(UnsafeRawPointer(samples).assumingMemoryBound(to: UInt8.self), count: retainedBytes)
             if !current.reportedReady {
                 current.reportedReady = true
                 traceVoiceInputLatency("first-pcm", since: current.requestedAt)
@@ -387,14 +398,16 @@ final class IOSVoiceRecorder: VoiceAudioCapturing, @unchecked Sendable {
         engine.inputNode.removeTap(onBus: 0); engine.stop()
         if let notification { NotificationCenter.default.removeObserver(notification) }
         notification = nil
-        // 结束单次采集保留音频会话激活，避免下一次按下重新承担激活成本。
+        // 停止后即释放音频会话；转换失败、取消也必须执行。
+        defer {
+            invalidateSessionPreparation()
+            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        }
         current.lock.lock(); defer { current.lock.unlock() }
         guard !discard else { return nil }
         let tail = try finishVoicePCMConversion(current.converter, format: current.format)
-        guard current.bytes.count + tail.count <= 4 * 1024 * 1024 else {
-            throw NSError(domain: "VoiceRecorder", code: 2)
-        }
-        current.bytes.append(tail)
+        let remainingBytes = Int(VoiceAudioFormat.shared.MAX_CAPTURE_BYTES) - current.bytes.count
+        current.bytes.append(tail.prefix(remainingBytes))
         return current.bytes
     }
 }

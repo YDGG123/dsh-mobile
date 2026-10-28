@@ -17,6 +17,34 @@ import kotlin.test.assertTrue
 
 class SharedSessionListStoreTest {
     @Test
+    fun subagentIdentitySurvivesBothFacadesEventsAndOfflineRestore() {
+        val items = """[
+            {"sessionId":"lead","updatedAt":3,"running":false,"blank":false},
+            {"sessionId":"child","updatedAt":2,"running":true,"blank":false,"parentSessionId":"lead","origin":"subagent"},
+            {"sessionId":"fork","updatedAt":1,"running":false,"blank":false,"parentSessionId":"lead","origin":"fork"}
+        ]"""
+        val ios = makeStore()
+        ios.receiveRemoteSessions(items)
+        val child = decode(ios.snapshot().snapshotJson).sessions.first { it.id == "child" }
+        assertEquals("subagent", child.origin)
+        assertEquals("lead", child.parentSessionId)
+        ios.messageSent("child", null, 4.0)
+        val iosRestored = makeStore()
+        iosRestored.restore(assertNotNull(ios.snapshot().snapshotJson))
+        assertEquals("subagent", decode(iosRestored.snapshot().snapshotJson).sessions.first { it.id == "child" }.origin)
+
+        val android = com.clarklevis.dsh.shared.facade.SharedMobileStore()
+        android.acceptFrame("""{"kind":"sessions","items":$items}""")
+        android.selectSession("child")
+        android.acceptFrame("""{"kind":"event","sessionId":"child","seq":1,"time":4,"event":{"type":"user/message","text":"继续"}}""")
+        val restored = com.clarklevis.dsh.shared.facade.SharedMobileStore()
+            .restoreOfflineCatalog(android.exportOfflineCatalog(null))
+        assertEquals(setOf("lead", "fork"), restored.sessions.filter { it.isVisibleInHistory }.map { it.id }.toSet())
+        assertEquals("lead", restored.sessions.first { it.id == "child" }.parentSessionId)
+        assertEquals("child", restored.selectedSessionId, "过滤列表不能删除团队内部的会话选择")
+    }
+
+    @Test
     fun networkHistoryEndsMissedTurnWithoutChangingUnreadTitleOrActivity() {
         val store = makeStore()
         val initial = SharedSessionListSnapshot(

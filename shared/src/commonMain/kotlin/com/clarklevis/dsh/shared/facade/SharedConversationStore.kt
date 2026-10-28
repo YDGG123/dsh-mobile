@@ -1,16 +1,17 @@
 package com.clarklevis.dsh.shared.facade
 
 import com.clarklevis.dsh.shared.cache.ChatCacheMemoryEstimator
+import com.clarklevis.dsh.shared.cache.chatCacheLog
 import com.clarklevis.dsh.shared.projection.ConversationItem
 import com.clarklevis.dsh.shared.projection.ConversationProjectionLabels
 import com.clarklevis.dsh.shared.projection.ConversationProjectionOperation
 import com.clarklevis.dsh.shared.projection.ConversationProjector
-import com.clarklevis.dsh.shared.protocol.SessionEvent
-import com.clarklevis.dsh.shared.protocol.RawSessionEvent
 import com.clarklevis.dsh.shared.protocol.JsonValue
-import kotlin.time.Clock
+import com.clarklevis.dsh.shared.protocol.RawSessionEvent
+import com.clarklevis.dsh.shared.protocol.SessionEvent
 import com.clarklevis.dsh.shared.protocol.wireJson
 import com.clarklevis.dsh.shared.sync.AssistantChunk
+import kotlin.time.Clock
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
@@ -38,18 +39,27 @@ class SharedConversationHistoryPreparation internal constructor(
     private val labels: ConversationProjectionLabels,
     private val steering: List<SessionEvent>,
     private val revision: Long,
-    private val owner: Any
+    private val owner: Any,
+    private val previousItems: List<ConversationItem>?
 ) {
     @Throws(Exception::class)
     fun prepare(): SharedPreparedConversationHistory {
         val projector = ConversationProjector(labels).apply { rebuild(snapshot.records) }
         projector.replaceSteeringMessages(steering)
-        val patch = SharedConversationPatch(
-            sessionId = snapshot.sessionId, replacesAll = true,
-            replacementItems = projector.items, lastSequence = projector.lastSequence
+        val patch = conversationHistoryPatch(snapshot.sessionId, previousItems, projector.items, projector.lastSequence)
+        chatCacheLog(
+            "projection-prepared",
+            "events=${snapshot.records.size} replacesAll=${patch.replacesAll} operations=${patch.operations.size}"
         )
-        return SharedPreparedConversationHistory(snapshot.sessionId, snapshot.eventSequence, revision, owner,
-            projector, wireJson.encodeToString(patch))
+        return SharedPreparedConversationHistory(
+            snapshot.sessionId,
+            snapshot.eventSequence,
+            revision,
+            owner,
+            projector,
+            snapshot.records,
+            wireJson.encodeToString(patch)
+        )
     }
 }
 
@@ -60,6 +70,7 @@ class SharedPreparedConversationHistory internal constructor(
     internal val revision: Long,
     internal val owner: Any,
     internal val projector: ConversationProjector,
+    internal val records: List<SessionEvent>,
     internal val payload: String
 )
 
@@ -68,6 +79,7 @@ class SharedConversationStore(
     private val labels: ConversationProjectionLabels = ConversationProjectionLabels()
 ) {
     private val projectors = mutableMapOf<String, ConversationProjector>()
+    private val projectionRecords = mutableMapOf<String, MutableList<SessionEvent>>()
     private val steeringRecords = mutableMapOf<String, List<SessionEvent>>()
     private val events = SharedMviEventEmitter("conversation")
     private val mutationRevisions = mutableMapOf<String, Long>()
@@ -92,6 +104,7 @@ class SharedConversationStore(
             "event sequence ${record.seq} is not newer than ${projector.lastSequence}; replace baseline first"
         }
         val operations = projector.foldWithOperations(listOf(record))
+        projectionRecords[record.sessionId]?.add(record)
         // 不可见持久事件仍会推进流水位，必须发布给平台镜像。
         // 否则后续独立流携带正确水位时，iOS 会因镜像滞后而误判协议错误。
         SharedConversationPatch(
@@ -116,6 +129,8 @@ class SharedConversationStore(
         val projector = projectors[record.sessionId]
             ?: error("no conversation baseline for session ${record.sessionId}; replace baseline first")
         val previousSequence = projector.lastSequence
+        // 同 seq 流式变更不能证明旧基线仍是持久历史的严格前缀。
+        projectionRecords.remove(record.sessionId)
         val operations = projector.foldWithOperations(listOf(record))
         if (operations.isEmpty() && projector.lastSequence == previousSequence) return@dispatch null
         SharedConversationPatch(
@@ -127,6 +142,42 @@ class SharedConversationStore(
 
     /** 平台用它决定能否走 streaming 行内路径，否则回退到 baseline。 */
     fun hasProjection(sessionId: String): Boolean = projectors.containsKey(sessionId)
+
+    fun hasAssistantChunks(sessionId: String): Boolean = projectors[sessionId]?.hasAssistantChunks == true
+
+    /** 只接受完整相等的前缀；历史修订、删除、裁窗和向前补页保留重新校验路径。 */
+    fun appendHistorySnapshot(sessionId: String, snapshot: SharedHistoryProjectionSnapshot): SharedMviDispatchResult? {
+        if (sessionId != snapshot.sessionId) return null
+        val previous = projectionRecords[sessionId] ?: return null
+        val projector = projectors[sessionId] ?: return null
+        val records = snapshot.records
+        if (records.any { it.sessionId != sessionId || !it.time.isFinite() } ||
+            records.zipWithNext().any { (left, right) -> left.seq >= right.seq }
+        ) {
+            return null
+        }
+        if (projector.hasAssistantChunks ||
+            previous.size > records.size ||
+            previous.indices.any { previous[it] != records[it] } ||
+            records.asSequence().drop(previous.size).any { it.seq <= projector.lastSequence }
+        ) {
+            return null
+        }
+        val added = records.subList(previous.size, records.size)
+        // 大段补回和超大单条仍交给后台 worker，避免增量路径反而阻塞主线程。
+        if (added.size > MAXIMUM_INLINE_EVENTS ||
+            added.sumOf(ChatCacheMemoryEstimator::contentLowerBound) > MAXIMUM_INLINE_CONTENT_BYTES
+        ) {
+            return null
+        }
+        return dispatch("history-append") {
+            invalidatePreparation(sessionId)
+            val operations = projector.foldWithOperations(added)
+            projectionRecords[sessionId] = records.toMutableList()
+            chatCacheLog("projection-appended", "reusedEvents=${previous.size} foldedEvents=${added.size} operations=${operations.size}")
+            SharedConversationPatch(sessionId = sessionId, operations = operations, lastSequence = projector.lastSequence)
+        }
+    }
 
     fun assistantChunks(sessionId: String, attemptId: String, chunksJson: String): SharedMviDispatchResult =
         dispatch("assistant-chunks") {
@@ -183,13 +234,14 @@ class SharedConversationStore(
     fun prepareHistorySnapshot(sessionId: String, snapshot: SharedHistoryProjectionSnapshot): SharedConversationHistoryPreparation? {
         if (sessionId != snapshot.sessionId) return null
         return SharedConversationHistoryPreparation(snapshot, labels, steeringRecords[sessionId].orEmpty().toList(),
-            mutationRevisions[sessionId] ?: 0L, preparationOwner)
+            mutationRevisions[sessionId] ?: 0L, preparationOwner, projectors[sessionId]?.items)
     }
 
     /** 失配不是领域错误：调用方保留原投影并同步处理最新 pending 历史。 */
     fun commitPreparedHistory(prepared: SharedPreparedConversationHistory): SharedMviDispatchResult? {
         if (prepared.owner !== preparationOwner || (mutationRevisions[prepared.sessionId] ?: 0L) != prepared.revision) return null
         projectors[prepared.sessionId] = prepared.projector
+        projectionRecords[prepared.sessionId] = prepared.records.toMutableList()
         mutationRevisions[prepared.sessionId] = prepared.revision + 1
         val event = events.emitTransition(
             transactionId = "conversation-prepared:${events.currentSequence + 1}",
@@ -206,6 +258,7 @@ class SharedConversationStore(
             val projector = ConversationProjector(labels).apply { rebuild(normalized) }
             projector.replaceSteeringMessages(steeringRecords[sessionId].orEmpty())
             projectors[sessionId] = projector
+            projectionRecords[sessionId] = normalized.toMutableList()
             return SharedConversationPatch(
                 sessionId = sessionId,
                 replacesAll = true,
@@ -215,12 +268,14 @@ class SharedConversationStore(
     }
 
     fun estimatedRetainedBytes(sessionId: String): Long =
-        ChatCacheMemoryEstimator.estimateProjection(projectors[sessionId]?.items.orEmpty())
+        ChatCacheMemoryEstimator.estimateProjection(projectors[sessionId]?.items.orEmpty()) +
+            projectionRecords[sessionId].orEmpty().size.toLong() * Long.SIZE_BYTES
 
     fun clearSession(sessionId: String): SharedMviDispatchResult = dispatch("clear") {
         require(sessionId.isNotBlank()) { "sessionId must not be blank" }
         invalidatePreparation(sessionId)
         projectors.remove(sessionId)
+        projectionRecords.remove(sessionId)
         steeringRecords.remove(sessionId)
         SharedConversationPatch(
             sessionId = sessionId,
@@ -232,6 +287,11 @@ class SharedConversationStore(
 
     private fun invalidatePreparation(sessionId: String) {
         mutationRevisions[sessionId] = (mutationRevisions[sessionId] ?: 0L) + 1
+    }
+
+    private companion object {
+        const val MAXIMUM_INLINE_EVENTS = 32
+        const val MAXIMUM_INLINE_CONTENT_BYTES = 256L * 1024
     }
 
     private inline fun dispatch(
