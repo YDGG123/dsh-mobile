@@ -308,7 +308,7 @@ struct WorkspaceView: View {
         // 2/5-a：底部 tab bar（参考实现 S01 ⑥）。工作区/Bot 切既有内容分段；
         // 设置走既有 onSettings push——设置页盖在本页之上，tab bar 不需要「设置选中」态。
         .safeAreaInset(edge: .bottom) {
-            DSHTabBar(selection: selectedHomeTab, badges: [:]) { tab in
+            DSHTabBar(selection: selectedHomeTab, badges: [.bots: botsTabBadge]) { tab in
                 switch tab {
                 case .workspace: primaryTab = .sessions
                 case .bots: primaryTab = .bots
@@ -321,6 +321,14 @@ struct WorkspaceView: View {
     /// tab bar 的选中态从内容分段推导（工作区↔会话段、Bot↔Bot 段），不设第二状态源。
     private var selectedHomeTab: DSHTab {
         primaryTab == .sessions ? .workspace : .bots
+    }
+
+    /// Bot tab 角标（Chief 裁定 2026-10-29）：待办数 = 等你审批 + 等你回答。
+    /// 当前 tab 的角标由 DSHTabBar 自行隐藏（design-handoff §5：不重复提示）。
+    private var botsTabBadge: Int {
+        store.pendingApprovalRequests.count
+            + store.pendingQuestionRequests.count
+            + store.bridgePendingQuestions.count
     }
 
     /// 2/5-a 一屏三态（参考实现 S01）：unpaired = 从未配对过（无任何主机档案）→
