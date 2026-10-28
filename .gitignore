@@ -44,3 +44,6 @@ captures/
 
 # 临时构建素材（Bridge 安装包/回滚快照，不入仓库）
 .bridge-artifacts/
+
+# 本地打包产物（源码包/设计评审包，不入仓库）
+/AppRelease/
