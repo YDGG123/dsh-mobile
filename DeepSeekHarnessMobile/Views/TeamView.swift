@@ -5,6 +5,9 @@ import SwiftUI
 /// iOS 16 红线：不使用 ContentUnavailableView / @Observable / 双参 onChange / scrollTargetBehavior。
 struct TeamView: View {
     @ObservedObject var team: BridgeTeamAdapter
+    /// 09：共享任务段的数据源。`MobileTeamTask` 只在 AppStore 的团队快照里
+    /// （bridge 镜像不含任务），与 `TeamContentSheet` 同源，不新造通道。
+    @EnvironmentObject private var store: AppStore
     /// 返回 true 表示已在现有 gateway 会话列表中找到并进入聊天。
     var onOpenConversation: (String) -> Bool
     @Environment(\.dismiss) private var dismiss
@@ -166,6 +169,9 @@ struct TeamView: View {
                     }
                 }
             }
+            // 09：设备段与共享任务段（与名册同屏三段，不再要求跳转）
+            devicesSection
+            sharedTasksSection
         }
         .listStyle(.insetGrouped)
         }
@@ -304,6 +310,9 @@ struct TeamView: View {
                     if groupsAllowed(mirror) {
                         roomsSection(mirror)
                     }
+                    // 09：旧宿主（无网关团队帧）也保持三段同屏
+                    devicesSection
+                    sharedTasksSection
                 }
                 if let error = mirror.lastError {
                     Section {
@@ -863,6 +872,71 @@ struct TeamView: View {
         guard let model = row.model else { return nil }
         let efforts = team.mirror?.effortsByModel?[model]?.efforts ?? []
         return efforts.isEmpty ? nil : efforts
+    }
+
+    // MARK: - 09 三段同屏（成员 / 设备 / 共享任务）
+
+    /// 09 设备段：把原来只能在 sheet 里看到的设备行**平铺进团队页**（同屏第三段）。
+    /// 右上「设备管理」入口保留：刷新 / 撤销仍走原页，能力不降级。
+    @ViewBuilder
+    private var devicesSection: some View {
+        let devices = team.mirror?.devices ?? []
+        Section {
+            if let error = team.mirror?.devicesLoadError {
+                Text(error.displayText)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+            if devices.isEmpty {
+                Text(team.mirror?.devicesLoading == true ? "加载中…" : "暂无设备")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(devices) { device in
+                    deviceCell(device)
+                }
+            }
+        } header: {
+            Text(devices.isEmpty ? "设备" : "设备 \(String(devices.count))")
+        }
+    }
+
+    /// 09 共享任务段：只读展示（创建 / 分配仍在桌面端，不做假入口）
+    @ViewBuilder
+    private var sharedTasksSection: some View {
+        let tasks = store.teamSnapshot.tasks
+        let ready = store.teamSnapshot.state == "ready" || !tasks.isEmpty
+        Section {
+            if tasks.isEmpty {
+                Text(ready ? "当前团队尚未创建共享任务" : "共享任务尚未同步，请重试")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(tasks) { task in
+                    taskCell(task)
+                }
+            }
+        } header: {
+            Text(ready ? "共享任务 \(String(tasks.count))" : "共享任务")
+        }
+    }
+
+    /// 09 任务行：主题 + 状态 + 归属人（只读）
+    private func taskCell(_ task: MobileTeamTask) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(task.subject)
+                .font(.body)
+                .lineLimit(2)
+            HStack(spacing: 6) {
+                Text(task.statusLabel)
+                if let owner = task.ownerName {
+                    Text("·")
+                    Text(owner)
+                }
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
     }
 
     // MARK: - 设备管理（P2）

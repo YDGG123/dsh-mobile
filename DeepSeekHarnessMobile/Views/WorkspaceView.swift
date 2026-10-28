@@ -197,6 +197,8 @@ struct WorkspaceView: View {
                 onOpenSession(session)
                 return true
             }
+            // 09：团队页新增共享任务段要从 AppStore 的团队快照取数
+            .environmentObject(store)
         }
     }
 
@@ -458,6 +460,22 @@ struct WorkspaceView: View {
                 } else {
                     botDiagnosticsCard
                 }
+                // 08「添加 Bot」：手机端没有创建能力（桌面端创建），做成**不可点说明行**
+                // ——不做假入口；文案由 Chief 给定。放在回落链之外：任何档位都可见。
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("添加 Bot")
+                        .appFont(DSHType.body)
+                        .foregroundStyle(palette.ink(0.45))
+                    Text("在桌面端创建，手机端只读")
+                        .appFont(DSHType.meta)
+                        .foregroundStyle(palette.ink(0.35))
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, DSHSpacing.md)
+                .frame(minHeight: 64)
+                .background(palette.cardFill, in: RoundedRectangle(cornerRadius: DSHRadius.md))
+                .overlay(RoundedRectangle(cornerRadius: DSHRadius.md)
+                    .strokeBorder(palette.cardStroke, lineWidth: 1))
             } else {
                 sessionsHeader.id("workspace-sessions-header")
                 sessionSearch.id("workspace-session-search")
