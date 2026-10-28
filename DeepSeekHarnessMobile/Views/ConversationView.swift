@@ -463,7 +463,8 @@ struct ConversationView: View {
         .sheet(isPresented: $showsSessionStats) {
             SessionStatsSheet(
                 snapshot: store.selectedSessionStatsSnapshot,
-                sessionTitle: store.selectedSession?.title ?? String(localized: "session.new.fallback", defaultValue: "新建 DeepSeek Harness")
+                sessionTitle: store.selectedSession?.title ?? String(localized: "session.new.fallback", defaultValue: "新建 DeepSeek Harness"),
+                timeline: store.trajectoryTimeline(for: store.selectedSessionId)
             )
         }
     }
@@ -3081,52 +3082,93 @@ private enum SessionStatsFormatter {
 private struct SessionStatsSheet: View {
     let snapshot: GatewaySessionStatsSnapshot?
     let sessionTitle: String
+    /// 07 的「时间分布 / 工具 Top5」取同一会话的**既有**轨迹节点（网关事件流的另一种呈现，
+    /// 不新增采集通道；网关统计协议本身只给聚合总量，没有按工具/按轮的明细）。
+    @ObservedObject var timeline: TrajectoryTimeline
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
+
+    private var palette: DSHPalette { DSHPalette.resolve(colorScheme) }
 
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 22) {
+                VStack(alignment: .leading, spacing: DSHSpacing.lg) {
                     if let snapshot, let stats = snapshot.stats {
-                        metricsSection(String(localized: "执行")) {
-                            metric(String(localized: "轮次"), String(localized: "metric.turns.value", defaultValue: "\(stats.turns ?? 0) 轮"))
-                            metric(String(localized: "步骤"), String(localized: "metric.steps.value", defaultValue: "\(stats.steps ?? 0) 步"))
-                            metric("LLM", stats.llmMs.map(SessionStatsFormatter.duration) ?? "—")
-                            metric(String(localized: "工具调用"), stats.toolMs.map(SessionStatsFormatter.duration) ?? "—")
-                            metric(String(localized: "首 token 平均"), SessionStatsFormatter.averageTTFT(stats).map(SessionStatsFormatter.duration) ?? "—")
-                            metric(String(localized: "解码吞吐"), SessionStatsFormatter.throughput(stats).map { String(localized: "value.throughput", defaultValue: "\(SessionStatsFormatter.compactDecimal($0)) tok/s") } ?? "—")
+                        summaryCard(stats, snapshot: snapshot)
+
+                        if !turnDurations.isEmpty {
+                            sectionTitle(String(localized: "时间分布"))
+                            DSHGroup(nil) {
+                                ForEach(Array(turnDurations.enumerated()), id: \.element.turn) { index, item in
+                                    turnBar(item, showsDivider: index < turnDurations.count - 1)
+                                }
+                            }
+                        }
+
+                        if !toolStats.isEmpty {
+                            sectionTitle(String(localized: "工具 Top5"))
+                            DSHGroup(nil) {
+                                ForEach(Array(toolStats.enumerated()), id: \.element.name) { index, item in
+                                    DSHRow("\(index + 1). \(item.name)",
+                                           subtitle: String(localized: "tool.calls.count", defaultValue: "调用 \(item.count) 次"),
+                                           showsDivider: index < toolStats.count - 1) {
+                                        DSHRowValue(text: SessionStatsFormatter.duration(item.totalMs), showsChevron: false)
+                                    }
+                                }
+                            }
                         }
 
                         if let totals = snapshot.tokenUsage?.totals {
-                            metricsSection(String(localized: "Token 用量")) {
-                                metric(String(localized: "输入"), token(totals.inputTokens))
-                                metric(String(localized: "输出"), token(totals.outputTokens))
-                                metric(String(localized: "缓存读取"), token(totals.cacheReadTokens))
-                                metric(String(localized: "缓存写入"), token(totals.cacheWriteTokens))
-                                metric(String(localized: "推理"), token(totals.reasoningTokens))
-                                metric(String(localized: "缓存命中"), SessionStatsFormatter.cacheHitRate(totals).map { String(localized: "value.percent", defaultValue: "\(Int(($0 * 100).rounded()))%") } ?? "—")
+                            sectionTitle(String(localized: "Token 用量"))
+                            DSHGroup(nil) {
+                                let rows: [(String, String)] = [
+                                    (String(localized: "输入"), token(totals.inputTokens)),
+                                    (String(localized: "输出"), token(totals.outputTokens)),
+                                    (String(localized: "缓存读取"), token(totals.cacheReadTokens)),
+                                    (String(localized: "缓存写入"), token(totals.cacheWriteTokens)),
+                                    (String(localized: "推理"), token(totals.reasoningTokens)),
+                                    (String(localized: "缓存命中"),
+                                     SessionStatsFormatter.cacheHitRate(totals).map {
+                                         String(localized: "value.percent", defaultValue: "\(Int(($0 * 100).rounded()))%")
+                                     } ?? "—")
+                                ]
+                                ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
+                                    DSHRow(row.0, showsDivider: index < rows.count - 1) {
+                                        DSHRowValue(text: row.1, showsChevron: false)
+                                    }
+                                }
                             }
                         }
 
                         if let pressure = snapshot.contextPressure {
-                            metricsSection(String(localized: "上下文")) {
-                                metric(String(localized: "当前压力"), token(pressure.pressureTokens))
-                                metric(String(localized: "预计用量"), token(pressure.projectedTokens))
-                                metric(String(localized: "上下文窗口"), token(pressure.contextWindow))
+                            sectionTitle(String(localized: "上下文"))
+                            DSHGroup(nil) {
+                                let rows: [(String, String)] = [
+                                    (String(localized: "当前压力"), token(pressure.pressureTokens)),
+                                    (String(localized: "预计用量"), token(pressure.projectedTokens)),
+                                    (String(localized: "上下文窗口"), token(pressure.contextWindow))
+                                ]
+                                ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
+                                    DSHRow(row.0, showsDivider: index < rows.count - 1) {
+                                        DSHRowValue(text: row.1, showsChevron: false)
+                                    }
+                                }
                             }
                         }
 
                         if let asOfSeq = snapshot.asOfSeq {
                             Text("数据截至事件 #\(asOfSeq)")
-                                .appFont(.caption.monospacedDigit())
-                                .foregroundStyle(.tertiary)
+                                .appFont(DSHType.meta.monospacedDigit())
+                                .foregroundStyle(palette.ink(0.4))
                         }
                     } else {
                         DshEmptyState("正在读取会话统计", systemImage: "chart.bar.xaxis", description: Text("统计会在本轮结束后自动更新。"))
                             .frame(maxWidth: .infinity, minHeight: 220)
                     }
                 }
-                .padding(20)
+                .padding(DSHSpacing.xl)
+                .readableContentWidth()
             }
             .navigationTitle("会话状态")
             .navigationBarTitleDisplayMode(.inline)
@@ -3137,26 +3179,147 @@ private struct SessionStatsSheet: View {
             }
         }
         .presentationDetents([.medium, .large])
-        .presentationBackgroundCompat(.regularMaterial)
     }
 
-    @ViewBuilder
-    private func metricsSection<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(title).appFont(.headline)
-            VStack(spacing: 0) { content() }
-                .padding(.horizontal, 14)
-                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    // MARK: - 07 摘要卡
+
+    private func summaryCard(_ stats: GatewaySessionStats, snapshot: GatewaySessionStatsSnapshot) -> some View {
+        VStack(alignment: .leading, spacing: DSHSpacing.md) {
+            Text(sessionTitle)
+                .appFont(DSHType.footnote)
+                .foregroundStyle(palette.ink(0.55))
+                .lineLimit(2)
+            HStack(alignment: .top, spacing: DSHSpacing.lg) {
+                summaryMetric(String(localized: "metric.turns.value", defaultValue: "\(stats.turns ?? 0) 轮"),
+                              String(localized: "轮次"))
+                summaryMetric(String(localized: "metric.steps.value", defaultValue: "\(stats.steps ?? 0) 步"),
+                              String(localized: "步骤"))
+                summaryMetric(stats.llmMs.map(SessionStatsFormatter.duration) ?? "—", "LLM")
+                summaryMetric(stats.toolMs.map(SessionStatsFormatter.duration) ?? "—",
+                              String(localized: "工具调用"))
+            }
+            HStack(alignment: .top, spacing: DSHSpacing.lg) {
+                summaryMetric(SessionStatsFormatter.averageTTFT(stats).map(SessionStatsFormatter.duration) ?? "—",
+                              String(localized: "首 token 平均"))
+                summaryMetric(SessionStatsFormatter.throughput(stats).map {
+                    String(localized: "value.throughput", defaultValue: "\(SessionStatsFormatter.compactDecimal($0)) tok/s")
+                } ?? "—", String(localized: "解码吞吐"))
+                Spacer(minLength: 0)
+            }
+        }
+        .padding(DSHSpacing.lg)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(palette.cardFill, in: RoundedRectangle(cornerRadius: DSHRadius.lg))
+        .overlay(RoundedRectangle(cornerRadius: DSHRadius.lg).strokeBorder(palette.cardStroke, lineWidth: 1))
+    }
+
+    private func summaryMetric(_ value: String, _ label: String) -> some View {
+        VStack(alignment: .leading, spacing: DSHSpacing.xxs) {
+            Text(value)
+                .appFont(DSHType.monoValue)
+                .foregroundStyle(palette.ink(0.92))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+            Text(label)
+                .appFont(DSHType.meta)
+                .foregroundStyle(palette.ink(0.45))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func sectionTitle(_ title: String) -> some View {
+        Text(title)
+            .appFont(DSHType.meta.weight(.semibold))
+            .foregroundStyle(palette.ink(0.45))
+    }
+
+    // MARK: - 07 时间分布（按轮次耗时的横向条形）
+
+    private struct TurnDuration: Equatable {
+        let turn: Int
+        let seconds: TimeInterval
+    }
+
+    private var turnDurations: [TurnDuration] {
+        var spans: [Int: (Date, Date)] = [:]
+        for node in timeline.nodes {
+            guard let turn = node.records.lazy.compactMap({ $0.event.turn }).first else { continue }
+            if let span = spans[turn] {
+                spans[turn] = (min(span.0, node.start), max(span.1, node.end))
+            } else {
+                spans[turn] = (node.start, node.end)
+            }
+        }
+        var result: [TurnDuration] = []
+        result.reserveCapacity(spans.count)
+        for (turn, span) in spans {
+            let seconds: TimeInterval = max(0, span.1.timeIntervalSince(span.0))
+            result.append(TurnDuration(turn: turn, seconds: seconds))
+        }
+        result.sort { $0.turn < $1.turn }
+        return result
+    }
+
+    private func turnBar(_ item: TurnDuration, showsDivider: Bool) -> some View {
+        let maxSeconds = turnDurations.map(\.seconds).max() ?? 1
+        let ratio = maxSeconds > 0 ? item.seconds / maxSeconds : 0
+        return VStack(spacing: 0) {
+            HStack(spacing: DSHSpacing.sm) {
+                Text("第 \(item.turn) 轮")
+                    .appFont(DSHType.meta)
+                    .foregroundStyle(palette.ink(0.55))
+                    .frame(width: 56, alignment: .leading)
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        RoundedRectangle(cornerRadius: DSHRadius.xs)
+                            .fill(palette.veil(0.10))
+                        RoundedRectangle(cornerRadius: DSHRadius.xs)
+                            .fill(DSHColor.ocean.opacity(colorScheme == .dark ? 0.85 : 0.75))
+                            .frame(width: max(4, geo.size.width * ratio))
+                    }
+                }
+                .frame(height: 8)
+                Text(SessionStatsFormatter.duration(item.seconds * 1000))
+                    .appFont(DSHType.meta.monospacedDigit())
+                    .foregroundStyle(palette.ink(0.55))
+                    .frame(width: 64, alignment: .trailing)
+            }
+            .padding(.horizontal, DSHSpacing.md)
+            .padding(.vertical, DSHSpacing.sm)
+            if showsDivider {
+                Rectangle()
+                    .fill(palette.rowDivider)
+                    .frame(height: 1)
+                    .padding(.leading, DSHSpacing.md)
+            }
         }
     }
 
-    private func metric(_ title: String, _ value: String) -> some View {
-        HStack {
-            Text(title).foregroundStyle(.secondary)
-            Spacer()
-            Text(value).appFont(.body.monospacedDigit()).fontWeight(.medium)
+    // MARK: - 07 工具 Top5（按调用次数，次数相同看总耗时）
+
+    private struct ToolStat: Equatable {
+        let name: String
+        let count: Int
+        let totalMs: Double
+    }
+
+    private var toolStats: [ToolStat] {
+        var map: [String: (count: Int, totalMs: Double)] = [:]
+        for node in timeline.nodes where node.kind == .tool {
+            let ms: Double = max(0, node.end.timeIntervalSince(node.start)) * 1000
+            let entry: (count: Int, totalMs: Double) = map[node.title] ?? (0, 0)
+            map[node.title] = (entry.count + 1, entry.totalMs + ms)
         }
-        .padding(.vertical, 10)
+        var stats: [ToolStat] = []
+        stats.reserveCapacity(map.count)
+        for (name, value) in map {
+            stats.append(ToolStat(name: name, count: value.count, totalMs: value.totalMs))
+        }
+        stats.sort { lhs, rhs in
+            if lhs.count != rhs.count { return lhs.count > rhs.count }
+            return lhs.totalMs > rhs.totalMs
+        }
+        return Array(stats.prefix(5))
     }
 
     private func token(_ value: Int?) -> String {

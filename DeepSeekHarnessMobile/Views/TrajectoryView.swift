@@ -85,7 +85,7 @@ struct TrajectoryView: View {
                     usesActualDuration.toggle()
                 } label: {
                     Label("Duration", systemImage: "clock")
-                        .foregroundStyle(usesActualDuration ? DSHColor.ocean : Color.secondary)
+                        .foregroundStyle(usesActualDuration ? DSHColor.ocean : palette.ink(0.6))
                 }
                 .buttonStyle(.plain)
                 .accessibilityAddTraits(usesActualDuration ? .isSelected : [])
@@ -95,8 +95,8 @@ struct TrajectoryView: View {
                 Spacer()
                 Text(timeline.presentation.durationText).monospacedDigit()
             }
-            .appFont(.caption)
-            .foregroundStyle(.primary)
+            .appFont(DSHType.meta)
+            .foregroundStyle(palette.ink(0.92))
 
             HStack(spacing: 8) {
                 VStack(alignment: .leading, spacing: 7) {
@@ -104,7 +104,7 @@ struct TrajectoryView: View {
                     Text("Model")
                     Text("Tools")
                 }
-                .appFont(.caption2).foregroundStyle(.secondary).frame(width: 34, alignment: .leading)
+                .appFont(DSHType.meta).foregroundStyle(palette.ink(0.45)).frame(width: 34, alignment: .leading)
 
                 TimelineOverviewCanvas(
                     nodes: timeline.presentation.visibleNodes,
@@ -115,22 +115,23 @@ struct TrajectoryView: View {
             }
             if usesActualDuration {
                 HStack { Text("0s"); Spacer(); Text(timeline.presentation.durationText) }
-                    .appFont(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+                    .appFont(DSHType.meta.monospacedDigit()).foregroundStyle(palette.ink(0.45))
             }
         }
-        .padding(.horizontal, 20).padding(.vertical, 12)
+        // 06 摘要卡：Turns / Calls / 时长 + 泳道图（数据未改，只换容器与字阶）
+        .padding(DSHSpacing.md)
+        .background(palette.cardFill, in: RoundedRectangle(cornerRadius: DSHRadius.lg))
+        .overlay(
+            RoundedRectangle(cornerRadius: DSHRadius.lg)
+                .strokeBorder(palette.cardStroke, lineWidth: 1)
+        )
+        .padding(.horizontal, DSHSpacing.lg)
+        .padding(.vertical, DSHSpacing.sm)
         .readableContentWidth()
-        .background(Color(uiColor: .secondarySystemBackground))
-        .overlay(alignment: .bottom) {
-            Rectangle()
-                .fill(overviewSeparator)
-                .frame(height: 0.7)
-        }
     }
 
-    private var overviewSeparator: Color {
-        colorScheme == .dark ? .white.opacity(0.14) : .black.opacity(0.10)
-    }
+    /// 主题感知色板（与 01/02/13 屏同一套 token）
+    private var palette: DSHPalette { DSHPalette.resolve(colorScheme) }
 
     private var nodes: [TrajectoryNode] { timeline.nodes }
 }
@@ -423,28 +424,28 @@ private struct TrajectoryRow: View {
             }
             HStack(spacing: 8) {
                 Text(node.kind.label)
-                    .appFont(.caption2.weight(.semibold))
+                    .appFont(DSHType.meta.weight(.semibold))
                     .foregroundStyle(node.kind.color(in: colorScheme))
                     .padding(.horizontal, 6).padding(.vertical, 3)
-                    .background(tagFill, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    .background(tagFill, in: RoundedRectangle(cornerRadius: DSHRadius.xs, style: .continuous))
                     .overlay {
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        RoundedRectangle(cornerRadius: DSHRadius.xs, style: .continuous)
                             .stroke(tagEdge, lineWidth: 0.7)
                     }
                 if node.kind != .input && node.kind != .assistant {
                     Text(node.title)
-                        .appFont(.subheadline.weight(.medium))
+                        .appFont(DSHType.body.weight(.medium))
                         .lineLimit(1)
                         .layoutPriority(1)
                 }
                 if !node.subtitle.isEmpty {
                     Text(node.subtitle)
-                        .appFont(.caption)
-                        .foregroundStyle(.secondary)
+                        .appFont(DSHType.footnote)
+                        .foregroundStyle(palette.ink(0.55))
                         .lineLimit(1)
                 }
                 Spacer()
-                Text("#\(node.startSeq)").appFont(.caption2.monospaced()).foregroundStyle(.secondary)
+                Text("#\(node.startSeq)").appFont(DSHType.meta.monospaced()).foregroundStyle(palette.ink(0.4))
                 Image(systemName: "chevron.right").appFont(.caption2).foregroundStyle(.tertiary)
             }
             .frame(height: 20)
@@ -454,9 +455,13 @@ private struct TrajectoryRow: View {
         }
         .padding(.horizontal, 8)
         .frame(height: 42)
-        .background(highlighted ? DSHColor.ocean.opacity(0.12) : .clear, in: RoundedRectangle(cornerRadius: 10))
+        .background(highlighted ? DSHColor.ocean.opacity(colorScheme == .dark ? 0.18 : 0.10) : .clear,
+                    in: RoundedRectangle(cornerRadius: DSHRadius.sm))
         .animation(.easeInOut(duration: 0.18), value: highlighted)
     }
+
+    /// 06 事件行：主题感知色板（与 01/02/13 屏同一套 token）
+    private var palette: DSHPalette { DSHPalette.resolve(colorScheme) }
 
     private var tagFill: Color {
         node.kind.color(in: colorScheme).opacity(colorScheme == .dark ? 0.24 : 0.10)
@@ -501,18 +506,15 @@ private struct TrajectoryTurnHeader: View {
     var body: some View {
         HStack(spacing: 8) {
             Text("Turn \(turn)")
-                .appFont(.caption2.monospaced())
-                .foregroundStyle(.secondary)
+                .appFont(DSHType.meta.weight(.semibold).monospaced())
+                .foregroundStyle(DSHPalette.resolve(colorScheme).ink(0.45))
             Rectangle()
-                .fill(turnDividerColor)
+                .fill(DSHPalette.resolve(colorScheme).rowDivider)
                 .frame(height: 1)
         }
         .padding(.horizontal, 8)
-        .frame(height: 18)
-    }
-
-    private var turnDividerColor: Color {
-        colorScheme == .dark ? .white.opacity(0.16) : .black.opacity(0.10)
+        .padding(.top, DSHSpacing.xs)
+        .frame(height: 18 + DSHSpacing.xs, alignment: .bottom)
     }
 }
 
