@@ -52,3 +52,4 @@ f50685e015331b2b1f87f9a9a64c438df3dc5a4d  # build 42：order 帧 degraded + 缓�
 3d5aba0517d975589f4e439c4da1fa9f366c12bd  # build 46 第一段：conversationSegments 段顺序（读取聚合地基，零行为变更）
 0400d6dba0a0b4e6f8f396d3a7237dbbdd248634  # build 46 第二段：旧段缓存自动水合 + 渲染聚合接线（分段历史 A 完成渲染层）
 8c6dbf1d90bf7c21f4fcaba4150d071bd345405d  # build 48：合并 merge-upstream-20261027（47/1.7.11）+ 版本 47→48 + Package.resolved 随上游（cmark 0.9.0）
+fc1c0902db6e7b2054ceb7a045aeab99cdbd5404  # 卡片两连修：stale 本地移除 + ②定位日志（分支 fix/bridge-cards-49）
