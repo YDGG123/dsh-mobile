@@ -256,11 +256,10 @@ struct WorkspaceView: View {
                 .onTapGesture { sessionSearchIsFocused = false }
             ScrollView {
                 VStack(alignment: .leading, spacing: usesColumns ? 40 : 18) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        header(openDrawer: openDrawer, usesVerticalToolbar: usesVerticalToolbar)
-                            .id("workspace-header")
-                        GatewaySwitcherBar()
-                    }
+                    // 2/5-a：网关行从 header 下方移到工作区卡之后（设计稿 01 顺序：
+                    // 工作区卡 → 网关行 → 运行卡 → 最近会话），见 workspaceActions。
+                    header(openDrawer: openDrawer, usesVerticalToolbar: usesVerticalToolbar)
+                        .id("workspace-header")
                     if usesColumns {
                         HStack(alignment: .top, spacing: 48) {
                             workspaceActions
@@ -306,32 +305,48 @@ struct WorkspaceView: View {
         // layer. Keep a container-level fallback; controls retain their own
         // actions and the search field consumes its tap while becoming focused.
         .onTapGesture { sessionSearchIsFocused = false }
+        // 2/5-a：底部 tab bar（参考实现 S01 ⑥）。工作区/Bot 切既有内容分段；
+        // 设置走既有 onSettings push——设置页盖在本页之上，tab bar 不需要「设置选中」态。
+        .safeAreaInset(edge: .bottom) {
+            DSHTabBar(selection: selectedHomeTab, badges: [:]) { tab in
+                switch tab {
+                case .workspace: primaryTab = .sessions
+                case .bots: primaryTab = .bots
+                case .settings: onSettings()
+                }
+            }
+        }
+    }
+
+    /// tab bar 的选中态从内容分段推导（工作区↔会话段、Bot↔Bot 段），不设第二状态源。
+    private var selectedHomeTab: DSHTab {
+        primaryTab == .sessions ? .workspace : .bots
+    }
+
+    /// 2/5-a 一屏三态（参考实现 S01）：unpaired = 从未配对过（无任何主机档案）→
+    /// 首页只剩配对卡；offline = 配过但断开 → 横幅 + 灰化；其余 = normal。
+    private var isUnpairedHome: Bool {
+        hosts.activeProfile == nil && !connectionIsReady
     }
 
     private var workspaceActions: some View {
         VStack(alignment: .leading, spacing: 18) {
-            VStack(alignment: .leading, spacing: 7) {
-                Text("探索未至之境")
-                    // 原 32pt 不在设计五档内（11/13/15/18/28），就近映射 display 28pt。
-                    .appFont(DSHType.display)
-                if connectionIsReady {
-                    Text("已连接Deepseek Harness预览版")
-                        .appFont(.subheadline).foregroundStyle(palette.ink(0.65))
+            if primaryTab == .sessions {
+                if isUnpairedHome {
+                    // 设计稿 20-unpaired：未配对时 ②③④⑤ 全部不出现，只剩配对入口。
+                    pairingEntryCard.id("workspace-pairing")
+                } else {
+                    workspaceCard.id("workspace-card")
+                    GatewaySwitcherBar().id("workspace-gateway-row")
+                    runningSessionCard
                 }
             }
-            .id("workspace-hero")
-            primaryTabPicker.id("workspace-primary-tab")
-            if primaryTab == .sessions {
-                pairingEntryCard
-                workspaceCard.id("workspace-card")
-                newSessionButton.id("workspace-new-session").disabled(!connectionIsReady)
-            }
-
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     /// U5：首页主分段。「会话」= 原版分组列表（含新建/搜索/归档）；「Bot」= 团队（bots + 群聊）。
+    /// 2/5-a 起切换入口移到底部 tab bar（设计稿 01），此 enum 仍是两个 tab 的内容开关。
     private enum PrimaryTab: String, CaseIterable {
         case sessions = "会话"
         case bots = "Bot"
@@ -342,67 +357,99 @@ struct WorkspaceView: View {
         nonmutating set { primaryTabRaw = newValue.rawValue }
     }
 
-    /// 自绘两段控件。
-    /// 不用系统 Picker(.segmented)：在深色自定义主题 + 滚动容器里它不吃点击（真机表现为
-    /// 「Bot 是灰的、点了不切换」），换成两个显式 Button，命中区域与选中态都自己控制。
-    private var primaryTabPicker: some View {
-        HStack(spacing: 0) {
-            ForEach(PrimaryTab.allCases, id: \.self) { tab in
-                let selected = primaryTab == tab
+    /// 运行卡（参考实现 S01 ④：有运行中的会话才出现）。点卡 = 进该会话。
+    ///
+    /// 数据边界（有意为之，不编数字）：
+    /// - 轮次/步骤来自 `sessionStatsSnapshots` 的 `turns`/`steps`——只有本机打开过的会话才有；
+    /// - 「工具」列与进度条**不做**：`pendingCalls` 的协议形状当前无读取方，进度没有真实
+    ///   信号源，硬画就是编数据（见交付报告「有意不同」清单）。
+    /// - 断网时整卡灰化、状态转「等待重连」（参考实现 S01 runCard 的 offline 分支）。
+    private var runningSessionCard: some View {
+        let running = displayedSessions.first { $0.isRunning }
+        let stats = running.flatMap { store.sessionStatsSnapshots[$0.id]?.stats }
+        let offline = !connectionIsReady
+        return Group {
+            if let running {
                 Button {
-                    guard !selected else { return }
-                    withAnimation(.easeInOut(duration: 0.18)) { primaryTab = tab }
+                    onOpenSession(running)
                 } label: {
-                    Text(tab.rawValue)
-                        .appFont(.subheadline.weight(selected ? .semibold : .regular))
-                        // B6：选中态以前写死白色，浅色主题下药丸是近白底 → 白字不可见。
-                        .foregroundStyle(selected ? palette.ink(1) : palette.ink(0.6))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 8)
-                        .background {
-                            if selected {
-                                RoundedRectangle(cornerRadius: DSHRadius.xs, style: .continuous)
-                                    .fill(palette.surface(0.18))
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: DSHRadius.xs, style: .continuous)
-                                            .stroke(palette.stroke(0.18), lineWidth: 0.5)
-                                    )
+                    VStack(alignment: .leading, spacing: DSHSpacing.md) {
+                        HStack {
+                            HStack(spacing: DSHSpacing.sm) {
+                                DSHStatus(kind: offline ? .idle : .running,
+                                          text: offline ? String(localized: "等待重连") : String(localized: "运行中"))
+                                Text(running.title)
+                                    .appFont(DSHType.footnote.weight(.semibold))
+                                    .foregroundStyle(offline ? palette.ink(0.5) : palette.ink(0.92))
+                                    .lineLimit(1)
+                            }
+                            Spacer(minLength: DSHSpacing.sm)
+                            Text(running.lastActivity.formatted(.relative(presentation: .named)))
+                                .appFont(DSHType.meta)
+                                .foregroundStyle(palette.ink(0.45))
+                            Image(systemName: "chevron.forward")
+                                .appFont(DSHType.meta.weight(.semibold))
+                                .foregroundStyle(offline ? palette.ink(0.3) : palette.brand)
+                        }
+                        if stats?.turns != nil || stats?.steps != nil {
+                            HStack(spacing: 0) {
+                                if let turns = stats?.turns {
+                                    metric("\(turns)", "轮次")
+                                }
+                                if let steps = stats?.steps {
+                                    metric("\(steps)", "步骤")
+                                }
                             }
                         }
-                        .contentShape(Rectangle())
+                    }
+                    .padding(DSHSpacing.lg)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(palette.cardFill)
+                    .clipShape(RoundedRectangle(cornerRadius: DSHRadius.lg, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: DSHRadius.lg, style: .continuous)
+                        .strokeBorder(palette.cardStroke, lineWidth: 1))
+                    .opacity(offline ? 0.6 : 1)
+                    .contentShape(RoundedRectangle(cornerRadius: DSHRadius.lg))
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(tab.rawValue)
-                .accessibilityAddTraits(selected ? [.isSelected, .isButton] : .isButton)
+                .accessibilityLabel(String(localized: "运行中") + "，" + running.title)
             }
         }
-        .padding(4)
-        // 用户反馈「灰底比周围白卡片重」：ink() 的浅色地板是给文字用的，填充改走 veil()。
-        .background(palette.veil(0.07), in: RoundedRectangle(cornerRadius: DSHRadius.sm, style: .continuous))
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("首页分组")
+    }
+
+    /// 运行卡的三列指标：数值等宽（monoValue），标签 11pt（meta）。
+    private func metric(_ value: String, _ label: String) -> some View {
+        VStack(alignment: .leading, spacing: DSHSpacing.xxs) {
+            Text(value).appFont(DSHType.monoValue).foregroundStyle(palette.ink(0.92))
+            Text(label).appFont(DSHType.meta).foregroundStyle(palette.ink(0.45))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var recentSessions: some View {
         LazyVStack(alignment: .leading, spacing: 18) {
-            sessionsHeader.id("workspace-sessions-header")
-            sessionSearch.id("workspace-session-search")
-            if bridgeTeam.connectionIssue != nil || (bridgeListReady && bridgeTeam.mirror?.isOffline == true) {
-                bridgeOfflineBanner
-            }
-            if primaryTab == .bots {
-                // 数据源优先级：网关团队帧（新）→ bridge 镜像（旧宿主兼容）→ 诊断卡。
-                if gatewayTeamReady {
-                    gatewayTeamSection
-                } else if bridgeListReady {
-                    bridgeSessionsSection
-                } else {
-                    botDiagnosticsCard
-                }
-            } else if displayedSessions.isEmpty {
-                emptySessions.id("workspace-sessions-empty")
+            if isUnpairedHome && primaryTab == .sessions {
+                // 20-unpaired：未配对时会话区整体不出现（参考实现 S01——首页只剩配对卡）。
             } else {
-                sessionsList
+                sessionsHeader.id("workspace-sessions-header")
+                sessionSearch.id("workspace-session-search")
+                if bridgeTeam.connectionIssue != nil || (bridgeListReady && bridgeTeam.mirror?.isOffline == true) {
+                    bridgeOfflineBanner
+                }
+                if primaryTab == .bots {
+                    // 数据源优先级：网关团队帧（新）→ bridge 镜像（旧宿主兼容）→ 诊断卡。
+                    if gatewayTeamReady {
+                        gatewayTeamSection
+                    } else if bridgeListReady {
+                        bridgeSessionsSection
+                    } else {
+                        botDiagnosticsCard
+                    }
+                } else if displayedSessions.isEmpty {
+                    emptySessions.id("workspace-sessions-empty")
+                } else {
+                    sessionsList
+                }
             }
         }
     }
@@ -415,7 +462,7 @@ struct WorkspaceView: View {
         return VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 Image(systemName: "wifi.exclamationmark")
-                    .foregroundStyle(palette.caution)
+                    .foregroundStyle(palette.warning)
                 Text(issue?.headline ?? "连接已断开").appFont(.subheadline.weight(.medium))
                 Spacer()
             }
@@ -445,8 +492,10 @@ struct WorkspaceView: View {
             }
         }
         .padding(14)
-        .background(palette.caution.opacity(0.12), in: RoundedRectangle(cornerRadius: DSHRadius.sm))
-        .overlay(RoundedRectangle(cornerRadius: DSHRadius.sm).stroke(palette.caution.opacity(0.25)))
+        // 断网横幅用 warning（参考实现 S01 offlineBanner 用 p.warning；warning=断连琥珀，
+        // caution=「等你动手」的胶囊橙，语义不同不混用）。
+        .background(palette.warning.opacity(0.12), in: RoundedRectangle(cornerRadius: DSHRadius.sm))
+        .overlay(RoundedRectangle(cornerRadius: DSHRadius.sm).stroke(palette.warning.opacity(0.25)))
     }
 
     // MARK: - Bot tab（网关团队帧）
@@ -788,11 +837,17 @@ struct WorkspaceView: View {
             // header 里不再重复一份；16/17/26 走 else 分支，入口照旧常驻。
             if !usesVerticalToolbar {
                 // U5：原版连接入口常驻——扫码 / 手动输入配对信息（已连接时也可重新配对）。
+                // 有意差异：参考实现 S01 页头只有字标+新建；认证菜单保留是因为
+                // 网关列表没有「添加/配对」入口，拆掉它配对功能就断了（决策文档底线）。
                 authenticationMenu()
                     .padding(.trailing, 6)
-                settingsButton
-                    // Match the outer glass circle to the workspace cards' trailing edge.
-                    .padding(.trailing, -4)
+                // 2/5-a：设置入口移到底部 tab bar（设计稿 01），header 的齿轮退役；
+                // 新建会话按设计稿移到顶栏右上角（品牌色实心圆，未配对时不渲染）。
+                if !isUnpairedHome {
+                    newSessionHeaderButton
+                        // Match the outer glass circle to the workspace cards' trailing edge.
+                        .padding(.trailing, -4)
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -958,9 +1013,20 @@ struct WorkspaceView: View {
         )
     }
 
-    @ViewBuilder
-    private var settingsButton: some View {
-        headerButton(systemName: "gearshape.fill", accessibilityLabel: String(localized: "设置"), action: onSettings)
+    /// 顶部新建会话按钮（参考实现 S01 页头）：品牌色实心圆 + 白色「+」，未配对时不渲染。
+    /// 注意：iOS 27.1 竖向工具栏分支（usesVerticalToolbar）没有这个按钮——
+    /// 那条路径启用时需要把新建入口挂到 toolbar 上（见 Docs/ios-27.1-api-pending.md）。
+    private var newSessionHeaderButton: some View {
+        Button(action: onNewSession) {
+            Image(systemName: "plus")
+                .appFont(DSHType.body.weight(.bold))
+                .foregroundStyle(.white)
+                .frame(width: 34, height: 34)
+                .background(palette.brand, in: Circle())
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(String(localized: "新建会话"))
     }
 
     #if compiler(>=6.3)
@@ -1045,27 +1111,44 @@ struct WorkspaceView: View {
     }
 
     private var workspaceCardLabel: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "folder").foregroundStyle(palette.brand).appFont(.title3)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(workspaceDisplayTitle).appFont(.subheadline.weight(.semibold)).lineLimit(2)
-                Text(workspaceDisplayPath).appFont(.caption).foregroundStyle(palette.ink(0.55)).lineLimit(1)
+        // 2/5-a：按参考实现 S01 ② 重排——连接状态移出工作区卡（网关行独立成行，
+        // 决策文档裁定 4「不合并」）；去 folder 图标；路径改等宽（设计稿 mono 灰）。
+        HStack(spacing: DSHSpacing.md) {
+            VStack(alignment: .leading, spacing: DSHSpacing.xxs) {
+                Text(workspaceDisplayTitle)
+                    .appFont(DSHType.body.weight(.semibold))
+                    .foregroundStyle(palette.ink(0.92))
+                    .lineLimit(2)
+                Text(workspaceDisplayPath)
+                    .appFont(DSHType.mono)
+                    .foregroundStyle(palette.ink(0.5))
+                    .lineLimit(1)
             }
             Spacer()
-            GatewayConnectionIndicator(gateway: store.gateway)
-            Image(systemName: "chevron.down").appFont(.caption).foregroundStyle(palette.ink(0.55))
+            Image(systemName: "chevron.right")
+                .appFont(DSHType.meta.weight(.semibold))
+                .foregroundStyle(palette.ink(0.35))
         }
-        .padding(DSHSpacing.lg)
-        .background(palette.surface(0.055), in: RoundedRectangle(cornerRadius: DSHRadius.md))
-        .overlay(RoundedRectangle(cornerRadius: DSHRadius.md).stroke(palette.stroke(0.14)))
-        .contentShape(RoundedRectangle(cornerRadius: DSHRadius.md))
+        .padding(DSHSpacing.md)
+        .frame(maxWidth: .infinity)
+        .background(palette.cardFill)
+        .clipShape(RoundedRectangle(cornerRadius: DSHRadius.md, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: DSHRadius.md, style: .continuous)
+            .strokeBorder(palette.cardStroke, lineWidth: 1))
+        .contentShape(RoundedRectangle(cornerRadius: DSHRadius.md, style: .continuous))
     }
 
     private var sessionsHeader: some View {
+        // 2/5-a：按参考实现 RefListHead——标题 meta 半透明，右侧「全部 N 个」同为 meta 灰
+        //（参考实现里它**不可点**：02 屏全量页未建，建成后再接跳转，不做成假按钮）。
         HStack {
-            Text("最近会话").appFont(.headline)
+            Text("最近会话")
+                .appFont(DSHType.meta.weight(.semibold))
+                .foregroundStyle(palette.ink(0.55))
             Spacer()
-            GatewayConnectionStatusText(gateway: store.gateway)
+            Text("全部 \(displayedSessions.count) 个")
+                .appFont(DSHType.meta)
+                .foregroundStyle(palette.ink(0.4))
         }
     }
 
@@ -1242,7 +1325,9 @@ struct WorkspaceView: View {
                 Text(store.searchCoverage).appFont(.caption).foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
-            ForEach(displayedSessions.prefix(searchQuery.isEmpty ? 12 : 100)) { session in
+            // 2/5-a：默认只显示 5 条（原硬上限 12）——「全部 N 个」去 02 屏全量页（见 sessionsHeader）。
+            // 搜索态保持 100：搜索是精确查找，截断会让人以为没有结果。
+            ForEach(displayedSessions.prefix(searchQuery.isEmpty ? 5 : 100)) { session in
                 Button {
                     sessionSearchIsFocused = false
                     onOpenSession(session)
@@ -1271,68 +1356,74 @@ struct WorkspaceView: View {
         }
     }
 
+    /// 会话行右列状态分流（参考实现 RefSessionRow）：只有「等你动手」的用胶囊 + 呼吸，
+    /// 运行中用蓝圆点，其余显示相对时间。判定数据：审批/问答两条 pending 通道。
+    private func pendingQuestionKind(for session: SessionSummary) -> DSHStatusKind? {
+        let id = session.id
+        if store.pendingApprovalRequests.contains(where: { $0.sessionId == id }) { return .waiting }
+        if store.pendingQuestionRequests.contains(where: { $0.sessionId == id }) { return .question }
+        if store.bridgePendingQuestions.contains(where: { $0.sessionId == id }) { return .question }
+        return nil
+    }
+
+    /// 次要信息位 = 「模式 · 轮次 · 步数」，**不给 sessionID**（设计决策）。
+    /// 数据可得性：模式来自 agentPreset（会话列表自带）；轮次/步数来自统计快照
+    /// （只有本机打开过的会话有）——缺哪段就省哪段，全缺则整行不显示，绝不编 0。
+    private func sessionSecondaryText(_ session: SessionSummary) -> String? {
+        var parts: [String] = []
+        if let preset = session.agentPreset {
+            parts.append(store.agentPresets.first { $0.id == preset }?.displayName ?? L10n.presetModeName(for: preset))
+        }
+        if let stats = store.sessionStatsSnapshots[session.id]?.stats {
+            if let turns = stats.turns { parts.append("\(turns) 轮") }
+            if let steps = stats.steps { parts.append("\(steps) 步") }
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
     private func sessionRow(_ session: SessionSummary) -> some View {
-        HStack(spacing: 11) {
-            Circle()
-                .fill(session.isRunning ? palette.success : (session.hasUnread ? DSHColor.ocean : palette.veil(0.35)))
-                .frame(width: 7, height: 7)
-                .shadow(color: session.isRunning ? palette.success : .clear, radius: 5)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(session.title).lineLimit(1).appFont(.subheadline.weight(.medium))
+        // 2/5-a：按参考实现 RefSessionRow 重排。前导圆点取消（参考行没有，状态在右列表达）；
+        // 「…」菜单按参考实现属于 02 屏的行（showsMenu），01 行保留长按 contextMenu。
+        HStack(spacing: DSHSpacing.md) {
+            VStack(alignment: .leading, spacing: DSHSpacing.xxs) {
+                Text(session.title)
+                    .appFont(DSHType.body.weight(.semibold))
+                    .foregroundStyle(palette.ink(0.92))
+                    .lineLimit(1)
                 if !searchQuery.isEmpty, let hit = store.searchResults.first(where: { $0.sessionId == session.id }) {
-                    Text(hit.snippet).lineLimit(2).appFont(.caption).foregroundStyle(palette.ink(0.62))
-                } else {
-                    Text(String(session.id.prefix(16))).appFont(.caption2.monospaced()).foregroundStyle(palette.ink(0.42))
+                    Text(hit.snippet).lineLimit(2).appFont(DSHType.footnote).foregroundStyle(palette.ink(0.5))
+                } else if let secondary = sessionSecondaryText(session) {
+                    Text(secondary).appFont(DSHType.footnote).foregroundStyle(palette.ink(0.5)).lineLimit(1)
                 }
             }
-            Spacer()
-            Text(session.isRunning ? String(localized: "运行中") : session.lastActivity.formatted(.relative(presentation: .named)))
-                .appFont(.caption).foregroundStyle(session.isRunning ? palette.success : palette.ink(0.48))
+            Spacer(minLength: DSHSpacing.sm)
+
+            // 右列状态分流（参考实现 RefSessionRow）：只有「等你动手」的用胶囊 + 呼吸。
+            let pending = pendingQuestionKind(for: session)
+            if pending == .waiting {
+                DSHStatus(kind: .waiting, text: String(localized: "等你审批"), pulsing: true)
+                Image(systemName: "chevron.forward")
+                    .appFont(DSHType.meta.weight(.semibold))
+                    .foregroundStyle(palette.caution)
+            } else if pending == .question {
+                DSHStatus(kind: .question, text: String(localized: "等你回答"), pulsing: true)
+                Image(systemName: "chevron.forward")
+                    .appFont(DSHType.meta.weight(.semibold))
+                    .foregroundStyle(palette.brand)
+            } else if session.isRunning {
+                DSHStatus(kind: .running, text: String(localized: "运行中"))
+            } else {
+                Text(session.lastActivity.formatted(.relative(presentation: .named)))
+                    .appFont(DSHType.meta)
+                    .foregroundStyle(palette.ink(0.45))
+            }
         }
-        .padding(.horizontal, 4)
-        .padding(.vertical, 10)
+        .padding(.vertical, DSHSpacing.sm)
         .contentShape(Rectangle())
     }
 
-    @ViewBuilder
-    private var newSessionButton: some View {
-        if #available(iOS 26.0, *) {
-            Button(action: onNewSession) {
-                newSessionButtonLabel
-            }
-            .buttonStyle(.glass(.clear.tint(DSHColor.navy.opacity(0.22))))
-            .buttonBorderShape(.roundedRectangle(radius: DSHRadius.lg))
-            .buttonSizing(.flexible)
-        } else {
-            Button(action: onNewSession) {
-                newSessionButtonLabel
-            }
-            .buttonStyle(.plain)
-            // 用户反馈「新建会话」灰底偏深：浅色下原来是 thinMaterial + veil(0.08) 双叠，
-            // 现在走统一入口 `themedGlassSurface`：浅色实色面 #F3F3F4（WorkspaceCardFill.sunken，
-            // 与白卡片 1.11:1、比分段轨道浅一档），不叠 tint；深色仍是
-            // ultraThinMaterial + veil(0.08)，逐字不变。
-            // 文字继承外层 ink(1)=#0E131A，压在 #F3F3F4 上 16.80:1。
-            .themedGlassSurface(radius: 18,
-                                tint: palette.veil(0.08),
-                                // 凹槽用**不透明** #F3F3F4（与白卡片 1.11:1）；
-                                // surface(0.12) 压在白卡片上只有 1.00:1，等于看不见。
-                                lightFill: WorkspaceCardFill.sunken,
-                                darkMaterial: true,
-                                lightShadowOpacity: 0.18)
-        }
-    }
-
-    private var newSessionButtonLabel: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "plus").appFont(DSHType.body.weight(.semibold))
-                .frame(width: 28, height: 28)
-                .background(palette.surface(0.1), in: Circle())
-            Text("新建会话").appFont(.headline)
-        }
-        .frame(maxWidth: .infinity).frame(minHeight: 38)
-        .contentShape(RoundedRectangle(cornerRadius: DSHRadius.lg, style: .continuous))
-    }
+    // 2/5-a：全宽「新建会话」按钮退役——新建入口移到顶部字标右侧的圆形「+」（设计稿 01 顶栏）。
+    // iOS 26 玻璃样式与浅色凹槽两套皮肤随按钮一并移除。
 }
 
 /// 根据系统栏的方向选择入口位置，不按设备型号或横竖屏推测。

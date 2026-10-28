@@ -820,3 +820,73 @@ struct DSHPage<Content: View>: View {
     }
 }
 
+// MARK: - 10. 底部 tab bar（参考实现 ScreensShared · 按其要求上移进设计系统）
+//
+// 图标先用 SF Symbol 占位（参考实现同款）：工作区 = 方格、Bot = cpu、设置 = 滑杆。
+// 与参考实现的差异：**选择用回调用而非 Binding**——本工程「设置」是 push 页
+// （NavigationStack route），不是本容器内的内容切换，"设置选中"不存在持续状态；
+// 选中态由调用方从自身状态推导。
+
+/// 底部三 tab 的标识。rawValue 即界面文案（既有字符串：「Bot」「设置」沿用；
+/// 「工作区」为设计稿 01 的 tab 名，属新增元素）。
+enum DSHTab: String, CaseIterable {
+    case workspace = "工作区"
+    case bots = "Bot"
+    case settings = "设置"
+
+    var icon: String {
+        switch self {
+        case .workspace: return "square.grid.2x2"
+        case .bots: return "cpu"
+        case .settings: return "slider.horizontal.3"
+        }
+    }
+}
+
+struct DSHTabBar: View {
+    @Environment(\.colorScheme) private var scheme
+    let selection: DSHTab
+    /// 角标规则（design-handoff.md §5）：按 tab 独立计数，当前 tab 不重复提示。
+    /// 语义（待办数还是未读数）产品未定，先留空不显示——不编数字。
+    var badges: [DSHTab: Int] = [:]
+    var onTap: (DSHTab) -> Void
+
+    var body: some View {
+        let p = DSHPalette(scheme: scheme)
+        HStack(spacing: DSHSpacing.xs) {
+            ForEach(DSHTab.allCases, id: \.self) { tab in
+                let active = tab == selection
+                Button { onTap(tab) } label: {
+                    VStack(spacing: 3) {
+                        Image(systemName: tab.icon)
+                            .appFont(DSHType.body.weight(.medium))
+                        Text(tab.rawValue).appFont(DSHType.meta)
+                    }
+                    .foregroundStyle(active ? Color.white : p.ink(0.55))
+                    .frame(maxWidth: .infinity, minHeight: 54)
+                    .background(active ? AnyShapeStyle(p.brand) : AnyShapeStyle(.clear))
+                    .clipShape(Capsule())
+                    .overlay(alignment: .topTrailing) {
+                        if let n = badges[tab], n > 0, !active {
+                            Text("\(n)")
+                                .appFont(DSHType.meta.weight(.semibold))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 1.5)
+                                .background(DSHColor.cautionAA)
+                                .clipShape(Capsule())
+                                .offset(x: 6, y: -4)
+                        }
+                    }
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(DSHSpacing.xs)
+        .background(p.cardFill)
+        .clipShape(Capsule())
+        .overlay(Capsule().strokeBorder(p.cardStroke, lineWidth: 1))
+        .padding(.horizontal, DSHSpacing.lg)
+    }
+}
+

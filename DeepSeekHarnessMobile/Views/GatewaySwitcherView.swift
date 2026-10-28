@@ -2,28 +2,59 @@ import SwiftUI
 
 struct GatewaySwitcherBar: View {
     @Environment(\.colorScheme) private var colorScheme
+    /// 主题感知色板（浅色下墨色、深色下白色叠加）。
+    private var palette: DSHPalette { DSHPalette.resolve(colorScheme) }
     @EnvironmentObject private var hosts: MultiGatewayStore
     @State private var showsHosts = false
 
+    /// 2/5-a：网关行按参考实现 S01 重排为**独立整行**（不再是小胶囊）——
+    /// 它回答「我连的哪台机器」，与工作区卡（哪个项目）必须是两行（决策文档裁定 4）。
+    /// 结构：DSHStatus（状态点+状态字，既有 gateway.state.label 文案）· 地址（等宽）· 相对时间 ›。
+    /// 有意差异：设计稿此行没有主机别名，多网关时靠地址区分；别名在点开的列表里。
     var body: some View {
-        Button { showsHosts = true } label: {
-            HStack(spacing: 8) {
-                Image(systemName: hosts.activeProfile?.deviceKind ?? "desktopcomputer")
-                Text(hosts.activeProfile?.displayName ?? String(localized: "选择主机"))
+        let connected = hosts.activeStore.gateway.state.isConnected
+        return Button { showsHosts = true } label: {
+            HStack(spacing: DSHSpacing.sm) {
+                DSHStatus(kind: connected ? .online : .failed, text: hosts.activeStore.gateway.state.label)
+                if let address = activeEndpoint {
+                    Text("·").appFont(DSHType.footnote).foregroundStyle(palette.ink(0.3))
+                    Text(address)
+                        .appFont(DSHType.mono)
+                        .foregroundStyle(palette.ink(0.5))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                Spacer(minLength: DSHSpacing.sm)
+                // 断网时参考实现显示「重连中」（S01 gatewayLine）；连接时显示相对时长。
+                Text(trailingText)
+                    .appFont(DSHType.meta)
+                    .foregroundStyle(palette.ink(0.4))
                     .lineLimit(1)
-                Circle()
-                    .fill(hosts.activeStore.gateway.state.isConnected ? Color.green : Color.red)
-                    .frame(width: 6, height: 6)
-                Image(systemName: "chevron.down").appFont(.system(size: 9, weight: .semibold))
+                Image(systemName: "chevron.forward")
+                    .appFont(DSHType.meta.weight(.semibold))
+                    .foregroundStyle(palette.ink(0.3))
             }
-            .appFont(.system(size: 12, weight: .medium))
-            .padding(.horizontal, 11).padding(.vertical, 7)
-            .background((colorScheme == .dark ? Color.white : DSHColor.ink).opacity(colorScheme == .dark ? 0.09 : 0.06), in: Capsule())
-            .overlay(Capsule().stroke((colorScheme == .dark ? Color.white : DSHColor.ink).opacity(colorScheme == .dark ? 0.14 : 0.10), lineWidth: 0.5))
+            .padding(.horizontal, DSHSpacing.md)
+            .frame(minHeight: 40)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel("当前主机：\(hosts.activeProfile?.displayName ?? String(localized: "未选择"))，切换主机")
         .sheet(isPresented: $showsHosts) { GatewaySwitcherSheet() }
+    }
+
+    private var trailingText: String {
+        if hosts.activeStore.gateway.state.isConnected,
+           let lastConnected = hosts.activeProfile?.lastConnectedAt {
+            return lastConnected.formatted(.relative(presentation: .named))
+        }
+        return String(localized: "重连中")
+    }
+
+    /// 设计稿此行显示的是地址（如 192.168.1.12:3080），取首选端点，缺省回落第一个。
+    private var activeEndpoint: String? {
+        guard let profile = hosts.activeProfile else { return nil }
+        return profile.preferredEndpoint ?? profile.connectionEndpoints.first
     }
 }
 
