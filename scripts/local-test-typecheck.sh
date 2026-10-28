@@ -65,10 +65,17 @@ fi
 # “value of type 'AppStore' has no member ...ForTesting”。
 # 缓存：App 源码比 .swiftmodule 新才重建（一次约 1 分钟）。
 build_app_module() {
+  # MarkdownUI 可测试版桩缺失时先重建（/tmp 清理会把它和 ChatLayout 一起带走的）
+  if [ ! -f "$TEST_DEPS/MarkdownUI.swiftmodule" ] || [ "$DEPS/MarkdownUI.swift" -nt "$TEST_DEPS/MarkdownUI.swiftmodule" ]; then
+    "$TC/swiftc" -emit-module -enable-testing -D DEBUG \
+      -sdk "$SDK" -target x86_64-apple-ios16.0-simulator -swift-version 5 \
+      -module-name MarkdownUI -emit-module-path "$TEST_DEPS/MarkdownUI.swiftmodule" \
+      "$DEPS/MarkdownUI.swift" >/dev/null 2>&1 || fail "生成可测试版 MarkdownUI 桩失败"
+  fi
   echo "→ 编 App 测试模块（-enable-testing -D DEBUG）..."
   "$TC/swiftc" -emit-module -enable-testing -D DEBUG \
     -sdk "$SDK" -target "x86_64-apple-ios${TEST_TARGET_OS}-simulator" -swift-version 5 \
-    -F "$FW" -F "$DEPS" -I "$DEPS" -module-cache-path "$CACHE" \
+    -F "$FW" -F "$DEPS" -I "$TEST_DEPS" -I "$DEPS" -module-cache-path "$CACHE" \
     -module-name DeepSeekHarnessMobile \
     -emit-module-path "$MOD/DeepSeekHarnessMobile.swiftmodule" \
     $(find DeepSeekHarnessMobile -name "*.swift") > "$TEST_DEPS/appmod.log" 2>&1

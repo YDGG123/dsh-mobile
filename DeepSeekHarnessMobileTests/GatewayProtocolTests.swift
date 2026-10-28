@@ -14793,3 +14793,38 @@ final class MarkdownTableRenderingTests: XCTestCase {
         add(attachment)
     }
 }
+
+/// 2026-10-28 真机：服务端已取消的卡，手机端不消失（一点就 409 bot/stale）。
+/// 反向：把 stale 分支的 removeValue/removeAll 删掉（只留 refreshTeam）→ 两条断言变红。
+@MainActor
+final class BridgeCardStaleRemovalTests: XCTestCase {
+    private func makeStore() -> AppStore {
+        AppStore(preferences: UserDefaultsAppPreferences(userDefaults: UserDefaults(suiteName: "bridge-stale")!, gatewayID: "t"),
+                 gatewayClient: GatewayClient(credentials: nil), gatewayLocalID: "t")
+    }
+
+    func testStaleWithCardPresentRemovesCardLocally() {
+        let store = makeStore()
+        store.ingestBridgeQuestionCards(
+            [GatewayTeamFeed.CardQuestion(id: "card-9", owner: "b1", sessionId: "s1",
+                                          kind: "question", prompt: "选哪个？", options: ["A"])],
+            answerEnabled: true)
+        let rpcId = AppStore.bridgeCardRpcPrefix + "card-9"
+        XCTAssertEqual(store.bridgePendingQuestions.count, 1, "前置：卡已进可点列表")
+
+        store.bridgeCardAnswerStale(rpcId: rpcId)
+        XCTAssertTrue(store.bridgePendingQuestions.isEmpty, "stale + 卡在 → 卡必须从屏幕移除，不能只刷新")
+        XCTAssertNil(store.bridgeCardsByRpcId[rpcId], "byId 表同步清理")
+        XCTAssertNil(store.bridgeQuestionStatuses[rpcId])
+    }
+
+    func testStaleWithoutCardIsNormalCleanup() {
+        let store = makeStore()
+        store.ingestBridgeQuestionCards(
+            [GatewayTeamFeed.CardQuestion(id: "card-9", owner: "b1", sessionId: "s1",
+                                          kind: "question", prompt: "选哪个？")],
+            answerEnabled: true)
+        store.bridgeCardAnswerStale(rpcId: AppStore.bridgeCardRpcPrefix + "other")
+        XCTAssertEqual(store.bridgePendingQuestions.count, 1, "别的卡的 stale 不误伤本卡")
+    }
+}

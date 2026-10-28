@@ -604,7 +604,12 @@ final class AppStore: ObservableObject {
     func bridgeCardAnswerStale(rpcId: String) {
         if bridgeCardsByRpcId[rpcId] != nil {
             // 例外要留痕（§4 第 5 条）：卡片还在、用户确实点了选项、却收到 stale——诊断日志。
-            Self.bridgeCardsLog.error("bot/stale with card present (rpcId=\(rpcId, privacy: .public)); refreshing cards")
+            Self.bridgeCardsLog.error("bot/stale with card present (rpcId=\(rpcId, privacy: .public)); removing stale card")
+            // **stale 且本地卡还在 → 本地也必须删**（2026-10-28 真机：服务端已超时/取消，
+            // 手机端那张还挂着，一点就 409 bot/stale，退出重进才消失）。
+            // 服务端没这张卡了，手机不该留着；光 refreshTeam 只刷数据不移除屏幕上的卡。
+            bridgeCardsByRpcId.removeValue(forKey: rpcId)
+            bridgePendingQuestions.removeAll { $0.rpcId == rpcId }
             bridgeQuestionStatuses[rpcId] = nil
             refreshTeam()
         } else {
