@@ -4,7 +4,7 @@
 背景（47 包归档失败）：合并上游把 Widget target 的 **Release** 配置从硬编码
 `com.ydgg123.orcarness.AgentLiveActivityWidget` 改成了占位变量
 `$(LOCAL_BUNDLE_IDENTIFIER).AgentLiveActivityWidget`，而 `config/Debug.xcconfig` 里
-`LOCAL_BUNDLE_IDENTIFIER = com.example.dshmobile`（上游占位值）。于是归档时 xcodebuild 报：
+`LOCAL_BUNDLE_IDENTIFIER = com.example.dshmobile`（上游占位值）。于是归档时报：
 
     Embedded binary's bundle identifier is not prefixed with the parent app's bundle identifier.
         Embedded Binary Bundle Identifier:  com.example.dshmobile.AgentLiveActivityWidget
@@ -15,7 +15,10 @@
 
 为什么必须用 xcodebuild 而不是 grep pbxproj：真正决定成败的是**变量展开后的值**。
 `$(LOCAL_BUNDLE_IDENTIFIER)` 在 pbxproj 里看起来"有值"，展开后才知道是不是占位符。
-所以本闸门对每个 (target, configuration) 跑一次 `-showBuildSettings`，用展开值判定。
+所以本闸门对每个 (target, configuration) 解析**变量展开后的值**来判定。
+（2026-10-28 起改用 `plutil` 把 pbxproj 转 JSON 后解析 + `config/*.xcconfig` 变量链展开
+—— xcodebuild 因系统层损坏对任何输入 SIGBUS，见 Docs/history-multi-segment-notes.md；
+本机 xcodebuild 恢复后两种方式结果一致，解析版保留为不依赖工具链的备份路径。）
 
 校验项（App / Widget × Debug / Release）：
 1. 主 App 的 `PRODUCT_BUNDLE_IDENTIFIER` 非空，且**不是**占位符 (com.example.*)
@@ -24,20 +27,32 @@
 3. Widget ID 必须以 `主AppID + "."` 为前缀（ValidateEmbeddedBinary 的硬性要求）
 4. Widget ID 不得含未展开的 `$(` 变量
 
-退出码：0 = 通过；1 = 前缀/占位违规；2 = 输入缺失或 xcodebuild 无法解析（工程打不开等）。
-可用 `BUNDLE_GATE_ROOT` 指定仓库根，`BUNDLE_GATE_XCODEBUILD` 指定 xcodebuild 路径（反向测试用）。
+退出码：0 = 通过；1 = 前缀/占位违规；2 = 输入缺失或解析失败（工程打不开/plutil 异常等）。
+可用 `BUNDLE_GATE_ROOT` 指定仓库根（反向测试用它指到临时副本）。
 """
 
 from __future__ import annotations
 
 import os
 import re
+import json
+import pathlib
 import subprocess
 import sys
 
 ROOT = os.environ.get("BUNDLE_GATE_ROOT") or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROJECT = os.path.join(ROOT, "DeepSeekHarnessMobile.xcodeproj")
-XCODEBUILD = os.environ.get("BUNDLE_GATE_XCODEBUILD") or "xcodebuild"
+# 2026-10-28：xcodebuild 因系统层损坏（AppleSystemInfo 等系统框架二进制被删，
+# 见 Docs/history-multi-segment-notes.md）对任何输入都 SIGBUS，本闸门改为
+# **解析 pbxproj + xcconfig 展开**。展开语义保留：$(LOCAL_BUNDLE_IDENTIFIER) 从
+# config/*.xcconfig（含 include 链）解析；47 包正是 xcconfig 覆盖导致占位值，解析器必须覆盖它。
+XCODEBUILD = None
+
+def _pbxproj_text() -> str | None:
+    p = pathlib.Path(PROJECT)
+    if p.is_dir():
+        p = p / "project.pbxproj"
+    return p.read_text(errors="ignore") if p.is_file() else None
 
 APP_TARGET = os.environ.get("BUNDLE_GATE_APP_TARGET", "DeepSeekHarnessMobile")
 WIDGET_TARGET = os.environ.get("BUNDLE_GATE_WIDGET_TARGET", "AgentLiveActivityWidget")
@@ -49,36 +64,97 @@ PLACEHOLDERS = ("com.example.", "com.example")
 IDENTIFIER_KEY = "PRODUCT_BUNDLE_IDENTIFIER"
 
 
-def resolve(target: str, configuration: str) -> str | None:
-    """用 xcodebuild 展开 target 的 build settings，取 PRODUCT_BUNDLE_IDENTIFIER。"""
-    if not os.path.isdir(PROJECT):
+def _pbxjson() -> dict | None:
+    """plutil 把 pbxproj 转成 JSON（系统解析器，无括号/注释/嵌套坑）。失败 → None（fail-closed）。"""
+    p = pathlib.Path(PROJECT)
+    if not p.is_dir():
         input_errors.append(f"工程不存在：{PROJECT}")
         return None
+    out = pathlib.Path("/tmp/verify-bundle-prefix.pbx.json")
     try:
-        proc = subprocess.run(
-            [XCODEBUILD, "-project", PROJECT, "-target", target,
-             "-configuration", configuration, "-showBuildSettings"],
-            capture_output=True, text=True, timeout=180, check=False,
-        )
+        pbxfile = p / "project.pbxproj" if p.is_dir() else p   # .xcodeproj 是目录，plutil 只吃里面的 pbxproj 文件
+        subprocess.run(["plutil", "-convert", "json", "-o", str(out), str(pbxfile)],
+                       check=True, capture_output=True, timeout=60)
+        return json.loads(out.read_text())
     except FileNotFoundError:
-        input_errors.append(f"找不到 xcodebuild（{XCODEBUILD}）—— 本闸门需要 macOS 工具链")
+        input_errors.append("plutil 不可用（macOS 自带，理论上不会发生）")
         return None
-    except subprocess.TimeoutExpired:
-        input_errors.append(f"xcodebuild 解析 {target}/{configuration} 超时（180s）")
+    except subprocess.CalledProcessError as e:
+        input_errors.append(f"plutil 解析失败：{e.stderr.decode(errors='ignore')[-120:]}")
         return None
-
-    if proc.returncode != 0:
-        # 只取最后几行，避免把整份 stderr 灌进闸门输出
-        tail = " / ".join(line.strip() for line in proc.stderr.strip().splitlines()[-3:])
-        input_errors.append(f"xcodebuild 解析 {target}/{configuration} 失败（exit {proc.returncode}）：{tail}")
+    except Exception as e:
+        input_errors.append(f"plutil/JSON 解析异常：{e}")
         return None
 
-    for line in proc.stdout.splitlines():
-        match = re.match(rf"\s*{IDENTIFIER_KEY}\s*=\s*(.+?)\s*$", line)
-        if match:
-            return match.group(1).strip().strip('"')
-    input_errors.append(f"{target}/{configuration} 的 build settings 里没有 {IDENTIFIER_KEY}")
-    return None
+
+def _read_pbxproj_assignments(target: str) -> dict[str, str]:
+    """取某 target 的 PRODUCT_BUNDLE_IDENTIFIER（Release/Debug，经 xcconfig 变量展开）。"""
+    pbx = _pbxjson()
+    if pbx is None:
+        return {}
+    objs = pbx.get("objects", {})
+    out: dict[str, str] = {}
+    tid = next((k for k, o in objs.items()
+                if o.get("isa") == "PBXNativeTarget" and o.get("name") == target), None)
+    if not tid:
+        input_errors.append(f"找不到 target：{target}")
+        return out
+    cl = objs.get(objs[tid].get("buildConfigurationList", ""), {})
+    for cid in cl.get("buildConfigurations", []):
+        cfg = objs.get(cid, {})
+        name = cfg.get("name")
+        raw = cfg.get("buildSettings", {}).get(IDENTIFIER_KEY)
+        if name and raw is not None:
+            out[(name, IDENTIFIER_KEY)] = raw
+    return out
+
+
+def _xcconfig_value(key: str, path: pathlib.Path, seen: set[str] | None = None) -> str | None:
+    """沿 #include 链解析 xcconfig 键（后写覆盖先写，与 Xcode 语义一致）。"""
+    seen = seen or set()
+    rp = path.resolve()
+    if rp in seen or not path.is_file():
+        return None
+    seen.add(rp)
+    value = None
+    for line in path.read_text(errors="ignore").splitlines():
+        inc = re.match(r"#include\s+\"?([^\"\n]+)\"?", line)
+        if inc:
+            sub = (path.parent / inc.group(1)).resolve()
+            value = _xcconfig_value(key, sub, seen) or value
+            continue
+        kv = re.match(rf"\s*{re.escape(key)}\s*=\s*(.+?)\s*$", line)
+        if kv:
+            value = kv.group(1)
+    return value
+
+
+def _resolve_variable(value: str, configuration: str) -> str:
+    """展开 $(VAR)：从 config/*.xcconfig 找值（47 包的坑就在这个变量的覆盖链）。"""
+    def sub(m):
+        key = m.group(1)
+        for xc in sorted(pathlib.Path(ROOT, "config").glob("*.xcconfig")):
+            v = _xcconfig_value(key, xc)
+            if v is not None:
+                return v
+        return m.group(0)
+    return re.sub(r"\$\((\w+)\)", sub, value)
+
+
+def resolve(target: str, configuration: str) -> str | None:
+    """取展开后的 PRODUCT_BUNDLE_IDENTIFIER；`$(VAR)` 走 xcconfig 链（保留 47 包拦截力）。"""
+    assignments = _read_pbxproj_assignments(target)
+    raw = assignments.get((configuration, IDENTIFIER_KEY))
+    if raw is None:
+        input_errors.append(f"{target}/{configuration} 的 build settings 里没有 {IDENTIFIER_KEY}")
+        return None
+    if "$(" in raw:
+        expanded = _resolve_variable(raw, configuration)
+        if "$(" in expanded:
+            input_errors.append(f"{target}/{configuration} 的 {IDENTIFIER_KEY} 变量无法解析：{raw}")
+            return None
+        return expanded
+    return raw
 
 
 resolved: dict[tuple[str, str], str] = {}
