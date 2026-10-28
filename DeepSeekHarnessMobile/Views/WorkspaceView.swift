@@ -308,6 +308,8 @@ struct WorkspaceView: View {
         // 2/5-a：底部 tab bar（参考实现 S01 ⑥）。工作区/Bot 切既有内容分段；
         // 设置走既有 onSettings push——设置页盖在本页之上，tab bar 不需要「设置选中」态。
         .safeAreaInset(edge: .bottom) {
+            // 参考实现 S01 里 tab bar 被 VStack 包着、额外留 8pt；safeAreaInset 只吃
+            // 安全区不留白，真机上会「贴底」（用户实测反馈）。补回这 8pt。
             DSHTabBar(selection: selectedHomeTab, badges: [.bots: botsTabBadge]) { tab in
                 switch tab {
                 case .workspace: primaryTab = .sessions
@@ -315,6 +317,7 @@ struct WorkspaceView: View {
                 case .settings: onSettings()
                 }
             }
+            .padding(.bottom, DSHSpacing.sm)
         }
     }
 
@@ -1426,7 +1429,9 @@ struct WorkspaceView: View {
                     .foregroundStyle(palette.ink(0.45))
             }
         }
-        .padding(.vertical, DSHSpacing.sm)
+        // 行高：参考实现是 8pt，但真机 390pt 宽下「15pt 标题 + 13pt 副行」两行压在
+        // 8pt 上下留白里显得太挤（用户实测反馈）。按 Chief 裁定提到 12pt。
+        .padding(.vertical, DSHSpacing.md)
         .contentShape(Rectangle())
     }
 

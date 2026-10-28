@@ -172,11 +172,15 @@ struct DSHPalette {
     var isLight: Bool { scheme == .light }
 
     /// 前景（文字/图标）：opacity 越大越强调。
-    /// 浅色按「对比度优先」重算：0.92 的正文≈近全黑，0.55 的次要文字在纯白上仍有约 4.5:1，
-    /// 不会再出现「浅底白字看不见」；深色沿用原来的白色叠加，观感不变。
+    /// 浅色下按 `0.35 + o*0.65` 重算：
+    ///   - 起点 0.55 → 0.35：让次要文字与元信息重新拉开层次
+    ///     （原公式把所有档位挤在 0.68–0.96，用户实测「浅色透明度有问题」）
+    ///   - 斜率 0.45 → 0.65：正文（0.92 档）几乎不变（15.44→14.82 对比度）
+    ///   - 最淡档仍有 3.88:1，满足 WCAG 大字标准；0.40 往上全部过 AA
+    /// 深色沿用原来的白色叠加，观感不变。
     func ink(_ opacity: Double) -> Color {
         isLight
-            ? DSHColor.ink.opacity(min(1, 0.55 + opacity * 0.45))
+            ? DSHColor.ink.opacity(min(1, 0.35 + opacity * 0.65))
             : Color.white.opacity(opacity)
     }
 
