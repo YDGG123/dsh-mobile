@@ -312,7 +312,8 @@ struct WorkspaceView: View {
         VStack(alignment: .leading, spacing: 18) {
             VStack(alignment: .leading, spacing: 7) {
                 Text("探索未至之境")
-                    .appFont(.system(size: 32, weight: .bold))
+                    // 原 32pt 不在设计五档内（11/13/15/18/28），就近映射 display 28pt。
+                    .appFont(DSHType.display)
                 if connectionIsReady {
                     Text("已连接Deepseek Harness预览版")
                         .appFont(.subheadline).foregroundStyle(palette.ink(0.65))
@@ -360,10 +361,10 @@ struct WorkspaceView: View {
                         .padding(.vertical, 8)
                         .background {
                             if selected {
-                                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                                RoundedRectangle(cornerRadius: DSHRadius.xs, style: .continuous)
                                     .fill(palette.surface(0.18))
                                     .overlay(
-                                        RoundedRectangle(cornerRadius: 9, style: .continuous)
+                                        RoundedRectangle(cornerRadius: DSHRadius.xs, style: .continuous)
                                             .stroke(palette.stroke(0.18), lineWidth: 0.5)
                                     )
                             }
@@ -377,7 +378,7 @@ struct WorkspaceView: View {
         }
         .padding(4)
         // 用户反馈「灰底比周围白卡片重」：ink() 的浅色地板是给文字用的，填充改走 veil()。
-        .background(palette.veil(0.07), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(palette.veil(0.07), in: RoundedRectangle(cornerRadius: DSHRadius.sm, style: .continuous))
         .accessibilityElement(children: .contain)
         .accessibilityLabel("首页分组")
     }
@@ -414,7 +415,7 @@ struct WorkspaceView: View {
         return VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 Image(systemName: "wifi.exclamationmark")
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(palette.caution)
                 Text(issue?.headline ?? "连接已断开").appFont(.subheadline.weight(.medium))
                 Spacer()
             }
@@ -444,8 +445,8 @@ struct WorkspaceView: View {
             }
         }
         .padding(14)
-        .background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 14))
-        .overlay(RoundedRectangle(cornerRadius: 14).stroke(.orange.opacity(0.25)))
+        .background(palette.caution.opacity(0.12), in: RoundedRectangle(cornerRadius: DSHRadius.sm))
+        .overlay(RoundedRectangle(cornerRadius: DSHRadius.sm).stroke(palette.caution.opacity(0.25)))
     }
 
     // MARK: - Bot tab（网关团队帧）
@@ -493,7 +494,7 @@ struct WorkspaceView: View {
                 Text("暂无 Bot 或群聊。桌面端有 Bot 团队后这里会出现。")
                     .appFont(.subheadline).foregroundStyle(palette.ink(0.5))
                     .frame(maxWidth: .infinity, alignment: .leading).padding(18)
-                    .background(palette.surface(0.04), in: RoundedRectangle(cornerRadius: 15))
+                    .background(palette.surface(0.04), in: RoundedRectangle(cornerRadius: DSHRadius.md))
             } else {
                 ForEach(rows) { row in
                     Button {
@@ -708,7 +709,7 @@ struct WorkspaceView: View {
                 Text("暂无会话。在桌面端与 Bot 对话后，这里会出现会话。")
                     .appFont(.subheadline).foregroundStyle(palette.ink(0.5))
                     .frame(maxWidth: .infinity, alignment: .leading).padding(18)
-                    .background(palette.surface(0.04), in: RoundedRectangle(cornerRadius: 15))
+                    .background(palette.surface(0.04), in: RoundedRectangle(cornerRadius: DSHRadius.md))
             } else {
                 ForEach(bridgeRows) { row in
                     Button {
@@ -997,7 +998,8 @@ struct WorkspaceView: View {
 
     private func headerButtonLabel(systemName: String) -> some View {
         Image(systemName: systemName)
-            .appFont(.system(size: 17, weight: .semibold))
+            // 原 17pt 不在五档内，图标就近映射 title 18pt（重量保持 semibold）。
+            .appFont(DSHType.title)
             .frame(width: 40, height: 40)
             .contentShape(Circle())
     }
@@ -1044,7 +1046,7 @@ struct WorkspaceView: View {
 
     private var workspaceCardLabel: some View {
         HStack(spacing: 12) {
-            Image(systemName: "folder").foregroundStyle(.blue).appFont(.title3)
+            Image(systemName: "folder").foregroundStyle(palette.brand).appFont(.title3)
             VStack(alignment: .leading, spacing: 2) {
                 Text(workspaceDisplayTitle).appFont(.subheadline.weight(.semibold)).lineLimit(2)
                 Text(workspaceDisplayPath).appFont(.caption).foregroundStyle(palette.ink(0.55)).lineLimit(1)
@@ -1053,10 +1055,10 @@ struct WorkspaceView: View {
             GatewayConnectionIndicator(gateway: store.gateway)
             Image(systemName: "chevron.down").appFont(.caption).foregroundStyle(palette.ink(0.55))
         }
-        .padding(16)
-        .background(palette.surface(0.055), in: RoundedRectangle(cornerRadius: 15))
-        .overlay(RoundedRectangle(cornerRadius: 15).stroke(palette.stroke(0.14)))
-        .contentShape(RoundedRectangle(cornerRadius: 15))
+        .padding(DSHSpacing.lg)
+        .background(palette.surface(0.055), in: RoundedRectangle(cornerRadius: DSHRadius.md))
+        .overlay(RoundedRectangle(cornerRadius: DSHRadius.md).stroke(palette.stroke(0.14)))
+        .contentShape(RoundedRectangle(cornerRadius: DSHRadius.md))
     }
 
     private var sessionsHeader: some View {
@@ -1095,8 +1097,8 @@ struct WorkspaceView: View {
             .onSubmit { sessionSearchIsFocused = false }
         }
         .padding(.horizontal, 12).frame(minHeight: 42)
-        .background(palette.surface(0.06), in: RoundedRectangle(cornerRadius: 13))
-        .overlay(RoundedRectangle(cornerRadius: 13).stroke(palette.stroke(0.1)))
+        .background(palette.surface(0.06), in: RoundedRectangle(cornerRadius: DSHRadius.sm))
+        .overlay(RoundedRectangle(cornerRadius: DSHRadius.sm).stroke(palette.stroke(0.1)))
     }
 
     /// U5：原版连接界面恢复为主入口。任何一边配对成功都会同时拿到两套凭证，
@@ -1151,7 +1153,7 @@ struct WorkspaceView: View {
                 .appFont(.caption).foregroundStyle(palette.ink(0.6))
             if let error = info.error {
                 Text("原因：\(error)")
-                    .appFont(.caption).foregroundStyle(.orange)
+                    .appFont(.caption).foregroundStyle(palette.caution)
             }
             // B3：bridge 粘贴路径退役，重配只能走网关（一次配对双凭证）。
             HStack(spacing: 8) {
@@ -1174,7 +1176,7 @@ struct WorkspaceView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
-        .background(palette.surface(0.05), in: RoundedRectangle(cornerRadius: 15))
+        .background(palette.surface(0.05), in: RoundedRectangle(cornerRadius: DSHRadius.md))
     }
 
     @ViewBuilder
@@ -1187,14 +1189,14 @@ struct WorkspaceView: View {
                 Text("暂无已知会话。点这里连接桌面端后创建第一个任务。")
                     .appFont(.subheadline).foregroundStyle(palette.ink(0.55))
                     .frame(maxWidth: .infinity, alignment: .leading).padding(18)
-                    .background(palette.surface(0.04), in: RoundedRectangle(cornerRadius: 15))
+                    .background(palette.surface(0.04), in: RoundedRectangle(cornerRadius: DSHRadius.md))
             }
             .buttonStyle(.plain)
         } else {
             Text("已缓存聊天中未找到匹配内容。连接网关后可继续搜索其他聊天。")
                 .appFont(.subheadline).foregroundStyle(palette.ink(0.5))
                 .frame(maxWidth: .infinity, alignment: .leading).padding(18)
-                .background(palette.surface(0.04), in: RoundedRectangle(cornerRadius: 15))
+                .background(palette.surface(0.04), in: RoundedRectangle(cornerRadius: DSHRadius.md))
         }
 
     }
@@ -1299,7 +1301,7 @@ struct WorkspaceView: View {
                 newSessionButtonLabel
             }
             .buttonStyle(.glass(.clear.tint(DSHColor.navy.opacity(0.22))))
-            .buttonBorderShape(.roundedRectangle(radius: 18))
+            .buttonBorderShape(.roundedRectangle(radius: DSHRadius.lg))
             .buttonSizing(.flexible)
         } else {
             Button(action: onNewSession) {
@@ -1323,13 +1325,13 @@ struct WorkspaceView: View {
 
     private var newSessionButtonLabel: some View {
         HStack(spacing: 10) {
-            Image(systemName: "plus").appFont(.system(size: 15, weight: .semibold))
+            Image(systemName: "plus").appFont(DSHType.body.weight(.semibold))
                 .frame(width: 28, height: 28)
                 .background(palette.surface(0.1), in: Circle())
             Text("新建会话").appFont(.headline)
         }
         .frame(maxWidth: .infinity).frame(minHeight: 38)
-        .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: DSHRadius.lg, style: .continuous))
     }
 }
 
@@ -1680,15 +1682,15 @@ private struct DirectoryBrowserSheet: View {
                 .frame(height: 44)
                 .foregroundStyle(.white)
                 .background {
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    RoundedRectangle(cornerRadius: DSHRadius.sm, style: .continuous)
                         .fill(Color.black)
                 }
                 .overlay {
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    RoundedRectangle(cornerRadius: DSHRadius.sm, style: .continuous)
                         // 这是纯黑按钮上的一圈高光，与主题无关（原来用 ink 在浅色下变成深色描边，看不见）。
                         .stroke(Color.white.opacity(0.22), lineWidth: 0.8)
                 }
-                .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .contentShape(RoundedRectangle(cornerRadius: DSHRadius.sm, style: .continuous))
             }
             .buttonStyle(.plain)
             .disabled(
@@ -1762,7 +1764,8 @@ private struct GatewayAuthenticationMenu: View {
 
     private var label: some View {
         Image(systemName: "person.badge.key.fill")
-            .appFont(.system(size: 17, weight: .semibold))
+            // 原 17pt 不在五档内，图标就近映射 title 18pt（与 headerButtonLabel 同规则）。
+            .appFont(DSHType.title)
             .frame(width: 40, height: 40)
             .contentShape(Circle())
     }
