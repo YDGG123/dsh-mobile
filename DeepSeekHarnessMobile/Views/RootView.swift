@@ -140,7 +140,12 @@ private struct RootNavigationHost: View, Equatable {
                 ConversationView()
             }
         case .settings:
-            SettingsView()
+            SettingsView(
+                // 「设置 → 全部扩展」两个入口复用既有路由（插件 11 / 定时任务 10），
+                // 不重做它们的列表，也不跨文件构造 RootView 内的私有 View。
+                onOpenPlugins: { navigate(to: .plugins) },
+                onOpenScheduledTasks: { navigate(to: .scheduledTasks) }
+            )
         case .allSessions:
             AllSessionsView(
                 sessions: store.workspaceScopedSessions,

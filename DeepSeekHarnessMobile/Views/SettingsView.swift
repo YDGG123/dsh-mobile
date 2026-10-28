@@ -73,6 +73,40 @@ struct SettingsView: View {
     @AppStorage(AppFontScale.followsSystemKey) private var fontFollowsSystem = false
     private let releaseInfo = BundledAppReleaseInfo.load()
 
+    /// 主题三选直接绑 store.interfaceStyle：选中即写回，RootView 的 preferredColorScheme
+    /// 立即生效（第 1 刀批准的「不引 DSHThemeMode」落地处）。
+    private var interfaceStyleIndex: Binding<Int> {
+        Binding(
+            get: { InterfaceStyle.allCases.firstIndex(of: store.interfaceStyle) ?? 0 },
+            set: { index in
+                guard InterfaceStyle.allCases.indices.contains(index) else { return }
+                store.interfaceStyle = InterfaceStyle.allCases[index]
+            }
+        )
+    }
+
+    /// 「全部扩展」的值摘要（数量来自现有数据源，不新造统计）
+    private var extensionsSummary: String {
+        let plugins = store.pluginCatalog?.plugins.count ?? 0
+        let tasks = store.scheduledTasks.count
+        return "\(plugins) 插件 · \(tasks) 任务"
+    }
+
+    /// DSH Host 版本行文案：优先 dshVersion，其次 host.version
+    private func hostVersionText(_ host: GatewayHostSnapshot) -> String {
+        [host.dshVersion, host.version].compactMap { $0 }
+            .first { $0.range(of: "^v?[0-9]+\\.[0-9]+", options: .regularExpression) != nil } ?? "未提供"
+    }
+
+    /// 「扩展」里两个入口的导航：由 RootView 注入既有路由（.plugins / .scheduledTasks），
+    /// 不在这里构造那两个私有 View，也不重做它们的列表。
+    var onOpenPlugins: () -> Void = {}
+    var onOpenScheduledTasks: () -> Void = {}
+
+    @Environment(\.colorScheme) private var colorScheme
+    private var palette: DSHPalette { DSHPalette.resolve(colorScheme) }
+
+
     private var appVersion: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "未知"
     }
@@ -179,165 +213,179 @@ struct SettingsView: View {
     }
 
     var body: some View {
-        Form {
-            Section {
-                // 用户裁决：这四项一律不走推入——既避开「推入 × 设置」的死锁面，
-                // 也让设置页保持一屏可读完。选项用紧凑弹层（同「界面 / 语言」的形态）。
-                Button {
-                    showsPresetOptions = true
-                } label: {
-                    DefaultConfigurationRow(
-                        title: String(localized: "Agent 预设"),
-                        value: selectedPresetName,
-                        isLoading: defaultsAreLoading
-                    )
-                }
-                .buttonStyle(.plain)
-                .disabled(!gatewayState.isConnected)
-                .accessibilityIdentifier("default-agent-preset-row")
-
-                Button {
-                    showsModelOptions = true
-                } label: {
-                    DefaultConfigurationRow(
-                        title: String(localized: "默认模型"),
-                        value: defaultModelValueText,
-                        isLoading: defaultModelIsLoading
-                    )
-                }
-                .buttonStyle(.plain)
-                .disabled(!gatewayState.isConnected)
-                .accessibilityIdentifier("default-model-row")
-
-                Button {
-                    showsPermissionOptions = true
-                } label: {
-                    DefaultConfigurationRow(
-                        title: String(localized: "权限"),
-                        value: selectedPermissionName,
-                        isLoading: defaultsAreLoading
-                    )
-                }
-                .buttonStyle(.plain)
-                .disabled(!gatewayState.isConnected || store.defaultConfigurationLoadingKinds.contains("set-default"))
-                .accessibilityIdentifier("default-permission-row")
-            } header: {
-                Text("新会话默认配置")
-            } footer: {
-                Text("与 WebUI 使用同一份部署级设置。修改只影响之后新建的会话，运行中的会话保持启动时的配置。")
-            }
-
-            Section("Mobile Gateway") {
-                TextField("ws://host:3080/ws/mobile", text: $store.endpoint)
-                    .textInputAutocapitalization(.never)
-                    .keyboardType(.URL)
-                    .autocorrectionDisabled()
-                HStack {
-                    ConnectionDot(state: gatewayState)
-                    Text(gatewayState.label)
-                    Spacer()
-                    if let port = store.gateway.serverPort {
-                        Text("Port \(port)").foregroundStyle(.secondary)
+        ScrollView {
+            VStack(alignment: .leading, spacing: DSHSpacing.xl) {
+                // ① 外观（3 行）：主题三选直接读写 store.interfaceStyle——
+                // 切换立即生效走既有机制（RootView 的 preferredColorScheme），不造新机制。
+                DSHGroup("外观") {
+                    DSHRow("主题", showsDivider: true) {
+                        // 宽度 210：设计稿用「自动/浅色/深色」168 够，但我们沿用既有文案
+                        // 「跟随系统」（不改文案），168 会把首项截成「跟…」。
+                        DSHSegmented(items: InterfaceStyle.allCases.map(\.title),
+                                     selection: interfaceStyleIndex)
+                            .frame(width: 232)
                     }
-                }
-                Button(gatewayState.isConnected ? String(localized: "断开连接") : String(localized: "连接")) {
-                    if gatewayState.isConnected {
-                        store.disconnect()
-                    } else {
-                        store.connect()
+                    DSHRow("语言",
+                           showsDivider: true,
+                           action: { showsLanguageOptions = true }) {
+                        DSHRowValue(text: store.appLanguage.title + languageRestartSuffix)
                     }
-                }
-                Button("Ping 网关") { store.gateway.ping() }
-            }
-
-            if let host = store.hostSnapshot {
-                Section("DSH Host") {
-                    LabeledContent("版本", value: [host.dshVersion, host.version].compactMap { $0 }
-                        .first { $0.range(of: "^v?[0-9]+\\.[0-9]+", options: .regularExpression) != nil } ?? "未提供")
-                    LabeledContent("已连接会话", value: "\(host.attachedSessions ?? 0)")
-                    if let cwd = host.cwd {
-                        LabeledContent {
-                            Text(cwd)
-                                .appFont(.caption.monospaced())
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                                .textSelection(.enabled)
-                        } label: {
-                            Text("cwd")
-                        }
-                    }
-                }
-            }
-
-            Section {
-                // 规则：这里**不要**用 .navigationLink 的 Picker——它为每个选项推入子页面，
-                // 与全局动画背景（DeepOceanBackground）组合会在真机上卡死；.inline 又会平铺所有选项。
-                // 采用第三种形态：点行 → 弹出选项 sheet（不导航推入、不平铺）。
-                Button {
-                    showsInterfaceOptions = true
-                } label: {
-                    settingsValueRow(title: "界面", value: store.interfaceStyle.title)
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("appearance-style-row")
-                Button {
-                    showsLanguageOptions = true
-                } label: {
-                    // 切换后进程内仍是旧语言（iOS 只在启动时读 AppleLanguages），
-                    // 所以就在值后面标出来，不用用户猜。
-                    settingsValueRow(title: "语言", value: store.appLanguage.title + languageRestartSuffix)
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("appearance-language-row")
-                Button {
-                    showsFontSizePanel = true
-                } label: {
-                    HStack {
-                        Text("字体大小")
-                        Spacer()
-                        Text(verbatim: fontFollowsSystem ? String(localized: "跟随系统")
+                    DSHRow("字体大小",
+                           showsDivider: false,
+                           action: { showsFontSizePanel = true }) {
+                        DSHRowValue(text: fontFollowsSystem ? String(localized: "跟随系统")
                             : "\(Int((AppFontScale.normalized(fontScale) * 100).rounded()))%")
-                            .foregroundStyle(.secondary)
                     }
-                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("font-size-settings-row")
-            } header: {
-                Text("外观")
-            } footer: {
-                Text("语言设置将在重新启动应用后生效。")
-            }
 
-            Section {
-                NavigationLink {
-                    StorageSpaceView()
-                } label: {
-                    HStack {
-                        Text("存储空间")
-                        Spacer()
-                        if let usage = store.storageUsage {
-                            Text(verbatim: ByteCountFormatter.string(fromByteCount: usage.totalBytes, countStyle: .file))
-                                .foregroundStyle(.secondary)
+                // ② 新会话（3 行）：行为不变，仍是弹层选择（不推入——避免「推入 × 设置」死锁面）
+                DSHGroup("新会话") {
+                    DSHRow("Agent 预设",
+                           showsDivider: true,
+                           action: { showsPresetOptions = true }) {
+                        DSHRowValue(text: selectedPresetName)
+                    }
+                    .disabled(!gatewayState.isConnected)
+                    DSHRow("默认模型",
+                           showsDivider: true,
+                           action: { showsModelOptions = true }) {
+                        DSHRowValue(text: defaultModelValueText)
+                    }
+                    .disabled(!gatewayState.isConnected)
+                    DSHRow("权限",
+                           showsDivider: false,
+                           action: { showsPermissionOptions = true }) {
+                        DSHRowValue(text: selectedPermissionName)
+                    }
+                    .disabled(!gatewayState.isConnected || store.defaultConfigurationLoadingKinds.contains("set-default"))
+                }
+
+                // ③ 扩展（1 行聚合入口）：只做入口，不重做插件/任务列表（那是 11/10 屏）
+                DSHGroup("扩展") {
+                    NavigationLink {
+                        ExtensionsView(onOpenPlugins: onOpenPlugins,
+                                       onOpenScheduledTasks: onOpenScheduledTasks)
+                    } label: {
+                        DSHRow("全部扩展", showsDivider: false) {
+                            DSHRowValue(text: extensionsSummary, showsChevron: true)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                // ④ 连接（3 行）：网关地址可编辑 + 连接/断开 + Ping（原有行为逐个保留）
+                DSHGroup("连接") {
+                    DSHRow("网关地址", showsDivider: true) {
+                        TextField("ws://host:3080/ws/mobile", text: $store.endpoint)
+                            .textInputAutocapitalization(.never)
+                            .keyboardType(.URL)
+                            .autocorrectionDisabled()
+                            .multilineTextAlignment(.trailing)
+                            .appFont(DSHType.footnote)
+                            .foregroundStyle(palette.ink(0.5))
+                            .frame(maxWidth: 210)
+                    }
+                    DSHRow("连接状态",
+                           showsDivider: true,
+                           action: {
+                               if gatewayState.isConnected { store.disconnect() } else { store.connect() }
+                           }) {
+                        HStack(spacing: DSHSpacing.xs) {
+                            ConnectionDot(state: gatewayState)
+                            Text(gatewayState.label)
+                                .appFont(DSHType.footnote)
+                                .foregroundStyle(palette.ink(0.5))
+                            if let port = store.gateway.serverPort {
+                                Text(verbatim: "Port \(port)")
+                                    .appFont(DSHType.meta)
+                                    .foregroundStyle(palette.ink(0.4))
+                            }
+                            Image(systemName: "chevron.forward")
+                                .appFont(DSHType.meta.weight(.semibold))
+                                .foregroundStyle(palette.ink(0.3))
+                        }
+                    }
+                    DSHRow("Ping 网关",
+                           showsDivider: false,
+                           action: { store.gateway.ping() }) {
+                        Image(systemName: "chevron.forward")
+                            .appFont(DSHType.meta.weight(.semibold))
+                            .foregroundStyle(palette.ink(0.3))
+                    }
+                }
+
+                // ⑤ 主机信息（有才显示，3 行；只读）
+                if let host = store.hostSnapshot {
+                    DSHGroup("DSH Host") {
+                        DSHRow("版本", showsDivider: true) {
+                            DSHRowValue(text: hostVersionText(host), showsChevron: false)
+                        }
+                        DSHRow("已连接会话", showsDivider: host.cwd == nil ? false : true) {
+                            DSHRowValue(text: "\(host.attachedSessions ?? 0)", showsChevron: false)
+                        }
+                        if let cwd = host.cwd {
+                            DSHRow("cwd", showsDivider: false) {
+                                Text(cwd)
+                                    .appFont(DSHType.mono)
+                                    .foregroundStyle(palette.ink(0.5))
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                    .textSelection(.enabled)
+                            }
                         }
                     }
                 }
-                .accessibilityIdentifier("storage-space-settings-row")
-            }
 
-            Section("关于") {
-                releaseRow("当前版本", value: appVersion, repository: "dsh-mobile",
-                           version: appVersion, linkable: false)
-                releaseRow("要求网关版本", value: releaseInfo.map { "≥ \($0.minimumGatewayVersion)" } ?? "未提供",
-                           repository: "dsh-plugin-mobile-gateway", version: releaseInfo?.minimumGatewayVersion)
-                releaseRow("已连接网关版本", value: !gatewayState.isConnected ? "未连接" :
-                    store.pluginsLoading ? "读取中…" : connectedGatewayVersion ?? "未提供",
-                    repository: "dsh-plugin-mobile-gateway", version: connectedGatewayVersion)
-                Button("本版本新功能") { showsReleaseNotes = true }
-                Button("隐私政策") { showsPrivacyPolicy = true }
+                // ⑥ 关于（3 行）
+                DSHGroup("关于") {
+                    DSHRow("当前版本", showsDivider: true) {
+                        DSHRowValue(text: appVersion, showsChevron: false)
+                    }
+                    DSHRow("本版本新功能",
+                           showsDivider: true,
+                           action: { showsReleaseNotes = true }) {
+                        Image(systemName: "chevron.forward")
+                            .appFont(DSHType.meta.weight(.semibold))
+                            .foregroundStyle(palette.ink(0.3))
+                    }
+                    DSHRow("隐私政策",
+                           showsDivider: false,
+                           action: { showsPrivacyPolicy = true }) {
+                        Image(systemName: "chevron.forward")
+                            .appFont(DSHType.meta.weight(.semibold))
+                            .foregroundStyle(palette.ink(0.3))
+                    }
+                }
+
+                // ⑦ 更多（3 行：版本兼容性 + 存储）
+                DSHGroup("更多") {
+                    DSHRow("要求网关版本", showsDivider: true) {
+                        DSHRowValue(text: releaseInfo.map { "≥ \($0.minimumGatewayVersion)" } ?? String(localized: "未提供"),
+                                    showsChevron: false)
+                    }
+                    DSHRow("已连接网关版本", showsDivider: true) {
+                        DSHRowValue(text: !gatewayState.isConnected ? String(localized: "未连接")
+                            : store.pluginsLoading ? String(localized: "读取中…")
+                            : connectedGatewayVersion ?? String(localized: "未提供"),
+                                    showsChevron: false)
+                    }
+                    NavigationLink {
+                        StorageSpaceView()
+                    } label: {
+                        DSHRow("存储空间", showsDivider: false) {
+                            DSHRowValue(text: store.storageUsage.map {
+                                ByteCountFormatter.string(fromByteCount: $0.totalBytes, countStyle: .file)
+                            } ?? "", showsChevron: true)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
             }
+            .padding(.horizontal, DSHSpacing.lg)
+            .padding(.top, DSHSpacing.xs)
+            .padding(.bottom, DSHSpacing.xxl)
         }
+        .background(palette.pageBackground)
         .navigationTitle("设置")
         // B4：容器级推入页同样整屏盖住背景，推入期间暂停动画（与设置子页同一策略）。
         .pausesBackgroundAnimation()

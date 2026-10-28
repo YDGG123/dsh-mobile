@@ -1017,3 +1017,42 @@ struct DSHSessionRow: View {
         .contentShape(Rectangle())
     }
 }
+
+// MARK: - 13. 分段控件（参考实现 ScreensShared · 上移进设计系统）
+//
+// 用途：设置页主题三选、对话/轨迹、全部/已开启/已结束。
+// 深浅色都由 palette 决定；选中档是 cardFill + 轻阴影（不新增颜色）。
+
+struct DSHSegmented: View {
+    @Environment(\.colorScheme) private var scheme
+    let items: [String]
+    @Binding var selection: Int
+
+    var body: some View {
+        let p = DSHPalette(scheme: scheme)
+        HStack(spacing: DSHSpacing.xxs) {
+            ForEach(items.indices, id: \.self) { index in
+                let active = index == selection
+                Text(items[index])
+                    .appFont(DSHType.footnote.weight(active ? .semibold : .regular))
+                    .foregroundStyle(active ? p.ink(0.92) : p.ink(0.55))
+                    .lineLimit(1)
+                    // 用户可把字号放大到 150%：项内文字允许收缩，避免「跟随系统」被截成「跟随…」
+                    .minimumScaleFactor(0.75)
+                    .frame(maxWidth: .infinity, minHeight: 30)
+                    .background {
+                        if active {
+                            RoundedRectangle(cornerRadius: DSHRadius.sm, style: .continuous)
+                                .fill(p.cardFill)
+                                .shadow(color: .black.opacity(p.isLight ? 0.08 : 0), radius: 3, y: 1)
+                        }
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture { selection = index }
+                    .accessibilityAddTraits(active ? [.isSelected, .isButton] : .isButton)
+            }
+        }
+        .padding(3)
+        .background(p.veil(0.06), in: Capsule())
+    }
+}
