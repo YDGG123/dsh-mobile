@@ -498,6 +498,9 @@ struct ConversationView: View {
             : DSHColor.ink.opacity(0.10)
     }
 
+    /// 主题感知色板（03 composer 外壳与 01/02/13 同一套 token）
+    private var palette: DSHPalette { DSHPalette.resolve(colorScheme) }
+
     private var glassShadow: Color {
         .black.opacity(colorScheme == .dark ? 0.34 : 0.10)
     }
@@ -1110,12 +1113,12 @@ struct ConversationView: View {
             }
             .disabled(store.isViewingTeamMember || store.fileUploads.drafts.count >= 20 || store.fileUploads.preparing)
         } label: {
-            Image(systemName: "plus.circle")
-                .appFont(.system(size: 21, weight: .regular))
-                // SF Symbol 自身含侧边留白，补偿后与语音圆按钮保持相同可见边距。
-                .offset(x: -2)
-                // 可见图标贴齐输入框的内容边缘，点击区域仍保留 32pt。
-                .frame(width: 32, height: 32, alignment: .leading)
+            // 03 composer 外壳：附件 = chipFill 圆形 plus（参考实现 attach）
+            Image(systemName: "plus")
+                .appFont(.system(size: 13, weight: .semibold))
+                .foregroundStyle(palette.ink(0.55))
+                .frame(width: 30, height: 30)
+                .background(palette.chipFill, in: Circle())
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
@@ -1185,8 +1188,11 @@ struct ConversationView: View {
 
                 Spacer(minLength: 2)
 
-                if !store.isViewingTeamMember { modelControl }
-                else {
+                if !store.isViewingTeamMember {
+                    modelControl
+                    // 03 composer：思考等级从模型 chip 的紫标拆成独立胶囊
+                    effortControl
+                } else {
                     Text(store.selectedSession?.title ?? "成员会话").appFont(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
 
@@ -1247,13 +1253,13 @@ struct ConversationView: View {
                                 .fill(.white)
                                 .frame(width: 14, height: 14)
                         } else {
-                            Image(systemName: composerHasContent ? "arrow.up" : (voiceState.voiceMode ? "keyboard" : "waveform"))
+                            Image(systemName: composerHasContent ? "arrow.up" : (voiceState.voiceMode ? "keyboard" : "mic"))
                                 .appFont(.system(size: 17, weight: .bold))
                                 .foregroundStyle(.white)
                         }
                     }
-                    .frame(width: 42, height: 42)
-                    .background(DSHColor.ocean, in: Circle())
+                    .frame(width: 34, height: 34)
+                    .background(palette.brand, in: Circle())
                 }
                 .buttonStyle(.plain)
                 .disabled(
@@ -1286,19 +1292,14 @@ struct ConversationView: View {
                 }
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.top, 14)
-        .padding(.bottom, 12)
-        .themedGlassSurface(radius: 24, tint: glassTint, shadowOpacity: 0)
-        // 先收住玻璃自带的向下投影，再单独控制输入框阴影。
-        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .padding(DSHSpacing.md)
+        // 03 composer 外壳：卡片面 + 1pt 描边 + radius lg（与 01/02/13 同一套 token）
+        .background(palette.cardFill, in: RoundedRectangle(cornerRadius: DSHRadius.lg, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .stroke(glassEdge, lineWidth: 0.7)
+            RoundedRectangle(cornerRadius: DSHRadius.lg, style: .continuous)
+                .strokeBorder(palette.cardStroke, lineWidth: 1)
         }
-        // 轻微下移增强底部层次，保持原有扩散范围。
-        .shadow(color: .black.opacity(colorScheme == .dark ? 0.24 : 0.10), radius: 10, x: 0, y: 2)
-        .padding(.horizontal, 14)
+        .padding(.horizontal, DSHSpacing.lg)
         .padding(.bottom, composerBottomPadding)
         .onChangeCompat(of: store.messageAcceptedRevision) { _, _ in
             guard let submitted = submittedQueueDraft else { return }
@@ -1841,22 +1842,21 @@ struct ConversationView: View {
     @ViewBuilder
     private var permissionControl: some View {
         if store.selectedSessionId == nil {
-            HStack(spacing: 5) {
+            // 03 composer：新会话的默认权限也收成 30pt 图标位（7 个位在 390pt 上要留宽度给模型 chip）
+            Group {
                 if defaultConfigurationIsLoading && store.permissionDefault == nil {
                     ProgressView().controlSize(.mini)
-                    Text("读取默认权限…")
                 } else if let permission = store.permissionDefault {
                     Image(systemName: permissionIcon(permission))
-                    Text(permissionTitle(permission))
                 } else {
                     Image(systemName: "shield")
-                    Text("默认权限")
                 }
             }
-            .appFont(.caption.weight(.medium))
-            .foregroundStyle(.secondary)
-            .lineLimit(1)
-            .frame(minWidth: 92, alignment: .leading)
+            .appFont(DSHType.meta)
+            .foregroundStyle(palette.ink(0.6))
+            .frame(width: 30, height: 28)
+            .background(palette.chipFill, in: RoundedRectangle(cornerRadius: DSHRadius.sm, style: .continuous))
+            .contentShape(Rectangle())
             .accessibilityElement(children: .combine)
             .accessibilityLabel(String(localized: "a11y.defaults.permission", defaultValue: "新会话默认权限：\(store.permissionDefault.map(permissionTitle) ?? String(localized: "未读取"))"))
         } else {
@@ -1888,6 +1888,33 @@ struct ConversationView: View {
         }
     }
 
+    /// 03 composer：思考等级独立胶囊。点击**只列 efforts**（模型菜单里的「推理等级」一节保留，
+    /// 老用户从模型菜单仍可切）；选择仍走既有 `select(effort:)`，逻辑未改。
+    private var effortControl: some View {
+        Menu {
+            if currentEfforts.isEmpty {
+                Text("当前模型没有推理等级")
+            } else {
+                ForEach(currentEfforts) { effort in
+                    Button {
+                        select(effort: effort)
+                    } label: {
+                        Label(
+                            effort.name,
+                            systemImage: effort.id == currentModelSelection?.reasoningEffort ? "checkmark" : "circle"
+                        )
+                    }
+                }
+            }
+        } label: {
+            ConversationEffortMenuLabel(
+                title: currentEffortTitle ?? String(localized: "思考"),
+                isLoading: modelIsLoading
+            )
+        }
+        .disabled(currentEfforts.isEmpty)
+    }
+
     private var permissionMenu: some View {
         Menu {
             if permissionOptions.isEmpty {
@@ -1905,18 +1932,22 @@ struct ConversationView: View {
                 }
             }
         } label: {
-            HStack(spacing: 5) {
+            // 03 composer 外壳：权限保留为独立胶囊（设计稿没画，但既有能力不能砍）。
+            // 7 个位在 390pt 上挤不下，权限只留图标（点开菜单仍列全部选项名），
+            // 文字走无障碍标签；这样模型 chip 才有位置显示完整模型名。
+            Group {
                 if permissionIsLoading {
                     ProgressView().controlSize(.mini)
                 } else {
                     Image(systemName: permissionIcon(currentPermission))
+                        .appFont(DSHType.meta)
                 }
-                Text(permissionTitle(currentPermission)).lineLimit(1)
             }
-            .appFont(.caption.weight(.medium))
-            .foregroundStyle(.secondary)
-            .frame(minWidth: 78, alignment: .leading)
+            .foregroundStyle(palette.ink(0.6))
+            .frame(width: 30, height: 28)
+            .background(palette.chipFill, in: RoundedRectangle(cornerRadius: DSHRadius.sm, style: .continuous))
             .contentShape(Rectangle())
+            .accessibilityLabel(permissionTitle(currentPermission))
         }
         .disabled(permissionOptions.isEmpty)
     }
@@ -2596,38 +2627,36 @@ private struct TaskGoalPanels: View {
 
 private struct ConversationDefaultModelSummary: View {
     let title: String
+    /// 保留签名：推理等级改由独立 effort chip 呈现
     let effortTitle: String?
     let isLoading: Bool
+    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        HStack(spacing: 5) {
+        let p = DSHPalette(scheme: scheme)
+        HStack(spacing: DSHSpacing.xxs) {
             if isLoading {
                 ProgressView().controlSize(.mini)
                 Text("读取默认模型…")
+                    .appFont(DSHType.meta)
+                    .foregroundStyle(p.ink(0.6))
+                    .lineLimit(1)
             } else {
                 Text(title)
+                    .appFont(DSHType.meta)
+                    .foregroundStyle(p.ink(0.6))
                     .lineLimit(1)
                     .truncationMode(.tail)
-                if let effortTitle {
-                    Text(effortTitle)
-                        .appFont(.caption2.weight(.semibold))
-                        .foregroundStyle(.primary)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 3)
-                        .background(DSHColor.purple.opacity(0.14), in: Capsule())
-                }
+                    .layoutPriority(1)
             }
+            Image(systemName: "chevron.down")
+                .font(.system(size: 8, weight: .semibold))
+                .foregroundStyle(p.ink(0.4))
         }
-        .appFont(.caption.weight(.medium))
-        .foregroundStyle(.secondary)
-        .frame(maxWidth: .infinity, alignment: .trailing)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(
-            String(
-                localized: "a11y.defaults.model",
-                defaultValue: "新会话默认模型：\(title)\(effortTitle.map { String(localized: "defaults.effort.suffix", defaultValue: "，推理等级 \($0)") } ?? "")"
-            )
-        )
+        .padding(.horizontal, DSHSpacing.sm)
+        .frame(minHeight: 28)
+        .background(p.chipFill, in: RoundedRectangle(cornerRadius: DSHRadius.sm, style: .continuous))
+        .contentShape(Rectangle())
     }
 }
 
@@ -2705,37 +2734,57 @@ private struct ConversationModelMenuContent: View {
 
 private struct ConversationModelMenuLabel: View {
     let title: String
+    /// 保留签名：推理等级的紫标已拆成独立的 effort chip（03 composer）
     let effortTitle: String?
     let isLoading: Bool
+    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        HStack(spacing: 5) {
+        let p = DSHPalette(scheme: scheme)
+        HStack(spacing: DSHSpacing.xxs) {
             if isLoading {
                 ProgressView().controlSize(.mini)
             } else {
                 Text(title)
+                    .appFont(DSHType.meta)
+                    .foregroundStyle(p.ink(0.6))
                     .lineLimit(1)
                     .truncationMode(.tail)
-                    .layoutPriority(1)
-                if let effortTitle {
-                    Text(effortTitle)
-                        .appFont(.caption2.weight(.semibold))
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-                        .fixedSize(horizontal: true, vertical: false)
-                        .layoutPriority(2)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 3)
-                        .background(DSHColor.purple.opacity(0.16), in: Capsule())
-                }
             }
-            Image(systemName: "chevron.up.chevron.down")
-                .appFont(.system(size: 8, weight: .semibold))
-                .foregroundStyle(.tertiary)
+            Image(systemName: "chevron.down")
+                .font(.system(size: 8, weight: .semibold))
+                .foregroundStyle(p.ink(0.4))
         }
-        .appFont(.caption.weight(.medium))
-        .foregroundStyle(.secondary)
-        .frame(maxWidth: .infinity, alignment: .trailing)
+        .padding(.horizontal, DSHSpacing.sm)
+        .frame(minHeight: 28)
+        .background(p.chipFill, in: RoundedRectangle(cornerRadius: DSHRadius.sm, style: .continuous))
+        .contentShape(Rectangle())
+    }
+}
+
+private struct ConversationEffortMenuLabel: View {
+    let title: String
+    let isLoading: Bool
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        let p = DSHPalette(scheme: scheme)
+        HStack(spacing: DSHSpacing.xxs) {
+            if isLoading {
+                ProgressView().controlSize(.mini)
+            } else {
+                Text(title)
+                    .appFont(DSHType.meta)
+                    .foregroundStyle(p.ink(0.6))
+                    .lineLimit(1)
+            }
+            Image(systemName: "chevron.down")
+                .font(.system(size: 8, weight: .semibold))
+                .foregroundStyle(p.ink(0.4))
+        }
+        .padding(.horizontal, DSHSpacing.sm)
+        .frame(minHeight: 28)
+        .background(p.chipFill, in: RoundedRectangle(cornerRadius: DSHRadius.sm, style: .continuous))
         .contentShape(Rectangle())
     }
 }
