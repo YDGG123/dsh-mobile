@@ -587,6 +587,128 @@ struct DSHRowValue: View {
     }
 }
 
+// MARK: - 6.5 摘要卡（06/07 共用，对应参考实现 RefSummaryCard）
+//
+// 两种主题下都是**深底**（和代码块同一逻辑：保证三色阶段条与图例在浅色下也可读）。
+// 结构：总耗时大数字 + 结束时刻 → 三列指标 → 阶段占比条 → 三色图例。
+
+struct DSHSummarySegment {
+    let color: Color
+    let label: String
+    /// 占比 0...1（调用方按阶段时长归一）
+    let share: CGFloat
+}
+
+struct DSHSummaryCard: View {
+    let totalText: String
+    let endText: String?
+    let turns: String
+    let toolCalls: String
+    let steps: String
+    let segments: [DSHSummarySegment]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: DSHSpacing.md) {
+            HStack(alignment: .bottom) {
+                VStack(alignment: .leading, spacing: DSHSpacing.xxs) {
+                    Text("总耗时")
+                        .appFont(DSHType.meta)
+                        .foregroundStyle(Color.white.opacity(0.55))
+                    Text(totalText)
+                        .appFont(AppFont.system(size: 28, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                }
+                Spacer(minLength: DSHSpacing.sm)
+                if let endText {
+                    Text(endText)
+                        .appFont(DSHType.meta)
+                        .foregroundStyle(Color.white.opacity(0.55))
+                }
+            }
+
+            HStack(spacing: 0) {
+                summaryMetric(turns, "轮次")
+                summaryMetric(toolCalls, "工具调用")
+                summaryMetric(steps, "步骤")
+            }
+
+            GeometryReader { geo in
+                HStack(spacing: 0) {
+                    ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
+                        Rectangle()
+                            .fill(segment.color)
+                            .frame(width: geo.size.width * max(0, segment.share))
+                    }
+                }
+            }
+            .frame(height: 10)
+            .clipShape(Capsule())
+
+            HStack(spacing: DSHSpacing.md) {
+                ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
+                    HStack(spacing: DSHSpacing.xxs) {
+                        Circle().fill(segment.color).frame(width: 6, height: 6)
+                        Text(segment.label)
+                            .appFont(DSHType.meta)
+                            .foregroundStyle(Color.white.opacity(0.6))
+                            .lineLimit(1)
+                    }
+                }
+            }
+        }
+        .padding(DSHSpacing.lg)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            DSHPalette(scheme: .dark).contentBackground,
+            in: RoundedRectangle(cornerRadius: DSHRadius.lg, style: .continuous)
+        )
+    }
+
+    private func summaryMetric(_ value: String, _ label: String) -> some View {
+        VStack(alignment: .leading, spacing: DSHSpacing.xxs) {
+            Text(value)
+                .appFont(AppFont.system(size: 17, weight: .semibold, design: .monospaced))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+            Text(label)
+                .appFont(DSHType.meta)
+                .foregroundStyle(Color.white.opacity(0.55))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// 06/07 的时长/时刻格式化（两屏共用一套口径）
+enum DSHSummaryFormat {
+    /// "7:00.2" —— 分:秒.十分位
+    static func duration(_ seconds: TimeInterval) -> String {
+        let total = max(0, seconds)
+        let minutes = Int(total / 60)
+        let rest = total - Double(minutes * 60)
+        return String(format: "%d:%04.1f", minutes, rest)
+    }
+
+    /// "2:41" —— 分:秒（不足 1 分钟显示 "12.4s"）
+    static func coarse(_ seconds: TimeInterval) -> String {
+        let total = max(0, seconds)
+        if total < 60 { return String(format: "%.1fs", total) }
+        let minutes = Int(total / 60)
+        let rest = Int(total.rounded()) % 60
+        return String(format: "%d:%02d", minutes, rest)
+    }
+
+    /// "15:21" —— 24 小时时刻
+    static func clock(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "HH:mm"
+        return formatter.string(from: date)
+    }
+}
+
 // MARK: - 7. 状态
 //
 // 语义固定，不可互换：

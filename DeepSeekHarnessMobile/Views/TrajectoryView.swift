@@ -51,7 +51,8 @@ struct TrajectoryView: View {
                         }
                         ForEach(timeline.presentation.rows) { row in
                             if row.startsTurn, let turn = row.turn {
-                                TrajectoryTurnHeader(turn: turn)
+                                let meta = turnMeta(turn)
+                                TrajectoryTurnHeader(turn: turn, steps: meta.steps, seconds: meta.seconds)
                             }
                             TrajectoryRow(
                                 node: row.node,
@@ -79,7 +80,18 @@ struct TrajectoryView: View {
     }
 
     private func overview(onSelect: @escaping (TrajectoryNode) -> Void) -> some View {
-        VStack(alignment: .leading, spacing: 9) {
+        VStack(alignment: .leading, spacing: DSHSpacing.md) {
+            // ② 摘要卡（06/07 共用：两种主题下都是深底）
+            DSHSummaryCard(
+                totalText: DSHSummaryFormat.duration(totalSeconds),
+                endText: endDate.map { "\(DSHSummaryFormat.clock($0)) 结束" },
+                turns: "\(timeline.presentation.turnCount)",
+                toolCalls: "\(timeline.presentation.toolCount)",
+                steps: "\(stepCount)",
+                segments: phaseSegments
+            )
+
+            // 泳道图是原工程能力，保留在摘要卡下方（不占摘要卡位置）
             HStack {
                 Button {
                     usesActualDuration.toggle()
@@ -90,8 +102,6 @@ struct TrajectoryView: View {
                 .buttonStyle(.plain)
                 .accessibilityAddTraits(usesActualDuration ? .isSelected : [])
                 .accessibilityIdentifier("trajectory-duration-toggle")
-                Text("\(timeline.presentation.turnCount) Turns")
-                Text("\(timeline.presentation.toolCount) Calls")
                 Spacer()
                 Text(timeline.presentation.durationText).monospacedDigit()
             }
@@ -118,20 +128,76 @@ struct TrajectoryView: View {
                     .appFont(DSHType.meta.monospacedDigit()).foregroundStyle(palette.ink(0.45))
             }
         }
-        // 06 摘要卡：Turns / Calls / 时长 + 泳道图（数据未改，只换容器与字阶）
-        .padding(DSHSpacing.md)
-        .background(palette.cardFill, in: RoundedRectangle(cornerRadius: DSHRadius.lg))
-        .overlay(
-            RoundedRectangle(cornerRadius: DSHRadius.lg)
-                .strokeBorder(palette.cardStroke, lineWidth: 1)
-        )
         .padding(.horizontal, DSHSpacing.lg)
-        .padding(.vertical, DSHSpacing.sm)
+        .padding(.top, DSHSpacing.md)
+        .padding(.bottom, DSHSpacing.sm)
         .readableContentWidth()
     }
 
     /// 主题感知色板（与 01/02/13 屏同一套 token）
     private var palette: DSHPalette { DSHPalette.resolve(colorScheme) }
+
+    // MARK: - 06 摘要卡数据（全部取自既有轨迹节点，未新增采集）
+
+    /// 阶段总时长 = 各类节点自身耗时之和（与泳道「实际时长」同一口径）
+    private var totalSeconds: TimeInterval {
+        phaseSeconds([.input, .assistant, .tool, .subtool])
+    }
+
+    private var endDate: Date? {
+        timeline.presentation.visibleNodes.map(\.end).max()
+    }
+
+    /// 步骤数：去重后的 (轮次, 步骤) 对
+    private var stepCount: Int {
+        var pairs = Set<String>()
+        for node in timeline.nodes {
+            for record in node.records {
+                guard let turn = record.event.turn, let step = record.event.step else { continue }
+                pairs.insert("\(turn)-\(step)")
+            }
+        }
+        return pairs.count
+    }
+
+    /// 三色阶段占比：输入 brand / 模型 purple / 工具 amber（DSHColor 已有色，不是新色）
+    private var phaseSegments: [DSHSummarySegment] {
+        let input = phaseSeconds([.input])
+        let model = phaseSeconds([.assistant])
+        let tool = phaseSeconds([.tool, .subtool])
+        let all = input + model + tool
+        let base = all > 0 ? all : 1
+        return [
+            DSHSummarySegment(color: palette.brand, label: "输入 \(DSHSummaryFormat.coarse(input))", share: CGFloat(input / base)),
+            DSHSummarySegment(color: DSHColor.purple, label: "模型 \(DSHSummaryFormat.coarse(model))", share: CGFloat(model / base)),
+            DSHSummarySegment(color: DSHColor.amber, label: "工具 \(DSHSummaryFormat.coarse(tool))", share: CGFloat(tool / base))
+        ]
+    }
+
+    private func phaseSeconds(_ kinds: Set<TrajectoryNode.Kind>) -> TimeInterval {
+        timeline.nodes.reduce(0) { partial, node in
+            guard kinds.contains(node.kind) else { return partial }
+            return partial + max(0, node.end.timeIntervalSince(node.start))
+        }
+    }
+
+    /// 轮次组头右侧的「N 步 · M:SS」：按轮聚合节点跨度
+    private func turnMeta(_ turn: Int) -> (steps: Int, seconds: TimeInterval) {
+        var steps = Set<Int>()
+        var start: Date?
+        var end: Date?
+        for node in timeline.nodes {
+            for record in node.records {
+                guard record.event.turn == turn else { continue }
+                if let step = record.event.step { steps.insert(step) }
+            }
+            guard node.records.contains(where: { $0.event.turn == turn }) else { continue }
+            start = min(start ?? node.start, node.start)
+            end = max(end ?? node.end, node.end)
+        }
+        let seconds = (start != nil && end != nil) ? max(0, end!.timeIntervalSince(start!)) : 0
+        return (steps.count, seconds)
+    }
 
     private var nodes: [TrajectoryNode] { timeline.nodes }
 }
@@ -501,20 +567,27 @@ private extension View {
 
 private struct TrajectoryTurnHeader: View {
     let turn: Int
+    let steps: Int
+    let seconds: TimeInterval
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        HStack(spacing: 8) {
-            Text("Turn \(turn)")
-                .appFont(DSHType.meta.weight(.semibold).monospaced())
-                .foregroundStyle(DSHPalette.resolve(colorScheme).ink(0.45))
+        let p = DSHPalette.resolve(colorScheme)
+        HStack(spacing: DSHSpacing.sm) {
+            Text("第 \(turn) 轮")
+                .appFont(DSHType.meta.weight(.semibold))
+                .foregroundStyle(p.ink(0.55))
             Rectangle()
-                .fill(DSHPalette.resolve(colorScheme).rowDivider)
+                .fill(p.rowDivider)
                 .frame(height: 1)
+            Text("\(steps) 步 · \(DSHSummaryFormat.coarse(seconds))")
+                .appFont(DSHType.meta)
+                .foregroundStyle(p.ink(0.35))
+                .fixedSize()
         }
         .padding(.horizontal, 8)
-        .padding(.top, DSHSpacing.xs)
-        .frame(height: 18 + DSHSpacing.xs, alignment: .bottom)
+        .padding(.top, DSHSpacing.md)
+        .padding(.bottom, DSHSpacing.xxs)
     }
 }
 
