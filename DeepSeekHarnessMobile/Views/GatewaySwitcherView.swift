@@ -51,10 +51,19 @@ struct GatewaySwitcherBar: View {
         return String(localized: "重连中")
     }
 
-    /// 设计稿此行显示的是地址（如 192.168.1.12:3080），取首选端点，缺省回落第一个。
+    /// 设计稿此行显示「一眼能认」的地址（如 `192.168.1.12:3080`）：取首选端点
+    /// （缺省回落第一个），剥掉协议头与路径，只留 `域名[:端口]`——
+    /// wss 默认 443 / ws 默认 80 时省略端口，非默认端口才带（Chief 裁定 2026-10-29）。
     private var activeEndpoint: String? {
-        guard let profile = hosts.activeProfile else { return nil }
-        return profile.preferredEndpoint ?? profile.connectionEndpoints.first
+        guard let profile = hosts.activeProfile,
+              let raw = profile.preferredEndpoint ?? profile.connectionEndpoints.first,
+              var parts = URLComponents(string: raw),
+              let host = parts.host?.lowercased(), !host.isEmpty else { return nil }
+        parts.path = ""
+        let scheme = parts.scheme?.lowercased()
+        let isDefaultPort = (scheme == "wss" && parts.port == 443) || (scheme == "ws" && parts.port == 80)
+        if let port = parts.port, !isDefaultPort { return "\(host):\(port)" }
+        return host
     }
 }
 
