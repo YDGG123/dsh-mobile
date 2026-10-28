@@ -336,3 +336,487 @@ struct DshEmptyState: View {
         .padding(24)
     }
 }
+
+// MARK: ===== 设计系统 v1（来源：Design/handoff/DesignSystem.swift，唯一数值来源）=====
+// 2026-10-28 第一刀：只并入 token 与组件；逐屏替换在后续提交。
+// 与既有成员的关系：只增不改（DSHColor/AppFont/DSHPalette 原成员一律未动）。
+// 主题三选：未照搬 DSHThemeMode/.dshTheme —— 工程已有 InterfaceStyle（system/light/dark，
+// 持久化 + 根视图 preferredColorScheme），设置页直接读写 store.interfaceStyle。详见 /tmp/dropped-dshtheme.swift 备份。
+
+
+// MARK: - 1. 尺寸档
+//
+// 只有这些值。新增之前先问：能不能用现有的？
+// 历史上这个工程出现过 17 种圆角值（1、3、6、9…48），那是「看起来不精致」的根因。
+
+enum DSHRadius {
+    /// 小方块：徽标、状态胶囊的内层
+    static let xs: CGFloat = 8
+    /// 行内小元件：工具行、代码块内嵌
+    static let sm: CGFloat = 12
+    /// 分组卡片、工作区卡
+    static let md: CGFloat = 16
+    /// 大卡片：运行卡、摘要卡、空态图标底
+    static let lg: CGFloat = 20
+    /// 底部弹层、审批卡
+    static let xl: CGFloat = 28
+    /// 胶囊（开关、Tab、按钮）
+    static let pill: CGFloat = 999
+}
+
+enum DSHSpacing {
+    static let xxs: CGFloat = 2
+    static let xs: CGFloat = 4
+    static let sm: CGFloat = 8
+    static let md: CGFloat = 12
+    static let lg: CGFloat = 16
+    static let xl: CGFloat = 20
+    static let xxl: CGFloat = 28
+}
+
+// MARK: - 2. 字号档
+//
+// 只有五档 + 两个等宽档。全部走 AppFont，自动吃 Dynamic Type 和用户字号倍率。
+// 不要直接写 .font(.system(size:))，那会绕过字号设置。
+
+enum DSHType {
+    /// 11pt · 元信息：时间、计数、状态字、标签
+    static var meta: AppFont { .system(size: 11, weight: .medium) }
+    /// 13pt · 次要文字：说明、副标题、行内辅助
+    static var footnote: AppFont { .system(size: 13, weight: .regular) }
+    /// 15pt · 正文与行标题
+    static var body: AppFont { .system(size: 15, weight: .regular) }
+    /// 18pt · 区块标题、卡片主数字
+    static var title: AppFont { .system(size: 18, weight: .semibold) }
+    /// 28pt · 摘要页的大数字
+    static var display: AppFont { .system(size: 28, weight: .semibold) }
+
+    /// 12pt 等宽：地址、路径、cron、代码
+    static var mono: AppFont { .system(size: 12, weight: .regular, design: .monospaced) }
+    /// 17pt 等宽：指标数字
+    static var monoValue: AppFont { .system(size: 17, weight: .semibold, design: .monospaced) }
+}
+
+// MARK: - 3. 面语义（接进现有 DSHPalette 的三档）
+//
+// 现有三档的语义是「叠多少」：ink / surface / stroke / veil。
+// 这里把它们组合成有名字的「面」，视图只引用名字，不引用数值。
+
+extension DSHPalette {
+    /// 页面底色。深色沿用品牌海军蓝，浅色用带一点蓝的灰白（纯白会让白卡片失去层次）。
+    var pageBackground: Color {
+        isLight ? Color(red: 0.957, green: 0.965, blue: 0.976) : DSHColor.navy
+    }
+
+    /// 阅读区底色（会话正文、文件预览）。深色比页面底色略亮一档，形成「纸」的层次。
+    var contentBackground: Color {
+        isLight ? .white : Color(red: 0.063, green: 0.106, blue: 0.169)
+    }
+
+    /// 卡片填充：分组卡片、工作区卡、任务卡
+    var cardFill: Color {
+        isLight ? .white : surface(0.06)
+    }
+
+    /// 卡片描边：1pt，浅色下必须可见，否则白卡在白底上消失
+    var cardStroke: Color {
+        isLight ? stroke(0.06) : stroke(0.12)
+    }
+
+    /// 卡片内部分隔线（分组行的 line）
+    var rowDivider: Color {
+        isLight ? stroke(0.05) : stroke(0.07)
+    }
+
+    /// 小控件底：chip、圆形图标按钮、搜索框
+    var chipFill: Color {
+        isLight ? veil(0.12) : veil(0.08)
+    }
+
+    /// 代码块底色：两种主题下都是深色（保证语法色一致）
+    var codeBackground: Color {
+        Color(red: 0.024, green: 0.055, blue: 0.09)
+    }
+
+    /// 品牌主色（按钮、选中态）。深色下用亮一档，保证在深底上的可点感。
+    var brand: Color {
+        isLight ? DSHColor.ocean : Color(red: 0.30, green: 0.55, blue: 1.0)
+    }
+}
+
+// MARK: - 4. 主题三选
+//
+// 现在的工程只跟随系统。设计稿需要「自动 / 浅色 / 深色」三选，
+// 因为有人在深色系统下也想要浅色会话页（长时间读代码）。
+//
+// MARK: - 5. 分组卡片
+//
+// 设置页、关于页、扩展页的标准容器：标题在卡片外，行在卡片内，
+// 分隔线左缩进 14（对齐文字起点，不是贯穿整卡）。
+
+struct DSHGroup<Content: View>: View {
+    @Environment(\.colorScheme) private var scheme
+    private let title: String?
+    private let content: Content
+
+    init(_ title: String? = nil, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.content = content()
+    }
+
+    var body: some View {
+        let p = DSHPalette(scheme: scheme)
+        VStack(alignment: .leading, spacing: 0) {
+            if let title {
+                Text(title)
+                    .appFont(DSHType.meta)
+                    .foregroundStyle(p.ink(0.45))
+                    .padding(.leading, DSHSpacing.xs)
+                    .padding(.bottom, DSHSpacing.sm)
+            }
+            VStack(spacing: 0) { content }
+                .background(p.cardFill)
+                .clipShape(RoundedRectangle(cornerRadius: DSHRadius.md, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: DSHRadius.md, style: .continuous)
+                        .strokeBorder(p.cardStroke, lineWidth: 1)
+                )
+        }
+    }
+}
+
+// MARK: - 6. 设置行
+//
+// 分组卡片里的一行：标题（可带副标题）+ 右侧内容（值 / 开关 / 箭头 / 自定义视图）。
+//
+// 规则：
+// - 有 action 才可点，可点必须有右侧视觉暗示（箭头或值），不能只有文字变化
+// - showsDivider 默认 true，但组内最后一行必须传 false（否则卡片底部多一条线）
+
+struct DSHRow<Trailing: View>: View {
+    @Environment(\.colorScheme) private var scheme
+    private let title: String
+    private let subtitle: String?
+    private let showsDivider: Bool
+    private let action: (() -> Void)?
+    private let trailing: Trailing
+
+    init(_ title: String,
+         subtitle: String? = nil,
+         showsDivider: Bool = true,
+         action: (() -> Void)? = nil,
+         @ViewBuilder trailing: () -> Trailing) {
+        self.title = title
+        self.subtitle = subtitle
+        self.showsDivider = showsDivider
+        self.action = action
+        self.trailing = trailing()
+    }
+
+    var body: some View {
+        let p = DSHPalette(scheme: scheme)
+        let row = HStack(spacing: DSHSpacing.md) {
+            VStack(alignment: .leading, spacing: DSHSpacing.xxs) {
+                Text(title)
+                    .appFont(DSHType.body)
+                    .foregroundStyle(p.ink(0.92))
+                if let subtitle {
+                    Text(subtitle)
+                        .appFont(DSHType.footnote)
+                        .foregroundStyle(p.ink(0.5))
+                }
+            }
+            Spacer(minLength: DSHSpacing.sm)
+            trailing
+        }
+        .padding(.horizontal, 14)
+        .frame(minHeight: 50)
+        .contentShape(Rectangle())
+        .overlay(alignment: .bottom) {
+            if showsDivider {
+                Rectangle()
+                    .fill(p.rowDivider)
+                    .frame(height: 1)
+                    .padding(.leading, 14)
+            }
+        }
+
+        if let action {
+            Button(action: action) { row }
+                .buttonStyle(.plain)
+        } else {
+            row
+        }
+    }
+}
+
+extension DSHRow where Trailing == EmptyView {
+    init(_ title: String,
+         subtitle: String? = nil,
+         showsDivider: Bool = true,
+         action: (() -> Void)? = nil) {
+        self.init(title, subtitle: subtitle, showsDivider: showsDivider, action: action) {
+            EmptyView()
+        }
+    }
+}
+
+/// 行右侧的「值 + 箭头」，最常用的一种 trailing
+struct DSHRowValue: View {
+    @Environment(\.colorScheme) private var scheme
+    let text: String
+    var showsChevron: Bool = true
+
+    var body: some View {
+        let p = DSHPalette(scheme: scheme)
+        HStack(spacing: DSHSpacing.xs) {
+            Text(text)
+                .appFont(DSHType.footnote)
+                .foregroundStyle(p.ink(0.5))
+                .lineLimit(1)
+            if showsChevron {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(p.ink(0.28))
+            }
+        }
+    }
+}
+
+// MARK: - 7. 状态
+//
+// 语义固定，不可互换：
+//   橙 = 等你动手（审批 / 回答）  → 实心胶囊 + 呼吸
+//   蓝 = 进行中（运行 / 在线）    → 圆点 + 文字
+//   绿 = 正常（已连接 / 在线）    → 圆点 + 文字
+//   红 = 中断 / 失败              → 圆点 + 文字
+//   灰 = 空闲 / 已完成            → 圆点 + 文字
+//
+// 判断依据只有一条：需不需要用户现在动手。需要的用胶囊，不需要的用圆点。
+
+enum DSHStatusKind {
+    case waiting     // 等你审批
+    case question    // 等你回答
+    case running     // 运行中
+    case online      // 已连接 / 在线
+    case failed      // 已中断
+    case idle        // 空闲 / 已完成
+}
+
+struct DSHStatus: View {
+    @Environment(\.colorScheme) private var scheme
+    let kind: DSHStatusKind
+    let text: String
+    /// 只有需要用户动手的状态才允许开呼吸动画
+    var pulsing: Bool = false
+
+    private var isPill: Bool { kind == .waiting || kind == .question }
+
+    private func color(_ p: DSHPalette) -> Color {
+        switch kind {
+        case .waiting:  return p.caution
+        case .question: return p.brand
+        case .running:  return p.brand
+        case .online:   return p.success
+        case .failed:   return p.danger
+        case .idle:     return p.ink(0.45)
+        }
+    }
+
+    var body: some View {
+        let p = DSHPalette(scheme: scheme)
+        if isPill {
+            HStack(spacing: 5) {
+                dot(color(p), pulsing: pulsing)
+                Text(text)
+                    .appFont(DSHType.meta.weight(.semibold))
+                    .foregroundStyle(color(p))
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(color(p).opacity(0.16))
+            .clipShape(RoundedRectangle(cornerRadius: DSHRadius.xs, style: .continuous))
+        } else {
+            HStack(spacing: 5) {
+                dot(color(p), pulsing: false)
+                Text(text)
+                    .appFont(DSHType.meta.weight(.semibold))
+                    .foregroundStyle(color(p))
+                    .lineLimit(1)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func dot(_ c: Color, pulsing: Bool) -> some View {
+        if pulsing {
+            Circle()
+                .fill(c)
+                .frame(width: 7, height: 7)
+                .opacity(0.95)
+                .modifier(BreathingOpacity())
+        } else {
+            Circle()
+                .fill(c)
+                .frame(width: 7, height: 7)
+        }
+    }
+}
+
+/// 只能用在「等你动手」的提示上。其他地方的呼吸会变成噪音。
+private struct BreathingOpacity: ViewModifier {
+    @State private var dim = false
+    func body(content: Content) -> some View {
+        content
+            .opacity(dim ? 0.35 : 1)
+            .animation(.easeInOut(duration: 1.9).repeatForever(autoreverses: true), value: dim)
+            .onAppear { dim = true }
+    }
+}
+
+// MARK: - 8. 空态（iOS 16 没有 ContentUnavailableView）
+//
+// 每个列表都要有空态。文案要具体，不要写「暂无数据」。
+
+struct DSHEmptyState: View {
+    @Environment(\.colorScheme) private var scheme
+    let icon: String            // SF Symbol 名
+    let title: String
+    let message: String
+    var actionTitle: String? = nil
+    var action: (() -> Void)? = nil
+
+    var body: some View {
+        let p = DSHPalette(scheme: scheme)
+        VStack(spacing: DSHSpacing.md) {
+            Image(systemName: icon)
+                .font(.system(size: 22, weight: .regular))
+                .foregroundStyle(p.ink(0.42))
+                .frame(width: 56, height: 56)
+                .background(p.chipFill)
+                .clipShape(RoundedRectangle(cornerRadius: DSHRadius.lg, style: .continuous))
+
+            Text(title)
+                .appFont(DSHType.body.weight(.semibold))
+                .foregroundStyle(p.ink(0.92))
+                .multilineTextAlignment(.center)
+
+            Text(message)
+                .appFont(DSHType.footnote)
+                .foregroundStyle(p.ink(0.55))
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if let actionTitle, let action {
+                Button(action: action) {
+                    Text(actionTitle)
+                        .appFont(DSHType.body.weight(.semibold))
+                }
+                .buttonStyle(DSHPrimaryButtonStyle())
+                .padding(.top, DSHSpacing.xs)
+            }
+        }
+        .padding(.horizontal, DSHSpacing.xl)
+        .padding(.top, 52)
+        .frame(maxWidth: .infinity)
+    }
+}
+
+// MARK: - 8b. 品牌空态（新会话页）
+//
+// 会话还没有任何消息时显示：黑鲸 + 标题 + 说明，在内容区**垂直居中**。
+//
+// 图标必须复用 `OrcarnessOrcaIcon`（Glass.swift）—— 它已经处理了「深色下黑鲸在深底上消失」
+// 的问题（加一层浅灰圆底）。**不要用 SF Symbol 替代**，这只鲸是品牌资产。
+//
+// 浅色下没有圆底，白斑会和页面背景融合，鲸鱼看起来有点"缺" —— 这是现有实现的表现，
+// 别自作主张改配色。
+
+struct DSHBrandEmptyState: View {
+    @Environment(\.colorScheme) private var scheme
+    let title: String
+    let message: String
+    var iconSize: CGFloat = 52
+
+    var body: some View {
+        let p = DSHPalette(scheme: scheme)
+        VStack(spacing: 14) {
+            OrcarnessOrcaIcon(size: iconSize)
+
+            Text(title)
+                .appFont(DSHType.title)
+                .foregroundStyle(p.ink(0.92))
+                .multilineTextAlignment(.center)
+
+            Text(message)
+                .appFont(DSHType.footnote)
+                .foregroundStyle(p.ink(0.55))
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.horizontal, 28)
+    }
+}
+
+// MARK: - 9. 按钮
+//
+// 只有两种：主操作（填充）和次操作（描边）。不要出现第三种。
+
+struct DSHPrimaryButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundStyle(.white)
+            .padding(.horizontal, DSHSpacing.xl)
+            .frame(height: 38)
+            .background(DSHColor.ocean)
+            .clipShape(Capsule())
+            .opacity(configuration.isPressed ? 0.86 : 1)
+    }
+}
+
+struct DSHSecondaryButtonStyle: ButtonStyle {
+    @Environment(\.colorScheme) private var scheme
+    func makeBody(configuration: Configuration) -> some View {
+        let p = DSHPalette(scheme: scheme)
+        return configuration.label
+            .appFont(DSHType.body.weight(.semibold))
+            .foregroundStyle(p.ink(0.75))
+            .padding(.horizontal, DSHSpacing.xl)
+            .frame(height: 38)
+            .background(p.cardFill)
+            .overlay(Capsule().strokeBorder(p.cardStroke, lineWidth: 1))
+            .clipShape(Capsule())
+            .opacity(configuration.isPressed ? 0.86 : 1)
+    }
+}
+
+// MARK: - 10. 页面骨架
+//
+// 所有二级页都长这样：底色 + 滚动容器 + 20 外边距 + 页面级 spacing。
+// 直接照抄这段，不要每页自己写 padding。
+
+struct DSHPage<Content: View>: View {
+    @Environment(\.colorScheme) private var scheme
+    private let content: Content
+
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    var body: some View {
+        let p = DSHPalette(scheme: scheme)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                content
+            }
+            .padding(.horizontal, DSHSpacing.xl)
+            .padding(.top, DSHSpacing.md)
+            .padding(.bottom, DSHSpacing.xxl)
+        }
+        .scrollIndicators(.hidden)
+        .background(p.pageBackground)
+    }
+}
+
