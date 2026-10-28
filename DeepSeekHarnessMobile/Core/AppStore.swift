@@ -533,7 +533,16 @@ final class AppStore: ObservableObject {
 
     /// UI 的统一入口：**bridge 卡片优先，旧协议兜底**（两来源并存，一套 UI）
     var selectedPendingQuestionRequestMerged: GatewayPendingQuestionRequest? {
-        selectedBridgeQuestionRequest ?? selectedPendingQuestionRequest
+        let bridge = selectedBridgeQuestionRequest
+        let legacy = selectedPendingQuestionRequest
+        let picked = bridge ?? legacy
+        // ②定位日志（长期 debug）：卡片在总表里却没被选中 = sessionId 不匹配被过滤，
+        // 这就是"新卡要退出重进才显示"的可观测判据（2026-10-28 真机报告）。
+        if bridgePendingQuestions.isEmpty == false, picked == nil {
+            Logger(subsystem: "ai.dsh.mobile.ios", category: "history")
+                .debug("bridge cards present but none matches selectedSessionId=\(selectedSessionId ?? "nil", privacy: .public); card sessions=\(bridgePendingQuestions.map(\.sessionId), privacy: .public)")
+        }
+        return picked
     }
 
     /// UI 取状态：bridge 优先，旧协议兜底（两来源并存）
