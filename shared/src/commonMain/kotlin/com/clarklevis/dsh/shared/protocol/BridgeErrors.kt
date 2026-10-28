@@ -36,6 +36,7 @@ enum class BridgeWireKnownCode(val wireValue: String) {
     // 动作/写状态
     ACTION_NOT_ALLOWED("ACTION_NOT_ALLOWED"),
     INVALID_ACTION("INVALID_ACTION"),
+    QUESTION_IN_FLIGHT("QUESTION_IN_FLIGHT"),
     READ_ONLY("READ_ONLY"),
     TARGET_DENIED("TARGET_DENIED"),
     TARGET_CHANGED("TARGET_CHANGED"),
@@ -126,10 +127,13 @@ data class BridgeTeamError(
     }
 }
 
-/** 按大小写分族：全大写（含下划线）= wire 族，其余 = client 族。 */
+/** 按大小写分族：全大写（含下划线）或 bot/ 前缀 = wire 族，其余 = client 族。 */
 fun classifyBridgeErrorCode(raw: String): BridgeTeamError {
     val trimmed = raw.trim()
-    val isWireFamily = trimmed.isNotEmpty() && trimmed == trimmed.uppercase()
+    // bot/ 前缀特例：网关 adapter.mjs 的 bot/* 族是小写带斜杠的既有契约形态
+    // （bot/invalid, bot/not-found, bot/read-only, bot/stale），服务端透传 = wire 族。
+    // 不能让网关迁就大写（动契约），分族判据按前缀放行；未进 known 枚举时走 fail-closed（known == null）。
+    val isWireFamily = trimmed.isNotEmpty() && (trimmed == trimmed.uppercase() || trimmed.startsWith("bot/"))
     return if (isWireFamily) {
         BridgeTeamError(
             source = BridgeTeamError.SOURCE_WIRE,

@@ -82,4 +82,40 @@ class BridgeErrorsTest {
             com.clarklevis.dsh.shared.protocol.classifyBridgeErrorCode("disposed").knownClientCode
         )
     }
+
+    @Test
+    fun botSlashPrefixIsWireFamilyRegardlessOfCase() {
+        // bot/ 前缀特例：网关 adapter.mjs 的 bot/* 族是小写带斜杠的既有契约形态，
+        // 服务端透传 = wire 族（整族处理，不能让网关迁就大写）。
+        // 未建模 known 枚举 → knownWireCode = null，fail-closed 显示原文；code 原样保留。
+        for (raw in listOf("bot/invalid", "bot/not-found", "bot/read-only", "bot/stale")) {
+            val error = com.clarklevis.dsh.shared.protocol.classifyBridgeErrorCode(raw)
+            assertEquals(BridgeTeamError.SOURCE_WIRE, error.source, raw)
+            assertEquals(raw, error.code, raw)
+            assertTrue(error.isWire, raw)
+            assertNull(error.knownWireCode, raw)
+            assertNull(error.knownClientCode, raw)
+        }
+    }
+
+    @Test
+    fun questionInFlightIsAKnownWireCode() {
+        val error = com.clarklevis.dsh.shared.protocol.classifyBridgeErrorCode("QUESTION_IN_FLIGHT")
+        assertEquals(BridgeTeamError.SOURCE_WIRE, error.source)
+        assertEquals("QUESTION_IN_FLIGHT", error.code)
+        assertEquals(BridgeWireKnownCode.QUESTION_IN_FLIGHT.name, error.knownWireCode)
+        assertTrue(error.isWire)
+    }
+
+    @Test
+    fun botSlashEnvelopeDecodesWithMessageVerbatim() {
+        // 409 bot/stale 信封（网关 server.mjs:335 形状）→ wire 族 + code/message 原样。
+        val error = decodeBridgeErrorEnvelope(
+            409,
+            """{"error":{"code":"bot/stale","message":"This question is no longer open"}}"""
+        )
+        assertEquals(BridgeTeamError.SOURCE_WIRE, error.source)
+        assertEquals("bot/stale", error.code)
+        assertEquals("This question is no longer open", error.message)
+    }
 }
