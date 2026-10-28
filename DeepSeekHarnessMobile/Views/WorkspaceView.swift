@@ -443,22 +443,28 @@ struct WorkspaceView: View {
         LazyVStack(alignment: .leading, spacing: 18) {
             if isUnpairedHome && primaryTab == .sessions {
                 // 20-unpaired：未配对时会话区整体不出现（参考实现 S01——首页只剩配对卡）。
+            } else if primaryTab == .bots {
+                // 08 屏：Bot tab 是名册页——页头「Bot + 团队」，不再显示「最近会话」。
+                botRosterHeader.id("workspace-bot-header")
+                sessionSearch.id("workspace-session-search")
+                if bridgeTeam.connectionIssue != nil || (bridgeListReady && bridgeTeam.mirror?.isOffline == true) {
+                    bridgeOfflineBanner
+                }
+                // 三档回落（既有能力，不许降级）：网关团队帧 → bridge 镜像 → 诊断卡
+                if gatewayTeamReady {
+                    gatewayTeamSection
+                } else if bridgeListReady {
+                    bridgeSessionsSection
+                } else {
+                    botDiagnosticsCard
+                }
             } else {
                 sessionsHeader.id("workspace-sessions-header")
                 sessionSearch.id("workspace-session-search")
                 if bridgeTeam.connectionIssue != nil || (bridgeListReady && bridgeTeam.mirror?.isOffline == true) {
                     bridgeOfflineBanner
                 }
-                if primaryTab == .bots {
-                    // 数据源优先级：网关团队帧（新）→ bridge 镜像（旧宿主兼容）→ 诊断卡。
-                    if gatewayTeamReady {
-                        gatewayTeamSection
-                    } else if bridgeListReady {
-                        bridgeSessionsSection
-                    } else {
-                        botDiagnosticsCard
-                    }
-                } else if displayedSessions.isEmpty {
+                if displayedSessions.isEmpty {
                     emptySessions.id("workspace-sessions-empty")
                 } else {
                     sessionsList
@@ -532,43 +538,93 @@ struct WorkspaceView: View {
     /// 需求 1/3/4：主 Bot 最上 → 置顶 → 网关 `order` 倒序；Bots 与群聊混排；
     /// 名字下挂实时状态；`degraded` 时显式说明「实时状态暂不可用」，绝不显示成「全部空闲」。
     private var gatewayTeamSection: some View {
-        LazyVStack(spacing: 0) {
+        VStack(alignment: .leading, spacing: DSHSpacing.md) {
             if gatewayTeam.degraded {
                 Text("实时状态暂不可用：网关目前只拿到名册（名字/角色/成员）。干活中、等你回答、等你审批要等桌面端发布团队服务后才显示。")
-                    .appFont(.caption)
+                    .appFont(DSHType.meta)
                     .foregroundStyle(palette.ink(0.6))
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(12)
-                    .background(palette.surface(0.05), in: RoundedRectangle(cornerRadius: 12))
-                    .padding(.bottom, 6)
+                    .padding(DSHSpacing.md)
+                    .background(palette.surface(0.05), in: RoundedRectangle(cornerRadius: DSHRadius.sm))
             }
             if case .offline(let reason) = gatewayTeam.phase {
                 Text("团队连接中断：\(reason)")
-                    .appFont(.caption).foregroundStyle(palette.caution)
+                    .appFont(DSHType.meta)
+                    .foregroundStyle(palette.caution)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 4).padding(.bottom, 6)
             }
             let rows = gatewayTeam.sortedRows.filter { row in
                 let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
                 return query.isEmpty || row.name.localizedCaseInsensitiveContains(query)
             }
             if rows.isEmpty {
+                // 08 空态：沿用既有文案（「暂无 Bot 或群聊…」），卡片底左对齐、无按钮
                 Text("暂无 Bot 或群聊。桌面端有 Bot 团队后这里会出现。")
-                    .appFont(.subheadline).foregroundStyle(palette.ink(0.5))
-                    .frame(maxWidth: .infinity, alignment: .leading).padding(18)
-                    .background(palette.surface(0.04), in: RoundedRectangle(cornerRadius: DSHRadius.md))
+                    .appFont(DSHType.footnote)
+                    .foregroundStyle(palette.ink(0.5))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(DSHSpacing.lg)
+                    .background(palette.cardFill, in: RoundedRectangle(cornerRadius: DSHRadius.md))
+                    .overlay(RoundedRectangle(cornerRadius: DSHRadius.md)
+                        .strokeBorder(palette.cardStroke, lineWidth: 1))
             } else {
-                ForEach(rows) { row in
-                    Button {
-                        sessionSearchIsFocused = false
-                        openGatewayTeamRow(row)
-                    } label: {
-                        gatewayTeamRow(row)
-                    }
-                    .buttonStyle(.plain)
-                    .id("gateway-team-\(row.id)")
-                    Divider().overlay(palette.stroke(0.1)).padding(.leading, 18)
+                let bots = rows.filter { $0.kind == .bot }
+                let rooms = rows.filter { $0.kind == .room }
+                if !bots.isEmpty {
+                    rosterSectionTitle("Agent")
+                    ForEach(bots) { row in rosterRow(row) }
                 }
+                if !rooms.isEmpty {
+                    rosterSectionTitle("群聊")
+                    ForEach(rooms) { row in rosterRow(row) }
+                }
+            }
+        }
+    }
+
+    /// 08 分组标题（Agent / 群聊）
+    private func rosterSectionTitle(_ title: String) -> some View {
+        Text(title)
+            .appFont(DSHType.meta.weight(.semibold))
+            .foregroundStyle(palette.ink(0.45))
+            .padding(.top, DSHSpacing.xxs)
+    }
+
+    /// 08 名册行：头像 + 名字/角色 + 右侧状态；行是独立卡片（参考实现 RefBotRow）。
+    /// 行内容复用既有 gatewayTeamRow（头像/实时状态/团队流降级语义都在里面）。
+    private func rosterRow(_ row: GatewayTeamFeed.Row) -> some View {
+        Button {
+            sessionSearchIsFocused = false
+            openGatewayTeamRow(row)
+        } label: {
+            gatewayTeamRow(row)
+                .padding(.horizontal, DSHSpacing.md)
+                .frame(minHeight: 64)
+                .background(palette.cardFill, in: RoundedRectangle(cornerRadius: DSHRadius.md))
+                .overlay(RoundedRectangle(cornerRadius: DSHRadius.md)
+                    .strokeBorder(palette.cardStroke, lineWidth: 1))
+                .contentShape(RoundedRectangle(cornerRadius: DSHRadius.md))
+        }
+        .buttonStyle(.plain)
+        .id("gateway-team-\(row.id)")
+    }
+
+    /// 08 屏页头：「Bot」标题 + 右上「团队」入口。
+    /// 门控沿用既有 `store.teamSnapshot.visible`——桌面端没开团队服务时不给空入口。
+    private var botRosterHeader: some View {
+        HStack {
+            Text("Bot")
+                .appFont(DSHType.title)
+                .foregroundStyle(palette.ink(0.92))
+            Spacer()
+            if store.teamSnapshot.visible {
+                Button { showsTeam = true } label: {
+                    Text("团队")
+                        .appFont(DSHType.body.weight(.semibold))
+                        .foregroundStyle(palette.brand)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(String(localized: "团队"))
             }
         }
     }

@@ -5633,10 +5633,17 @@ private struct TeamMemberRow: View {
 
 struct TeamContentSheet: View {
     @EnvironmentObject private var store: AppStore
+    /// 设备列表在 bridge 镜像里（teamSnapshot 不含 devices）——复用既有数据源，不新造。
+    @EnvironmentObject private var hosts: MultiGatewayStore
     @Environment(\.dismiss) private var dismiss
     @State private var filter = "all"
     @State private var expanded: Set<String> = []
     let select: (MobileTeamMember) -> Void
+
+    /// 09 设备段数据：bridge 镜像的设备列表（TeamView 的 devicesView 同源）
+    private var devices: [BridgeTeamDeviceRow] {
+        hosts.bridgeTeam.mirror?.devices ?? []
+    }
 
     private var tasks: [MobileTeamTask] {
         let current = store.teamSnapshot.members.first { $0.id == store.selectedSessionId }
@@ -5672,6 +5679,27 @@ struct TeamContentSheet: View {
                             }
                         }
                     }
+                    // 09：设备段（设备管理在这里有稳定入口；数据用既有 teamSnapshot.devices）
+                    if !devices.isEmpty {
+                        Text("设备 \(String(devices.count))").appFont(.headline)
+                        DSHGroup(nil) {
+                            ForEach(Array(devices.enumerated()), id: \.element.id) { index, device in
+                                DSHRow(device.name ?? device.id,
+                                       subtitle: nil,
+                                       showsDivider: index < devices.count - 1) {
+                                    if let last = device.lastSeenAt {
+                                        Text(deviceRelativeText(last))
+                                            .appFont(DSHType.meta)
+                                            .foregroundStyle(.secondary)
+                                    } else if device.revokedAt != nil {
+                                        Text("已撤销")
+                                            .appFont(DSHType.meta)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                            }
+                        }
+                    }
                     Text(store.teamSnapshot.state == "ready" || !store.teamSnapshot.tasks.isEmpty
                          ? String(format: String(localized: "共享任务 %@"), String(store.teamSnapshot.tasks.count)) : String(localized: "共享任务 · 待同步")).appFont(.headline)
                     Picker("任务筛选", selection: $filter) {
@@ -5697,6 +5725,12 @@ struct TeamContentSheet: View {
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
+    }
+
+    /// 09 设备行：lastSeenAt 是毫秒时间戳，转成相对时间（不判在线态——设备没有权威在线信号）
+    private func deviceRelativeText(_ millis: Int64) -> String {
+        let date = Date(timeIntervalSince1970: Double(millis) / 1000)
+        return date.formatted(.relative(presentation: .named))
     }
 
     private func taskCard(_ task: MobileTeamTask) -> some View {
