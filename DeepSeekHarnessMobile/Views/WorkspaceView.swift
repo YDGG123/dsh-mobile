@@ -508,9 +508,8 @@ struct WorkspaceView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, DSHSpacing.md)
                 .frame(minHeight: 64)
-                .background(palette.cardFill, in: RoundedRectangle(cornerRadius: DSHRadius.md))
-                .overlay(RoundedRectangle(cornerRadius: DSHRadius.md)
-                    .strokeBorder(palette.cardStroke, lineWidth: 1))
+                // 08 设计稿：「添加 Bot」是**纯文字行**，不套卡片壳（与名册行一致，靠留白分隔）。
+                // 文案与灰色都保留：手机端没有创建能力，做成蓝色/可点会变假承诺。
             } else {
                 sessionsHeader.id("workspace-sessions-header")
                 sessionSearch.id("workspace-session-search")
@@ -650,13 +649,12 @@ struct WorkspaceView: View {
             sessionSearchIsFocused = false
             openGatewayTeamRow(row)
         } label: {
+            // 08 设计稿：Bot 行是**纯列表**——没有卡片底、没有圆角框，
+            // 靠留白分隔（头像/名字/副行/状态胶囊都保留）
             gatewayTeamRow(row)
-                .padding(.horizontal, DSHSpacing.md)
+                .padding(.horizontal, DSHSpacing.xs)
                 .frame(minHeight: 64)
-                .background(palette.cardFill, in: RoundedRectangle(cornerRadius: DSHRadius.md))
-                .overlay(RoundedRectangle(cornerRadius: DSHRadius.md)
-                    .strokeBorder(palette.cardStroke, lineWidth: 1))
-                .contentShape(RoundedRectangle(cornerRadius: DSHRadius.md))
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .id("gateway-team-\(row.id)")
@@ -1494,10 +1492,8 @@ struct WorkspaceView: View {
                         .disabled(!connectionIsReady)
                     }
                     .id("workspace-session-\(session.id)")
-
-                Divider()
-                    .overlay(palette.stroke(0.1))
-                    .padding(.leading, 18)
+                // 行间不再画分隔线：设计稿 01 是纯留白分隔（18pt 行距本身已有呼吸感，
+                // 再加线等于双重分隔、视觉上像表格）。02 屏是卡片内的行分隔，另一套实现，未动。
             }
         }
     }
