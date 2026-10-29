@@ -255,6 +255,9 @@ struct WorkspaceView: View {
             size: size, accessibilityText: dynamicTypeSize.isAccessibilitySize
         )
         return ZStack {
+            if primaryTab == .settings {
+                settingsTabLayer(safeArea: safeArea)
+            } else {
             Color.clear
                 .contentShape(Rectangle())
                 .onTapGesture { sessionSearchIsFocused = false }
@@ -304,30 +307,55 @@ struct WorkspaceView: View {
             .scrollIndicators(.hidden)
             .scrollDismissesKeyboard(.interactively)
             .scrollDisabled(drawerDragStart == nil && drawerOffset > 0)
+            }
         }
         // A tap handled by empty layout content does not reach the background
         // layer. Keep a container-level fallback; controls retain their own
         // actions and the search field consumes its tap while becoming focused.
         .onTapGesture { sessionSearchIsFocused = false }
-        // 2/5-a：底部 tab bar（参考实现 S01 ⑥）。工作区/Bot 切既有内容分段；
-        // 设置走既有 onSettings push——设置页盖在本页之上，tab bar 不需要「设置选中」态。
+        // 2/5-a：底部 tab bar（参考实现 S01 ⑥）。三个 tab 平级：工作区 / Bot / 设置，
+        // 「设置」是**内容分段**（tab bar 保持可见 + 设置高亮），不再 push 盖住本页。
         .safeAreaInset(edge: .bottom) {
             // 参考实现 S01 里 tab bar 被 VStack 包着、额外留 8pt；safeAreaInset 只吃
             // 安全区不留白，真机上会「贴底」（用户实测反馈）。补回这 8pt。
             DSHTabBar(selection: selectedHomeTab, badges: [.bots: botsTabBadge]) { tab in
                 switch tab {
-                case .workspace: primaryTab = .sessions
-                case .bots: primaryTab = .bots
-                case .settings: onSettings()
+                case .workspace:
+                    primaryTab = .sessions
+                    sessionSearchIsFocused = false
+                case .bots:
+                    primaryTab = .bots
+                    sessionSearchIsFocused = false
+                case .settings:
+                    primaryTab = .settings
+                    // 切到设置必须失焦，否则回来时键盘还挂着
+                    sessionSearchIsFocused = false
+                    drawerOffset = 0
                 }
             }
             .padding(.bottom, DSHSpacing.sm)
         }
     }
 
+    /// 设置 tab：内嵌设置页（不再 push），tab bar 由外层 `safeAreaInset` 保持可见。
+    /// `SettingsView` 在 embedded 模式隐藏系统导航栏、自带页面标题。
+    @ViewBuilder
+    private func settingsTabLayer(safeArea: EdgeInsets) -> some View {
+        SettingsView(
+            onOpenPlugins: onPlugins,
+            onOpenScheduledTasks: onScheduledTasks,
+            embedded: true
+        )
+        .padding(.top, safeArea.top)
+    }
+
     /// tab bar 的选中态从内容分段推导（工作区↔会话段、Bot↔Bot 段），不设第二状态源。
     private var selectedHomeTab: DSHTab {
-        primaryTab == .sessions ? .workspace : .bots
+        switch primaryTab {
+        case .sessions: return .workspace
+        case .bots: return .bots
+        case .settings: return .settings
+        }
     }
 
     /// Bot tab 角标（Chief 裁定 2026-10-29）：待办数 = 等你审批 + 等你回答。
@@ -365,8 +393,12 @@ struct WorkspaceView: View {
     private enum PrimaryTab: String, CaseIterable {
         case sessions = "会话"
         case bots = "Bot"
+        case settings = "设置"
     }
     @AppStorage("workspace.primaryTab") private var primaryTabRaw = PrimaryTab.sessions.rawValue
+    /// 存储的是 rawValue。回落规则（防未来删 case / 老版本残留值）：
+    /// 读到未知值一律回 `.sessions`，绝不崩、也不清空存储；
+    /// 老用户存的 `sessions` / `bots` 继续原样命中，不会被这次新增 case 重置。
     private var primaryTab: PrimaryTab {
         get { PrimaryTab(rawValue: primaryTabRaw) ?? .sessions }
         nonmutating set { primaryTabRaw = newValue.rawValue }
@@ -1119,7 +1151,12 @@ struct WorkspaceView: View {
     #if compiler(>=6.3)
     @available(iOS 27.1, *)
     private var toolbarSettingsButton: some View {
-        Button(action: onSettings) {
+        Button {
+            // 与底部 tab 栏同一行为：切到设置 tab，不再 push
+            sessionSearchIsFocused = false
+            drawerOffset = 0
+            primaryTab = .settings
+        } label: {
             headerButtonLabel(systemName: "gearshape.fill")
                 .glassEffect(.clear.tint(DSHColor.navy.opacity(0.22)), in: .circle)
         }

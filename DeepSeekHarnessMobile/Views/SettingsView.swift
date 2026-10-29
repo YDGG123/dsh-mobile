@@ -102,6 +102,9 @@ struct SettingsView: View {
     /// 不在这里构造那两个私有 View，也不重做它们的列表。
     var onOpenPlugins: () -> Void = {}
     var onOpenScheduledTasks: () -> Void = {}
+    /// true = 作为首页第三个 tab 内嵌（隐藏系统导航栏、自己画页面标题）；
+    /// false = 既有 push 路径（drawer/深路径），行为完全不变。
+    var embedded: Bool = false
 
     @Environment(\.colorScheme) private var colorScheme
     private var palette: DSHPalette { DSHPalette.resolve(colorScheme) }
@@ -215,6 +218,12 @@ struct SettingsView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: DSHSpacing.xl) {
+                if embedded {
+                    Text("设置")
+                        .appFont(DSHType.title)
+                        .foregroundStyle(palette.ink(0.92))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
                 // ① 外观（3 行）：主题三选直接读写 store.interfaceStyle——
                 // 切换立即生效走既有机制（RootView 的 preferredColorScheme），不造新机制。
                 DSHGroup("外观") {
@@ -383,10 +392,16 @@ struct SettingsView: View {
             }
             .padding(.horizontal, DSHSpacing.lg)
             .padding(.top, DSHSpacing.xs)
+            // 内嵌成 tab 时 tab bar（62pt + 8 外边距）浮在内容上，必须让出这段高度，
+            // 否则「关于」最后几行会被 tab 栏压住（真机/模拟器均可见）
+            // 不再给内嵌模式额外加 tab bar 留白：外层 `.safeAreaInset(edge: .bottom)`
+            // 已把 tab bar 高度算进安全区（实测滚到底时最后一行停在 tab 栏上方 ~3pt，
+            // 加了 70pt 反而多出一大截空白 → 那是重复计算，已删除）
             .padding(.bottom, DSHSpacing.xxl)
         }
         .background(palette.pageBackground)
-        .navigationTitle("设置")
+        .navigationTitle(embedded ? "" : "设置")
+        .toolbar(embedded ? .hidden : .visible, for: .navigationBar)
         // B4：容器级推入页同样整屏盖住背景，推入期间暂停动画（与设置子页同一策略）。
         .pausesBackgroundAnimation()
         .task {
