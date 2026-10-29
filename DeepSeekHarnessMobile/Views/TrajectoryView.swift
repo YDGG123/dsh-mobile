@@ -103,7 +103,7 @@ struct TrajectoryView: View {
                 .accessibilityAddTraits(usesActualDuration ? .isSelected : [])
                 .accessibilityIdentifier("trajectory-duration-toggle")
                 Spacer()
-                Text(timeline.presentation.durationText).monospacedDigit()
+                Text(totalDurationText).monospacedDigit()
             }
             .appFont(DSHType.meta)
             .foregroundStyle(palette.ink(0.92))
@@ -124,7 +124,7 @@ struct TrajectoryView: View {
                 .frame(height: 52)
             }
             if usesActualDuration {
-                HStack { Text("0s"); Spacer(); Text(timeline.presentation.durationText) }
+                HStack { Text("0s"); Spacer(); Text(totalDurationText) }
                     .appFont(DSHType.meta.monospacedDigit()).foregroundStyle(palette.ink(0.45))
             }
         }
@@ -137,12 +137,23 @@ struct TrajectoryView: View {
     /// 主题感知色板（与 01/02/13 屏同一套 token）
     private var palette: DSHPalette { DSHPalette.resolve(colorScheme) }
 
-    // MARK: - 06 摘要卡数据（全部取自既有轨迹节点，未新增采集）
+    // MARK: - 06 摘要卡数据（全部取自既有轨迹节点/会话事件，未新增采集）
 
-    /// 阶段总时长 = 各类节点自身耗时之和（与泳道「实际时长」同一口径）
-    private var totalSeconds: TimeInterval {
-        phaseSeconds([.input, .assistant, .tool, .subtool])
+    /// 三阶段时长：输入 + 模型 + 工具。
+    /// 输入/模型取自会话事件的 `step/start` 与 `assistant/message` 时间戳，
+    /// 工具仍取轨迹节点跨度（`tool/call` → `tool/result`）。
+    private var phases: TrajectoryPhases.Timings {
+        TrajectoryPhases.timings(
+            nodes: timeline.nodes,
+            events: sessionId.flatMap { store.events[$0] } ?? []
+        )
     }
+
+    /// 阶段总时长 = 输入 + 模型 + 工具（与摘要卡、泳道「实际时长」同一口径）
+    private var totalSeconds: TimeInterval { phases.total }
+
+    /// 「Duration」行的读数：与阶段总时长同源，格式沿用既有的 "%.2f s"
+    private var totalDurationText: String { String(format: "%.2f s", phases.total) }
 
     private var endDate: Date? {
         timeline.presentation.visibleNodes.map(\.end).max()
@@ -162,9 +173,9 @@ struct TrajectoryView: View {
 
     /// 三色阶段占比：输入 brand / 模型 purple / 工具 amber（DSHColor 已有色，不是新色）
     private var phaseSegments: [DSHSummarySegment] {
-        let input = phaseSeconds([.input])
-        let model = phaseSeconds([.assistant])
-        let tool = phaseSeconds([.tool, .subtool])
+        let input = phases.input
+        let model = phases.model
+        let tool = phases.tool
         let all = input + model + tool
         let base = all > 0 ? all : 1
         return [
@@ -172,13 +183,6 @@ struct TrajectoryView: View {
             DSHSummarySegment(color: DSHColor.purple, label: "模型 \(DSHSummaryFormat.coarse(model))", share: CGFloat(model / base)),
             DSHSummarySegment(color: DSHColor.amber, label: "工具 \(DSHSummaryFormat.coarse(tool))", share: CGFloat(tool / base))
         ]
-    }
-
-    private func phaseSeconds(_ kinds: Set<TrajectoryNode.Kind>) -> TimeInterval {
-        timeline.nodes.reduce(0) { partial, node in
-            guard kinds.contains(node.kind) else { return partial }
-            return partial + max(0, node.end.timeIntervalSince(node.start))
-        }
     }
 
     /// 轮次组头右侧的「N 步 · M:SS」：按轮聚合节点跨度
@@ -202,20 +206,124 @@ struct TrajectoryView: View {
     private var nodes: [TrajectoryNode] { timeline.nodes }
 }
 
+/// 轨迹页三阶段时长（秒）。纯计算，不碰 UI，便于单测与真数据复核。
+///
+/// 为什么不能只用轨迹节点跨度：KMP `TrajectoryProjection.node(...)` 给 `.input`
+/// 节点的起止序号与时间戳是同一个值（`record.seq, record.seq, epoch(record), epoch(record)`），
+/// 那是设计如此——用户消息本身就是一个瞬间点。`.assistant` 节点只有在逐条
+/// `assistant/chunk` 事件到达时才被扩成「首 chunk → 末条」的真实跨度；而真实会话日志里
+/// 不落 chunk（610 个真实会话只有 12 个含 chunk），宿主对同一个 turn 的所有 chunk
+/// 又共用同一个 `seq`，事件表里被 upsert 成一条，于是 `start == end`，跨度恒为 0。
+/// 所以输入/模型必须回到会话事件的时间戳上算：
+///   输入阶段 = 用户消息 → 其后第一条 `step/start`（= 该轮第一次模型请求的起点）
+///   模型阶段 = 同一 (turn, step) 的 `step/start` → `assistant/message`（含重试等待）
+///   工具阶段 = `.tool`/`.subtool` 节点跨度之和（`tool/call` → `tool/result`，不变）
+/// 节点跨度算法保留为回退路径：事件被裁剪到没有 `step/start` 时仍按旧口径显示。
+enum TrajectoryPhases {
+    struct Timings: Equatable {
+        var input: TimeInterval
+        var model: TimeInterval
+        var tool: TimeInterval
+        var total: TimeInterval { input + model + tool }
+    }
+
+    static func timings(nodes: [TrajectoryNode], events: [SessionEvent]) -> Timings {
+        let tool = nodes.reduce(0) { partial, node in
+            guard node.kind == .tool || node.kind == .subtool else { return partial }
+            return partial + max(0, node.end.timeIntervalSince(node.start))
+        }
+        let ordered = events.sorted { $0.seq < $1.seq }
+        guard ordered.contains(where: { $0.event.type == "step/start" }) else {
+            return Timings(
+                input: inputFromNodeSpans(nodes),
+                model: nodes.reduce(0) { partial, node in
+                    guard node.kind == .assistant else { return partial }
+                    return partial + max(0, node.end.timeIntervalSince(node.start))
+                },
+                tool: tool
+            )
+        }
+        return Timings(input: inputFromStepStarts(ordered), model: modelFromSteps(ordered), tool: tool)
+    }
+
+    /// 输入阶段：每条用户消息 → 其后第一条 `step/start` 的间隔。
+    /// 倒序扫描一次，边走边记「后面最近的一条 step/start」。
+    private static func inputFromStepStarts(_ events: [SessionEvent]) -> TimeInterval {
+        var total: TimeInterval = 0
+        var nextStepStart: Date?
+        for record in events.reversed() {
+            if record.event.type == "step/start" {
+                nextStepStart = record.date
+                continue
+            }
+            guard record.event.type == "user/message" else { continue }
+            // `source` 为空或是 user 才是用户本人输入；bot/time-context 之类是注入上下文，不算输入阶段
+            let source = record.event.source
+            guard source == nil || source == "user" else { continue }
+            guard !(record.event.text ?? "").isEmpty, let next = nextStepStart else { continue }
+            total += max(0, next.timeIntervalSince(record.date))
+        }
+        return total
+    }
+
+    /// 模型阶段：同一 (turn, step) 的 `step/start` → 该步最后一条
+    /// `assistant/message`（没有则用 `assistant/attempt`）。重试等待算进这一轮模型的耗时。
+    private static func modelFromSteps(_ events: [SessionEvent]) -> TimeInterval {
+        var starts: [String: Date] = [:]
+        var ends: [String: Date] = [:]
+        for record in events {
+            let event = record.event
+            guard let turn = event.turn, let step = event.step else { continue }
+            let key = "\(turn)-\(step)"
+            switch event.type {
+            case "step/start":
+                starts[key] = record.date
+            case "assistant/message", "assistant/attempt":
+                ends[key] = record.date
+            default:
+                break
+            }
+        }
+        var total: TimeInterval = 0
+        for (key, start) in starts {
+            guard let end = ends[key] else { continue }
+            total += max(0, end.timeIntervalSince(start))
+        }
+        return total
+    }
+
+    /// 回退口径：`.input` 节点起点 → 其后第一个 `.request`/`.assistant` 节点起点。
+    private static func inputFromNodeSpans(_ nodes: [TrajectoryNode]) -> TimeInterval {
+        var total: TimeInterval = 0
+        var pending: Date?
+        for node in nodes {
+            switch node.kind {
+            case .input:
+                pending = node.start
+            case .request, .assistant:
+                if let start = pending {
+                    total += max(0, node.start.timeIntervalSince(start))
+                    pending = nil
+                }
+            default:
+                break
+            }
+        }
+        return total
+    }
+}
+
 fileprivate struct TrajectoryPresentation {
     let nodes: [TrajectoryNode]
     let visibleNodes: [TrajectoryNode]
     let rows: [TrajectoryDisplayRow]
     let turnCount: Int
     let toolCount: Int
-    let durationText: String
 
     init(nodes: [TrajectoryNode]) {
         self.nodes = nodes
         let visible = nodes.filter { $0.kind != .request }
         visibleNodes = visible
-        let duration = visible.reduce(0) { $0 + max(0, $1.end.timeIntervalSince($1.start)) }
-        durationText = String(format: "%.2f s", duration)
         var turnNumbers = Set<Int>()
         for node in nodes {
             for record in node.records {
