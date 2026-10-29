@@ -569,7 +569,7 @@ struct ConversationView: View {
                 timeline: store.displayedConversationTimeline(for: sessionID ?? "__empty__"),
                 supplementalEntries: supplementalViewportEntries,
                 makeEntries: { items in
-                    makeConversationViewportEntries(from: items)
+                    makeConversationViewportEntries(from: injectSwitchNotices(into: items))
                 },
                 bottomInset: composerHeight + conversationBottomClearance,
                 scrollToBottomToken: viewportScrollToBottomToken,
@@ -2084,6 +2084,11 @@ struct ConversationView: View {
     private func select(effort: GatewayReasoningEffort) {
         guard let current = currentModelSelection else { return }
         store.selectModel(provider: current.provider, model: current.model, reasoningEffort: effort.id)
+        // S27：档位切换记账 →「推理等级改为 X」。模型切换不在这记——
+        // 它由 assistant 事件 raw.message.source.model 数据驱动，天然就地覆盖且幂等。
+        if let sessionID = store.selectedSessionId {
+            store.recordEffortSwitch(sessionID: sessionID, effortName: effort.name)
+        }
     }
 
     private var conversationItems: [ConversationItem] {
@@ -2142,6 +2147,78 @@ struct ConversationView: View {
             case .process(let group): group.items.contains { $0.id == eventID || $0.id.hasPrefix(eventID + "-") }
             }
         }?.id ?? target
+    }
+
+    // MARK: S27 切换提示（细线 + 文案；位置 = 切换生效的第一条 assistant 消息之前）
+
+    /// assistant 消息条目 id = "\(sessionId)-\(seq)"（KMP `eventId` 约定），从条目 id 反解 seq
+    private func assistantSeq(of item: ConversationItem) -> Int? {
+        guard item.kind == .assistant, let sessionID = store.selectedSessionId else { return nil }
+        let prefix = "\(sessionID)-"
+        guard item.id.hasPrefix(prefix), let seq = Int(item.id.dropFirst(prefix.count)) else { return nil }
+        return seq
+    }
+
+    /// 数据源：assistant/message 事件 `raw.message.source.{provider, model}`
+    /// （与 KMP TrajectoryProjection 读数同一条路径；首条消息无前值 → 天然不提示）
+    private func assistantModelID(seq: Int) -> (provider: String, model: String)? {
+        guard let event = store.selectedEvents.first(where: { $0.seq == seq && $0.event.type == "assistant/message" }),
+              let source = event.event.raw?["message"]?["source"] else { return nil }
+        guard let model = source["model"]?.stringValue, !model.isEmpty else { return nil }
+        return (source["provider"]?.stringValue ?? "", model)
+    }
+
+    private func modelDisplayName(provider: String, model: String) -> String {
+        if let item = modelGroups.first(where: { $0.id == provider })?.models.first(where: { $0.id == model }) {
+            return item.name
+        }
+        return model
+    }
+
+    /// 渲染前注入切换提示条目。纯函数：每次重算，条目 id 绑定锚点消息 seq →
+    /// 重绘/滚动/重进会话产出同一 id，天然幂等；同锚点的档位记录只留最新一条（就地覆盖）。
+    private func injectSwitchNotices(into items: [ConversationItem]) -> [ConversationItem] {
+        guard !items.isEmpty, !store.isShowingSearchContext, let sessionID = store.selectedSessionId else {
+            return items
+        }
+        // 档位记账按锚点归并：锚点 = 其后第一条 assistant 消息；同锚点保留 switchSeq 最大（最新）的记录
+        var latestEffortByAnchor: [Int: AppStore.EffortSwitchRecord] = [:]
+        for record in store.effortSwitchRecords[sessionID] ?? [] {
+            guard let anchor = items.first(where: { assistantSeq(of: $0).map { $0 > record.switchSeq } == true }),
+                  let anchorSeq = assistantSeq(of: anchor) else { continue }
+            if let existing = latestEffortByAnchor[anchorSeq], existing.switchSeq > record.switchSeq { continue }
+            latestEffortByAnchor[anchorSeq] = record
+        }
+
+        var result: [ConversationItem] = []
+        result.reserveCapacity(items.count + latestEffortByAnchor.count)
+        var previousModel: String?
+        for item in items {
+            var notice: ConversationItem?
+            if item.kind == .assistant, let seq = assistantSeq(of: item) {
+                let current = assistantModelID(seq: seq)
+                if let current, let previousModel, current.model != previousModel {
+                    // 切模型：数据驱动。「已切换到 X · Y」——Y 只在当前选择仍是这条消息的模型时可考
+                    var text = String(localized: "已切换到 \(modelDisplayName(provider: current.provider, model: current.model))")
+                    if let record = latestEffortByAnchor[seq], current.model == currentModelSelection?.model {
+                        text += " · \(record.effortName)"
+                        latestEffortByAnchor[seq] = nil
+                    }
+                    notice = ConversationItem(id: "switch-notice-\(seq)", kind: .switchNotice, title: text,
+                                              text: "", isError: false, date: item.date)
+                } else if let record = latestEffortByAnchor[seq] {
+                    // 只切档位：「推理等级改为 Z」
+                    notice = ConversationItem(id: "switch-notice-\(seq)", kind: .switchNotice,
+                                              title: String(localized: "推理等级改为 \(record.effortName)"),
+                                              text: "", isError: false, date: item.date)
+                    latestEffortByAnchor[seq] = nil
+                }
+                if let current { previousModel = current.model }
+            }
+            if let notice { result.append(notice) }
+            result.append(item)
+        }
+        return result
     }
 
     private func makeConversationViewportEntries(from items: [ConversationItem]) -> [ConversationViewportEntry] {
@@ -2364,7 +2441,7 @@ private struct DeepSearchProgressCue: Hashable {
         case .toolResult: kind = .toolResult
         case .assistant: kind = .assistant
         case .status: kind = .status
-        case .user, .system: return nil
+        case .user, .system, .switchNotice: return nil
         }
         id = item.id
         date = item.date
@@ -3772,7 +3849,7 @@ private struct ConversationDisplayEntry: Identifiable {
             case .status:
                 flushProcess()
                 processItems.append(item)
-            case .user, .assistant, .system:
+            case .user, .assistant, .system, .switchNotice:
                 flushProcess()
                 result.append(.init(id: "message-\(item.id)", content: .message(item), showsCopyButton: false))
             }
@@ -3860,7 +3937,7 @@ extension ConversationProcessGroup {
                 } else {
                     tools.append(.init(id: item.id, call: nil, result: item))
                 }
-            case .user, .assistant, .status, .system:
+            case .user, .assistant, .status, .system, .switchNotice:
                 break
             }
         }
@@ -4712,6 +4789,22 @@ struct ConversationRow: View {
             }
             .padding(10).frame(maxWidth: .infinity, alignment: .leading)
             .background((item.isError ? Color.red : DSHColor.ocean).opacity(0.06), in: RoundedRectangle(cornerRadius: 11))
+        case .switchNotice:
+            // S27：上下文分界线（不是消息）——细线 + 文案 + 细线，不可点、不进气泡
+            let p = DSHPalette(scheme: colorScheme)
+            HStack(spacing: DSHSpacing.sm) {
+                Rectangle().fill(p.rowDivider).frame(height: 1)
+                Text(item.title)
+                    .appFont(DSHType.meta)
+                    .foregroundStyle(p.ink(0.45))
+                    .lineLimit(1)
+                    .fixedSize()
+                Rectangle().fill(p.rowDivider).frame(height: 1)
+            }
+            .padding(.vertical, 2)
+            .frame(maxWidth: .infinity)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(item.title)
         }
     }
 

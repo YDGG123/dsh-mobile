@@ -470,6 +470,29 @@ final class AppStore: ObservableObject {
     @Published var isRefreshing = false
     @Published private(set) var modelCatalogs: [String: GatewayModelCatalog] = [:]
     @Published private(set) var globalModelCatalog: GatewayModelCatalog?
+
+    /// S27 切换提示的档位部分：「推理等级改为 X」的展示记账（模型切换走事件数据驱动，不在这里）。
+    /// 纯展示层记账：不写事件、不进 KMP/轨迹/轮次统计；仅会话内存活（App 重启后档位提示消失，
+    /// 模型提示不受影响——它是从事件 raw 重算的）。
+    struct EffortSwitchRecord: Identifiable, Hashable, Sendable {
+        let id: String
+        let effortName: String
+        /// 记账时的最后已知事件 seq；渲染锚点 = 其后第一条 assistant 消息
+        let switchSeq: Int
+    }
+    @Published private(set) var effortSwitchRecords: [String: [EffortSwitchRecord]] = [:]
+
+    /// 连续切换就地覆盖：锚点还落在同一条未来消息（其后尚无 assistant 消息落场）的旧记录被替换。
+    /// 已落锚的历史记录保留（各自标住自己的切换点）。
+    func recordEffortSwitch(sessionID: String, effortName: String) {
+        let lastAssistantSeq = events[sessionID]?
+            .last(where: { $0.event.type == "assistant/message" })?.seq ?? 0
+        var records = effortSwitchRecords[sessionID] ?? []
+        records.removeAll { $0.switchSeq >= lastAssistantSeq }
+        let seq = events[sessionID]?.last?.seq ?? 0
+        records.append(EffortSwitchRecord(id: "effort-\(seq)-\(records.count)", effortName: effortName, switchSeq: seq))
+        effortSwitchRecords[sessionID] = records
+    }
     @Published private(set) var sessionPermissions: [String: GatewaySessionPermissions] = [:]
     @Published private(set) var contextSnapshots: [String: GatewayContextSnapshot] = [:]
     @Published private(set) var sessionStatsSnapshots: [String: GatewaySessionStatsSnapshot] = [:]

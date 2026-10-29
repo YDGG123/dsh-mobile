@@ -3,7 +3,9 @@ import SwiftUI
 import UIKit
 
 struct ConversationItem: Identifiable, Sendable {
-    enum Kind: Equatable, Sendable { case user, context, assistant, reasoning, tool, jsonTool, toolResult, status, system }
+    /// `switchNotice` 是纯展示条目（S27 切换提示，细线 + 文案）：由视图层在渲染前注入，
+    /// 不来自事件流、不写回 store、不进 KMP 轨迹/轮次统计。
+    enum Kind: Equatable, Sendable { case user, context, assistant, reasoning, tool, jsonTool, toolResult, status, system, switchNotice }
     let id: String
     let kind: Kind
     let title: String
