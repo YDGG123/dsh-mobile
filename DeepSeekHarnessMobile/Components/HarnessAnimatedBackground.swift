@@ -175,10 +175,12 @@ private struct HarnessTechnicalGrid: View {
     let style: HarnessBackgroundStyle
     var isLight: Bool = false
 
+    /// 用户第五轮要求：**两个主题都不要网格**（深色设计稿其实有很淡的网格，按用户要求去掉）。
+    /// 组件保留不删（别处可能引用）；把这里改成 false 即可恢复原来的 Canvas 绘制。
+    private static let disabled = true
+
     var body: some View {
-        // 用户真机反馈：浅色首页不要网格（设计稿浅色也几乎看不到格子）。
-        // 深色保留（深色设计稿有细微网格）—— 所以在这里按 isLight 分支，不动默认图层列表。
-        if isLight {
+        if Self.disabled {
             Color.clear
         } else {
         Canvas(rendersAsynchronously: true) { context, size in
