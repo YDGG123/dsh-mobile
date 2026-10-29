@@ -271,7 +271,7 @@ struct HumanQuestionView: View {
                     .foregroundStyle(.red)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
-            HStack(spacing: 10) {
+            HStack(spacing: 8) {
                 Button { move(to: currentIndex - 1) } label: {
                     Image(systemName: "chevron.left")
                         .frame(width: 34, height: 34)
@@ -290,6 +290,8 @@ struct HumanQuestionView: View {
 
                 Button(String(localized: "跳过问题")) { showsCancelConfirmation = true }
                     .buttonStyle(.bordered)
+                    // footer 一行放不下时不许被拆成两行（「跳过 / 问题」），保持整体语义
+                    .fixedSize(horizontal: true, vertical: false)
                     .disabled(status.isBusy)
                 Button(currentIndex == request.questions.count - 1 ? String(localized: "提交") : String(localized: "下一题")) {
                     continueFlow()
@@ -297,6 +299,7 @@ struct HumanQuestionView: View {
                 .buttonStyle(.borderedProminent)
                 .tint(DSHColor.ocean)
                 .foregroundStyle(.white)
+                .fixedSize(horizontal: true, vertical: false)
                 .disabled(status.isBusy)
             }
         }
