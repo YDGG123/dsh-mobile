@@ -110,7 +110,9 @@ private struct HarnessStaticBase: View {
 
     var body: some View {
         Rectangle()
-            .fill(isLight ? Color(red: 0.93, green: 0.96, blue: 1.0) : DSHColor.navy)
+            // 浅色底色：设计稿 01-home（浅色）背景接近纯白、只带一点冷。
+            // 旧值 (0.93,0.96,1.0) 是明显浅蓝，用户真机反馈「蓝白」不想要。
+            .fill(isLight ? Color(red: 0.976, green: 0.980, blue: 0.988) : DSHColor.navy)
     }
 }
 
@@ -127,10 +129,12 @@ private struct HarnessFluidLayer: View {
             Rectangle()
                 .fill(
                     LinearGradient(
+                        // 浅色背景按设计稿 01-home（浅色）取「近白 + 一点冷」：
+                        // 旧值是明显浅蓝（0.88~0.93 蓝通道），用户真机反馈「蓝白」不想要。
                         colors: [
-                            Color(red: 0.93, green: 0.96, blue: 1.0),
-                            Color(red: 0.88, green: 0.94, blue: 1.0),
-                            Color(red: 0.97, green: 0.98, blue: 1.0)
+                            Color(red: 0.976, green: 0.980, blue: 0.988),
+                            Color(red: 0.958, green: 0.966, blue: 0.978),
+                            Color(red: 0.986, green: 0.988, blue: 0.994)
                         ],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
@@ -172,6 +176,11 @@ private struct HarnessTechnicalGrid: View {
     var isLight: Bool = false
 
     var body: some View {
+        // 用户真机反馈：浅色首页不要网格（设计稿浅色也几乎看不到格子）。
+        // 深色保留（深色设计稿有细微网格）—— 所以在这里按 isLight 分支，不动默认图层列表。
+        if isLight {
+            Color.clear
+        } else {
         Canvas(rendersAsynchronously: true) { context, size in
             let spacing: CGFloat = style == .pad
                 ? min(64, max(42, min(size.width, size.height) / 16))
@@ -215,6 +224,7 @@ private struct HarnessTechnicalGrid: View {
                 endPoint: .bottom
             )
         )
+        }
     }
 }
 
