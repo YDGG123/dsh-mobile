@@ -11,23 +11,20 @@ struct ApprovalRequestView: View {
     @State private var isCollapsed = false
     @State private var showsDetails = false
 
-    private let amber = Color(red: 0.96, green: 0.61, blue: 0.05)
-    private let cardShape = RoundedRectangle(cornerRadius: 24, style: .continuous)
+    /// 04 审批卡：琥珀 = caution（全 app「等你动手」同色），卡片与描边走设计系统 token
+    private var palette: DSHPalette { DSHPalette.resolve(colorScheme) }
+    private var amber: Color { palette.caution }
+    private let cardShape = RoundedRectangle(cornerRadius: DSHRadius.xl, style: .continuous)
 
     var body: some View {
         Group {
             if isCollapsed { collapsedCard }
             else { expandedCard }
         }
-        .background(Color(uiColor: .systemBackground))
+        .background(palette.cardFill)
         .clipShape(cardShape)
-        .overlay { cardShape.stroke(amber.opacity(0.78), lineWidth: 1) }
-        .shadow(
-            color: .black.opacity(colorScheme == .dark ? 0.18 : 0.055),
-            radius: 10,
-            y: 4
-        )
-        .padding(.horizontal, 14)
+        .overlay { cardShape.strokeBorder(amber.opacity(0.55), lineWidth: 1.5) }
+        .padding(.horizontal, DSHSpacing.lg)
         .accessibilityElement(children: .contain)
         .onAppear {
             gatewayApprovalTrace(
@@ -80,17 +77,22 @@ struct ApprovalRequestView: View {
                 if let commandPreview, !commandPreview.isEmpty {
                     // 长命令（例如多行脚本）不允许撑高整张卡片，否则操作按钮
                     // 会被推出屏幕外。命令预览在固定高度内滚动，按钮始终可见。
+                    // 04：深底代码块（两种主题都深，保证语法色一致），限高 96。
                     ScrollView(.vertical) {
                         Text(commandPreview)
-                            .appFont(.system(.subheadline, design: .monospaced))
-                            .foregroundStyle(.secondary)
+                            .appFont(DSHType.mono)
+                            .foregroundStyle(Color.white.opacity(0.82))
                             .textSelection(.enabled)
                             .fixedSize(horizontal: false, vertical: true)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.vertical, 1)
                     }
                     .scrollBounceBehaviorCompat(.basedOnSize)
-                    .frame(maxHeight: 148)
+                    .padding(DSHSpacing.md)
+                    .frame(maxHeight: 96)
+                    .background(
+                        DSHPalette(scheme: .dark).codeBackground,
+                        in: RoundedRectangle(cornerRadius: DSHRadius.sm, style: .continuous)
+                    )
                 }
 
                 if let details {
@@ -138,18 +140,16 @@ struct ApprovalRequestView: View {
         .padding(.trailing, 9)
         .padding(.vertical, 9)
         // 外层统一裁剪顶部圆角；标题栏自身保持矩形，因此下沿不会出现圆角。
-        .background(amber.opacity(colorScheme == .dark ? 0.12 : 0.08))
+        .background(amber.opacity(colorScheme == .dark ? 0.14 : 0.10))
     }
 
     private var actionButtons: some View {
-        HStack(spacing: 10) {
-            Spacer()
+        HStack(spacing: DSHSpacing.sm) {
             Button(String(localized: "拒绝")) { onDecision(.rejected) }
-                .buttonStyle(.bordered)
+                .buttonStyle(DSHSecondaryButtonStyle())
             Button(String(localized: "允许一次")) { onDecision(.allowedOnce) }
-                .buttonStyle(.borderedProminent)
-                .tint(colorScheme == .dark ? .white : .black)
-                .foregroundStyle(colorScheme == .dark ? .black : .white)
+                .buttonStyle(DSHPrimaryButtonStyle())
+            Spacer(minLength: 0)
         }
         .disabled(status.isBusy)
     }
@@ -169,7 +169,7 @@ struct ApprovalRequestView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(palette.veil(0.06), in: RoundedRectangle(cornerRadius: DSHRadius.sm, style: .continuous))
         .onChangeCompat(of: showsDetails) { _, expanded in
             gatewayApprovalTrace("ui details expanded=\(expanded) rpcId=\(request.rpcId)")
         }
