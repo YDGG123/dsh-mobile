@@ -17,6 +17,8 @@ struct HumanQuestionView: View {
     let onCancel: () -> Void
 
     @Environment(\.colorScheme) private var colorScheme
+    /// 05 问答卡的主题感知色板
+    private var palette: DSHPalette { DSHPalette.resolve(colorScheme) }
     @State private var drafts: [String: QuestionDraft]
     @State private var currentIndex = 0
     @State private var isCollapsed = false
@@ -44,14 +46,13 @@ struct HumanQuestionView: View {
             else if let plan = planReview { planReviewCard(plan) }
             else { questionCard }
         }
-        .themedGlassSurface(radius: 24, tint: cardTint)
+        // 05 问答卡：蓝 = brand（与审批卡的琥珀分开），卡片走设计系统 token
+        .background(palette.cardFill, in: RoundedRectangle(cornerRadius: DSHRadius.xl, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                // 浅色实色面上一律用墨色边界（白色只在深色材质面上当高光）。
-                .stroke(colorScheme == .dark ? .white.opacity(0.14) : DSHColor.ink.opacity(0.10), lineWidth: 0.8)
+            RoundedRectangle(cornerRadius: DSHRadius.xl, style: .continuous)
+                .strokeBorder(palette.brand.opacity(0.5), lineWidth: 1.5)
         }
-        .shadow(color: .black.opacity(colorScheme == .dark ? 0.30 : 0.12), radius: 20, y: 9)
-        .padding(.horizontal, 14)
+        .padding(.horizontal, DSHSpacing.lg)
         .confirmationDialog(String(localized: "放弃这组问题？"), isPresented: $showsCancelConfirmation, titleVisibility: .visible) {
             Button(String(localized: "跳过并让 Agent 继续"), role: .destructive, action: onCancel)
             Button(String(localized: "继续回答"), role: .cancel) {}
@@ -186,7 +187,7 @@ struct HumanQuestionView: View {
                     .scrollContentBackground(.hidden)
                     .frame(minHeight: 92, maxHeight: 138)
                     .padding(10)
-                    .background(Color.primary.opacity(0.055), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .background(palette.chipFill, in: RoundedRectangle(cornerRadius: DSHRadius.sm, style: .continuous))
                     .overlay(alignment: .topLeading) {
                         if draft(for: question).custom.isEmpty {
                             Text(String(localized: "输入你的答案"))
@@ -206,7 +207,7 @@ struct HumanQuestionView: View {
                 }
                 .padding(.horizontal, 13)
                 .padding(.vertical, 11)
-                .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+                .background(palette.chipFill, in: RoundedRectangle(cornerRadius: DSHRadius.sm, style: .continuous))
             }
         }
         .disabled(status.isBusy)
@@ -251,12 +252,12 @@ struct HumanQuestionView: View {
             }
             .padding(12)
             .background(
-                isSelected ? DSHColor.ocean.opacity(0.09) : Color.primary.opacity(0.035),
-                in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+                isSelected ? palette.brand.opacity(0.12) : palette.chipFill,
+                in: RoundedRectangle(cornerRadius: DSHRadius.sm, style: .continuous)
             )
             .overlay {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(isSelected ? DSHColor.ocean.opacity(0.48) : Color.primary.opacity(0.07), lineWidth: 1)
+                RoundedRectangle(cornerRadius: DSHRadius.sm, style: .continuous)
+                    .stroke(isSelected ? palette.brand.opacity(0.5) : palette.cardStroke, lineWidth: 1)
             }
         }
         .buttonStyle(.plain)
@@ -356,10 +357,6 @@ struct HumanQuestionView: View {
             .disabled(status.isBusy)
             .padding(13)
         }
-    }
-
-    private var cardTint: Color {
-        Color(uiColor: .secondarySystemBackground).opacity(colorScheme == .dark ? 0.78 : 0.82)
     }
 
     private func draft(for question: GatewayQuestion) -> QuestionDraft {
