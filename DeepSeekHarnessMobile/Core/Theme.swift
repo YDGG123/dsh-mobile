@@ -1083,7 +1083,7 @@ struct DSHSessionRow: View {
     let title: String
     /// 「模式 · N 轮 · M 步」；缺数据时传 nil，整行不显示（不编 0）
     let secondary: String?
-    /// nil = 无待办；.waiting/.question 走胶囊，.running 走圆点
+    /// 右侧状态位：nil = 无待办；.waiting/.question 走胶囊，.running 走圆点（既有语义不变）
     let status: DSHStatusKind?
     /// 无待办无运行时显示的相对时间
     let timeText: String
@@ -1092,10 +1092,27 @@ struct DSHSessionRow: View {
     var showsMenu: Bool = false
     var onRename: (() -> Void)?
     var onArchive: (() -> Void)?
+    /// 行首状态圆点的独立判据：待办优先，否则「运行中」。
+    /// 与 `status` 分开是因为用户要求「运行中」要有行首锚点，但右侧仍照旧显示相对时间。
+    /// （放在参数列表末尾，保持既有调用点的实参顺序不变。）
+    var dotStatus: DSHStatusKind? = nil
 
     var body: some View {
         let p = DSHPalette(scheme: scheme)
         HStack(spacing: DSHSpacing.md) {
+            // ③ 行首状态锚点（与 Bot 行头像同一位置/同一作用）：
+            // 只在「需要关注」时画点（running/waiting/question），空闲行留同等宽空白保持对齐。
+            Group {
+                if let dotStatus, dotStatus != .idle {
+                    Circle()
+                        .fill(dotStatus == .waiting ? p.caution : p.brand)
+                        .frame(width: 10, height: 10)
+                } else {
+                    Color.clear.frame(width: 10, height: 10)
+                }
+            }
+            .padding(.trailing, DSHSpacing.xxs)
+
             VStack(alignment: .leading, spacing: DSHSpacing.xxs) {
                 Text(title)
                     .appFont(DSHType.body.weight(.semibold))
@@ -1144,9 +1161,14 @@ struct DSHSessionRow: View {
                 .accessibilityLabel(String(localized: "会话操作"))
             }
         }
-        // 行高：参考实现 8pt → 真机 12pt（上一轮）→ 用户真机再反馈「上下太窄」，
-        // 定制为 18pt。**不往 DSHSpacing 加档**（全局档位会影响其它屏），就地 +6。
-        .padding(.vertical, DSHSpacing.md + 6)
+        // 行高对齐 Bot 区（用户要求「会话行以 Bot 区为准」）：
+        // Bot 行 = 内容 + `.frame(minHeight: 64)`，列表 `VStack(spacing: 12)` → 节距 76pt
+        // （实测头像中心 227px = 75.7pt，3x 屏）。
+        // 会话行取同一基准：`.padding(.vertical, 12)` 放在 `minHeight: 64` **之内**，
+        // 总高 = max(64, 内容 + 24)；列表再给 12pt 间距 → 节距同为 76pt。
+        // 注：上一版把 18pt padding 加在 minHeight 之外，行高被撑到 ~100pt（末行压到 tab 栏），已纠正。
+        .padding(.vertical, DSHSpacing.md)
+        .frame(minHeight: 64)
         .contentShape(Rectangle())
     }
 }

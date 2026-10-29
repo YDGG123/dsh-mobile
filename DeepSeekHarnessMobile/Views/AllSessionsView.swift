@@ -142,7 +142,8 @@ struct AllSessionsView: View {
                             renamedTitle = session.title
                             renamingSession = session
                         },
-                        onArchive: { archivingSession = session }
+                        onArchive: { archivingSession = session },
+                        dotStatus: sessionRowDotKind(for: session, store: store)
                     )
                     .padding(.horizontal, DSHSpacing.md)
                 }
@@ -256,6 +257,15 @@ func sessionRowStatusKind(for sessionID: String, store: AppStore) -> DSHStatusKi
     if store.pendingQuestionRequests.contains(where: { $0.sessionId == sessionID }) { return .question }
     if store.bridgePendingQuestions.contains(where: { $0.sessionId == sessionID }) { return .question }
     return nil
+}
+
+/// 行首状态圆点用的完整判据：待办优先（审批 > 问答），否则运行中才给 `.running`。
+@MainActor
+/// 与上面的「右侧胶囊」判据分开：胶囊只在待办时出现（既有行为不变），
+/// 圆点还要覆盖「运行中」（用户要求：运行状态要有可见锚点）。
+func sessionRowDotKind(for session: SessionSummary, store: AppStore) -> DSHStatusKind? {
+    if let pending = sessionRowStatusKind(for: session.id, store: store) { return pending }
+    return session.isRunning ? .running : nil
 }
 
 /// 次要信息位 =「模式 · N 轮 · M 步」。缺哪段省哪段，全缺返回 nil（整行不显示，绝不编 0）。

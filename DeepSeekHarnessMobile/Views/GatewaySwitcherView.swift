@@ -10,15 +10,17 @@ struct GatewaySwitcherBar: View {
     /// 2/5-a：网关行按参考实现 S01 重排为**独立整行**（不再是小胶囊）——
     /// 它回答「我连的哪台机器」，与工作区卡（哪个项目）必须是两行（决策文档裁定 4）。
     /// 结构：DSHStatus（状态点+状态字，既有 gateway.state.label 文案）· 地址（等宽）· 相对时间 ›。
-    /// 有意差异：设计稿此行没有主机别名，多网关时靠地址区分；别名在点开的列表里。
+    /// 主机名优先：`GatewayProfile.displayName`（别名优先、否则网关名）——多网关时
+    /// 域名（ydgg.dpdns.org）认不出是哪台机器，别名（如「家里 Mac」）才认得出。
+    /// 没有 displayName 才回落 host:port 地址。
     var body: some View {
         let connected = hosts.activeStore.gateway.state.isConnected
         return Button { showsHosts = true } label: {
             HStack(spacing: DSHSpacing.sm) {
                 DSHStatus(kind: connected ? .online : .failed, text: hosts.activeStore.gateway.state.label)
-                if let address = activeEndpoint {
+                if let hostLabel {
                     Text("·").appFont(DSHType.footnote).foregroundStyle(palette.ink(0.3))
-                    Text(address)
+                    Text(hostLabel)
                         .appFont(DSHType.mono)
                         .foregroundStyle(palette.ink(0.5))
                         .lineLimit(1)
@@ -49,6 +51,12 @@ struct GatewaySwitcherBar: View {
             return lastConnected.formatted(.relative(presentation: .named))
         }
         return String(localized: "重连中")
+    }
+
+    /// 行左侧显示的主机标识：优先 `displayName`（别名/网关名），没有才回落地址。
+    private var hostLabel: String? {
+        if let name = hosts.activeProfile?.displayName, !name.isEmpty { return name }
+        return activeEndpoint
     }
 
     /// 设计稿此行显示「一眼能认」的地址（如 `192.168.1.12:3080`）：取首选端点

@@ -496,7 +496,6 @@ struct WorkspaceView: View {
                     botDiagnosticsCard
                 }
                 // 08「添加 Bot」：手机端没有创建能力（桌面端创建），做成**不可点说明行**
-                // ——不做假入口；文案由 Chief 给定。放在回落链之外：任何档位都可见。
                 VStack(alignment: .leading, spacing: 2) {
                     Text("添加 Bot")
                         .appFont(DSHType.body)
@@ -508,8 +507,6 @@ struct WorkspaceView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, DSHSpacing.md)
                 .frame(minHeight: 64)
-                // 08 设计稿：「添加 Bot」是**纯文字行**，不套卡片壳（与名册行一致，靠留白分隔）。
-                // 文案与灰色都保留：手机端没有创建能力，做成蓝色/可点会变假承诺。
             } else {
                 sessionsHeader.id("workspace-sessions-header")
                 sessionSearch.id("workspace-session-search")
@@ -1464,7 +1461,8 @@ struct WorkspaceView: View {
     }
 
     private var sessionsList: some View {
-        LazyVStack(spacing: 0) {
+        // 行距对齐 Bot 区（Bot 列表 `VStack(spacing: 12)` + 行高 64 → 节距 76pt）
+        LazyVStack(spacing: DSHSpacing.md) {
             if !searchQuery.isEmpty {
                 Text(store.searchCoverage).appFont(.caption).foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -1509,7 +1507,8 @@ struct WorkspaceView: View {
             searchSnippet: searchQuery.isEmpty
                 ? nil
                 : store.searchResults.first(where: { $0.sessionId == session.id })?.snippet,
-            showsMenu: false
+            showsMenu: false,
+            dotStatus: sessionRowDotKind(for: session, store: store)
         )
     }
 
