@@ -4416,6 +4416,9 @@ private struct ConversationProcessToolHeaderRow: View {
                         Text("失败").appFont(.caption2.weight(.semibold)).foregroundStyle(.red)
                     } else if tool.result == nil {
                         Text("等待结果").appFont(.caption2).foregroundStyle(.secondary)
+                    } else {
+                        // 03 正文：工具已返回且未报错 = 已执行（判据就是既有 result 是否存在，未造字段）
+                        Text("已执行").appFont(.caption2).foregroundStyle(.secondary)
                     }
                 }
                 if !summary.detail.isEmpty {

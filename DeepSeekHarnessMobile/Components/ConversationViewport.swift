@@ -3156,9 +3156,12 @@ private final class UserMessageCell: StableSelfSizingCollectionViewCell {
         fileCards.spacing = 8
         fileCards.isHidden = true
 
-        bubbleView.layer.cornerRadius = 15
+        // 03 正文：用户气泡 = 右对齐 brand 实底。左下角小半径（0）形成「贴着说话人」的不等圆角；
+        // 只改外观，不改任何 padding / 字号，故 cell 高度与命中区域不变。
+        bubbleView.layer.cornerRadius = 16
         bubbleView.layer.cornerCurve = .continuous
-        bubbleView.layer.borderWidth = 0.7
+        bubbleView.layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner]
+        bubbleView.layer.borderWidth = 0
         bubbleView.translatesAutoresizingMaskIntoConstraints = false
 
         messageLabel.font = .appPreferredFont(forTextStyle: .body)
@@ -3397,19 +3400,11 @@ private final class UserMessageCell: StableSelfSizingCollectionViewCell {
     }
 
     private func updateBubbleColors() {
-        let dark = traitCollection.userInterfaceStyle == .dark
-        bubbleView.backgroundColor = UIColor(
-            red: 0.18,
-            green: 0.42,
-            blue: 0.9,
-            alpha: dark ? 0.24 : 0.11
-        )
-        bubbleView.layer.borderColor = UIColor(
-            red: 0.18,
-            green: 0.42,
-            blue: 0.9,
-            alpha: dark ? 0.34 : 0.08
-        ).cgColor
+        // 03 正文：brand 实底 + 白字（参考实现「用户消息右对齐气泡」）。
+        // 只改颜色，不改字号/内边距 —— 行高与命中区域保持原样。
+        bubbleView.backgroundColor = UIColor(DSHColor.ocean)
+        bubbleView.layer.borderColor = UIColor.clear.cgColor
+        messageLabel.textColor = .white
     }
 }
 
