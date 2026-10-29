@@ -477,7 +477,9 @@ struct WorkspaceView: View {
     }
 
     private var recentSessions: some View {
-        LazyVStack(alignment: .leading, spacing: 18) {
+        // 栈距 18 → 13：实测「末行文字底→tab 栏」静止时只有 15pt（底部 padding 无法移动
+        // 已排好的行，只能改这里）；这里两段间隔共上移 10pt → 末行离栏约 25pt。
+        LazyVStack(alignment: .leading, spacing: 13) {
             if isUnpairedHome && primaryTab == .sessions {
                 // 20-unpaired：未配对时会话区整体不出现（参考实现 S01——首页只剩配对卡）。
             } else if primaryTab == .bots {
