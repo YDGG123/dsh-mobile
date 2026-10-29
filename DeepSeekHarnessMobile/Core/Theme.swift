@@ -429,8 +429,11 @@ extension DSHPalette {
     /// 输入框外壳：**必须不透明**（半透明会把下方正文透出来，轻飘飘没质感）。
     /// 与 `cardFill` 分开的原因：`cardFill` 浅色 0.55 半透是给首页卡片「透鲸鱼」用的
     /// （用户已验收），不能共用 —— 共用会让输入框跟着变透明（2026-10-29 真机回归）。
+    /// 深色这一支**不能跟 cardFill 学**：cardFill 深色是故意半透（white 6%）要透鲸鱼，
+    /// 输入框跟了就会把正文透出来（用户第六轮反馈）。这里用不透明的 `navyRaised`，
+    /// 比页面底色 `navy` 亮一档，看得出「浮在页面上」的层次，且没有任何 alpha。
     var composerFill: Color {
-        isLight ? .white : surface(0.06)
+        isLight ? .white : DSHColor.navyRaised
     }
 
     /// 卡片描边：1pt。浅色卡片半透明后与背景只差 ~10/255，描边必须更实才认得出轮廓。
@@ -1006,17 +1009,10 @@ struct DSHTabBar: View {
                             // ① 角标挂在**图标**右上（不再挂整个按钮）：
                             // 原来挂按钮 topTrailing + offset(6,-4) 会越出按钮右边缘，
                             // 看起来像右边那个 tab 的角标（用户第五轮反馈）。
+                            // ⑥ 角标与图标之间留出「一个角标宽」的空隙（用户第六轮反馈）：
+                            // 宽度交给 DSHTabBadge 自己量，不写死 offset 魔数。
                             .overlay(alignment: .topTrailing) {
-                                if let n = badges[tab], n > 0, !active {
-                                    Text("\(n)")
-                                        .appFont(DSHType.meta.weight(.semibold))
-                                        .foregroundStyle(.white)
-                                        .padding(.horizontal, 5)
-                                        .padding(.vertical, 1.5)
-                                        .background(DSHColor.cautionAA)
-                                        .clipShape(Capsule())
-                                        .offset(x: 10, y: -6)
-                                }
+                                DSHTabBadge(count: badges[tab] ?? 0, shown: (badges[tab] ?? 0) > 0 && !active)
                             }
                         Text(tab.rawValue).appFont(DSHType.meta)
                     }
@@ -1033,6 +1029,41 @@ struct DSHTabBar: View {
         .clipShape(Capsule())
         .overlay(Capsule().strokeBorder(p.cardStroke, lineWidth: 1))
         .padding(.horizontal, DSHSpacing.lg)
+    }
+}
+
+
+// MARK: - 10b. tab 角标
+//
+// ⑥ 用户第六轮反馈：角标贴着图标，看着像图标的一部分 —— 要求「与图标隔着一个角标的距离」。
+// 角标宽度随位数变化（1 位 / 2 位 / 3 位），所以偏移量不用魔数，改成量出来的宽度：
+//   overlay(.topTrailing) 先把角标右边缘对齐图标右边缘，
+//   再右移 2 × 角标宽 —— 一份宽度让出空隙，一份宽度是角标本体该在的位置。
+// 角标常驻视图树（不可见时 opacity 0），这样宽度在第一帧就量好，出现时不会先贴在图标上跳一下。
+private struct DSHTabBadge: View {
+    let count: Int
+    let shown: Bool
+    @State private var width: CGFloat = 0
+
+    var body: some View {
+        Text("\(count)")
+            .appFont(DSHType.meta.weight(.semibold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 1.5)
+            .background(DSHColor.cautionAA)
+            .clipShape(Capsule())
+            .background(
+                GeometryReader { proxy in
+                    Color.clear
+                        .onAppear { width = proxy.size.width }
+                        .onChangeCompat(of: proxy.size.width) { _, new in width = new }
+                }
+            )
+            .offset(x: width * 2, y: -6)
+            .opacity(shown ? 1 : 0)
+            .allowsHitTesting(false)
+            .accessibilityHidden(!shown)
     }
 }
 
