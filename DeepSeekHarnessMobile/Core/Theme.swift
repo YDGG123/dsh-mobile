@@ -976,6 +976,10 @@ enum DSHTab: String, CaseIterable {
 }
 
 struct DSHTabBar: View {
+    /// tab 栏总高：内部最小高 54 + 外层上下各 `DSHSpacing.xs` 内边距。
+    /// 外层据此算「上移量 = 总高的一半」，改高度时不用再回来改魔数。
+    static var totalHeight: CGFloat { 54 + DSHSpacing.xs * 2 }
+
     @Environment(\.colorScheme) private var scheme
     let selection: DSHTab
     /// 角标规则（design-handoff.md §5）：按 tab 独立计数，当前 tab 不重复提示。
@@ -1140,8 +1144,9 @@ struct DSHSessionRow: View {
                 .accessibilityLabel(String(localized: "会话操作"))
             }
         }
-        // 行高：参考实现 8pt，真机 390pt 宽下太挤，按真机反馈提到 12pt（与 01 一致）
-        .padding(.vertical, DSHSpacing.md)
+        // 行高：参考实现 8pt → 真机 12pt（上一轮）→ 用户真机再反馈「上下太窄」，
+        // 定制为 18pt。**不往 DSHSpacing 加档**（全局档位会影响其它屏），就地 +6。
+        .padding(.vertical, DSHSpacing.md + 6)
         .contentShape(Rectangle())
     }
 }

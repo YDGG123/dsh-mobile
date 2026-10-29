@@ -333,7 +333,10 @@ struct WorkspaceView: View {
                     drawerOffset = 0
                 }
             }
-            .padding(.bottom, DSHSpacing.sm)
+            // ⑤ 用户真机反馈：tab 栏离底边太近，要求上移「tab 栏自身高度的一半」。
+            // 上移量由 `DSHTabBar.totalHeight` 推算（62 / 2 = 31），加原有 8pt 留白 = 39pt；
+            // 不写死 39，这样以后改 tab 栏高度时上移量自动跟随。
+            .padding(.bottom, DSHSpacing.sm + DSHTabBar.totalHeight / 2)
         }
     }
 
