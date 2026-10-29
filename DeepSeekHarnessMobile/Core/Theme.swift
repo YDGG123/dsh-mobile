@@ -1009,8 +1009,8 @@ struct DSHTabBar: View {
                             // ① 角标挂在**图标**右上（不再挂整个按钮）：
                             // 原来挂按钮 topTrailing + offset(6,-4) 会越出按钮右边缘，
                             // 看起来像右边那个 tab 的角标（用户第五轮反馈）。
-                            // ⑥ 角标与图标之间留出「一个角标宽」的空隙（用户第六轮反馈）：
-                            // 宽度交给 DSHTabBadge 自己量，不写死 offset 魔数。
+                            // ⑥ 角标与图标之间留固定空隙（用户拍板 7pt，不随角标宽度变）：
+                            // 宽度交给 DSHTabBadge 自己量，见 DSHTabBadge.iconGap 的注释。
                             .overlay(alignment: .topTrailing) {
                                 DSHTabBadge(count: badges[tab] ?? 0, shown: (badges[tab] ?? 0) > 0 && !active)
                             }
@@ -1035,12 +1035,17 @@ struct DSHTabBar: View {
 
 // MARK: - 10b. tab 角标
 //
-// ⑥ 用户第六轮反馈：角标贴着图标，看着像图标的一部分 —— 要求「与图标隔着一个角标的距离」。
-// 角标宽度随位数变化（1 位 / 2 位 / 3 位），所以偏移量不用魔数，改成量出来的宽度：
-//   overlay(.topTrailing) 先把角标右边缘对齐图标右边缘，
-//   再右移 2 × 角标宽 —— 一份宽度让出空隙，一份宽度是角标本体该在的位置。
+// ⑥ 用户第六轮反馈：角标贴着图标，看着像图标的一部分 —— 要与图标留出明显空隙。
+// 空隙的定稿是**固定 7pt**（不随角标宽度变）：最初按「空隙 = 一个角标宽」实现，
+// 末位 tab 的两位数角标会顶进胶囊顶部圆角被裁掉一角（feedback4-badge-gap.jpg
+// 里「12」缺角即该版实拍存档）；改固定 7pt 后末位 tab 仍有三十余 pt 富余。
+// 宽度仍要实测 —— offset 依赖它，不能写死魔数。
 // 角标常驻视图树（不可见时 opacity 0），这样宽度在第一帧就量好，出现时不会先贴在图标上跳一下。
 private struct DSHTabBadge: View {
+    /// 角标与图标的空隙。定稿依据：末位 tab（设置）图标右缘到胶囊边界在角标
+    /// 所在高度约有 40pt 余量，固定 7pt 空隙连三位数角标都放得下。
+    static let iconGap: CGFloat = 7
+
     let count: Int
     let shown: Bool
     @State private var width: CGFloat = 0
@@ -1060,7 +1065,9 @@ private struct DSHTabBadge: View {
                         .onChangeCompat(of: proxy.size.width) { _, new in width = new }
                 }
             )
-            .offset(x: width * 2, y: -6)
+            // overlay(.topTrailing) 先把角标右缘对齐图标右缘，再右移 w + iconGap：
+            // 角标左缘 = 图标右缘 + iconGap → 空隙恒等于 iconGap，与位数无关。
+            .offset(x: width + Self.iconGap, y: -6)
             .opacity(shown ? 1 : 0)
             .allowsHitTesting(false)
             .accessibilityHidden(!shown)
