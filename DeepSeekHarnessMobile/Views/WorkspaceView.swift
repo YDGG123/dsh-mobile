@@ -1282,8 +1282,9 @@ struct WorkspaceView: View {
             .onSubmit { sessionSearchIsFocused = false }
         }
         .padding(.horizontal, 12).frame(minHeight: 42)
-        .background(palette.surface(0.06), in: RoundedRectangle(cornerRadius: DSHRadius.sm))
-        .overlay(RoundedRectangle(cornerRadius: DSHRadius.sm).stroke(palette.stroke(0.1)))
+        // 与卡片同一档（浅色半透明白 0.55 + 抬档描边），否则搜索框比卡片更"实"
+        .background(palette.cardFill, in: RoundedRectangle(cornerRadius: DSHRadius.sm))
+        .overlay(RoundedRectangle(cornerRadius: DSHRadius.sm).strokeBorder(palette.cardStroke, lineWidth: 1))
     }
 
     /// U5：原版连接界面恢复为主入口。任何一边配对成功都会同时拿到两套凭证，
@@ -1320,7 +1321,10 @@ struct WorkspaceView: View {
             }
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(palette.surface(0.06), in: RoundedRectangle(cornerRadius: 16))
+            // 配对入口卡与其它卡片同档（浅色半透明白 + 抬档描边）
+            .background(palette.cardFill, in: RoundedRectangle(cornerRadius: DSHRadius.md))
+            .overlay(RoundedRectangle(cornerRadius: DSHRadius.md)
+                .strokeBorder(palette.cardStroke, lineWidth: 1))
         }
     }
 

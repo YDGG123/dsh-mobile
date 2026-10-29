@@ -417,14 +417,20 @@ extension DSHPalette {
         isLight ? .white : Color(red: 0.063, green: 0.106, blue: 0.169)
     }
 
-    /// 卡片填充：分组卡片、工作区卡、任务卡
+    /// 卡片填充：分组卡片、工作区卡、任务卡。
+    /// **浅色 0.55 白是用户真机反馈的定制值**：纯白会把背景鲸鱼粒子完全挡住
+    /// （用户：深色下快透明、只有很淡灰底才对，浅色要跟上）。
+    /// 注：`surface()` 浅色有 0.72 地板、`veil()` 是墨色压暗，都做不出「半透明白」，
+    /// 所以这里直接写白色 + 不透明度（仍是白色，未引入新色）。
     var cardFill: Color {
-        isLight ? .white : surface(0.06)
+        isLight ? Color.white.opacity(0.55) : surface(0.06)
     }
 
-    /// 卡片描边：1pt，浅色下必须可见，否则白卡在白底上消失
+    /// 卡片描边：1pt。浅色卡片半透明后与背景只差 ~10/255，描边必须更实才认得出轮廓。
+    /// `stroke(0.06)`（9.6%）→ 12% 实测「刚过线」，用户反馈「添加 Bot」卡在点阵背景上
+    /// 几乎找不到边界 → 抬到 `stroke(0.17)`（≈16%），仍无盒子感。
     var cardStroke: Color {
-        isLight ? stroke(0.06) : stroke(0.12)
+        isLight ? stroke(0.17) : stroke(0.12)
     }
 
     /// 卡片内部分隔线（分组行的 line）
