@@ -1003,24 +1003,27 @@ struct DSHTabBar: View {
                     VStack(spacing: 3) {
                         Image(systemName: tab.icon)
                             .appFont(DSHType.body.weight(.medium))
+                            // ① 角标挂在**图标**右上（不再挂整个按钮）：
+                            // 原来挂按钮 topTrailing + offset(6,-4) 会越出按钮右边缘，
+                            // 看起来像右边那个 tab 的角标（用户第五轮反馈）。
+                            .overlay(alignment: .topTrailing) {
+                                if let n = badges[tab], n > 0, !active {
+                                    Text("\(n)")
+                                        .appFont(DSHType.meta.weight(.semibold))
+                                        .foregroundStyle(.white)
+                                        .padding(.horizontal, 5)
+                                        .padding(.vertical, 1.5)
+                                        .background(DSHColor.cautionAA)
+                                        .clipShape(Capsule())
+                                        .offset(x: 10, y: -6)
+                                }
+                            }
                         Text(tab.rawValue).appFont(DSHType.meta)
                     }
                     .foregroundStyle(active ? Color.white : p.ink(0.55))
                     .frame(maxWidth: .infinity, minHeight: 54)
                     .background(active ? AnyShapeStyle(p.brand) : AnyShapeStyle(.clear))
                     .clipShape(Capsule())
-                    .overlay(alignment: .topTrailing) {
-                        if let n = badges[tab], n > 0, !active {
-                            Text("\(n)")
-                                .appFont(DSHType.meta.weight(.semibold))
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 5)
-                                .padding(.vertical, 1.5)
-                                .background(DSHColor.cautionAA)
-                                .clipShape(Capsule())
-                                .offset(x: 6, y: -4)
-                        }
-                    }
                 }
                 .buttonStyle(.plain)
             }
