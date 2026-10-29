@@ -1107,20 +1107,29 @@ struct DSHSessionRow: View {
     /// （放在参数列表末尾，保持既有调用点的实参顺序不变。）
     var dotStatus: DSHStatusKind? = nil
 
+    /// 行首状态圆点颜色（口径见用户第五轮反馈）
+    private func dotColor(_ p: DSHPalette) -> Color {
+        switch dotStatus {
+        case .waiting: return p.caution
+        case .question: return p.brand
+        case .running, .online: return p.success
+        case .failed: return p.danger
+        case .idle, nil: return p.ink(0.35)
+        }
+    }
+
     var body: some View {
         let p = DSHPalette(scheme: scheme)
         HStack(spacing: DSHSpacing.md) {
             // ③ 行首状态锚点（与 Bot 行头像同一位置/同一作用）：
             // 只在「需要关注」时画点（running/waiting/question），空闲行留同等宽空白保持对齐。
-            Group {
-                if let dotStatus, dotStatus != .idle {
-                    Circle()
-                        .fill(dotStatus == .waiting ? p.caution : p.brand)
-                        .frame(width: 10, height: 10)
-                } else {
-                    Color.clear.frame(width: 10, height: 10)
-                }
-            }
+            // ④ 用户第五轮口径：
+            //   运行中 = 绿（`p.success`，既有语义色，浅色下已压暗）
+            //   等你审批 = 琥珀 / 等你回答 = 蓝（保留特殊色）
+            //   空闲 / nil = **灰点**（不再是「不画点」；10pt 仍是占位宽度，避免文字左右错位）
+            Circle()
+                .fill(dotColor(p))
+                .frame(width: 10, height: 10)
             .padding(.trailing, DSHSpacing.xxs)
 
             VStack(alignment: .leading, spacing: DSHSpacing.xxs) {
