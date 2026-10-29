@@ -1325,8 +1325,9 @@ struct ConversationView: View {
             }
         }
         .padding(DSHSpacing.md)
-        // 03 composer 外壳：卡片面 + 1pt 描边 + radius lg（与 01/02/13 同一套 token）
-        .background(palette.cardFill, in: RoundedRectangle(cornerRadius: DSHRadius.lg, style: .continuous))
+        // 03 composer 外壳：**不透明**专用底（composerFill）+ 1pt 描边 + radius lg。
+        // 不能用 cardFill —— 那个浅色是 0.55 半透（首页卡片透鲸鱼用），输入框会跟着发虚。
+        .background(palette.composerFill, in: RoundedRectangle(cornerRadius: DSHRadius.lg, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: DSHRadius.lg, style: .continuous)
                 .strokeBorder(palette.cardStroke, lineWidth: 1)

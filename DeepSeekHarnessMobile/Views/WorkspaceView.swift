@@ -495,18 +495,7 @@ struct WorkspaceView: View {
                 } else {
                     botDiagnosticsCard
                 }
-                // 08「添加 Bot」：手机端没有创建能力（桌面端创建），做成**不可点说明行**
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("添加 Bot")
-                        .appFont(DSHType.body)
-                        .foregroundStyle(palette.ink(0.45))
-                    Text("在桌面端创建，手机端只读")
-                        .appFont(DSHType.meta)
-                        .foregroundStyle(palette.ink(0.35))
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, DSHSpacing.md)
-                .frame(minHeight: 64)
+                // 「添加 Bot」行已按用户要求整行删除（手机端没有创建能力，不需要该提示）。
             } else {
                 sessionsHeader.id("workspace-sessions-header")
                 sessionSearch.id("workspace-session-search")
