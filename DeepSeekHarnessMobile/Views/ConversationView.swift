@@ -418,14 +418,22 @@ struct ConversationView: View {
                     Text("团队 › \(store.selectedSession?.title ?? "成员")" + (store.selectedMemberCanSend ? "" : " · 只读"))
                         .appFont(.caption).foregroundStyle(.secondary).lineLimit(1).padding(.bottom, 4)
                 }
-                Picker("视图", selection: $activeView) {
-                    Text("对话").tag(0)
-                    Text("轨迹").tag(1)
+                // 03 页头：设计系统胶囊分段（原为系统 Picker(.segmented)）
+                DSHSegmented(items: ["对话", "轨迹"], selection: $activeView)
+                    .padding(.horizontal, DSHSpacing.lg)
+                    .readableContentWidth(440)
+                    .padding(.vertical, DSHSpacing.sm)
+                // 03 页头副行：模式 · 状态 · 第 N 轮（11pt，不上标题行）
+                if let conversationSubtitle {
+                    Text(conversationSubtitle)
+                        .appFont(DSHType.meta)
+                        .foregroundStyle(palette.ink(0.45))
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, DSHSpacing.lg)
+                        .readableContentWidth(440)
+                        .padding(.bottom, DSHSpacing.xs)
                 }
-                .pickerStyle(.segmented)
-                .padding(.horizontal, 40)
-                .readableContentWidth(440)
-                .padding(.vertical, 6)
 
                 PersistentSessionPager(selection: $activeView) {
                     chat
@@ -507,7 +515,7 @@ struct ConversationView: View {
 
     /// 待答问题卡（两种来源合并：旧协议 + bridge 卡片帧），抽出来让 `chat` 不超类型检查时限
     private var hasPendingQuestionCard: Bool {
-        store.selectedPendingQuestionRequestMerged != nil
+        return store.selectedPendingQuestionRequestMerged != nil
     }
 
     /// 待答问题卡（两种来源合并：旧协议 + bridge 卡片帧），抽出来让 `chat` 不超类型检查时限
@@ -524,6 +532,25 @@ struct ConversationView: View {
             .padding(.bottom, composerBottomPadding)
             .transition(.move(edge: .bottom).combined(with: .opacity))
         }
+    }
+
+    /// 03 页头副行：模式 · 运行状态 · 第 N 轮（数据全部来自既有 store 字段）
+    private var conversationSubtitle: String? {
+        var parts: [String] = []
+        let preset = store.sessionAgentPreset
+        if preset.visible {
+            let current = preset.presets.first { $0.id == preset.agentPreset }
+            if let name = current?.name ?? preset.agentPreset.map(agentPresetTitle) {
+                parts.append(name)
+            }
+        }
+        if let session = store.selectedSession {
+            parts.append(session.isRunning ? String(localized: "运行中") : String(localized: "已完成"))
+        }
+        if let turns = store.selectedSessionStatsSnapshot?.stats?.turns, turns > 0 {
+            parts.append(String(localized: "第 \(turns) 轮"))
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
     private var chat: some View {
