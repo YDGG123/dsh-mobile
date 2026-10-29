@@ -69,6 +69,8 @@ struct SettingsView: View {
     @State private var showsModelOptions = false
     @State private var showsPermissionOptions = false
     @State private var showsFontSizePanel = false
+    /// S25：默认模型改为锚定面板（复用 ModelPickerPanel），确认载荷留在本页
+    @State private var pendingDefaultChange: PendingDefaultModelChange?
     @AppStorage(AppFontScale.key) private var fontScale = 1.0
     @AppStorage(AppFontScale.followsSystemKey) private var fontFollowsSystem = false
     private let releaseInfo = BundledAppReleaseInfo.load()
@@ -257,10 +259,14 @@ struct SettingsView: View {
                     .disabled(!gatewayState.isConnected)
                     DSHRow("默认模型",
                            showsDivider: true,
-                           action: { showsModelOptions = true }) {
+                           action: {
+                               showsModelOptions = true
+                               store.ensureModelCatalogForDefaults()
+                           }) {
                         DSHRowValue(text: defaultModelValueText)
                     }
                     .disabled(!gatewayState.isConnected)
+                    .anchorPreference(key: ModelPickerAnchorKey.self, value: .bounds) { $0 }
                     DSHRow("权限",
                            showsDivider: false,
                            action: { showsPermissionOptions = true }) {
@@ -470,9 +476,29 @@ struct SettingsView: View {
         .sheet(isPresented: $showsPresetOptions) {
             AgentPresetOptionsSheet()
         }
-        .sheet(isPresented: $showsModelOptions) {
-            DefaultModelOptionsSheet()
-        }
+        .defaultModelPickerOverlay(
+            isPresented: $showsModelOptions,
+            pendingChange: $pendingDefaultChange,
+            groups: store.anyModelCatalog?.groups ?? [],
+            isLoading: store.sessionControlLoadingKinds.contains("models")
+                && (store.anyModelCatalog?.groups.isEmpty ?? true),
+            currentSelection: store.defaultModelSelection,
+            onSelectModel: { group, model in
+                let efforts = model.reasoning?.efforts ?? []
+                let retained = store.defaultModelSelection?.reasoningEffort.flatMap { current in
+                    efforts.contains(where: { $0.id == current }) ? current : nil
+                }
+                let effortId = retained ?? model.reasoning?.defaultEffort
+                pendingDefaultChange = PendingDefaultModelChange(
+                    provider: group.id,
+                    providerName: group.name,
+                    model: model.id,
+                    modelName: model.name,
+                    reasoningEffort: effortId,
+                    effortName: effortId.flatMap { id in efforts.first(where: { $0.id == id })?.name }
+                )
+            }
+        )
         .sheet(isPresented: $showsPermissionOptions) {
             PermissionOptionsSheet()
         }
@@ -1312,144 +1338,6 @@ private struct AgentPresetOptionsSheet: View {
     }
 }
 
-/// 默认模型：紧凑选项弹层（模型列表 + 思考等级 chips，原来是一整页推入）。
-private struct DefaultModelOptionsSheet: View {
-    @EnvironmentObject private var store: AppStore
-    @Environment(\.dismiss) private var dismiss
-    @State private var pendingChange: PendingDefaultModelChange?
-
-    private var modelGroups: [GatewayModelGroup] { store.anyModelCatalog?.groups ?? [] }
-    private var isLoadingCatalog: Bool {
-        store.sessionControlLoadingKinds.contains("models") && modelGroups.isEmpty
-    }
-    private var isBusy: Bool {
-        store.defaultConfigurationLoadingKinds.contains("save-default-model")
-    }
-
-    var body: some View {
-        CompactSheet(title: String(localized: "默认模型"), detents: [.medium, .large]) {
-            if isLoadingCatalog {
-                CompactStatusRow(text: String(localized: "正在读取模型列表…"), isLoading: true)
-            } else if modelGroups.isEmpty {
-                CompactStatusRow(text: String(localized: "暂无可用模型")) {
-                    store.ensureModelCatalogForDefaults()
-                }
-            } else {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 16) {
-                        ForEach(modelGroups) { group in
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text(group.name)
-                                    .appFont(.caption.weight(.semibold))
-                                    .foregroundStyle(.secondary)
-                                    .padding(.horizontal, 20)
-                                ForEach(group.models) { model in
-                                    modelRow(group: group, model: model)
-                                }
-                            }
-                        }
-                    }
-                    .padding(.vertical, 14)
-                }
-                .alert(item: $pendingChange) { change in
-                    Alert(
-                        title: Text("修改默认模型？"),
-                        message: Text(String(localized: "defaults.model.confirm.body", defaultValue: "将新会话的默认模型改为“\(change.summary)”。这会更新部署级设置，并同步影响 WebUI。")),
-                        primaryButton: .cancel(Text("取消")),
-                        secondaryButton: .default(Text("确认修改")) {
-                            store.saveDefaultModel(
-                                provider: change.provider,
-                                model: change.model,
-                                reasoningEffort: change.reasoningEffort
-                            )
-                            dismiss()
-                        }
-                    )
-                }
-            }
-        }
-        .task { store.ensureModelCatalogForDefaults() }
-    }
-
-    @ViewBuilder
-    private func modelRow(group: GatewayModelGroup, model: GatewayModelItem) -> some View {
-        let efforts = model.reasoning?.efforts ?? []
-        let selected = store.defaultModelSelection?.provider == group.id
-            && store.defaultModelSelection?.model == model.id
-        let currentEffort = store.defaultModelSelection?.reasoningEffort
-
-        VStack(alignment: .leading, spacing: 6) {
-            Button {
-                pendingChange = change(group: group, model: model, effort: nil)
-            } label: {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(model.name).foregroundStyle(.primary)
-                    Spacer(minLength: 0)
-                    if selected {
-                        Text("当前使用")
-                            .appFont(.caption.weight(.semibold))
-                            .foregroundStyle(Color(uiColor: .systemBackground))
-                            .padding(.horizontal, 9)
-                            .padding(.vertical, 4)
-                            .background(Color.primary, in: Capsule())
-                    }
-                }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 9)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .disabled(isBusy)
-
-            if !efforts.isEmpty {
-                HStack(spacing: 8) {
-                    Text("思考等级")
-                        .appFont(.caption)
-                        .foregroundStyle(.secondary)
-                    ForEach(efforts) { effort in
-                        let isCurrent = selected && effort.id == currentEffort
-                        Button {
-                            pendingChange = change(group: group, model: model, effort: effort)
-                        } label: {
-                            Text(effort.name)
-                                .appFont(.caption.weight(.medium))
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 5)
-                                .background(isCurrent ? Color.primary : Color.secondary.opacity(0.12), in: Capsule())
-                                .foregroundStyle(isCurrent ? Color(uiColor: .systemBackground) : .primary)
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(isBusy)
-                    }
-                    Spacer(minLength: 0)
-                }
-                .padding(.horizontal, 20)
-                .padding(.bottom, 4)
-            }
-        }
-    }
-
-    private func change(
-        group: GatewayModelGroup,
-        model: GatewayModelItem,
-        effort: GatewayReasoningEffort?
-    ) -> PendingDefaultModelChange {
-        let efforts = model.reasoning?.efforts ?? []
-        let retained = store.defaultModelSelection?.reasoningEffort.flatMap { current in
-            efforts.contains(where: { $0.id == current }) ? current : nil
-        }
-        let effortId = effort?.id ?? retained ?? model.reasoning?.defaultEffort
-        return PendingDefaultModelChange(
-            provider: group.id,
-            providerName: group.name,
-            model: model.id,
-            modelName: model.name,
-            reasoningEffort: effortId,
-            effortName: effortId.flatMap { id in efforts.first(where: { $0.id == id })?.name }
-        )
-    }
-}
-
 /// 权限：紧凑选项弹层（原来是一个 Menu）。
 private struct PermissionOptionsSheet: View {
     @EnvironmentObject private var store: AppStore
@@ -1841,5 +1729,86 @@ private struct StorageCategoryDetailView: View {
         .navigationTitle(category.title)
         .navigationBarTitleDisplayMode(.inline)
         .accessibilityIdentifier("storage-category-detail")
+    }
+}
+
+/// S25：默认模型锚定面板挂载（从 body 抽出——内联表达式过长曾拖垮测试路 typecheck）。
+/// 锚点 = 「默认模型」行；默认模型是部署级设置，选行后仍走既有二次确认。
+private struct DefaultModelPickerOverlay: ViewModifier {
+    @Binding var isPresented: Bool
+    @Binding var pendingChange: PendingDefaultModelChange?
+    let groups: [GatewayModelGroup]
+    let isLoading: Bool
+    let currentSelection: GatewayModelSelection?
+    let onSelectModel: (GatewayModelGroup, GatewayModelItem) -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .overlayPreferenceValue(ModelPickerAnchorKey.self) { anchor in
+                if let anchor {
+                    GeometryReader { geometry in
+                        let cardCap = min(geometry.size.height * 0.66, max(240, geometry[anchor].minY - 44))
+                        ComposerPopoverOverlay(
+                            sourceFrame: geometry[anchor],
+                            availableSize: geometry.size,
+                            isPresented: isPresented,
+                            onDismiss: { isPresented = false },
+                            preferredWidth: geometry.size.width - 16,
+                            alignsToTrailing: false,
+                            maximumContentHeight: cardCap,
+                            margin: 8,
+                            scrollsContent: false
+                        ) {
+                            ModelPickerPanel(
+                                title: String(localized: "默认模型"),
+                                groups: groups,
+                                isLoading: isLoading,
+                                currentSelection: currentSelection,
+                                maximumHeight: cardCap,
+                                onSelectModel: onSelectModel,
+                                onClose: { isPresented = false }
+                            )
+                        }
+                    }
+                }
+            }
+            .alert(item: $pendingChange) { change in
+                Alert(
+                    title: Text("修改默认模型？"),
+                    message: Text(String(localized: "defaults.model.confirm.body", defaultValue: "将新会话的默认模型改为“\(change.summary)”。这会更新部署级设置，并同步影响 WebUI。")),
+                    primaryButton: .cancel(Text("取消")),
+                    secondaryButton: .default(Text("确认修改")) {
+                        store.saveDefaultModel(
+                            provider: change.provider,
+                            model: change.model,
+                            reasoningEffort: change.reasoningEffort
+                        )
+                        pendingChange = nil
+                        isPresented = false
+                    }
+                )
+            }
+    }
+
+    @EnvironmentObject private var store: AppStore
+}
+
+private extension View {
+    func defaultModelPickerOverlay(
+        isPresented: Binding<Bool>,
+        pendingChange: Binding<PendingDefaultModelChange?>,
+        groups: [GatewayModelGroup],
+        isLoading: Bool,
+        currentSelection: GatewayModelSelection?,
+        onSelectModel: @escaping (GatewayModelGroup, GatewayModelItem) -> Void
+    ) -> some View {
+        modifier(DefaultModelPickerOverlay(
+            isPresented: isPresented,
+            pendingChange: pendingChange,
+            groups: groups,
+            isLoading: isLoading,
+            currentSelection: currentSelection,
+            onSelectModel: onSelectModel
+        ))
     }
 }

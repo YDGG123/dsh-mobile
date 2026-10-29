@@ -407,6 +407,10 @@ struct ConversationView: View {
     // 普通 State 作为单向的显式聚焦/失焦请求，UITextView 自己持有第一响应者。
     @State private var composerIsFocused = false
     @State private var showsAgentPresetMenu = false
+    // S25：模型选择面板（会话内）+ 默认模型面板（新会话 chip）+ 默认模型的部署级二次确认
+    @State private var showsModelPicker = false
+    @State private var showsDefaultModelPicker = false
+    @State private var pendingDefaultModelChange: PendingDefaultModelChange?
     @ScaledMetric(relativeTo: .caption) private var composerCapsuleHeight: CGFloat = 34
     private let conversationBottomClearance: CGFloat = 22
 
@@ -813,6 +817,68 @@ struct ConversationView: View {
                     }
                 }
             }
+        }
+        .overlayPreferenceValue(ModelPickerAnchorKey.self) { anchor in
+            if let anchor {
+                GeometryReader { geometry in
+                    // S25：锚定卡片，左右各 8 铺满（margin 8 + preferredWidth = 宽-16），
+                    // 高度 = min(容器 66%, chip 顶上方可用)，面板自带列表滚动（scrollsContent=false）。
+                    ComposerPopoverOverlay(
+                        sourceFrame: geometry[anchor],
+                        availableSize: geometry.size,
+                        isPresented: showsModelPicker || showsDefaultModelPicker,
+                        onDismiss: {
+                            showsModelPicker = false
+                            showsDefaultModelPicker = false
+                        },
+                        preferredWidth: geometry.size.width - 16,
+                        alignsToTrailing: false,
+                        maximumContentHeight: min(geometry.size.height * 0.66, max(240, geometry[anchor].minY - 44)),
+                        margin: 8,
+                        scrollsContent: false
+                    ) {
+                        if showsDefaultModelPicker {
+                            ModelPickerPanel(
+                                title: String(localized: "默认模型"),
+                                groups: defaultModelGroups,
+                                isLoading: defaultModelIsLoading && store.defaultModelSelection == nil,
+                                currentSelection: store.defaultModelSelection,
+                                onSelectModel: { group, model in selectDefaultModel(group: group, model: model) },
+                                onClose: { showsDefaultModelPicker = false }
+                            )
+                        } else {
+                            ModelPickerPanel(
+                                title: String(localized: "模型"),
+                                groups: modelGroups,
+                                isLoading: modelIsLoading,
+                                currentSelection: currentModelSelection,
+                                maximumHeight: min(geometry.size.height * 0.66, max(240, geometry[anchor].minY - 44)),
+                                onSelectModel: { group, model in
+                                    select(group: group, model: model)
+                                    showsModelPicker = false
+                                },
+                                onClose: { showsModelPicker = false }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        .alert(item: $pendingDefaultModelChange) { change in
+            Alert(
+                title: Text("修改默认模型？"),
+                message: Text(String(localized: "defaults.model.confirm.body", defaultValue: "将新会话的默认模型改为“\(change.summary)”。这会更新部署级设置，并同步影响 WebUI。")),
+                primaryButton: .cancel(Text("取消")),
+                secondaryButton: .default(Text("确认修改")) {
+                    store.saveDefaultModel(
+                        provider: change.provider,
+                        model: change.model,
+                        reasoningEffort: change.reasoningEffort
+                    )
+                    pendingDefaultModelChange = nil
+                    showsDefaultModelPicker = false
+                }
+            )
         }
         .overlay(alignment: .bottom) {
             if let voiceToast {
@@ -1899,24 +1965,54 @@ struct ConversationView: View {
 
     @ViewBuilder
     private var modelControl: some View {
-        // 独立 View 为泛型视图建立边界，避免菜单的完整类型嵌入输入框构建链。
+        // 独立 View 为泛型视图建立边界，避免面板的完整类型嵌入输入框构建链。
+        // S25：原生 Menu 换成锚定面板（ModelPickerPanel），chip 本体（Label）保留；
+        // 锚点经 ModelPickerAnchorKey 上报给 overlayPreferenceValue 挂载的浮层。
         if store.selectedSessionId == nil {
-            ConversationDefaultModelSummary(
-                title: defaultModelTitle,
-                effortTitle: defaultModelEffortTitle,
-                isLoading: defaultModelIsLoading && store.defaultModelSelection == nil
-            )
+            // 新会话 = 默认模型。能真改（有可选模型）才加箭头并开面板；改不了保持只读，
+            // 不造点了没反应的假箭头。
+            Button {
+                showsDefaultModelPicker = true
+                store.ensureModelCatalogForDefaults()
+            } label: {
+                ConversationDefaultModelSummary(
+                    title: defaultModelTitle,
+                    effortTitle: defaultModelEffortTitle,
+                    isLoading: defaultModelIsLoading && store.defaultModelSelection == nil,
+                    showsChevron: !defaultModelGroups.isEmpty
+                )
+            }
+            .buttonStyle(.plain)
+            .disabled(defaultModelGroups.isEmpty)
+            .accessibilityLabel(String(localized: "默认模型"))
+            .anchorPreference(key: ModelPickerAnchorKey.self, value: .bounds) { $0 }
         } else {
-            ConversationModelMenu(
-                groups: modelGroups,
-                selection: currentModelSelection,
-                title: currentModelTitle,
-                effortTitle: currentEffortTitle,
-                isLoading: modelIsLoading,
-                isDisabled: modelGroups.isEmpty || store.selectedModelCatalog?.routable == false,
-                onSelectModel: { group, model in select(group: group, model: model) }
-            )
+            Button {
+                showsModelPicker = true
+            } label: {
+                ConversationModelMenuLabel(title: currentModelTitle, effortTitle: currentEffortTitle, isLoading: modelIsLoading)
+            }
+            .buttonStyle(.plain)
+            .disabled(modelGroups.isEmpty || store.selectedModelCatalog?.routable == false)
+            .anchorPreference(key: ModelPickerAnchorKey.self, value: .bounds) { $0 }
         }
+    }
+
+    /// S25：新会话默认模型路径的候选 = 全局/任一网关目录（无会话时 selectedModelCatalog 为空）
+    private var defaultModelGroups: [GatewayModelGroup] { store.anyModelCatalog?.groups ?? [] }
+
+    /// 默认模型选择：回落逻辑与会话内 select(group:model:) 同构（保留当前档位 → 模型默认档 → 无档位），
+    /// 但默认模型是部署级设置，沿用既有二次确认。
+    private func selectDefaultModel(group: GatewayModelGroup, model: GatewayModelItem) {
+        let efforts = model.reasoning?.efforts ?? []
+        let retainedEffort = store.defaultModelSelection?.reasoningEffort.flatMap { current in
+            efforts.contains(where: { $0.id == current }) ? current : nil
+        }
+        let effort = retainedEffort ?? model.reasoning?.defaultEffort
+        let effortName = effort.flatMap { id in efforts.first(where: { $0.id == id })?.name }
+        let summary = effortName.map { "\(model.name) · \($0)" } ?? model.name
+        pendingDefaultModelChange = PendingDefaultModelChange(
+            provider: group.id, model: model.id, reasoningEffort: effort, summary: summary)
     }
 
     /// 03 composer：思考等级独立胶囊（S26）。点击只列当前模型的 efforts，选择走既有
@@ -2743,6 +2839,8 @@ private struct ConversationDefaultModelSummary: View {
     /// 保留签名：推理等级改由独立 effort chip 呈现
     let effortTitle: String?
     let isLoading: Bool
+    /// S25：有可选模型时才为真——能真改才画箭头，改不了保持只读（不造假入口）
+    var showsChevron: Bool = false
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
@@ -2762,66 +2860,17 @@ private struct ConversationDefaultModelSummary: View {
                     .truncationMode(.tail)
                     .layoutPriority(1)
             }
-            // 新会话没有 session，`store.selectModel` 会直接 return —— 这里只读展示，
-            // 不给下拉箭头，避免「按了没反应」的假入口（真能改模型要等会话建立）
+            if showsChevron {
+                // S25 起默认模型可从新会话 chip 直接改（锚定面板 + saveDefaultModel），箭头回归
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 8, weight: .semibold))
+                    .foregroundStyle(p.ink(0.4))
+            }
         }
         .padding(.horizontal, DSHSpacing.sm)
         .frame(minHeight: 28)
         .background(p.chipFill, in: RoundedRectangle(cornerRadius: DSHRadius.sm, style: .continuous))
         .contentShape(Rectangle())
-    }
-}
-
-private struct ConversationModelMenu: View {
-    let groups: [GatewayModelGroup]
-    let selection: GatewayModelSelection?
-    let title: String
-    let effortTitle: String?
-    let isLoading: Bool
-    let isDisabled: Bool
-    let onSelectModel: (GatewayModelGroup, GatewayModelItem) -> Void
-
-    var body: some View {
-        Menu {
-            ConversationModelMenuContent(
-                groups: groups,
-                selection: selection,
-                onSelectModel: onSelectModel
-            )
-        } label: {
-            ConversationModelMenuLabel(title: title, effortTitle: effortTitle, isLoading: isLoading)
-        }
-        .disabled(isDisabled)
-    }
-}
-
-private struct ConversationModelMenuContent: View {
-    let groups: [GatewayModelGroup]
-    let selection: GatewayModelSelection?
-    let onSelectModel: (GatewayModelGroup, GatewayModelItem) -> Void
-
-    var body: some View {
-        if groups.isEmpty {
-            Text("正在读取模型…")
-        } else {
-            // 保持单层原生菜单，避免子菜单在外层动画结束前解析临时锚点而偏移或裁切。
-            // S26：档位切换收口到 composer 的独立思考 chip，这里不再列「推理等级」。
-            ForEach(groups) { group in
-                Section(group.name) {
-                    ForEach(group.models) { model in
-                        Button {
-                            onSelectModel(group, model)
-                        } label: {
-                            Label(
-                                model.name,
-                                systemImage: selection?.provider == group.id && selection?.model == model.id
-                                    ? "checkmark" : "circle"
-                            )
-                        }
-                    }
-                }
-            }
-        }
     }
 }
 
@@ -3507,6 +3556,15 @@ private struct SessionStatsSheet: View {
     }
 }
 
+/// S25：默认模型修改的确认载荷（部署级设置，沿用既有二次确认文案）
+private struct PendingDefaultModelChange: Identifiable {
+    let provider: String
+    let model: String
+    let reasoningEffort: String?
+    let summary: String
+    var id: String { "\(provider)-\(model)-\(reasoningEffort ?? "-")" }
+}
+
 private struct SessionStatsPopoverAnchorKey: PreferenceKey {
     static var defaultValue: Anchor<CGRect>? { nil }
 
@@ -3520,161 +3578,6 @@ private struct SessionAgentPresetPopoverAnchorKey: PreferenceKey {
 
     static func reduce(value: inout Anchor<CGRect>?, nextValue: () -> Anchor<CGRect>?) {
         value = nextValue() ?? value
-    }
-}
-
-/// 模式与统计共用液态玻璃和箭头，原生玻璃自行处理高光与投影。
-private struct ComposerPopoverOverlay<Content: View>: View {
-    let sourceFrame: CGRect
-    let availableSize: CGSize
-    let isPresented: Bool
-    let onDismiss: () -> Void
-    let preferredWidth: CGFloat
-    let alignsToTrailing: Bool
-    let maximumContentHeight: CGFloat
-    let content: Content
-
-    init(
-        sourceFrame: CGRect,
-        availableSize: CGSize,
-        isPresented: Bool,
-        onDismiss: @escaping () -> Void,
-        preferredWidth: CGFloat = 300,
-        alignsToTrailing: Bool = true,
-        maximumContentHeight: CGFloat = .infinity,
-        @ViewBuilder content: () -> Content
-    ) {
-        self.sourceFrame = sourceFrame
-        self.availableSize = availableSize
-        self.isPresented = isPresented
-        self.onDismiss = onDismiss
-        self.preferredWidth = preferredWidth
-        self.alignsToTrailing = alignsToTrailing
-        self.maximumContentHeight = maximumContentHeight
-        self.content = content()
-    }
-
-    @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var contentHeight: CGFloat = 240
-
-    private var presentationAnimation: Animation {
-        if reduceMotion { return .easeOut(duration: 0.15) }
-        return isPresented
-            ? .spring(response: 0.32, dampingFraction: 0.88)
-            : .easeInOut(duration: 0.18)
-    }
-
-    var body: some View {
-        let margin: CGFloat = 14
-        let gap: CGFloat = 6
-        let arrowHeight: CGFloat = 8
-        let width = min(preferredWidth, max(1, availableSize.width - margin * 2))
-        let above = max(0, sourceFrame.minY - margin - gap)
-        let below = max(0, availableSize.height - sourceFrame.maxY - margin - gap)
-        let bodyHeight = min(contentHeight, maximumContentHeight)
-        let displaysAbove = above >= bodyHeight + arrowHeight || above >= below
-        let height = min(bodyHeight + arrowHeight, max(arrowHeight + 1, displaysAbove ? above : below))
-        let preferredCenterX = alignsToTrailing ? sourceFrame.maxX - width / 2 : sourceFrame.minX + width / 2
-        let centerX = min(max(preferredCenterX, margin + width / 2), availableSize.width - margin - width / 2)
-        let centerY = displaysAbove
-            ? sourceFrame.minY - gap - height / 2
-            : sourceFrame.maxY + gap + height / 2
-        let shape = ComposerPopoverShape(
-            arrowX: sourceFrame.midX - (centerX - width / 2),
-            pointsUp: !displaysAbove
-        )
-        // 缩放原点使用胶囊中心，即使弹窗显示在胶囊下方，也从触发处展开。
-        let scaleAnchor = UnitPoint(
-            x: sourceFrame.midX / max(1, availableSize.width),
-            y: sourceFrame.midY / max(1, availableSize.height)
-        )
-
-        ZStack(alignment: .topLeading) {
-            if isPresented {
-                Color.clear
-                    .contentShape(Rectangle())
-                    .onTapGesture(perform: onDismiss)
-                    .accessibilityLabel("关闭")
-                    .accessibilityAddTraits(.isButton)
-
-                ScrollView {
-                    content
-                        .background {
-                            GeometryReader { proxy in
-                                Color.clear
-                                    .onAppear { contentHeight = proxy.size.height }
-                                    .onChangeCompat(of: proxy.size.height) { _, height in
-                                        contentHeight = height
-                                    }
-                            }
-                        }
-                }
-                .scrollBounceBehaviorCompat(.basedOnSize)
-                .frame(width: width, height: height - arrowHeight)
-                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-                .padding(displaysAbove ? .bottom : .top, arrowHeight)
-                .background {
-                    if #available(iOS 26.0, *) {
-                        Color.clear.glassEffect(.regular, in: shape)
-                    } else {
-                        shape.fill(.ultraThinMaterial)
-                            .overlay {
-                                shape.stroke(Color.primary.opacity(0.06), lineWidth: 0.5)
-                            }
-                            .shadow(color: .black.opacity(colorScheme == .dark ? 0.24 : 0.12), radius: 10, x: 0, y: 3)
-                    }
-                }
-                .accessibilityElement(children: .contain)
-                .accessibilityAddTraits(.isModal)
-                .accessibilityAction(.escape, onDismiss)
-                .position(x: centerX, y: centerY)
-                .transition(reduceMotion ? .opacity : .scale(scale: 0.16, anchor: scaleAnchor).combined(with: .opacity))
-            }
-        }
-        .animation(presentationAnimation, value: isPresented)
-        .allowsHitTesting(isPresented)
-    }
-}
-
-/// 箭头与卡片共用一条轮廓，材质、描边和紧凑阴影不会在连接处叠加。
-private struct ComposerPopoverShape: Shape {
-    let arrowX: CGFloat
-    let pointsUp: Bool
-
-    func path(in rect: CGRect) -> Path {
-        let arrowHeight = min(8, rect.height / 3)
-        let top = rect.minY + arrowHeight
-        let bottom = rect.maxY
-        let radius = min(24, (bottom - top) / 2, rect.width / 2)
-        let halfArrow = min(10, max(0, (rect.width - radius * 2) / 2))
-        let center = min(max(arrowX, rect.minX + radius + halfArrow), rect.maxX - radius - halfArrow)
-        var path = Path()
-        path.move(to: CGPoint(x: rect.minX + radius, y: top))
-        path.addLine(to: CGPoint(x: center - halfArrow, y: top))
-        path.addQuadCurve(
-            to: CGPoint(x: center - 2, y: rect.minY + 2),
-            control: CGPoint(x: center - 4, y: top)
-        )
-        path.addQuadCurve(
-            to: CGPoint(x: center + 2, y: rect.minY + 2),
-            control: CGPoint(x: center, y: rect.minY - 2)
-        )
-        path.addQuadCurve(
-            to: CGPoint(x: center + halfArrow, y: top),
-            control: CGPoint(x: center + 4, y: top)
-        )
-        path.addLine(to: CGPoint(x: rect.maxX - radius, y: top))
-        path.addQuadCurve(to: CGPoint(x: rect.maxX, y: top + radius), control: CGPoint(x: rect.maxX, y: top))
-        path.addLine(to: CGPoint(x: rect.maxX, y: bottom - radius))
-        path.addQuadCurve(to: CGPoint(x: rect.maxX - radius, y: bottom), control: CGPoint(x: rect.maxX, y: bottom))
-        path.addLine(to: CGPoint(x: rect.minX + radius, y: bottom))
-        path.addQuadCurve(to: CGPoint(x: rect.minX, y: bottom - radius), control: CGPoint(x: rect.minX, y: bottom))
-        path.addLine(to: CGPoint(x: rect.minX, y: top + radius))
-        path.addQuadCurve(to: CGPoint(x: rect.minX + radius, y: top), control: CGPoint(x: rect.minX, y: top))
-        path.closeSubpath()
-        if pointsUp { return path }
-        return path.applying(CGAffineTransform(translationX: 0, y: rect.minY + rect.maxY).scaledBy(x: 1, y: -1))
     }
 }
 
