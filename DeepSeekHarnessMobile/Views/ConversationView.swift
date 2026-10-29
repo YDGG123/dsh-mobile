@@ -418,12 +418,7 @@ struct ConversationView: View {
                     Text("团队 › \(store.selectedSession?.title ?? "成员")" + (store.selectedMemberCanSend ? "" : " · 只读"))
                         .appFont(.caption).foregroundStyle(.secondary).lineLimit(1).padding(.bottom, 4)
                 }
-                // 03 页头：设计系统胶囊分段（原为系统 Picker(.segmented)）
-                DSHSegmented(items: ["对话", "轨迹"], selection: $activeView)
-                    .padding(.horizontal, DSHSpacing.lg)
-                    .readableContentWidth(440)
-                    .padding(.vertical, DSHSpacing.sm)
-                // 03 页头副行：模式 · 状态 · 第 N 轮（11pt，不上标题行）
+                // 03 页头副行：紧贴导航标题下方、分段上方（模式 · 状态 · 第 N 轮）
                 if let conversationSubtitle {
                     Text(conversationSubtitle)
                         .appFont(DSHType.meta)
@@ -432,8 +427,13 @@ struct ConversationView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, DSHSpacing.lg)
                         .readableContentWidth(440)
-                        .padding(.bottom, DSHSpacing.xs)
+                        .padding(.top, DSHSpacing.xs)
                 }
+                // 03 页头：设计系统胶囊分段（原为系统 Picker(.segmented)）
+                DSHSegmented(items: ["对话", "轨迹"], selection: $activeView)
+                    .padding(.horizontal, DSHSpacing.lg)
+                    .readableContentWidth(440)
+                    .padding(.vertical, DSHSpacing.sm)
 
                 PersistentSessionPager(selection: $activeView) {
                     chat
@@ -544,7 +544,12 @@ struct ConversationView: View {
                 parts.append(name)
             }
         }
-        if let session = store.selectedSession {
+        // 状态按场景取：待审批 / 待回答优先于运行中/已完成
+        if store.selectedPendingApprovalRequest != nil {
+            parts.append(String(localized: "等你审批"))
+        } else if store.selectedPendingQuestionRequestMerged != nil {
+            parts.append(String(localized: "等你回答"))
+        } else if let session = store.selectedSession {
             parts.append(session.isRunning ? String(localized: "运行中") : String(localized: "已完成"))
         }
         if let turns = store.selectedSessionStatsSnapshot?.stats?.turns, turns > 0 {
