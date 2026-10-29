@@ -1910,42 +1910,45 @@ struct ConversationView: View {
             ConversationModelMenu(
                 groups: modelGroups,
                 selection: currentModelSelection,
-                efforts: currentEfforts,
                 title: currentModelTitle,
                 effortTitle: currentEffortTitle,
                 isLoading: modelIsLoading,
                 isDisabled: modelGroups.isEmpty || store.selectedModelCatalog?.routable == false,
-                onSelectModel: { group, model in select(group: group, model: model) },
-                onSelectEffort: { effort in select(effort: effort) }
+                onSelectModel: { group, model in select(group: group, model: model) }
             )
         }
     }
 
-    /// 03 composer：思考等级独立胶囊。点击**只列 efforts**（模型菜单里的「推理等级」一节保留，
-    /// 老用户从模型菜单仍可切）；选择仍走既有 `select(effort:)`，逻辑未改。
+    /// 03 composer：思考等级独立胶囊（S26）。点击只列当前模型的 efforts，选择走既有
+    /// `select(effort:)`；档位切换收口到这颗 chip，模型菜单不再重复「推理等级」一节。
+    /// 当前模型不支持推理（efforts 为空）→ 整颗 chip 不渲染（S26 规则 1：灰禁用态是噪音）。
+    @ViewBuilder
     private var effortControl: some View {
-        Menu {
-            if currentEfforts.isEmpty {
-                Text("当前模型没有推理等级")
-            } else {
+        if !currentEfforts.isEmpty {
+            Menu {
                 ForEach(currentEfforts) { effort in
                     Button {
                         select(effort: effort)
                     } label: {
                         Label(
                             effort.name,
-                            systemImage: effort.id == currentModelSelection?.reasoningEffort ? "checkmark" : "circle"
+                            systemImage: effort.id == (currentModelSelection?.reasoningEffort ?? currentEfforts.first?.id)
+                                ? "checkmark" : "circle"
                         )
                     }
                 }
+            } label: {
+                ConversationEffortMenuLabel(title: effortChipTitle, isLoading: modelIsLoading)
             }
-        } label: {
-            ConversationEffortMenuLabel(
-                title: currentEffortTitle ?? String(localized: "思考"),
-                isLoading: modelIsLoading
-            )
         }
-        .disabled(currentEfforts.isEmpty)
+    }
+
+    /// S26：chip 文案 =「思考 <当前档位名>」；未显式选档时按参考实现回落第一档名。
+    private var effortChipTitle: String {
+        guard let name = currentEffortTitle ?? currentEfforts.first?.name else {
+            return String(localized: "思考")
+        }
+        return "\(String(localized: "思考")) \(name)"
     }
 
     private var permissionMenu: some View {
@@ -2695,22 +2698,18 @@ private struct ConversationDefaultModelSummary: View {
 private struct ConversationModelMenu: View {
     let groups: [GatewayModelGroup]
     let selection: GatewayModelSelection?
-    let efforts: [GatewayReasoningEffort]
     let title: String
     let effortTitle: String?
     let isLoading: Bool
     let isDisabled: Bool
     let onSelectModel: (GatewayModelGroup, GatewayModelItem) -> Void
-    let onSelectEffort: (GatewayReasoningEffort) -> Void
 
     var body: some View {
         Menu {
             ConversationModelMenuContent(
                 groups: groups,
                 selection: selection,
-                efforts: efforts,
-                onSelectModel: onSelectModel,
-                onSelectEffort: onSelectEffort
+                onSelectModel: onSelectModel
             )
         } label: {
             ConversationModelMenuLabel(title: title, effortTitle: effortTitle, isLoading: isLoading)
@@ -2722,15 +2721,14 @@ private struct ConversationModelMenu: View {
 private struct ConversationModelMenuContent: View {
     let groups: [GatewayModelGroup]
     let selection: GatewayModelSelection?
-    let efforts: [GatewayReasoningEffort]
     let onSelectModel: (GatewayModelGroup, GatewayModelItem) -> Void
-    let onSelectEffort: (GatewayReasoningEffort) -> Void
 
     var body: some View {
         if groups.isEmpty {
             Text("正在读取模型…")
         } else {
             // 保持单层原生菜单，避免子菜单在外层动画结束前解析临时锚点而偏移或裁切。
+            // S26：档位切换收口到 composer 的独立思考 chip，这里不再列「推理等级」。
             ForEach(groups) { group in
                 Section(group.name) {
                     ForEach(group.models) { model in
@@ -2741,20 +2739,6 @@ private struct ConversationModelMenuContent: View {
                                 model.name,
                                 systemImage: selection?.provider == group.id && selection?.model == model.id
                                     ? "checkmark" : "circle"
-                            )
-                        }
-                    }
-                }
-            }
-            if !efforts.isEmpty {
-                Section("推理等级") {
-                    ForEach(efforts) { effort in
-                        Button {
-                            onSelectEffort(effort)
-                        } label: {
-                            Label(
-                                effort.name,
-                                systemImage: effort.id == selection?.reasoningEffort ? "checkmark" : "circle"
                             )
                         }
                     }
