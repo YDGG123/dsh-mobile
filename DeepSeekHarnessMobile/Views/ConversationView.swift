@@ -423,6 +423,9 @@ struct ConversationView: View {
                         .padding(.top, topContentInset)
                 }
                 // 03 页头副行：紧贴导航标题下方、分段上方（模式 · 状态 · 第 N 轮）
+                // 合并上游 1.7.12 后导航栏改为透明（toolbarBackground .hidden）+ 标题进 principal，
+                // 上游的 topContentInset 只喂给正文（他们结构里没有副行/分段），
+                // 所以这两块必须自己吃 inset，否则会钻到导航栏底下（用户真机反馈：分段跑到上面去了）。
                 if let conversationSubtitle {
                     Text(conversationSubtitle)
                         .appFont(DSHType.meta)
@@ -431,13 +434,15 @@ struct ConversationView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, DSHSpacing.lg)
                         .readableContentWidth(440)
-                        .padding(.top, DSHSpacing.xs)
+                        .padding(.top, topContentInset + DSHSpacing.xs)
                 }
                 // 03 页头：设计系统胶囊分段（原为系统 Picker(.segmented)）
                 DSHSegmented(items: ["对话", "轨迹"], selection: $activeView)
                     .padding(.horizontal, DSHSpacing.lg)
                     .readableContentWidth(440)
                     .padding(.vertical, DSHSpacing.sm)
+                    // 无副行时（会话刚建、状态为空）分段是第一个元素，也要吃 inset
+                    .padding(.top, conversationSubtitle == nil ? topContentInset : 0)
 
                 PersistentSessionPager(selection: $activeView) {
                     chat
