@@ -751,6 +751,21 @@ enum DSHStatusKind {
     case idle        // 空闲 / 已完成
 }
 
+extension DSHStatusKind {
+    /// 状态圆点颜色的**唯一定义**。首页会话行（`DSHSessionRow`）与 S28 侧栏会话行都调这里——
+    /// 两处各写一份 switch 迟早分叉（用户已明确：运行中必须是绿，设计稿画蓝点以既有定义为准）。
+    /// 口径：运行中 = 成功绿；等你审批 = 琥珀；等你回答 = 蓝；已中断 = 危险红；空闲 = 灰。
+    func dotColor(in p: DSHPalette) -> Color {
+        switch self {
+        case .waiting: return p.caution
+        case .question: return p.brand
+        case .running, .online: return p.success
+        case .failed: return p.danger
+        case .idle: return p.ink(0.35)
+        }
+    }
+}
+
 struct DSHStatus: View {
     @Environment(\.colorScheme) private var scheme
     let kind: DSHStatusKind
@@ -1171,15 +1186,9 @@ struct DSHSessionRow: View {
     /// （放在参数列表末尾，保持既有调用点的实参顺序不变。）
     var dotStatus: DSHStatusKind? = nil
 
-    /// 行首状态圆点颜色（口径见用户第五轮反馈）
+    /// 行首状态圆点颜色：判据唯一定义在 `DSHStatusKind.dotColor(in:)`（S28 侧栏共用同一份）。
     private func dotColor(_ p: DSHPalette) -> Color {
-        switch dotStatus {
-        case .waiting: return p.caution
-        case .question: return p.brand
-        case .running, .online: return p.success
-        case .failed: return p.danger
-        case .idle, nil: return p.ink(0.35)
-        }
+        (dotStatus ?? .idle).dotColor(in: p)
     }
 
     var body: some View {
