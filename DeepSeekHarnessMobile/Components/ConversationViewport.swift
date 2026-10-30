@@ -1102,7 +1102,7 @@ final class ConversationViewportController: UIViewController, UICollectionViewDe
         collectionView.setContentOffset(collectionView.contentOffset, animated: false)
         collectionView.layer.removeAllAnimations()
         isProgrammaticScroll = false
-        setPinned(isAtBottom(collectionView))
+        setPinned(isAtBottomForPinning(collectionView))
         isUserGestureAwaitingEnd = false
 #if DEBUG
         historyScrollMetrics?.scrollEnded(rowCount: historyMetricsRowCount)
@@ -2282,7 +2282,7 @@ final class ConversationViewportController: UIViewController, UICollectionViewDe
         // to follow the tail. Actual touch/drag/deceleration always wins.
         if nativeHistoryOffsetCommitID == nil || isUserGestureAwaitingEnd
             || scrollView.isTracking || scrollView.isDragging || scrollView.isDecelerating {
-            setPinned(isAtBottom(scrollView))
+            setPinned(isAtBottomForPinning(scrollView))
         }
         if !isProgrammaticScroll,
            (scrollView.isDragging || scrollView.isDecelerating),
@@ -2376,10 +2376,27 @@ final class ConversationViewportController: UIViewController, UICollectionViewDe
     }
 
     private func updatePinnedState(for scrollView: UIScrollView) {
-        setPinned(isAtBottom(scrollView))
+        setPinned(isAtBottomForPinning(scrollView))
     }
 
+    /// 贴底判定的**几何**版本（无迟滞），供尾随滚动等内部逻辑使用。
     private func isAtBottom(_ scrollView: UIScrollView) -> Bool {
+        bottomDistance(scrollView) <= pinnedEnterDistance
+    }
+
+    /// 贴底判定的**迟滞**版本：离开底部 ≤28pt 即算离底（按钮早出现），
+    /// 但重新「贴底」要求 ≤8pt——否则在 28pt 容差线附近 offset 每次穿越都会
+    /// 翻转 pinned → 滚动按钮闪现闪灭（跑任务时边界还在移动，翻转更密），
+    /// 用户看到的就是会话页「上下抽搐」。
+    private func isAtBottomForPinning(_ scrollView: UIScrollView) -> Bool {
+        let distance = bottomDistance(scrollView)
+        if isPinnedToBottom {
+            return distance <= pinnedExitDistance
+        }
+        return distance <= pinnedEnterDistance
+    }
+
+    private func bottomDistance(_ scrollView: UIScrollView) -> CGFloat {
         let minimumOffsetY = -scrollView.adjustedContentInset.top
         let maximumOffsetY = max(
             minimumOffsetY,
@@ -2387,8 +2404,13 @@ final class ConversationViewportController: UIViewController, UICollectionViewDe
                 - scrollView.bounds.height
                 + scrollView.adjustedContentInset.bottom
         )
-        return maximumOffsetY - scrollView.contentOffset.y <= 28
+        return max(0, maximumOffsetY - scrollView.contentOffset.y)
     }
+
+    /// 离底超过这个距离 = 未贴底（按钮出现）
+    private var pinnedEnterDistance: CGFloat { 28 }
+    /// 已贴底状态下，回到这个距离以内才算重新贴底（按钮消失）——迟滞带 20pt
+    private var pinnedExitDistance: CGFloat { 8 }
 
     private struct VisibleAnchor {
         let id: String

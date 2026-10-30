@@ -514,7 +514,7 @@ fi
 # 只有 xcodebuild 的 `xcstringstool compile` 阶段才报 "Missing required key 'version'" →
 # ARCHIVE FAILED（合上游 1.7.12 时冲突解决把该键丢了，出包才暴露）。
 # 这里守三件事：JSON 合法 + 顶层键齐备（sourceLanguage / version / strings）+ strings 非空。
-python3 - "$SRCROOT/DeepSeekHarnessMobile/Resources/Localizable.xcstrings" <<'PYCHECK' || exit 1
+python3 - "$PWD/DeepSeekHarnessMobile/Resources/Localizable.xcstrings" <<'PYCHECK' || exit 1
 import json, sys
 path = sys.argv[1]
 try:
