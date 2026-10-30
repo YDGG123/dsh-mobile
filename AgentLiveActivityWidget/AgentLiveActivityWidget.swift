@@ -521,7 +521,10 @@ private enum AgentActivityMetrics {
     static let expandedTrailingInset: CGFloat = 10
     // 展开岛下部圆角收窄早于矩形边界，内容要留出安全余量，
     // 带按钮的状态必须保留正的底部边距，否则系统会收缩外形并裁掉按钮。
-    static var expandedBottomInset: CGFloat { 12 }
+    // 5（原 12）：展开岛高度由系统给定，实测按钮下沿被圆角遮罩切掉，
+    // 底部留白压到 5 后按钮完整可见（按钮本体 minHeight 30 不动——再小不好点，
+    // 省高度只能从间距里省，不能靠缩按钮）。
+    static var expandedBottomInset: CGFloat { 5 }
 }
 
 private struct AgentIslandBrand: View {
@@ -552,8 +555,10 @@ private struct AgentIslandExpanded: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // 展开岛不放来源行：高度受系统限制，多一行会把按钮顶出圆角遮罩。
-            // 「来源必须在卡片上」是对锁屏卡的要求（审批时要知道哪台机器），岛内空间不够。
+            // 展开岛**故意不放来源行**：这是取舍不是遗漏。
+            // 展开岛高度由系统给定，多一行会把按钮顶出圆角遮罩（实测按钮被切掉）。
+            // 「来源必须在卡片上」是对**锁屏卡**的硬要求（审批时要知道哪台机器在请求），
+            // **锁屏卡才是来源的唯一载体**；不要为了"对齐"把它补回岛里。
             Text(title)
                 .font(.system(size: 15, weight: .semibold))
                 .tracking(-0.2)
@@ -575,7 +580,7 @@ private struct AgentIslandExpanded: View {
                 }
                 Spacer(minLength: 0)
             }
-            .padding(.top, 4)
+            .padding(.top, 3)
 
             if let command = state.command, !command.isEmpty,
                state.phase == .awaitingApproval || state.phase == .failed {
@@ -586,13 +591,13 @@ private struct AgentIslandExpanded: View {
                     .truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 9)
-                    .padding(.vertical, 7)
+                    .padding(.vertical, 5)
                     .background(S29IslandColors.tile, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                     .overlay(alignment: .leading) {
                         Rectangle().fill(tint).frame(width: 2)
                     }
                     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    .padding(.top, 6)
+                    .padding(.top, 5)
             } else if let detail = primaryDetail {
                 Text(detail)
                     .font(.system(size: 12))
@@ -610,7 +615,7 @@ private struct AgentIslandExpanded: View {
                     approvalID: state.approvalID,
                     style: .dynamicIsland
                 )
-                    .padding(.top, 6)
+                    .padding(.top, 4)
             } else if state.phase == .failed && (state.command?.isEmpty == false) {
                 HStack(spacing: 7) {
                     Link(destination: AgentActivityLink.session(context)) {
