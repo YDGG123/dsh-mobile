@@ -1031,9 +1031,29 @@ struct DSHTabBar: View {
             }
         }
         .padding(DSHSpacing.xs)
-        .background(p.cardFill)
-        .clipShape(Capsule())
-        .overlay(Capsule().strokeBorder(p.cardStroke, lineWidth: 1))
+        // 液态玻璃底（用户要求：深浅两档都要）。
+        // · iOS 26：`glassEffect(.regular)` —— 真模糊/折射，且自带边缘高光；
+        // · iOS 16–25：同一修饰符的材质回退（thinMaterial 磨砂 + 描边 + 轻阴影）。
+        //   两代观感不同是**事实而非缺陷**：旧系统没有系统级液态玻璃。
+        // 形状：radius = `totalHeight / 2` ⇔ `Capsule()`（胶囊半径就是高度的一半），
+        // 与原 `.clipShape(Capsule())` 几何等价，不需要另造圆角参数。
+        // 这里直接用 `glassSurface` 而不用 `themedGlassSurface`：后者浅色档是 #F2F2F7
+        // **实色面**，会把 tab 栏底下的鲸鱼粒子整块挡住；tab bar 浮在动效背景上，
+        // 浅色也要透出底下的模糊，所以两档都走 material 分支（`dark: false` 与既有 7 处调用点同口径）。
+        .glassSurface(
+            radius: Self.totalHeight / 2,
+            dark: false,
+            tint: nil,
+            lightFill: nil,
+            shadowOpacity: scheme == .dark ? 0.24 : 0.10
+        )
+        .overlay {
+            // 边界归属：26 的 `glassEffect` 自带边缘处理，再叠一圈线会显脏；
+            // 16–25 的材质面本身没有边界，必须靠这圈描边才立得住。
+            if #unavailable(iOS 26.0) {
+                Capsule().strokeBorder(p.cardStroke, lineWidth: 1)
+            }
+        }
         .padding(.horizontal, DSHSpacing.lg)
     }
 }
