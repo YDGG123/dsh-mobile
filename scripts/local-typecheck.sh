@@ -16,6 +16,26 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 
+# python3 解析器：这台机器的 `/usr/bin/python3` 是个 shim，会通过
+# `xcodebuild -find python3` 去找 SDK 里的解释器；而 xcodebuild 除 -version 外
+# 一律 Bus error（系统级问题，换哪个 Xcode 都一样）→ shim 必然失败并弹「安装命令行工具」。
+# 直接指向 CLT 里的真实解释器，闸门里的 4 处 python 检查才不是假绿。
+# 2026-10-30 实测：shim 失败时退出码仍可能为 0，check-* 脚本因此形同虚设。
+PYTHON3=""
+for candidate in \
+    "${DSH_PYTHON3:-}" \
+    /Library/Developer/CommandLineTools/usr/bin/python3 \
+    "$HOME/bin/python3"; do
+    [ -n "$candidate" ] && [ -x "$candidate" ] || continue
+    if "$candidate" -c 'import sys; sys.exit(0)' >/dev/null 2>&1; then
+        PYTHON3="$candidate"
+        break
+    fi
+done
+if [ -z "$PYTHON3" ]; then
+    echo "⚠️  找不到可用的 python3（系统 shim 被 xcodebuild 崩溃拖垮）；python 类闸门将跳过并显式报错"
+fi
+
 D="/Applications/Xcode.app/Contents/Developer"
 TC="$D/Toolchains/XcodeDefault.xctoolchain/usr/bin"
 SDK="$D/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk"
@@ -477,7 +497,7 @@ WIDGET_DEBUG_ERRORS=${WIDGET_DEBUG_ERRORS:-0}
 # ---- 版本一致性闸门（2026-10-26 教训：0548 包主 App 31 / widget 32）----
 # 主 App 的 build/version 取自硬编码的 Resources/Info.plist（该 target 无 CURRENT_PROJECT_VERSION），
 # Widget 走 pbxproj 变量。只改一侧会出"主 App 停在旧 build 号"的包，云端照常构建成功。
-if ! python3 "$(dirname "${BASH_SOURCE[0]}")/verify-version-consistency.py"; then
+if ! "$PYTHON3" "$(dirname "${BASH_SOURCE[0]}")/verify-version-consistency.py"; then
   echo "   版本号必须同时改：Resources/Info.plist 的 CFBundleVersion + pbxproj 两处 CURRENT_PROJECT_VERSION"
   exit 1
 fi
@@ -487,7 +507,7 @@ fi
 # 而 config/Debug.xcconfig 里该变量 = com.example.dshmobile（上游占位值）→ 嵌入二进制 ID 不再以主 App
 # com.ydgg123.orcarness 为前缀 → 真正 archive 时才炸。上面三闸门（typecheck/收录/版本）全绿也照样漏。
 # 判据必须用 xcodebuild 展开值：pbxproj 里看着有值，展开后才知道是不是占位符。
-if ! python3 "$(dirname "${BASH_SOURCE[0]}")/verify-bundle-prefix.py"; then
+if ! "$PYTHON3" "$(dirname "${BASH_SOURCE[0]}")/verify-bundle-prefix.py"; then
   echo "   Widget 的 PRODUCT_BUNDLE_IDENTIFIER 必须硬编码 com.ydgg123.orcarness.AgentLiveActivityWidget（Release），"
   echo "   不要用 \$(LOCAL_BUNDLE_IDENTIFIER) 占位——那会展开成上游的 com.example.dshmobile。"
   exit 1
@@ -496,7 +516,7 @@ fi
 # ---- 团队流后台任务清理闸门（2026-10-26）----
 # heartbeatTask / chunkSweeper 必须在 stop()、connect()、handleDisconnect() 三处显式成对清理，
 # startHeartbeat() 只允许 connect() 一处；deinit 兜底必须在位。
-if ! python3 "$(dirname "${BASH_SOURCE[0]}")/verify-feed-cleanup.py"; then
+if ! "$PYTHON3" "$(dirname "${BASH_SOURCE[0]}")/verify-feed-cleanup.py"; then
   exit 1
 fi
 
@@ -505,7 +525,7 @@ fi
 # find 式的类型检查照样绿，CI 才炸。守卫已升级为**按 target 归属**核对
 # （QA 建议：挂在错的 target 也要红）。注意：并发编辑时工作树在变，本守卫可能抖动，
 # 验证提交版请用 `git archive` 快照运行。
-if ! python3 "$(dirname "${BASH_SOURCE[0]}")/check-project-membership.py"; then
+if ! "$PYTHON3" "$(dirname "${BASH_SOURCE[0]}")/check-project-membership.py"; then
   exit 1
 fi
 
@@ -514,7 +534,7 @@ fi
 # 只有 xcodebuild 的 `xcstringstool compile` 阶段才报 "Missing required key 'version'" →
 # ARCHIVE FAILED（合上游 1.7.12 时冲突解决把该键丢了，出包才暴露）。
 # 这里守三件事：JSON 合法 + 顶层键齐备（sourceLanguage / version / strings）+ strings 非空。
-python3 - "$PWD/DeepSeekHarnessMobile/Resources/Localizable.xcstrings" <<'PYCHECK' || exit 1
+"$PYTHON3" - "$PWD/DeepSeekHarnessMobile/Resources/Localizable.xcstrings" <<'PYCHECK' || exit 1
 import json, sys
 path = sys.argv[1]
 try:
