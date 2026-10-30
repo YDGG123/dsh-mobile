@@ -775,11 +775,14 @@ struct DSHStatus: View {
 
     private var isPill: Bool { kind == .waiting || kind == .question }
 
+    /// 状态色：与 `DSHStatusKind.dotColor(in:)` 同一口径（运行中是**绿**，不是蓝）。
+    /// 这里曾写 `p.brand`（蓝）——`.running` 目前只走圆点不走胶囊，所以没显蓝，
+    /// 但两份定义迟早分叉，按用户口径统一成 success。
     private func color(_ p: DSHPalette) -> Color {
         switch kind {
         case .waiting:  return p.caution
         case .question: return p.brand
-        case .running:  return p.brand
+        case .running:  return p.success
         case .online:   return p.success
         case .failed:   return p.danger
         case .idle:     return p.ink(0.45)

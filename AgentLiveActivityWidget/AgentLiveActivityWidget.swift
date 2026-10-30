@@ -10,95 +10,76 @@ struct AgentLiveActivityWidgetBundle: WidgetBundle {
 struct AgentLiveActivityWidget: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: AgentActivityAttributes.self) { context in
-            AgentActivityCard(context: context, surface: .lockScreen, showsHeader: true)
-                .activityBackgroundTint(AgentActivityColors.lockBackground)
-                .activitySystemActionForegroundColor(.white)
+            AgentLiveActivityCard(context: context)
                 .widgetURL(AgentActivityLink.session(context))
         } dynamicIsland: { context in
             DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
-                    AgentDynamicIslandBrand()
-                        .frame(height: AgentActivityMetrics.expandedStatusCapsuleHeight)
+                    AgentIslandBrand()
+                        // 展开岛左侧被系统圆角遮罩裁切：只挪品牌整体，不缩放或裁剪鲸鱼。
                         .padding(.leading, AgentActivityMetrics.expandedBrandLeadingInset)
                         .padding(.top, AgentActivityMetrics.expandedBrandTopInset)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
-                    HStack(alignment: .center, spacing: 1) {
-                        HStack(alignment: .center, spacing: 2) {
-                            Image(systemName: expandedStatusSymbol(context))
-                                .foregroundStyle(expandedStatusColor(context))
-                                .font(.system(size: 8.5, weight: .semibold))
-                                .frame(width: 12, height: 14, alignment: .center)
-                                .layoutPriority(1)
-                            Text(expandedStatusText(context))
-                                .foregroundStyle(expandedStatusColor(context))
-                                .minimumScaleFactor(0.9)
-                                .frame(width: 28, height: 14, alignment: .leading)
-                        }
-                        AgentElapsedTime(context: context)
-                            .foregroundStyle(AgentActivityColors.islandDimmed)
-                            .monospacedDigit()
-                            .minimumScaleFactor(0.75)
-                            .frame(width: 36, height: 14, alignment: .trailing)
-                    }
-                    .font(.system(size: 10, weight: .semibold))
-                    .lineLimit(1)
-                    .padding(.leading, AgentActivityMetrics.expandedStatusCapsuleLeadingInset)
-                    .padding(.trailing, AgentActivityMetrics.expandedStatusCapsuleTrailingInset)
-                    .frame(
-                        width: AgentActivityMetrics.expandedStatusCapsuleWidth,
-                        height: AgentActivityMetrics.expandedStatusCapsuleHeight
-                    )
-                    .background(AgentActivityColors.islandTile, in: Capsule())
-                    .padding(.trailing, AgentActivityMetrics.expandedTrailingInset)
-                    .padding(.top, AgentActivityMetrics.expandedBrandTopInset)
+                    islandTrailing(context)
+                        .padding(.trailing, AgentActivityMetrics.expandedTrailingInset)
+                        .padding(.top, AgentActivityMetrics.expandedBrandTopInset)
                 }
                 DynamicIslandExpandedRegion(.bottom) {
-                    AgentDynamicIslandExpandedContent(context: context)
+                    AgentIslandExpanded(context: context)
                 }
             } compactLeading: {
-                AgentBrandMark(compact: true)
+                AgentWhaleMark(compact: true, forceDark: true)
                     .frame(width: 20, height: 20)
             } compactTrailing: {
                 AgentCompactStatus(context: context)
             } minimal: {
-                Image(systemName: AgentActivityPresentation.symbol(for: context.state.phase))
+                Image(systemName: statusSymbol(context.state.phase, isStale: context.isStaleCompat))
                     .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(AgentActivityColors.status(for: context.state.phase))
+                    .foregroundStyle(S29IslandColors.status(context.state.phase))
             }
-            // iOS 16.1 无 Dynamic Island 区域 contentMargins，使用默认边距。
-            .keylineTint(AgentActivityColors.status(for: context.state.phase))
+            .keylineTint(S29IslandColors.status(context.state.phase))
             .widgetURL(AgentActivityLink.session(context))
+        }
+    }
+
+    /// 展开岛右侧：状态短词 + 计时（进行中跳秒，终态总时长）
+    @ViewBuilder
+    private func islandTrailing(
+        _ context: ActivityViewContext<AgentActivityAttributes>
+    ) -> some View {
+        HStack(spacing: 5) {
+            Image(systemName: statusSymbol(context.state.phase, isStale: context.isStaleCompat))
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(staleAwareColor(context))
+            Text(shortStatusText(context.state.phase))
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(staleAwareColor(context))
+                .lineLimit(1)
+            Text(elapsedText(context))
+                .font(.system(size: 11, weight: .medium).monospacedDigit())
+                .foregroundStyle(S29IslandColors.dim)
         }
     }
 }
 
-private func expandedStatusSymbol(
-    _ context: ActivityViewContext<AgentActivityAttributes>
-) -> String {
-    if context.isStaleCompat && !context.state.phase.isTerminal {
-        return "exclamationmark.circle"
+// MARK: - 状态映射（锁屏卡 / 灵动岛共用）
+
+private func statusSymbol(_ phase: AgentActivityPhase, isStale: Bool) -> String {
+    if isStale && !phase.isTerminal { return "exclamationmark.circle" }
+    switch phase {
+    case .running: return "waveform.path.ecg"
+    case .awaitingChoice: return "questionmark.bubble"
+    case .awaitingApproval: return "exclamationmark.shield"
+    case .submittingApproval: return "arrow.triangle.2.circlepath"
+    case .approved, .completed: return "checkmark.circle"
+    case .rejected, .failed: return "xmark.circle"
     }
-    return AgentActivityPresentation.symbol(for: context.state.phase)
 }
 
-private func expandedStatusColor(
-    _ context: ActivityViewContext<AgentActivityAttributes>
-) -> Color {
-    if context.isStaleCompat && !context.state.phase.isTerminal {
-        return AgentActivityColors.failed
-    }
-    return AgentActivityColors.status(for: context.state.phase)
-}
-
-private func expandedStatusText(
-    _ context: ActivityViewContext<AgentActivityAttributes>
-) -> String {
-    if context.isStaleCompat && !context.state.phase.isTerminal {
-        return "待同步"
-    }
-    switch context.state.phase {
-    case .running: return "执行中"
+private func shortStatusText(_ phase: AgentActivityPhase) -> String {
+    switch phase {
+    case .running: return ""
     case .awaitingChoice: return "待选择"
     case .awaitingApproval: return "待审批"
     case .submittingApproval: return "提交中"
@@ -109,434 +90,380 @@ private func expandedStatusText(
     }
 }
 
-private enum AgentActivityMetrics {
-    static let cardHorizontalInset: CGFloat = 14
-    static let cardVerticalInset: CGFloat = 12
-    // The expanded island is clipped by a much rounder mask near its lower
-    // corners than its visible bounding box suggests. Keep the content inside
-    // that safe shape instead of relying on the rectangular region bounds.
-    static let expandedHorizontalInset: CGFloat = 22
-    static let expandedTopInset: CGFloat = 6
-    // 顶部左侧需要避开灵动岛圆角遮罩。只移动品牌整体，不缩放或裁剪鲸鱼。
-    static let expandedBrandLeadingInset: CGFloat = 8
-    // 胶囊的前后位置padding
-    static let expandedBrandTopInset: CGFloat = 8
-    static let expandedTrailingInset: CGFloat = 10
-    // 胶囊的长度和高度
-    static let expandedStatusCapsuleWidth: CGFloat = 92
-    static let expandedStatusCapsuleHeight: CGFloat = 24
-    // 胶囊的内部padding
-    static let expandedStatusCapsuleLeadingInset: CGFloat = 8
-    static let expandedStatusCapsuleTrailingInset: CGFloat = 8
-    static let headerToContentSpacing: CGFloat = 5
-    static let operationMargin: CGFloat = 7
-    static let actionSpacing: CGFloat = 8
-    static let actionHeight: CGFloat = 36
-    static let islandActionHeight: CGFloat = 30
-    static let islandActionTopSpacing: CGFloat = 8
-
-    /// 展开岛的外形高度由内容和 content margin 一起决定。
-    /// 带按钮的状态必须保留正的底部边距，否则系统会收缩外形并裁掉按钮。
-    static func expandedBottomInset(
-        for state: AgentActivityAttributes.ContentState,
-        isStale: Bool
-    ) -> CGFloat {
-        let showsApprovalButtons = state.phase == .awaitingApproval && !isStale
-        let showsFailureButtons = state.phase == .failed && state.command?.isEmpty == false
-        return showsApprovalButtons || showsFailureButtons ? 22 : 18
+private func staleAwareColor(
+    _ context: ActivityViewContext<AgentActivityAttributes>
+) -> Color {
+    if context.isStaleCompat && !context.state.phase.isTerminal {
+        return S29IslandColors.danger
     }
+    return S29IslandColors.status(context.state.phase)
 }
 
-private struct AgentDynamicIslandBrand: View {
-    var body: some View {
-        HStack(spacing: 6) {
-            AgentBrandMark(compact: false)
-            Text("Orcarness")
-                .font(.system(size: 11, weight: .semibold))
-                .lineLimit(1)
+private func elapsedText(
+    _ context: ActivityViewContext<AgentActivityAttributes>
+) -> String {
+    S29LiveActivityFormat.duration(from: context.attributes.startedAt, to: context.state.updatedAt)
+}
+
+// MARK: - 锁屏卡配色（跟随系统外观）
+
+/// 浅色 = 白卡深字，深色 = 深卡浅字。**不要用 `.activityBackgroundTint(...)`**：
+/// 它只接受一个静态色，接不了深浅两套；卡片自己在 `.background(...)` 里画底和描边，
+/// 系统材质交给系统合成。
+struct S29LiveColors {
+    let isLight: Bool
+
+    static func resolve(_ scheme: ColorScheme) -> S29LiveColors {
+        S29LiveColors(isLight: scheme == .light)
+    }
+
+    var surface: Color {
+        isLight ? .white
+            : Color(red: 11 / 255, green: 20 / 255, blue: 34 / 255).opacity(0.92)
+    }
+    var text: Color {
+        isLight ? Color(red: 0.078, green: 0.090, blue: 0.114)     // #14171D
+            : Color(red: 0.949, green: 0.965, blue: 0.984)          // #F2F6FB
+    }
+    var text2: Color {
+        isLight ? Color(red: 0.353, green: 0.396, blue: 0.467)     // #5A6577
+            : Color(red: 0.561, green: 0.639, blue: 0.737)          // #8FA3BC
+    }
+    var text3: Color {
+        isLight ? Color(red: 0.541, green: 0.576, blue: 0.639)     // #8A93A3
+            : Color(red: 0.494, green: 0.576, blue: 0.675)          // #7E93AC
+    }
+
+    // 状态色：浅色档压暗到 AA，深色档提亮
+    var caution: Color {
+        isLight ? Color(red: 0.620, green: 0.300, blue: 0.0)       // #9E4C00
+            : Color(red: 0.941, green: 0.490, blue: 0.078)          // #F07D14
+    }
+    var brand: Color {
+        isLight ? Color(red: 0.180, green: 0.420, blue: 0.902)     // #2E6BE6
+            : Color(red: 0.298, green: 0.553, blue: 1.0)            // #4C8DFF
+    }
+    var success: Color {
+        isLight ? Color(red: 0.070, green: 0.370, blue: 0.180)     // #125E2E
+            : Color(red: 0.180, green: 0.722, blue: 0.361)          // #2EB85C
+    }
+    var danger: Color {
+        isLight ? Color(red: 0.720, green: 0.120, blue: 0.100)     // #B81E1A
+            : Color(red: 1.0, green: 0.231, blue: 0.188)            // #FF3B30
+    }
+
+    var tile: Color { isLight ? Color(red: 0.945, green: 0.957, blue: 0.973) : Color.white.opacity(0.055) }
+    var tileStrong: Color { isLight ? Color.black.opacity(0.06) : Color.white.opacity(0.10) }
+    var line: Color { isLight ? Color.black.opacity(0.09) : Color.white.opacity(0.085) }
+    var code: Color {
+        isLight ? Color(red: 0.165, green: 0.184, blue: 0.216)
+            : Color(red: 0.788, green: 0.847, blue: 0.918)
+    }
+    var secondaryLabel: Color {
+        isLight ? Color(red: 0.165, green: 0.184, blue: 0.216)
+            : Color(red: 0.863, green: 0.902, blue: 0.949)
+    }
+
+    func status(_ phase: AgentActivityPhase) -> Color {
+        switch phase {
+        case .running: brand
+        case .awaitingChoice, .awaitingApproval, .submittingApproval: caution
+        case .approved, .completed: success
+        case .rejected, .failed: danger
         }
-        .foregroundStyle(AgentActivityColors.islandText)
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
-/// 展开态只保留完成当前决策所需的信息。品牌位于传感器左侧，
-/// 会话与执行内容全部从传感器下方开始，避免上下两端被系统遮罩裁切。
-private struct AgentDynamicIslandExpandedContent: View {
-    let context: ActivityViewContext<AgentActivityAttributes>
+// MARK: - 灵动岛配色（岛体恒黑，系统绘制；内容只能放浅色字，不跟随主题）
 
-    private var state: AgentActivityAttributes.ContentState { context.state }
+enum S29IslandColors {
+    static let text = Color(red: 0.949, green: 0.965, blue: 0.984)
+    static let dim = Color(red: 0.545, green: 0.576, blue: 0.627)   // #8B93A0
+    static let tile = Color.white.opacity(0.07)
+    static let tileStrong = Color.white.opacity(0.12)
+    static let accent = Color(red: 0.298, green: 0.553, blue: 1.0)
+    static let caution = Color(red: 0.941, green: 0.490, blue: 0.078)
+    static let success = Color(red: 0.180, green: 0.722, blue: 0.361)
+    static let danger = Color(red: 1.0, green: 0.231, blue: 0.188)
+
+    static func status(_ phase: AgentActivityPhase) -> Color {
+        switch phase {
+        case .running: accent
+        case .awaitingChoice, .awaitingApproval, .submittingApproval: caution
+        case .approved, .completed: success
+        case .rejected, .failed: danger
+        }
+    }
+}
+
+// MARK: - 锁屏卡
+
+struct AgentLiveActivityCard: View {
+    @Environment(\.colorScheme) private var scheme
+
+    let state: AgentActivityAttributes.ContentState
+    /// 会话标题会被主机重命名，优先用 state 里的新值
+    let fallbackTitle: String
+    let startedAt: Date
+    let gatewayID: String
+    let sessionID: String
+    var isStale: Bool = false
+
+    init(context: ActivityViewContext<AgentActivityAttributes>) {
+        self.init(
+            state: context.state,
+            fallbackTitle: context.attributes.sessionTitle,
+            startedAt: context.attributes.startedAt,
+            gatewayID: context.attributes.gatewayID,
+            sessionID: context.attributes.sessionID,
+            isStale: context.isStaleCompat
+        )
+    }
+
+    init(
+        state: AgentActivityAttributes.ContentState,
+        fallbackTitle: String,
+        startedAt: Date,
+        gatewayID: String,
+        sessionID: String,
+        isStale: Bool = false
+    ) {
+        self.state = state
+        self.fallbackTitle = fallbackTitle
+        self.startedAt = startedAt
+        self.gatewayID = gatewayID
+        self.sessionID = sessionID
+        self.isStale = isStale
+    }
+
+    private var c: S29LiveColors { .resolve(scheme) }
+    private var tint: Color {
+        if isStale && !state.phase.isTerminal { return c.danger }
+        return c.status(state.phase)
+    }
+
+    private var title: String {
+        let updated = state.sessionTitle?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return updated?.isEmpty == false ? updated! : fallbackTitle
+    }
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                Text(displaySessionTitle)
-                    .font(.system(size: 16, weight: .semibold))
-                    .tracking(-0.2)
-                    .lineLimit(1)
+        VStack(alignment: .leading, spacing: 0) {
+            // 品牌行（鲸 + Orcarness + 计时）11pt
+            HStack(spacing: 6) {
+                AgentWhaleMark()
+                Text("Orcarness")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(c.text3)
                 Spacer(minLength: 8)
-                Link(destination: AgentActivityLink.session(context)) {
-                    HStack(spacing: 3) {
-                        Text("详情")
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 10, weight: .semibold))
-                    }
+                elapsed
+                    .font(.system(size: 11, weight: .medium).monospacedDigit())
+                    .foregroundStyle(c.text3)
+            }
+            // 会话标题 15/600 —— 主机重命名后优先用 state 里的新值
+            Text(title)
+                .font(.system(size: 15, weight: .semibold))
+                .tracking(-0.2)
+                .foregroundStyle(c.text)
+                .lineLimit(1)
+                .padding(.top, 2)
+            // 来源机器 · 项目 —— 审批时用户要知道是哪台机器在请求
+            if let source = state.sourceLabel, !source.isEmpty {
+                Text(source)
                     .font(.system(size: 11))
-                    .foregroundStyle(AgentActivityColors.islandText)
-                }
+                    .foregroundStyle(c.text3)
+                    .lineLimit(1)
             }
 
-            if state.phase == .awaitingApproval && !context.isStaleCompat {
-                approvalOperation
-                AgentApprovalButtons(
-                    context: context,
-                    foreground: AgentActivityColors.islandText,
-                    tile: AgentActivityColors.islandTile,
-                    height: AgentActivityMetrics.islandActionHeight
-                )
-                .padding(.top, AgentActivityMetrics.islandActionTopSpacing)
-            } else if state.phase == .submittingApproval {
-                resultRow(symbol: "hourglass", text: stepTitle)
-                compactFooter
-            } else if state.phase == .failed && state.command?.isEmpty == false {
-                approvalOperation
-                failureActions
-                    .padding(.top, AgentActivityMetrics.islandActionTopSpacing)
-            } else {
-                resultRow(
-                    symbol: AgentActivityPresentation.stepSymbol(for: state),
-                    text: stepTitle
-                )
-                compactFooter
+            VStack(alignment: .leading, spacing: 0) {
+                statusRow
+                if let detail = primaryDetail {
+                    Text(detail)
+                        .font(.system(size: 12))
+                        .lineSpacing(1)
+                        .foregroundStyle(c.text2)
+                        .lineLimit(2)
+                        .padding(.top, 2)
+                }
+                if let command = state.command, !command.isEmpty,
+                   state.phase == .awaitingApproval || state.phase == .failed {
+                    commandTile(command).padding(.top, 5)
+                }
+                actions.padding(.top, 6)
+            }
+            .padding(.top, 5)
+            .overlay(alignment: .top) {
+                Rectangle().fill(c.line).frame(height: 1)
             }
         }
-        .foregroundStyle(AgentActivityColors.islandText)
-        .frame(maxWidth: .infinity, alignment: .top)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 7)
+        // 卡片自己画底和描边：activityBackgroundTint 只接受静态色，接不了深浅两套
+        .background(c.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .strokeBorder(c.line, lineWidth: 1)
+        }
     }
 
-    private var approvalOperation: some View {
-        Text(state.command?.isEmpty == false ? state.command! : (state.detail ?? "等待操作详情"))
-            .font(.system(size: 13, design: .monospaced))
+    // MARK: 计时（进行中跳秒；终态换总时长）
+
+    @ViewBuilder
+    private var elapsed: some View {
+        if state.phase.isTerminal {
+            Text(S29LiveActivityFormat.duration(from: startedAt, to: state.updatedAt))
+        } else {
+            Text(startedAt, style: .timer).multilineTextAlignment(.trailing)
+        }
+    }
+
+    // MARK: 状态行（图标 + 状态 + · + 工具名；状态色只染图标和文字，不整行铺色）
+
+    private var statusRow: some View {
+        HStack(spacing: 6) {
+            Image(systemName: statusSymbol(state.phase, isStale: isStale))
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(tint)
+            Text(statusText)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(tint)
+            if let tool = state.toolName, !tool.isEmpty {
+                Text("·").font(.system(size: 13)).foregroundStyle(c.text3)
+                Text(tool)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(c.text3)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    private var statusText: String {
+        if isStale && !state.phase.isTerminal { return "待同步" }
+        switch state.phase {
+        case .running: return state.detail?.isEmpty == false ? state.detail! : "正在执行"
+        case .awaitingChoice: return "等你选择"
+        case .awaitingApproval: return "等你审批"
+        case .submittingApproval: return "提交中"
+        case .approved: return "已允许"
+        case .rejected: return "已拒绝"
+        case .failed: return "执行未完成"
+        case .completed: return "任务已完成"
+        }
+    }
+
+    /// 状态行已经用掉 detail 时（running），副行只放 secondaryDetail，避免同一句出现两次
+    private var primaryDetail: String? {
+        let detailInRow = (state.phase == .running) && (state.detail?.isEmpty == false)
+        if detailInRow {
+            return state.secondaryDetail?.isEmpty == false ? state.secondaryDetail : nil
+        }
+        return state.detail?.isEmpty == false ? state.detail : state.secondaryDetail
+    }
+
+    // MARK: 命令块（等宽 12pt + tile 底 + 左侧 2pt 状态色竖条——区别于描述文字的唯一信号）
+
+    private func commandTile(_ command: String) -> some View {
+        Text(command)
+            .font(.system(size: 12, design: .monospaced))
             .tracking(-0.3)
+            .foregroundStyle(c.code)
             .lineLimit(1)
             .truncationMode(.tail)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 9)
+            .padding(.horizontal, 10)
             .padding(.vertical, 5)
-            .background(
-                AgentActivityColors.islandTile,
-                in: RoundedRectangle(cornerRadius: 9, style: .continuous)
+            .background(c.tile, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            // iOS 16 没有 UnevenRoundedRectangle：先画直角竖条再统一裁圆角
+            .overlay(alignment: .leading) {
+                Rectangle().fill(tint).frame(width: 2)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+
+    // MARK: 按钮（次要 = 弱底 + 主文字色；主要 = 品牌蓝实心）
+
+    @ViewBuilder
+    private var actions: some View {
+        if state.phase == .awaitingApproval && !isStale {
+            AgentApprovalActions(
+                gatewayID: gatewayID, sessionID: sessionID,
+                rpcID: state.rpcID, approvalID: state.approvalID,
+                style: .lockScreen
             )
-            .padding(.top, 5)
-    }
-
-    private func resultRow(symbol: String, text: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 6) {
-                Image(systemName: symbol)
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(AgentActivityColors.status(for: state.phase))
-                    .frame(width: 16, height: 16, alignment: .center)
-                Text(text)
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(AgentActivityColors.islandText)
-                    .lineLimit(1)
-                Spacer(minLength: 0)
-            }
-            if let islandStepDetail {
-                Text(islandStepDetail)
-                    .font(.system(size: 12))
-                    .lineSpacing(2)
-                    .foregroundStyle(AgentActivityColors.islandDimmed)
-                    .lineLimit(2)
+        } else if state.phase == .failed && (state.command?.isEmpty == false) {
+            HStack(spacing: 8) {
+                secondaryLink("查看详情", icon: nil, gatewayID: gatewayID, sessionID: sessionID, c: c)
+                primaryLink("检查结果", icon: "arrow.clockwise", gatewayID: gatewayID, sessionID: sessionID, c: c)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.top, 7)
-        .padding(.bottom, 7)
-    }
-
-    /// 运行中的具体步骤对判断实时进展有用；终态和过期状态保持精简，
-    /// 避免重复结果信息占用展开岛高度。
-    private var islandStepDetail: String? {
-        guard state.phase == .running || state.phase == .awaitingChoice,
-              !context.isStaleCompat,
-              let detail = state.secondaryDetail?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !detail.isEmpty else {
-            return nil
-        }
-        return detail
-    }
-
-    /// 简单状态使用底部信息行占满展开卡片的安全区域。它既补足运行、允许、
-    /// 拒绝等状态下的下半部空白，也把所有内容限制在底部圆角开始收窄之前。
-    private var compactFooter: some View {
-        Text(state.sourceLabel?.isEmpty == false ? state.sourceLabel! : "Orcarness")
-            .lineLimit(1)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .font(.system(size: 10))
-            .foregroundStyle(AgentActivityColors.islandDimmed)
-            .padding(.bottom, 2)
-            .frame(height: 18, alignment: .bottom)
-            .padding(.leading, 10)
-            .padding(.trailing, 8)
-            .overlay(alignment: .top) {
-                Rectangle()
-                    .fill(AgentActivityColors.islandDivider)
-                    .frame(height: 0.5)
-                    .padding(.top, 2)
-            }
-    }
-
-    private var failureActions: some View {
-        HStack(spacing: 7) {
-            Link(destination: AgentActivityLink.session(context)) {
-                Text("查看详情")
-                    .frame(maxWidth: .infinity, minHeight: AgentActivityMetrics.islandActionHeight)
-                    .background(AgentActivityColors.islandTile, in: Capsule())
-            }
-            Link(destination: AgentActivityLink.session(context)) {
-                Label("检查结果", systemImage: "arrow.clockwise")
-                    .frame(maxWidth: .infinity, minHeight: AgentActivityMetrics.islandActionHeight)
-                    .foregroundStyle(Color(red: 0.09, green: 0.16, blue: 0.19))
-                    .background(AgentActivityColors.accent, in: Capsule())
-            }
-        }
-        .font(.system(size: 12, weight: .medium))
-        .foregroundStyle(AgentActivityColors.islandText)
-    }
-
-    private var displaySessionTitle: String {
-        let updatedTitle = state.sessionTitle?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return updatedTitle?.isEmpty == false ? updatedTitle! : context.attributes.sessionTitle
-    }
-
-    private var stepTitle: String {
-        if context.isStaleCompat && !state.phase.isTerminal { return "打开 App 获取最新进度" }
-        return state.detail?.isEmpty == false
-            ? state.detail!
-            : AgentActivityPresentation.stepTitle(for: state.phase)
     }
 }
 
-private enum AgentActivitySurface {
+// MARK: - 锁屏卡按钮（iOS 17+ AppIntents 实交互；iOS 16 退化为深链——既有行为不变）
+
+enum AgentActionStyle {
     case lockScreen
     case dynamicIsland
 }
 
-private struct AgentActivityCard: View {
-    let context: ActivityViewContext<AgentActivityAttributes>
-    let surface: AgentActivitySurface
-    let showsHeader: Bool
-
-    private var state: AgentActivityAttributes.ContentState { context.state }
-    private var foreground: Color {
-        surface == .dynamicIsland ? AgentActivityColors.islandText : AgentActivityColors.lockText
-    }
-    private var dimmed: Color {
-        surface == .dynamicIsland ? AgentActivityColors.islandDimmed : AgentActivityColors.lockDimmed
-    }
-    private var tile: Color {
-        surface == .dynamicIsland ? AgentActivityColors.islandTile : AgentActivityColors.lockTile
-    }
-    private var divider: Color {
-        surface == .dynamicIsland ? AgentActivityColors.islandDivider : AgentActivityColors.lockDivider
-    }
-
-    var body: some View {
-        VStack(spacing: 0) {
-            if showsHeader {
-                header.padding(.bottom, AgentActivityMetrics.headerToContentSpacing)
-            }
-            if showsOperation { operation } else { progress }
-
-            if state.phase == .awaitingApproval && !context.isStaleCompat {
-                AgentApprovalButtons(context: context, foreground: foreground, tile: tile)
-                    .padding(.top, AgentActivityMetrics.operationMargin)
-            } else if state.phase == .submittingApproval {
-                submitting.padding(.top, AgentActivityMetrics.operationMargin)
-            } else if state.phase == .failed && state.command?.isEmpty == false {
-                failureActions.padding(.top, AgentActivityMetrics.operationMargin)
-            } else {
-                footer
-            }
+private func secondaryLink(
+    _ title: String, icon: String?,
+    gatewayID: String, sessionID: String,
+    c: S29LiveColors
+) -> some View {
+    Link(destination: AgentActivityLink.session(gatewayID: gatewayID, sessionID: sessionID)) {
+        HStack(spacing: 5) {
+            if let icon { Image(systemName: icon).font(.system(size: 11, weight: .bold)) }
+            Text(title).font(.system(size: 13, weight: .semibold))
         }
-        .padding(.horizontal, surface == .dynamicIsland ? 0 : AgentActivityMetrics.cardHorizontalInset)
-        .padding(.vertical, surface == .dynamicIsland ? 0 : AgentActivityMetrics.cardVerticalInset)
-        .foregroundStyle(foreground)
+        .foregroundStyle(c.secondaryLabel)
+        .frame(maxWidth: .infinity, minHeight: 30)
+        .background(c.tileStrong, in: Capsule())
     }
-
-    private var showsOperation: Bool {
-        switch state.phase {
-        case .awaitingApproval, .submittingApproval:
-            true
-        case .failed:
-            state.command?.isEmpty == false
-        default:
-            false
-        }
-    }
-
-    private var header: some View {
-        HStack(spacing: 8) {
-            AgentBrandMark(compact: false)
-            Text(displaySessionTitle)
-                .font(.system(size: 14, weight: .medium))
-                .tracking(-0.25)
-                .lineLimit(1)
-            Spacer(minLength: 8)
-            Link(destination: AgentActivityLink.session(context)) {
-                HStack(spacing: 3) {
-                    Text("详情")
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 10, weight: .semibold))
-                }
-                .font(.system(size: 11))
-                .foregroundStyle(foreground)
-                .frame(minHeight: 26)
-            }
-        }
-    }
-
-    private var operation: some View {
-        Text(state.command?.isEmpty == false ? state.command! : "等待操作详情")
-            .font(.system(size: 12, design: .monospaced))
-            .tracking(-0.4)
-            .lineLimit(2)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 9)
-            .padding(.vertical, 6)
-            .background(tile, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
-            .padding(.vertical, AgentActivityMetrics.operationMargin)
-    }
-
-    private var progress: some View {
-        HStack(spacing: 8) {
-            Image(systemName: stepSymbol)
-                .font(.system(size: 16, weight: .medium))
-                .foregroundStyle(AgentActivityColors.status(for: state.phase))
-                .frame(width: 20, height: 20, alignment: .leading)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(stepTitle)
-                    .font(.system(size: 14))
-                    .foregroundStyle(foreground)
-                    .lineLimit(1)
-                Text(stepDetail)
-                    .font(.system(size: 12))
-                    .foregroundStyle(dimmed)
-                    .lineLimit(1)
-            }
-            Spacer(minLength: 0)
-            if surface == .lockScreen {
-                AgentElapsedTime(context: context)
-                    .font(.system(size: 12, weight: .medium).monospacedDigit())
-                    .foregroundStyle(dimmed)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-                    .frame(width: 56, alignment: .trailing)
-            }
-        }
-        .padding(.top, surface == .dynamicIsland ? 9 : 7)
-        .padding(.bottom, surface == .dynamicIsland ? 7 : 8)
-    }
-
-    private var footer: some View {
-        HStack(spacing: 7) {
-            Text(state.sourceLabel?.isEmpty == false ? state.sourceLabel! : "Orcarness")
-                .lineLimit(1)
-            Spacer(minLength: 12)
-            Link(destination: AgentActivityLink.session(context)) {
-                HStack(spacing: 3) {
-                    Text("查看会话")
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 10, weight: .semibold))
-                }
-                .foregroundStyle(dimmed)
-            }
-        }
-        .font(.system(size: 11))
-        .foregroundStyle(dimmed)
-        .padding(.top, 10)
-        .padding(.horizontal, surface == .dynamicIsland ? 10 : 0)
-        .overlay(alignment: .top) {
-            Rectangle().fill(divider).frame(height: 0.5)
-        }
-    }
-
-    private var submitting: some View {
-        HStack(spacing: 7) {
-            ProgressView().controlSize(.small).tint(dimmed)
-            Text(state.detail?.isEmpty == false ? state.detail! : "正在等待主机确认")
-                .lineLimit(1)
-        }
-        .font(.system(size: 13))
-        .foregroundStyle(dimmed)
-        .frame(maxWidth: .infinity, minHeight: AgentActivityMetrics.actionHeight)
-        .background(tile, in: Capsule())
-    }
-
-    private var failureActions: some View {
-        HStack(spacing: AgentActivityMetrics.actionSpacing) {
-            Link(destination: AgentActivityLink.session(context)) {
-                Text("查看详情")
-                    .frame(maxWidth: .infinity, minHeight: AgentActivityMetrics.actionHeight)
-                    .background(tile, in: Capsule())
-            }
-            Link(destination: AgentActivityLink.session(context)) {
-                Label("检查结果", systemImage: "arrow.clockwise")
-                    .frame(maxWidth: .infinity, minHeight: AgentActivityMetrics.actionHeight)
-                    .foregroundStyle(Color(red: 0.09, green: 0.16, blue: 0.19))
-                    .background(AgentActivityColors.accent, in: Capsule())
-            }
-        }
-        .font(.system(size: 13, weight: .medium))
-        .foregroundStyle(foreground)
-    }
-
-    private var stepSymbol: String {
-        AgentActivityPresentation.stepSymbol(for: state)
-    }
-    private var stepTitle: String {
-        if context.isStaleCompat && !state.phase.isTerminal { return "打开 App 获取最新进度" }
-        return state.detail?.isEmpty == false ? state.detail! : AgentActivityPresentation.stepTitle(for: state.phase)
-    }
-    private var stepDetail: String {
-        state.secondaryDetail?.isEmpty == false
-            ? state.secondaryDetail!
-            : AgentActivityPresentation.stepDetail(for: state.phase)
-    }
-
-    private var displaySessionTitle: String {
-        let updatedTitle = state.sessionTitle?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return updatedTitle?.isEmpty == false ? updatedTitle! : context.attributes.sessionTitle
-    }
+    .buttonStyle(.plain)
 }
 
-private struct AgentApprovalButtons: View {
-    let context: ActivityViewContext<AgentActivityAttributes>
-    let foreground: Color
-    let tile: Color
-    let height: CGFloat
-
-    init(
-        context: ActivityViewContext<AgentActivityAttributes>,
-        foreground: Color,
-        tile: Color,
-        height: CGFloat = AgentActivityMetrics.actionHeight
-    ) {
-        self.context = context
-        self.foreground = foreground
-        self.tile = tile
-        self.height = height
+private func primaryLink(
+    _ title: String, icon: String?,
+    gatewayID: String, sessionID: String,
+    c: S29LiveColors
+) -> some View {
+    Link(destination: AgentActivityLink.session(gatewayID: gatewayID, sessionID: sessionID)) {
+        HStack(spacing: 5) {
+            if let icon { Image(systemName: icon).font(.system(size: 11, weight: .bold)) }
+            Text(title).font(.system(size: 13, weight: .semibold))
+        }
+        .foregroundStyle(.white)
+        .frame(maxWidth: .infinity, minHeight: 30)
+        .background(c.brand, in: Capsule())
     }
+    .buttonStyle(.plain)
+}
+
+/// 允许 / 拒绝：iOS 17+ 用 AppIntents（锁屏/岛上直接操作），iOS 16 退化为深链。
+/// 版本分叉与旧实现一致，只是把两颗按钮换成参考实现的「次要 / 主要」样式。
+private struct AgentApprovalActions: View {
+    let gatewayID: String
+    let sessionID: String
+    let rpcID: String?
+    let approvalID: String?
+    let style: AgentActionStyle
+
+    @Environment(\.colorScheme) private var scheme
+
+    private var c: S29LiveColors { .resolve(scheme) }
+    private var height: CGFloat { style == .dynamicIsland ? 30 : 30 }
+    private var titleFont: Font { style == .dynamicIsland ? .system(size: 12, weight: .semibold) : .system(size: 13, weight: .semibold) }
+    private var iconFont: Font { style == .dynamicIsland ? .system(size: 10, weight: .bold) : .system(size: 11, weight: .bold) }
 
     var body: some View {
-        if let rpcID = context.state.rpcID, let approvalID = context.state.approvalID {
+        if let rpcID, let approvalID {
             if #available(iOS 17.0, *) {
-                HStack(spacing: AgentActivityMetrics.actionSpacing) {
+                HStack(spacing: 8) {
                     Button(intent: RejectAgentActionIntent(
-                        gatewayID: context.attributes.gatewayID,
-                        sessionID: context.attributes.sessionID,
+                        gatewayID: gatewayID,
+                        sessionID: sessionID,
                         rpcID: rpcID,
                         approvalID: approvalID
                     )) {
@@ -544,8 +471,8 @@ private struct AgentApprovalButtons: View {
                     }
                     .buttonStyle(.plain)
                     Button(intent: AllowAgentActionIntent(
-                        gatewayID: context.attributes.gatewayID,
-                        sessionID: context.attributes.sessionID,
+                        gatewayID: gatewayID,
+                        sessionID: sessionID,
                         rpcID: rpcID,
                         approvalID: approvalID
                     )) {
@@ -553,38 +480,189 @@ private struct AgentApprovalButtons: View {
                     }
                     .buttonStyle(.plain)
                 }
-                .font(.system(size: 13, weight: .medium))
             } else {
                 // iOS 16 的实时活动不支持 AppIntents 交互按钮，退化为深链：
                 // 点击打开对应会话，在会话内的审批卡片上完成允许/拒绝。
-                HStack(spacing: AgentActivityMetrics.actionSpacing) {
-                    Link(destination: AgentActivityLink.session(context)) {
-                        rejectLabel
-                    }
-                    Link(destination: AgentActivityLink.session(context)) {
-                        allowLabel
-                    }
+                HStack(spacing: 8) {
+                    Link(destination: AgentActivityLink.session(gatewayID: gatewayID, sessionID: sessionID)) { rejectLabel }
+                    Link(destination: AgentActivityLink.session(gatewayID: gatewayID, sessionID: sessionID)) { allowLabel }
                 }
-                .font(.system(size: 13, weight: .medium))
             }
         }
     }
 
     private var rejectLabel: some View {
-        Label("拒绝", systemImage: "xmark")
-            .frame(maxWidth: .infinity, minHeight: height)
-            .foregroundStyle(foreground)
-            .background(tile, in: Capsule())
+        HStack(spacing: 5) {
+            Image(systemName: "xmark").font(iconFont)
+            Text("拒绝").font(titleFont)
+        }
+        .foregroundStyle(c.secondaryLabel)
+        .frame(maxWidth: .infinity, minHeight: height)
+        .background(c.tileStrong, in: Capsule())
     }
 
     private var allowLabel: some View {
-        Label("允许一次", systemImage: "checkmark")
-            .frame(maxWidth: .infinity, minHeight: height)
-            .foregroundStyle(Color(red: 0.09, green: 0.16, blue: 0.19))
-            .background(AgentActivityColors.accent, in: Capsule())
+        HStack(spacing: 5) {
+            Image(systemName: "checkmark").font(iconFont)
+            Text("允许一次").font(titleFont)
+        }
+        .foregroundStyle(.white)
+        .frame(maxWidth: .infinity, minHeight: height)
+        .background(c.brand, in: Capsule())
     }
 }
 
+// MARK: - 灵动岛（岛体恒黑由系统绘制；这里只决定每个 region 放什么）
+
+private enum AgentActivityMetrics {
+    // 展开岛左侧被系统圆角遮罩裁切：只挪品牌整体，不缩放或裁剪鲸鱼。
+    static let expandedBrandLeadingInset: CGFloat = 8
+    static let expandedBrandTopInset: CGFloat = 8
+    static let expandedTrailingInset: CGFloat = 10
+    // 展开岛下部圆角收窄早于矩形边界，内容要留出安全余量，
+    // 带按钮的状态必须保留正的底部边距，否则系统会收缩外形并裁掉按钮。
+    static var expandedBottomInset: CGFloat { 12 }
+}
+
+private struct AgentIslandBrand: View {
+    var body: some View {
+        HStack(spacing: 6) {
+            AgentWhaleMark(compact: false, forceDark: true)
+            Text("Orcarness")
+                .font(.system(size: 10.5, weight: .semibold))
+                .foregroundStyle(S29IslandColors.dim)
+        }
+    }
+}
+
+/// 展开态底部：与锁屏卡同一套三层结构（状态行 / 命令块 / 按钮），压缩行高与字号。
+private struct AgentIslandExpanded: View {
+    let context: ActivityViewContext<AgentActivityAttributes>
+
+    private var state: AgentActivityAttributes.ContentState { context.state }
+    private var tint: Color {
+        if context.isStaleCompat && !state.phase.isTerminal { return S29IslandColors.danger }
+        return S29IslandColors.status(state.phase)
+    }
+
+    private var title: String {
+        let updated = state.sessionTitle?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return updated?.isEmpty == false ? updated! : context.attributes.sessionTitle
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // 展开岛不放来源行：高度受系统限制，多一行会把按钮顶出圆角遮罩。
+            // 「来源必须在卡片上」是对锁屏卡的要求（审批时要知道哪台机器），岛内空间不够。
+            Text(title)
+                .font(.system(size: 15, weight: .semibold))
+                .tracking(-0.2)
+                .foregroundStyle(S29IslandColors.text)
+                .lineLimit(1)
+
+            HStack(spacing: 5) {
+                Image(systemName: statusSymbol(state.phase, isStale: context.isStaleCompat))
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(tint)
+                Text(islandStatusText)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(tint)
+                if let tool = state.toolName, !tool.isEmpty {
+                    Text("·").font(.system(size: 13)).foregroundStyle(S29IslandColors.dim)
+                    Text(tool)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(S29IslandColors.dim)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.top, 4)
+
+            if let command = state.command, !command.isEmpty,
+               state.phase == .awaitingApproval || state.phase == .failed {
+                Text(command)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(Color(red: 0.788, green: 0.847, blue: 0.918))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 7)
+                    .background(S29IslandColors.tile, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .overlay(alignment: .leading) {
+                        Rectangle().fill(tint).frame(width: 2)
+                    }
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .padding(.top, 6)
+            } else if let detail = primaryDetail {
+                Text(detail)
+                    .font(.system(size: 12))
+                    .lineSpacing(2)
+                    .foregroundStyle(S29IslandColors.dim)
+                    .lineLimit(2)
+                    .padding(.top, 5)
+            }
+
+            if state.phase == .awaitingApproval && !context.isStaleCompat {
+                AgentApprovalActions(
+                    gatewayID: context.attributes.gatewayID,
+                    sessionID: context.attributes.sessionID,
+                    rpcID: state.rpcID,
+                    approvalID: state.approvalID,
+                    style: .dynamicIsland
+                )
+                    .padding(.top, 6)
+            } else if state.phase == .failed && (state.command?.isEmpty == false) {
+                HStack(spacing: 7) {
+                    Link(destination: AgentActivityLink.session(context)) {
+                        Text("查看详情")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(Color(red: 0.902, green: 0.933, blue: 0.973))
+                            .frame(maxWidth: .infinity, minHeight: 30)
+                            .background(S29IslandColors.tileStrong, in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    Link(destination: AgentActivityLink.session(context)) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "arrow.clockwise").font(.system(size: 10, weight: .bold))
+                            Text("检查结果").font(.system(size: 12, weight: .semibold))
+                        }
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity, minHeight: 30)
+                        .background(S29IslandColors.accent, in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.top, 9)
+            }
+        }
+        .padding(.bottom, AgentActivityMetrics.expandedBottomInset)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+    }
+
+    private var islandStatusText: String {
+        if context.isStaleCompat && !state.phase.isTerminal { return "待同步" }
+        switch state.phase {
+        case .running: return state.detail?.isEmpty == false ? state.detail! : "正在执行"
+        case .awaitingChoice: return "等你选择"
+        case .awaitingApproval: return "等你审批"
+        case .submittingApproval: return "提交中"
+        case .approved: return "已允许"
+        case .rejected: return "已拒绝"
+        case .failed: return "执行未完成"
+        case .completed: return "任务已完成"
+        }
+    }
+
+    private var primaryDetail: String? {
+        let detailInRow = (state.phase == .running) && (state.detail?.isEmpty == false)
+        if detailInRow {
+            return state.secondaryDetail?.isEmpty == false ? state.secondaryDetail : nil
+        }
+        return state.detail?.isEmpty == false ? state.detail : state.secondaryDetail
+    }
+}
+
+/// 紧凑态右侧：运行中显示跳动计时，其余显示状态短词；过期未终态 = 待同步红圈
 private struct AgentCompactStatus: View {
     let context: ActivityViewContext<AgentActivityAttributes>
 
@@ -592,173 +670,90 @@ private struct AgentCompactStatus: View {
         if context.isStaleCompat && !context.state.phase.isTerminal {
             Image(systemName: "exclamationmark.circle")
                 .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(AgentActivityColors.failed)
+                .foregroundStyle(S29IslandColors.danger)
         } else if context.state.phase == .running {
-            AgentElapsedTime(context: context)
-                .font(.system(size: 12, weight: .medium).monospacedDigit())
+            Text(context.attributes.startedAt, style: .timer)
+                .font(.system(size: 12, weight: .semibold).monospacedDigit())
+                .foregroundStyle(S29IslandColors.accent)
                 .frame(width: 38, alignment: .trailing)
-                .foregroundStyle(AgentActivityColors.accent)
         } else {
             HStack(spacing: 4) {
-                Image(systemName: AgentActivityPresentation.symbol(for: context.state.phase))
-                    .font(.system(size: 12, weight: .medium))
-                Text(AgentActivityPresentation.compactText(for: context.state.phase, status: context.state.status))
-                    .font(.system(size: 11, weight: .medium))
+                Image(systemName: statusSymbol(context.state.phase, isStale: false))
+                    .font(.system(size: 11, weight: .semibold))
+                Text(shortStatusText(context.state.phase))
+                    .font(.system(size: 11, weight: .semibold))
                     .lineLimit(1)
             }
-            .foregroundStyle(AgentActivityColors.status(for: context.state.phase))
+            .foregroundStyle(S29IslandColors.status(context.state.phase))
         }
     }
 }
 
-private struct AgentElapsedTime: View {
-    let context: ActivityViewContext<AgentActivityAttributes>
+// MARK: - 鲸鱼品牌图（用户 2026-10-30 口径）
+
+/// **不用 template**——多色品牌图套模板会压平细节（黑身 + 白斑 + 灰眼睛 → 一块纯色剪影，
+/// "认不出"）；资产级 `template-rendering-intent` 也已移除（见 OrcarnessOrcaMark.imageset）。
+/// · 浅色 = 原图直接渲染：白色是负空间，显白卡底，黑鲸 + 白斑天然成立
+/// · 深色 / 灵动岛 = 浅灰圆底托住负空间，白斑不糊进深底（与主 App `OrcarnessOrcaIcon`
+///   同款方案，2026-10-27 已验收）
+private struct AgentWhaleMark: View {
+    @Environment(\.colorScheme) private var scheme
+    var compact: Bool = false
+    /// 灵动岛岛体恒黑，等同深色场景
+    var forceDark: Bool = false
+
+    private var size: CGFloat { compact ? 16 : 16 }
 
     var body: some View {
-        if context.state.phase.isTerminal {
-            Text(AgentActivityPresentation.duration(from: context.attributes.startedAt, to: context.state.updatedAt))
-        } else {
-            Text(context.attributes.startedAt, style: .timer)
-                .multilineTextAlignment(.trailing)
-        }
-    }
-}
-
-private struct AgentBrandMark: View {
-    let compact: Bool
-
-    private var size: CGFloat { compact ? 18 : 19 }
-
-    var body: some View {
+        let dark = forceDark || scheme == .dark
         Image("OrcarnessOrcaMark")
-            .renderingMode(.template)
             .resizable()
             .scaledToFit()
-            .foregroundStyle(AgentActivityColors.accent)
+            .padding(size * 0.14)
+            .background {
+                if dark { Circle().fill(Color(white: 0.92)) }
+            }
             .frame(width: size, height: size)
-            .frame(width: 20, height: 20, alignment: .center)
             .accessibilityHidden(true)
     }
 }
 
-private enum AgentActivityColors {
-    static let accent = Color(red: 0.596, green: 0.851, blue: 0.925)
-    static let pending = Color(red: 0.937, green: 0.761, blue: 0.506)
-    static let approved = Color(red: 0.612, green: 0.871, blue: 0.757)
-    static let rejected = Color(red: 0.867, green: 0.741, blue: 0.729)
-    static let failed = Color(red: 1, green: 0.718, blue: 0.643)
-    static let lockBackground = Color(red: 0.125, green: 0.208, blue: 0.255)
-    static let lockText = Color(red: 0.929, green: 0.961, blue: 0.969)
-    static let lockDimmed = Color(red: 0.702, green: 0.776, blue: 0.812)
-    static let lockTile = Color(red: 0.082, green: 0.165, blue: 0.212)
-    static let lockDivider = Color(red: 0.231, green: 0.318, blue: 0.365)
-    static let islandText = Color(red: 0.965, green: 0.969, blue: 0.973)
-    static let islandDimmed = Color(red: 0.655, green: 0.671, blue: 0.694)
-    static let islandTile = Color(red: 0.125, green: 0.133, blue: 0.149)
-    static let islandDivider = Color(red: 0.169, green: 0.180, blue: 0.200)
-    static let brandTile = Color(red: 0.227, green: 0.380, blue: 0.447).opacity(0.35)
+// MARK: - 时长格式（与旧实现同一口径）
 
-    static func status(for phase: AgentActivityPhase) -> Color {
-        switch phase {
-        case .running: accent
-        case .awaitingChoice, .awaitingApproval, .submittingApproval: pending
-        case .approved, .completed: approved
-        case .rejected: rejected
-        case .failed: failed
-        }
-    }
-}
-
-private enum AgentActivityPresentation {
-    static func stepSymbol(for state: AgentActivityAttributes.ContentState) -> String {
-        guard state.phase == .running else { return symbol(for: state.phase) }
-        switch state.stepKind {
-        case .preparing: return "sparkles"
-        case .context: return "tray.and.arrow.down"
-        case .reasoning: return "brain"
-        case .writing: return "square.and.pencil"
-        case .editing: return "pencil.and.outline"
-        case .reading: return "doc.text.magnifyingglass"
-        case .command: return "terminal"
-        case .searching: return "magnifyingglass"
-        case .tool: return "wrench.and.screwdriver"
-        case .result: return "checkmark.circle"
-        case .message: return "text.bubble"
-        case .delivery: return "shippingbox"
-        case nil: return "doc.text.magnifyingglass"
-        }
-    }
-
-    static func symbol(for phase: AgentActivityPhase) -> String {
-        switch phase {
-        case .running: "waveform.path.ecg"
-        case .awaitingChoice: "questionmark.bubble"
-        case .awaitingApproval: "exclamationmark.shield"
-        case .submittingApproval: "arrow.triangle.2.circlepath"
-        case .approved: "checkmark"
-        case .rejected: "xmark.shield"
-        case .failed: "wifi.slash"
-        case .completed: "checkmark.circle"
-        }
-    }
-
-    static func compactText(for phase: AgentActivityPhase, status: String) -> String {
-        switch phase {
-        case .running: ""
-        case .awaitingChoice: "待选择"
-        case .awaitingApproval: "待审批"
-        case .submittingApproval: "提交中"
-        case .approved: "已允许"
-        case .rejected: "已拒绝"
-        case .failed: status == "执行失败" ? "失败" : "待确认"
-        case .completed: "已完成"
-        }
-    }
-
-    static func stepTitle(for phase: AgentActivityPhase) -> String {
-        switch phase {
-        case .running: "Agent 正在处理"
-        case .awaitingChoice: "请打开 App 完成选择"
-        case .approved: "批准已送达"
-        case .rejected: "本次命令未执行"
-        case .completed: "任务已完成"
-        case .failed: "执行未完成"
-        case .awaitingApproval, .submittingApproval: "等待操作"
-        }
-    }
-
-    static func stepDetail(for phase: AgentActivityPhase) -> String {
-        switch phase {
-        case .running: "正在等待下一步"
-        case .awaitingChoice: "Agent 正在等待你的回答"
-        case .approved: "等待 Agent 更新下一步"
-        case .rejected: "决定已送达，等待 Agent 后续状态"
-        case .completed: "Agent 已完成本次任务"
-        case .failed: "打开 App 查看详情"
-        case .awaitingApproval, .submittingApproval: "仅授权本次操作"
-        }
-    }
-
+enum S29LiveActivityFormat {
     static func duration(from start: Date, to end: Date) -> String {
-        let totalSeconds = max(0, Int(end.timeIntervalSince(start)))
-        let hours = totalSeconds / 3_600
-        let minutes = (totalSeconds % 3_600) / 60
-        let seconds = totalSeconds % 60
-        if hours > 0 { return String(format: "%d:%02d:%02d", hours, minutes, seconds) }
-        return String(format: "%02d:%02d", minutes, seconds)
+        let total = max(0, Int(end.timeIntervalSince(start)))
+        let h = total / 3_600, m = (total % 3_600) / 60, s = total % 60
+        return h > 0 ? String(format: "%d:%02d:%02d", h, m, s) : String(format: "%02d:%02d", m, s)
     }
 }
 
 private enum AgentActivityLink {
     static func session(_ context: ActivityViewContext<AgentActivityAttributes>) -> URL {
+        session(gatewayID: context.attributes.gatewayID, sessionID: context.attributes.sessionID)
+    }
+
+    static func session(gatewayID: String, sessionID: String) -> URL {
         var components = URLComponents()
         components.scheme = "orcarness"
         components.host = "session"
         components.queryItems = [
-            URLQueryItem(name: "gateway", value: context.attributes.gatewayID),
-            URLQueryItem(name: "id", value: context.attributes.sessionID)
+            URLQueryItem(name: "gateway", value: gatewayID),
+            URLQueryItem(name: "id", value: sessionID)
         ]
         return components.url ?? URL(string: "orcarness://session")!
+    }
+}
+
+// MARK: - iOS 16.1 兼容层
+
+extension ActivityViewContext {
+    /// `isStale` 自 iOS 16.2 起提供；iOS 16.1 上按“未过期”处理。
+    var isStaleCompat: Bool {
+        if #available(iOS 16.2, *) {
+            return isStale
+        }
+        return false
     }
 }
 
@@ -805,20 +800,7 @@ private func previewState(
     previewState(
         phase: .running,
         status: "正在执行",
-        detail: "正在分析构建日志",
-        stepKind: .reading
-    )
-}
-
-@available(iOS 17.0, *)
-#Preview("运行中 · 展开", as: .dynamicIsland(.expanded), using: previewAttributes) {
-    AgentLiveActivityWidget()
-} contentStates: {
-    previewState(
-        phase: .running,
-        status: "正在执行",
-        detail: "正在分析构建日志",
-        stepKind: .reading
+        detail: "正在分析构建日志"
     )
 }
 
@@ -835,51 +817,13 @@ private func previewState(
 }
 
 @available(iOS 17.0, *)
-#Preview("等待选择 · 展开", as: .dynamicIsland(.expanded), using: previewAttributes) {
+#Preview("等待审批 · 锁屏", as: .content, using: previewAttributes) {
     AgentLiveActivityWidget()
 } contentStates: {
     previewState(
-        phase: .awaitingChoice,
-        status: "需要选择",
-        detail: "请打开 App 完成选择",
-        secondaryDetail: "请选择希望 Agent 接下来处理的方向"
-    )
-}
-
-@available(iOS 17.0, *)
-#Preview("等待选择 · 锁屏", as: .content, using: previewAttributes) {
-    AgentLiveActivityWidget()
-} contentStates: {
-    previewState(
-        phase: .awaitingChoice,
-        status: "需要选择",
-        detail: "请打开 App 完成选择",
-        secondaryDetail: "请选择希望 Agent 接下来处理的方向"
-    )
-}
-
-@available(iOS 17.0, *)
-#Preview("已允许 · 展开", as: .dynamicIsland(.expanded), using: previewAttributes) {
-    AgentLiveActivityWidget()
-} contentStates: {
-    previewState(phase: .approved, status: "已允许本次操作", detail: "批准已送达")
-}
-
-@available(iOS 17.0, *)
-#Preview("已拒绝 · 展开", as: .dynamicIsland(.expanded), using: previewAttributes) {
-    AgentLiveActivityWidget()
-} contentStates: {
-    previewState(phase: .rejected, status: "已拒绝本次操作", detail: "本次命令未执行")
-}
-
-@available(iOS 17.0, *)
-#Preview("提交失败 · 展开", as: .dynamicIsland(.expanded), using: previewAttributes) {
-    AgentLiveActivityWidget()
-} contentStates: {
-    previewState(
-        phase: .failed,
-        status: "未能确认审批结果",
-        detail: "确认结果后才能继续操作",
+        phase: .awaitingApproval,
+        status: "需要批准 · 仅限本次",
+        detail: "运行构建命令",
         command: "./gradlew :androidApp:assembleDebug"
     )
 }
@@ -891,33 +835,7 @@ private func previewState(
     previewState(
         phase: .running,
         status: "正在执行",
-        detail: "正在分析构建日志",
-        stepKind: .message
-    )
-}
-
-@available(iOS 17.0, *)
-#Preview("等待审批 · 锁屏", as: .content, using: previewAttributes) {
-    AgentLiveActivityWidget()
-} contentStates: {
-    previewState(
-        phase: .awaitingApproval,
-        status: "需要批准 · 仅限本次",
-        detail: "运行构建命令",
-        command: "./gradlew :androidApp:assembleDebug"
+        detail: "正在分析构建日志"
     )
 }
 #endif
-
-
-// MARK: - iOS 16.1 兼容层
-
-extension ActivityViewContext {
-    /// `isStale` 自 iOS 16.2 起提供；iOS 16.1 上按“未过期”处理。
-    var isStaleCompat: Bool {
-        if #available(iOS 16.2, *) {
-            return isStale
-        }
-        return false
-    }
-}
