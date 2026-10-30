@@ -509,6 +509,28 @@ if ! python3 "$(dirname "${BASH_SOURCE[0]}")/check-project-membership.py"; then
   exit 1
 fi
 
+# ---- 本地化目录顶层结构守卫（2026-10-30 教训）----
+# 五路 typecheck 走 swiftc 前端，**不解析 .xcstrings**；顶层缺 `version` 时闸门全绿，
+# 只有 xcodebuild 的 `xcstringstool compile` 阶段才报 "Missing required key 'version'" →
+# ARCHIVE FAILED（合上游 1.7.12 时冲突解决把该键丢了，出包才暴露）。
+# 这里守三件事：JSON 合法 + 顶层键齐备（sourceLanguage / version / strings）+ strings 非空。
+python3 - "$SRCROOT/DeepSeekHarnessMobile/Resources/Localizable.xcstrings" <<'PYCHECK' || exit 1
+import json, sys
+path = sys.argv[1]
+try:
+    data = json.load(open(path, encoding='utf-8'))
+except Exception as e:
+    print("❌ xcstrings 不是合法 JSON：%s" % e); sys.exit(1)
+missing = [k for k in ('sourceLanguage', 'version', 'strings') if k not in data]
+if missing:
+    print("❌ xcstrings 顶层缺键 %s（该键只有 xcstringstool 阶段才校验，闸门其他项查不出）" % missing)
+    sys.exit(1)
+if not isinstance(data.get('strings'), dict) or not data['strings']:
+    print("❌ xcstrings 的 strings 为空或类型不对"); sys.exit(1)
+print("✅ xcstrings 顶层结构齐备：sourceLanguage=%s version=%s strings=%d 条"
+      % (data['sourceLanguage'], data['version'], len(data['strings'])))
+PYCHECK
+
 # ---- 退役路径守卫（B3）----
 # bridge「粘贴配对资料 JSON」这条配对路径已退役：bridge 凭证改由网关配对成功后的
 # `paired` 帧 bridgeSession 字段下发。BridgeTeamAdapter.pairPastedPayload 只留作应急排查，
