@@ -13,7 +13,7 @@ struct RootView: View {
             .equatable()
             // 直接观察当前 AppStore，避免外层主机容器漏掉外观设置更新。
             .preferredColorScheme(store.interfaceStyle.colorScheme)
-            .alert("Orcarness", isPresented: Binding(get: { store.lastError != nil }, set: { if !$0 { store.lastError = nil } })) {
+            .alert("Whaleness", isPresented: Binding(get: { store.lastError != nil }, set: { if !$0 { store.lastError = nil } })) {
                 Button(String(localized: "好"), role: .cancel) { store.lastError = nil }
             } message: { Text(store.lastError ?? "") }
             .onChangeCompat(of: scenePhase) { _, phase in
@@ -35,7 +35,7 @@ struct RootView: View {
 /// publications no longer invalidate the `NavigationStack` that owns the bar.
 private struct RootNavigationHost: View, Equatable {
     let store: AppStore
-    /// U 单：bridge 客户端是 App 级单例，随网关切换不重建。
+    /// Bridge 团队与多网关状态。合并上游 1.7.12 时此行曾被删掉（上游该结构不带它），已补回。
     @EnvironmentObject private var hosts: MultiGatewayStore
     @State private var navigationPath: [AppRoute] = []
     @State private var newConversationTask: Task<Void, Never>?
@@ -80,6 +80,7 @@ private struct RootNavigationHost: View, Equatable {
                     newConversationTask?.cancel()
                     navigate(to: .settings)
                 },
+                /// 02 屏（全部会话）push 入口。合并上游 1.7.12 时此块曾被整段取走上游版本导致丢失，已按 pre-merge 版本补回。
                 onAllSessions: {
                     newConversationTask?.cancel()
                     navigate(to: .allSessions)
@@ -90,6 +91,7 @@ private struct RootNavigationHost: View, Equatable {
                 onScheduledTasks: {
                     navigate(to: .scheduledTasks)
                 },
+                /// Bridge 团队接在 App 级单例（MultiGatewayStore 持有），WorkspaceView 只观察。
                 bridgeTeam: hosts.bridgeTeam
             )
                 .navigationDestination(for: AppRoute.self) { route in
@@ -136,30 +138,11 @@ private struct RootNavigationHost: View, Equatable {
                 onActivate: {
                     await store.activatePreparedConversation(sessionID: header.sessionID)
                 }
-            ) {
-                ConversationView()
+            ) { activeView, topInset in
+                ConversationView(activeView: activeView, topContentInset: topInset)
             }
         case .settings:
-            SettingsView(
-                // 「设置 → 全部扩展」两个入口复用既有路由（插件 11 / 定时任务 10），
-                // 不重做它们的列表，也不跨文件构造 RootView 内的私有 View。
-                onOpenPlugins: { navigate(to: .plugins) },
-                onOpenScheduledTasks: { navigate(to: .scheduledTasks) }
-            )
-        case .allSessions:
-            AllSessionsView(
-                sessions: store.workspaceScopedSessions,
-                onOpen: { session in
-                    // 与首页 onOpenSession 同一条路径（准备会话 → push 对话），不另开后门。
-                    newConversationTask?.cancel()
-                    let header = conversationHeader(for: session)
-                    Task { @MainActor in
-                        guard await store.prepareConversation(for: session),
-                              !Task.isCancelled else { return }
-                        navigate(to: .conversation(header))
-                    }
-                }
-            )
+            SettingsView()
         case .plugins:
             PluginsView(store: store)
         case .scheduledTasks:
@@ -181,6 +164,20 @@ private struct RootNavigationHost: View, Equatable {
                     navigationPath = [.conversation(header)]
                 }
             }
+        case .allSessions:
+            AllSessionsView(
+                sessions: store.workspaceScopedSessions,
+                onOpen: { session in
+                    // 与首页 onOpenSession 同一条路径（准备会话 → push 对话），不另开后门。
+                    newConversationTask?.cancel()
+                    let header = conversationHeader(for: session)
+                    Task { @MainActor in
+                        guard await store.prepareConversation(for: session),
+                              !Task.isCancelled else { return }
+                        navigate(to: .conversation(header))
+                    }
+                }
+            )
         }
     }
 
@@ -211,7 +208,7 @@ private struct RootNavigationHost: View, Equatable {
     }
 
     private func openLiveActivityURL(_ url: URL) {
-        guard url.scheme == "orcarness", url.host == "session",
+        guard url.scheme == "dshmobile", url.host == "session",
               let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
               let gatewayID = components.queryItems?.first(where: { $0.name == "gateway" })?.value,
               gatewayID == store.gatewayLocalID,
@@ -281,7 +278,7 @@ private struct RootNavigationHost: View, Equatable {
         case settings
         case plugins
         case scheduledTasks
-        /// 02 屏：全部会话（首页「全部 N 个」的落点；push 而非 sheet——内容页不是浮层）
+        /// 02 屏：首页「全部 N 个」push 到这里。合并 1.7.12 时丢失，已补回。
         case allSessions
     }
 }
@@ -422,6 +419,7 @@ private struct ScheduledTasksView: View {
         .listStyle(.plain)
         .adaptiveListWidth()
         .scrollContentBackground(.hidden)
+        .refreshable { store.refreshScheduledTasks() }
         .background(Color(uiColor: .systemBackground))
         .safeAreaInset(edge: .top, spacing: 0) {
             if isSearching {
@@ -432,12 +430,7 @@ private struct ScheduledTasksView: View {
                     .background(Color(uiColor: .systemBackground))
             }
         }
-        .navigationTitle(isSearching ? "" : String(localized: "定时任务"))
-        .scrollBounceBehaviorCompat(.always)
-        .refreshable { store.refreshScheduledTasks() }
-        .background(Color(uiColor: .systemBackground))
-        // B4：容器级推入页同样整屏盖住背景，推入期间暂停动画（与设置子页同一策略）。
-        .pausesBackgroundAnimation()
+        .navigationTitle(String(localized: "定时任务"))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             if !isSearching {
@@ -939,56 +932,50 @@ private struct ConversationNavigationShell<Content: View>: View {
     let store: AppStore
     let sidebarActions: ConversationSidebarActions
     let onActivate: () async -> Void
-    @ViewBuilder let content: () -> Content
+    @ViewBuilder let content: (Binding<Int>, CGFloat) -> Content
+    @State private var activeView = 0
     @State private var workspaceFilesPresentation: WorkspaceFilesPresentation?
     @State private var liveTitle: String?
     @State private var livePresetTitle: String?
     @State private var showsTeamEntry = false
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    @Environment(\.verticalSizeClass) private var verticalSizeClass
     @State private var showsSidebar = false
     @State private var sidebarAvailableHeight: CGFloat = 0
-
-    /// 沿用宽屏导航栏入口；侧栏仅作为当前会话的悬浮面板展示。
-    private var showsSidebarToggle: Bool {
-        horizontalSizeClass == .regular && verticalSizeClass == .regular
-    }
+    @State private var compactHeader = false
 
     var body: some View {
-        content()
-            // B4：会话页是最重的一页（ChatLayout），推入/转场期间先停背景动画。
-            .pausesBackgroundAnimation()
-            .navigationTitle(liveTitle ?? header.title)
-            .toolbar {
-                if showsSidebarToggle {
-                    ToolbarItem(placement: .topBarLeading) {
-                        Button {
-                            showsSidebar.toggle()
-                        } label: {
-                            Image(systemName: "sidebar.left")
-                        }
-                        .accessibilityLabel("展开侧边栏")
-                        .accessibilityIdentifier("conversation-sidebar-toggle")
-                        .popover(isPresented: $showsSidebar, arrowEdge: .top) {
-                            ConversationSidebar(
-                                store: store,
-                                actions: dismissingSidebarActions
-                            )
-                            // 使用会话页的可用高度，旋转和分屏时随容器调整；不改变正文布局。
-                            .frame(idealHeight: sidebarAvailableHeight, maxHeight: sidebarAvailableHeight)
-                        }
-                    }
-                }
+        GeometryReader { geometry in
+            // 视口可滚入导航栏和状态栏后方，首屏的可读边界仍由内容 inset 保留。
+            content($activeView, geometry.safeAreaInsets.top)
+                .ignoresSafeArea(.container, edges: .top)
+                // B4：会话页是最重的一页（ChatLayout），推入/转场期间先停背景动画。
+                .pausesBackgroundAnimation()
+        }
+            .onGeometryChange(for: CGSize.self) { geometry in
+                geometry.size
+            } action: { size in
+                sidebarAvailableHeight = size.height
+                compactHeader = size.width < 600
             }
-            .onChangeCompat(of: showsSidebarToggle) { _, available in
-                if !available { showsSidebar = false }
+            .navigationTitle("")
+            .toolbar {
+                if !compactHeader {
+                    ToolbarItem(placement: .topBarLeading) { sidebarButton }
+                }
+                if #available(iOS 26.0, *) {
+                    ToolbarItem(placement: .principal) { pageTitle }
+                        .sharedBackgroundVisibility(.hidden)
+                } else {
+                    ToolbarItem(placement: .principal) { pageTitle }
+                }
             }
             .onChangeCompat(of: header.sessionID) { _, _ in
                 showsSidebar = false
                 liveTitle = nil
                 livePresetTitle = nil
             }
-            .onDisappear { showsSidebar = false }
+            .onDisappear {
+                showsSidebar = false
+            }
             .onReceive(store.$sessions) { sessions in
                 let sessionID = header.sessionID ?? store.selectedSessionId
                 liveTitle = sessions.first { $0.id == sessionID }?.title
@@ -1003,13 +990,16 @@ private struct ConversationNavigationShell<Content: View>: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbarRole(.editor)
             .toolbarBackground(.hidden, for: .navigationBar)
+            .modifier(ConversationScrollEdgeStyle())
             .toolbar {
                 if #available(iOS 26.0, *) {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        conversationStatus
-                            .padding(.trailing, showsTeamEntry ? -8 : 0)
+                    if !compactHeader {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            conversationStatus
+                                .padding(.trailing, showsTeamEntry ? -8 : 0)
+                        }
+                        .sharedBackgroundVisibility(.hidden)
                     }
-                    .sharedBackgroundVisibility(.hidden)
                     if showsTeamEntry {
                         ToolbarItem(placement: .topBarTrailing) {
                             TeamNavigationEntry(store: store)
@@ -1018,17 +1008,24 @@ private struct ConversationNavigationShell<Content: View>: View {
                         .sharedBackgroundVisibility(.hidden)
                         ToolbarSpacer(.fixed, placement: .topBarTrailing)
                     }
+                    if compactHeader {
+                        ToolbarItem(placement: .topBarTrailing) { sidebarButton }
+                        ToolbarSpacer(.fixed, placement: .topBarTrailing)
+                    }
                     ToolbarItem(placement: .topBarTrailing) {
                         moreMenu
                     }
                 } else {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        conversationStatus
+                    if !compactHeader {
+                        ToolbarItem(placement: .topBarTrailing) { conversationStatus }
                     }
                     if showsTeamEntry {
                         ToolbarItem(placement: .topBarTrailing) {
                             TeamNavigationEntry(store: store)
                         }
+                    }
+                    if compactHeader {
+                        ToolbarItem(placement: .topBarTrailing) { sidebarButton }
                     }
                     ToolbarItem(placement: .topBarTrailing) {
                         moreMenu
@@ -1050,6 +1047,42 @@ private struct ConversationNavigationShell<Content: View>: View {
             .sheet(item: $workspaceFilesPresentation, onDismiss: { store.conversationDirectoryPath = nil }) { request in
                 WorkspaceFilesSheet(store: store, sessionID: request.sessionID, initialPath: request.initialPath)
             }
+    }
+
+    private var sidebarButton: some View {
+        Button {
+            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+            showsSidebar.toggle()
+        } label: {
+            Image(systemName: "sidebar.left")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 22, height: 22)
+        }
+        .accessibilityLabel("展开侧边栏")
+        .accessibilityIdentifier("conversation-sidebar-toggle")
+        .popover(isPresented: $showsSidebar, arrowEdge: .top) {
+            if #available(iOS 16.4, *) {
+                sidebarPanel.presentationCompactAdaptation(.popover)
+            } else {
+                sidebarPanel
+            }
+        }
+    }
+
+    private var sidebarPanel: some View {
+        ConversationSidebar(store: store, actions: dismissingSidebarActions)
+            .frame(idealHeight: sidebarAvailableHeight, maxHeight: sidebarAvailableHeight)
+    }
+
+    private var pageTitle: some View {
+        ConversationNavigationTitle(
+            title: liveTitle ?? header.title,
+            gateway: gateway,
+            agentPresetTitle: livePresetTitle ?? header.agentPresetTitle,
+            selectedPage: activeView,
+            compact: compactHeader
+        )
     }
 
     /// 先关闭悬浮面板，再复用现有会话切换或导航操作；不改变正文宽度。
@@ -1083,16 +1116,17 @@ private struct ConversationNavigationShell<Content: View>: View {
             .disabled(header.sessionID == nil)
         } label: {
             Image(systemName: "ellipsis")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 22, height: 22)
         }
         .accessibilityLabel("更多")
     }
 
     private var conversationStatus: some View {
-        ConversationNavigationStatus(
-            gateway: gateway,
-            agentPresetTitle: livePresetTitle ?? header.agentPresetTitle
-        )
+        ConversationNavigationStatus(gateway: gateway, agentPresetTitle: livePresetTitle ?? header.agentPresetTitle)
     }
+
 }
 
 private struct WorkspaceFilesSheet: View {
@@ -1257,7 +1291,6 @@ private struct WorkspaceFileRow: View {
     @ObservedObject var store: AppStore
     let item: GatewayDirectoryItem
     let isDownloaded: Bool
-    @Environment(\.colorScheme) private var colorScheme
 
     private var isDownloading: Bool {
         store.workspaceFileDownloadPurpose == "download" &&
@@ -1324,7 +1357,7 @@ private struct WorkspaceFileRow: View {
         } else {
             Image(systemName: isDownloaded ? "checkmark.circle" : "arrow.down.circle")
                 .appFont(.title3)
-                .foregroundStyle(isDownloaded ? DSHPalette(scheme: colorScheme).success : Color.primary)
+                .foregroundStyle(isDownloaded ? DSHColor.success : Color.primary)
         }
     }
 
@@ -2040,20 +2073,46 @@ private final class WorkspaceDownloadRegistry {
     }
 }
 
+/// 会话标题和模式共用导航栏的标题区域，不参与侧栏的点击交互。
+private struct ConversationNavigationTitle: View {
+    let title: String
+    let gateway: GatewayClient
+    let agentPresetTitle: String
+    let selectedPage: Int
+    let compact: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .appFont(compact ? .system(size: 16, weight: .semibold) : .headline)
+                .lineLimit(1)
+                .accessibilityIdentifier("conversation-page-title")
+                .accessibilityValue(selectedPage == 0 ? Text("对话") : Text("轨迹"))
+            if compact {
+                ConversationNavigationStatus(gateway: gateway, agentPresetTitle: agentPresetTitle, compact: true)
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+        .accessibilityElement(children: .contain)
+    }
+}
+
 /// Connection changes are scoped to this tiny view instead of rebuilding the
 /// navigation shell (or the toolbar declaration containing it).
 private struct ConversationNavigationStatus: View {
     @ObservedObject var gateway: GatewayClient
     let agentPresetTitle: String
+    var compact = false
 
     var body: some View {
-        HStack(spacing: 7) {
+        HStack(spacing: compact ? 6 : 7) {
             ConnectionDot(state: gateway.state)
             Text(agentPresetTitle)
-                .appFont(.caption.weight(.medium))
+                .appFont(compact ? .system(size: 11, weight: .medium) : .caption.weight(.medium))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
+                .fixedSize(horizontal: !compact, vertical: false)
+                .accessibilityIdentifier("conversation-mode-label")
         }
     }
 }

@@ -1,5 +1,5 @@
 {
-  "originHash" : "69d8575881ce28613f2f89892a9d7962473f34edcac55df8b0775e1c0a762b10",
+  "originHash" : "8996dceefcc0c24c52960526bab207223d059891f26efe951e04ed35a1c9f7e4",
   "pins" : [
     {
       "identity" : "chatlayout",
@@ -24,8 +24,17 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/swiftlang/swift-cmark",
       "state" : {
-        "revision" : "08ddb528923cc1a6527e02b7a1aee9e516ca749a",
-        "version" : "0.9.0"
+        "revision" : "924936d0427cb25a61169739a7660230bffa6ea6",
+        "version" : "0.8.0"
+      }
+    },
+    {
+      "identity" : "swiftmath",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/mgriebling/SwiftMath.git",
+      "state" : {
+        "revision" : "fa8244ed032f4a1ade4cb0571bf87d2f1a9fd2d7",
+        "version" : "1.7.3"
       }
     }
   ],

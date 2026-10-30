@@ -364,9 +364,9 @@ struct ConversationView: View {
     @Environment(\.dismiss) private var dismissConversation
     @EnvironmentObject private var store: AppStore
     @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.displayScale) private var displayScale
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var activeView = 0
+    @Binding var activeView: Int
+    var topContentInset: CGFloat = 0
     @State private var draft = ""
     @State private var memberDrafts: [String: String] = [:]
     @State private var memberImages: [String: [GatewayOutgoingImage]] = [:]
@@ -388,7 +388,6 @@ struct ConversationView: View {
     @State private var goalObjectiveDraft = ""
     @State private var confirmsGoalClear = false
     @State private var isPinnedToBottom = true
-    @State private var hasScrolledFromTop = false
     @State private var queueExpanded = false
     @State private var submittedQueueDraft: String?
     @State private var submittedQueueImages: [GatewayOutgoingImage] = []
@@ -421,6 +420,7 @@ struct ConversationView: View {
                 if store.isViewingTeamMember {
                     Text("团队 › \(store.selectedSession?.title ?? "成员")" + (store.selectedMemberCanSend ? "" : " · 只读"))
                         .appFont(.caption).foregroundStyle(.secondary).lineLimit(1).padding(.bottom, 4)
+                        .padding(.top, topContentInset)
                 }
                 // 03 页头副行：紧贴导航标题下方、分段上方（模式 · 状态 · 第 N 轮）
                 if let conversationSubtitle {
@@ -447,6 +447,7 @@ struct ConversationView: View {
                         timeline: store.trajectoryTimeline(for: store.selectedSessionId),
                         isActive: activeView == 1
                     )
+                    .padding(.top, pageTopInset)
                 }
             }
         }
@@ -464,7 +465,6 @@ struct ConversationView: View {
         .onChangeCompat(of: store.selectedSessionId) { _, _ in
             showsSessionStatsPopover = false
             showsAgentPresetMenu = false
-            hasScrolledFromTop = false
         }
         .onDisappear {
             if store.conversationFileIsOpening { store.cancelWorkspaceFileDownload() }
@@ -562,6 +562,10 @@ struct ConversationView: View {
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
+    private var pageTopInset: CGFloat {
+        store.isViewingTeamMember ? 0 : topContentInset
+    }
+
     private var chat: some View {
         let sessionID = store.selectedSessionId
         return ZStack(alignment: .bottom) {
@@ -575,6 +579,7 @@ struct ConversationView: View {
                 makeEntries: { items in
                     makeConversationViewportEntries(from: injectSwitchNotices(into: items))
                 },
+                topInset: pageTopInset + 8,
                 bottomInset: composerHeight + conversationBottomClearance,
                 scrollToBottomToken: viewportScrollToBottomToken,
                 onContentAvailabilityChanged: { sessionID, hasContent in
@@ -589,10 +594,7 @@ struct ConversationView: View {
                 onPinnedToBottomChanged: { pinned in
                     isPinnedToBottom = pinned
                 },
-                onScrolledFromTopChanged: { scrolled in
-                    guard sessionID == store.selectedSessionId else { return }
-                    hasScrolledFromTop = scrolled
-                },
+                onScrolledFromTopChanged: { _ in },
                 onBottomAlignmentCompleted: {
                     guard isPreparingHistoryPresentation,
                           historyPresentationSessionID == store.selectedSessionId,
@@ -619,29 +621,20 @@ struct ConversationView: View {
             // controller，不能让上一 Session 的 diffable snapshot 参与新页面首帧。
             .id(sessionID ?? "__empty__")
             .padding(.horizontal, 20)
-            .padding(.top, 8)
             .opacity(shouldShowHistoryPresentationMask ? 0 : 1)
             .readableContentWidth()
-            // 线条不受正文限宽和左右留白约束，高度仍对齐视口的裁切上缘。
-            .overlay(alignment: .top) {
-                Rectangle()
-                    .fill(Color.gray.opacity(0.35))
-                    .frame(height: 1 / max(displayScale, 1))
-                    .padding(.top, 8)
-                    .opacity(hasScrolledFromTop ? 1 : 0)
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
-            }
 
             if !hasVisibleConversationContent, let error = selectedHistoryError {
                 historyFailureState(error)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding(.top, pageTopInset)
                     .padding(.bottom, composerHeight)
                     .readableContentWidth()
                     .zIndex(1)
             } else if shouldShowHistoryPresentationMask {
                 historyPresentationMask
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding(.top, pageTopInset)
                     .padding(.bottom, composerHeight)
                     .readableContentWidth()
                     .zIndex(1)
@@ -651,6 +644,7 @@ struct ConversationView: View {
                     else { emptyState }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.top, pageTopInset)
                 .padding(.bottom, composerHeight)
                 .readableContentWidth()
             }
@@ -2931,13 +2925,90 @@ private struct ConversationEffortMenuLabel: View {
     }
 }
 
+/// 在 UIKit 消息视口上方直接采样背景，渐变只作用于玻璃层，不栅格化正文。
+private struct ConversationTopGlass: UIViewRepresentable {
+    final class GlassView: UIVisualEffectView {
+        private let fadeMask = CAGradientLayer()
+        private let veil = CAGradientLayer()
+
+        init() {
+            super.init(effect: UIBlurEffect(style: .light))
+            isUserInteractionEnabled = false
+            accessibilityElementsHidden = true
+            fadeMask.colors = [UIColor.black.cgColor, UIColor.black.cgColor, UIColor.clear.cgColor]
+            fadeMask.locations = [0, 0.45, 1]
+            layer.mask = fadeMask
+            veil.locations = [0, 0.4, 0.7, 1]
+            contentView.layer.addSublayer(veil)
+            updateAppearance()
+        }
+
+        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+        override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+            super.traitCollectionDidChange(previousTraitCollection)
+            updateAppearance()
+        }
+
+        private func updateAppearance() {
+            let isDark = traitCollection.userInterfaceStyle == .dark
+            effect = UIBlurEffect(style: isDark ? .dark : .light)
+            let color = isDark ? UIColor.black : UIColor.white
+            veil.colors = [0.96, 0.86, 0.70, 0].map { color.withAlphaComponent($0).cgColor }
+        }
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            fadeMask.frame = bounds
+            veil.frame = bounds
+            CATransaction.commit()
+        }
+    }
+
+    func makeUIView(context: Context) -> GlassView { GlassView() }
+    func updateUIView(_ view: GlassView, context: Context) {}
+}
+
+private struct SessionPageIndicator: View {
+    let selection: Int
+    let sessionID: String?
+    @State private var isVisible = false
+
+    var body: some View {
+        HStack(spacing: 5) {
+            ForEach(0..<2) { page in
+                Circle()
+                    .fill(Color.primary.opacity(selection == page ? 0.65 : 0.2))
+                    .frame(width: 5, height: 5)
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(.regularMaterial, in: Capsule())
+        .opacity(isVisible ? 1 : 0)
+        .task(id: "\(sessionID ?? "__new__")-\(selection)") {
+            isVisible = true
+            do {
+                try await Task.sleep(for: .seconds(2))
+            } catch {
+                return
+            }
+            withAnimation(.easeOut(duration: 0.3)) { isVisible = false }
+        }
+    }
+}
+
 private struct PersistentSessionPager<ConversationPage: View, TrajectoryPage: View>: View {
     @Binding var selection: Int
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private let conversationPage: ConversationPage
     private let trajectoryPage: TrajectoryPage
     @State private var dragTranslation: CGFloat = 0
     @State private var isPageSwipeActive = false
     @State private var dragAxis: SessionPageDragAxis?
+    @State private var horizontalScrollRegions: [CGRect] = []
 
     init(
         selection: Binding<Int>,
@@ -2956,11 +3027,13 @@ private struct PersistentSessionPager<ConversationPage: View, TrajectoryPage: Vi
             HStack(spacing: 0) {
                 conversationPage
                     .frame(width: pageWidth, height: geometry.size.height)
-                    .allowsHitTesting(!isPageSwipeActive)
+                    .allowsHitTesting(selection == 0 && !isPageSwipeActive)
+                    .accessibilityHidden(selection != 0)
 
                 trajectoryPage
                     .frame(width: pageWidth, height: geometry.size.height)
-                    .allowsHitTesting(!isPageSwipeActive)
+                    .allowsHitTesting(selection == 1 && !isPageSwipeActive)
+                    .accessibilityHidden(selection != 1)
             }
             .frame(width: pageWidth * 2, alignment: .leading)
             .offset(x: -CGFloat(selection) * pageWidth + constrainedDrag)
@@ -2973,6 +3046,15 @@ private struct PersistentSessionPager<ConversationPage: View, TrajectoryPage: Vi
             )
         }
         .clipped()
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("会话页面")
+        .accessibilityValue(selection == 0 ? Text("对话") : Text("轨迹"))
+        .accessibilityAction(named: selection == 0 ? Text("切换到轨迹") : Text("切换到对话")) {
+            withAnimation(reduceMotion ? nil : .snappy(duration: 0.28)) {
+                selection = selection == 0 ? 1 : 0
+            }
+        }
+        .onPreferenceChange(SessionPagerHorizontalScrollRegionsKey.self) { horizontalScrollRegions = $0 }
     }
 
     private var constrainedDrag: CGFloat {
@@ -2984,19 +3066,15 @@ private struct PersistentSessionPager<ConversationPage: View, TrajectoryPage: Vi
     }
 
     private func pageGesture(pageWidth: CGFloat, pagerFrame: CGRect) -> some Gesture {
-        DragGesture(minimumDistance: 12, coordinateSpace: .local)
+        DragGesture(minimumDistance: 12, coordinateSpace: .global)
             .onChanged { value in
                 if dragAxis == nil {
-                    let isSystemBackGesture = value.startLocation.x <= 28
+                    let isSystemBackGesture = value.startLocation.x - pagerFrame.minX <= 28
                         && value.translation.width > 0
-                    let globalStart = CGPoint(
-                        x: pagerFrame.minX + value.startLocation.x,
-                        y: pagerFrame.minY + value.startLocation.y
-                    )
-                    if NestedHorizontalScrollResolver.containsScrollableView(at: globalStart) {
-                        // Code blocks own the complete touch sequence. The
-                        // pager must not reinterpret the same pan as a tab
-                        // transition when the finger reaches the cell edge.
+                    // 翻页 HStack 本身有整页偏移，局部触点不能再叠加视口原点。
+                    // 时间轴从触点开始独占整段手势，内容未溢出或滚到边界也不交给翻页。
+                    if horizontalScrollRegions.contains(where: { $0.contains(value.startLocation) })
+                        || NestedHorizontalScrollResolver.containsScrollableView(at: value.startLocation) {
                         dragAxis = .nestedHorizontalScroll
                     } else if isSystemBackGesture {
                         // The NavigationStack's native edge-pop gesture owns
@@ -3042,6 +3120,28 @@ private struct PersistentSessionPager<ConversationPage: View, TrajectoryPage: Vi
                     dragAxis = nil
                 }
             }
+    }
+}
+
+private struct SessionPagerHorizontalScrollRegionsKey: PreferenceKey {
+    static let defaultValue: [CGRect] = []
+
+    static func reduce(value: inout [CGRect], nextValue: () -> [CGRect]) {
+        value.append(contentsOf: nextValue())
+    }
+}
+
+extension View {
+    /// 横向交互区从触点开始持有手势，禁止父级把边界拖动解释成翻页。
+    func sessionPagerHorizontalScrollRegion() -> some View {
+        background {
+            GeometryReader { geometry in
+                Color.clear.preference(
+                    key: SessionPagerHorizontalScrollRegionsKey.self,
+                    value: [geometry.frame(in: .global)]
+                )
+            }
+        }
     }
 }
 
@@ -4632,7 +4732,7 @@ struct ConversationRow: View {
                     .frame(maxWidth: .infinity, alignment: .trailing)
                 }
                 if showsCopyButton && !item.text.isEmpty {
-                    CopyMessageButton(text: ParsedMarkdownCache.document(for: item.text).renderPlainText())
+                    CopyMessageButton(text: ParsedMarkdownCache.document(for: MarkdownMath.prepare(item.text, forSelection: true)).renderPlainText())
                         .padding(.bottom, 8)
                 }
             }
@@ -4864,6 +4964,7 @@ private struct ToolOutputView: View {
 }
 
 struct MarkdownContent: View {
+    @Environment(\.colorScheme) private var colorScheme
     @AppStorage(AppFontScale.key) private var fontScale = 1.0
     @AppStorage(AppFontScale.followsSystemKey) private var fontFollowsSystem = false
     let text: String
@@ -4883,12 +4984,12 @@ struct MarkdownContent: View {
         renderedMarkdown
             .background {
                 MarkdownLongPressMenu(onCopy: {
-                    UIPasteboard.general.string = ParsedMarkdownCache.document(for: text).renderPlainText()
+                    UIPasteboard.general.string = ParsedMarkdownCache.document(for: MarkdownMath.prepare(text, forSelection: true)).renderPlainText()
                 }, onSelectText: openTextSelection)
                 .accessibilityHidden(true)
             }
             .accessibilityAction(named: Text("复制")) {
-                UIPasteboard.general.string = ParsedMarkdownCache.document(for: text).renderPlainText()
+                UIPasteboard.general.string = ParsedMarkdownCache.document(for: MarkdownMath.prepare(text, forSelection: true)).renderPlainText()
             }
             .accessibilityAction(named: Text("选择文字"), openTextSelection)
             .fullScreenCover(item: $selectionDocument) { document in
@@ -4906,6 +5007,9 @@ struct MarkdownContent: View {
 
     private var renderedMarkdown: some View {
         Markdown(PreparedMarkdownCache.document(for: text, filePaths: knownFiles.map(\.path)))
+            .markdownImageProvider(MathMarkdownImageProvider(fontSize: mathFontSize))
+            .markdownInlineImageProvider(MathMarkdownInlineImageProvider(fontSize: mathFontSize, dark: colorScheme == .dark))
+            .id("\(mathFontSize)-\(colorScheme)")
             .environment(\.openURL, OpenURLAction { url in
                 guard let onOpenFile else { return .systemAction }
                 if url.scheme == "dsh-file-reference", let index = Int(url.lastPathComponent), knownFiles.indices.contains(index) {
@@ -4919,9 +5023,14 @@ struct MarkdownContent: View {
                 return .systemAction
             })
             .markdownTheme(.deepSeek(compact: compact, scale: CGFloat(AppFontScale.effective(fontScale, followsSystem: fontFollowsSystem))))
-            .markdownCodeSyntaxHighlighter(DSHCodeSyntaxHighlighter())
+            .markdownCodeSyntaxHighlighter(DSHCodeSyntaxHighlighter(dark: colorScheme == .dark))
             // MarkdownUI 会自行应用 Dynamic Type。主题已合并系统与应用倍率，避免重复缩放。
             .dynamicTypeSize(.large)
+    }
+
+    private var mathFontSize: CGFloat {
+        UIFontMetrics.default.scaledValue(for: compact ? 13 : 17)
+            * CGFloat(AppFontScale.effective(fontScale, followsSystem: fontFollowsSystem))
     }
 
 }
@@ -5026,7 +5135,7 @@ struct MarkdownSelectionPage: View {
             DocumentPageHeader(title: "选择文字", closeIdentifier: "markdown-selection-close", onClose: { dismiss() }) {
                 EmptyView()
             }
-            let parsed = ParsedMarkdownCache.document(for: document.text)
+            let parsed = ParsedMarkdownCache.document(for: MarkdownMath.prepare(document.text, forSelection: true))
             if parsed.containsTable {
                 MarkdownTableTextSelection(document: parsed, fontSize: document.fontSize)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -5097,6 +5206,7 @@ struct MarkdownTableTextSelection: UIViewRepresentable {
 
 /// 原生 TextView 独立滚动，聊天页的 MarkdownUI 始终保留在原来的布局中。
 struct MarkdownTextSelection: UIViewRepresentable {
+    @Environment(\.colorScheme) private var colorScheme
     let document: MarkdownUI.MarkdownContent
     let font: UIFont
 
@@ -5116,7 +5226,8 @@ struct MarkdownTextSelection: UIViewRepresentable {
     }
 
     func updateUIView(_ view: MarkdownSelectionTextView, context: Context) {
-        let value = document.renderSelectableText(font: font)
+        let highlighter = DSHCodeSyntaxHighlighter(dark: colorScheme == .dark)
+        let value = document.renderSelectableText(font: font, codeHighlighter: highlighter.attributedCode)
         if !view.attributedText.isEqual(to: value) { view.attributedText = value }
     }
 }
@@ -5253,7 +5364,8 @@ enum PreparedMarkdownCache {
         let key = Key(source: source, filePaths: filePaths)
         return cache.value(for: key) {
             // File references keep the original inline-code text for AST linking.
-            let padded = filePaths.isEmpty ? InlineCodePadding.apply(to: source) : source
+            let math = MarkdownMath.prepare(source)
+            let padded = filePaths.isEmpty ? InlineCodePadding.apply(to: math) : math
             var destinations: [String: String] = [:]
             for (index, path) in filePaths.enumerated() {
                 let destination = "dsh-file-reference:///\(index)"
@@ -5501,89 +5613,6 @@ enum InlineCodePadding {
             }
         }
         return rendered
-    }
-}
-
-private struct DSHCodeSyntaxHighlighter: CodeSyntaxHighlighter {
-    func highlightCode(_ code: String, language: String?) -> Text {
-        if isJSON(code, language: language) {
-            return Text(JSONSyntaxHighlighter.highlight(code))
-        }
-        return Text(code)
-    }
-
-    private func isJSON(_ code: String, language: String?) -> Bool {
-        if let language, ["json", "jsonc"].contains(language.lowercased()) { return true }
-        return JSONSyntaxHighlighter.isJSON(code)
-    }
-}
-
-enum JSONSyntaxHighlighter {
-    private static let expression = try! NSRegularExpression(
-        pattern: #"\"(?:\\.|[^\"\\])*\"|-?\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b|\b(?:true|false|null)\b"#
-    )
-    private static let keySuffixExpression = try! NSRegularExpression(pattern: #"\s*:"#)
-    private static let highlighted = MarkdownRenderProductCache<String, AttributedString>(
-        countLimit: 128, costLimit: 4 * 1_024 * 1_024
-    )
-    private static let classifications = MarkdownRenderProductCache<String, Bool>(
-        countLimit: 128, costLimit: 1_024 * 1_024
-    )
-
-    static func isJSON(_ source: String) -> Bool {
-        classifications.value(for: source) {
-            let object = source.data(using: .utf8).flatMap { try? JSONSerialization.jsonObject(with: $0) }
-            return (object.map(JSONSerialization.isValidJSONObject) ?? false, source.utf16.count * 2)
-        }
-    }
-
-    static func highlight(_ source: String) -> AttributedString {
-        highlighted.value(for: source) {
-            // Store semantic colors without theme-resolved UIColor/font metrics.
-            (makeHighlight(source), source.utf16.count * 12)
-        }
-    }
-
-    private static func makeHighlight(_ source: String) -> AttributedString {
-        let string = source as NSString
-        let fullRange = NSRange(location: 0, length: string.length)
-        let matches = expression.matches(in: source, range: fullRange)
-        var result = AttributedString()
-        var cursor = 0
-
-        for match in matches {
-            if match.range.location > cursor {
-                result += styled(string.substring(with: NSRange(location: cursor, length: match.range.location - cursor)), color: .primary)
-            }
-            let token = string.substring(with: match.range)
-            result += styled(token, color: color(for: token, in: source, utf16Length: string.length, after: NSMaxRange(match.range)))
-            cursor = NSMaxRange(match.range)
-        }
-        if cursor < string.length {
-            result += styled(string.substring(from: cursor), color: .primary)
-        }
-        return result
-    }
-
-    private static func color(for token: String, in source: String, utf16Length: Int, after location: Int) -> Color {
-        if token.hasPrefix("\"") {
-            // Match the original text range: copying every remaining suffix
-            // makes key detection quadratic on long JSON blocks.
-            let isKey = keySuffixExpression.firstMatch(
-                in: source, options: .anchored,
-                range: NSRange(location: location, length: utf16Length - location)
-            ) != nil
-            return isKey ? DSHColor.ocean : Color(red: 0.10, green: 0.55, blue: 0.38)
-        }
-        if token == "true" || token == "false" { return DSHColor.purple }
-        if token == "null" { return .red.opacity(0.8) }
-        return DSHColor.cautionAA
-    }
-
-    private static func styled(_ value: String, color: Color) -> AttributedString {
-        var result = AttributedString(value)
-        result.foregroundColor = color
-        return result
     }
 }
 

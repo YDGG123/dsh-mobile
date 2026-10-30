@@ -48,6 +48,31 @@ if [ ! -f "$DEPS/ChatLayout.swiftmodule" ]; then
     || fail "编译 ChatLayout 失败"
 fi
 
+# ---- 准备 SwiftMath 模块（上游 1.7.12 新增依赖，MarkdownMath.swift 用）----
+# 与 ChatLayout 同款：优先编真源码（类型检查才有效）；SPM 的 Bundle.module 访问器
+# 是构建时自动生成的，直接用 swiftc 编源码需补一个同名 shim。
+if [ ! -f "$DEPS/SwiftMath.swiftmodule" ]; then
+  echo "→ 准备 SwiftMath 模块..."
+  SM_SRC="${SWIFTMATH_SRC:-/tmp/SwiftMath/Sources/SwiftMath}"
+  if [ ! -d "$SM_SRC" ]; then
+    echo "  克隆 SwiftMath 1.7.3..."
+    git clone --depth 1 --branch 1.7.3 https://github.com/mgriebling/SwiftMath.git /tmp/SwiftMath >/dev/null 2>&1 \
+      || fail "克隆 SwiftMath 失败(需要能访问 GitHub)"
+    SM_SRC=/tmp/SwiftMath/Sources/SwiftMath
+  fi
+  cat > "$DEPS/SwiftMathBundleShim.swift" <<'SHIM'
+import Foundation
+extension Bundle { static var module: Bundle { Bundle.main } }
+SHIM
+  "$TC/swiftc" -emit-module -emit-library \
+    -sdk "$SDK" -target x86_64-apple-ios16.0-simulator -swift-version 5 \
+    -module-name SwiftMath \
+    -emit-module-path "$DEPS/SwiftMath.swiftmodule" \
+    -o "$DEPS/libSwiftMath.dylib" \
+    $(find "$SM_SRC" -name "*.swift") "$DEPS/SwiftMathBundleShim.swift" >/dev/null 2>&1 \
+    || fail "编译 SwiftMath 失败"
+fi
+
 # ---- 准备 MarkdownUI 桩模块 ----
 # MarkdownUI 依赖 cmark-gfm 与 NetworkImage 两个 C/SPM 包,完整编译成本高。
 # 类型检查只需要它的 API 表面,这里用最小桩模块代替。
@@ -78,7 +103,12 @@ public struct MarkdownContent {
     public func renderPlainText() -> String { "" }
     /// 文件引用链接（`dsh-file-reference:///`）的 HTML 输出，测试用它断言顺序/去重。
     public func renderHTML() -> String { "" }
-    public func renderSelectableText(font: UIFont, textColor: UIColor = .label) -> NSAttributedString {
+    /// 上游 Vendor 1.7.12 新增 `codeHighlighter` 参数（全屏选择页的代码高亮回调）。
+    /// 桩必须跟源码形状一致，否则 App 侧传该参数会报 "extra argument"（合并踩到）。
+    public func renderSelectableText(
+        font: UIFont, textColor: UIColor = .label,
+        codeHighlighter: ((String, String?) -> NSAttributedString)? = nil
+    ) -> NSAttributedString {
         NSAttributedString(string: "")
     }
 }
@@ -219,6 +249,14 @@ extension InlineNode {
         }
     }
 
+    /// 上游 Vendor 1.7.12 新增（`InlineNode+RawImageData`）：把粗体/斜体/链接里的公式图片收进来。
+    /// 桩里只保留测试用到的「数量」语义，形状按源码（递归 + dsh-math: 前缀过滤）。
+    /// 教训：桩缺成员会报 "has no member"（合并上游新增 API 时踩到第二次）。
+    var inlineImages: [String] {
+        if case .image(let source, _) = self { return [source] }
+        return children.flatMap(\.inlineImages).filter { $0.hasPrefix("dsh-math:") }
+    }
+
     func renderAttributedString(
         baseURL: URL?, textStyles: InlineTextStyles,
         softBreakMode: SoftBreak.Mode, attributes: AttributeContainer
@@ -272,11 +310,29 @@ struct MarkdownInlineCodeBackgroundRenderer: TextRenderer {
     func draw(layout: Text.Layout, in context: inout GraphicsContext) {}
 }
 
+public protocol ImageProvider {
+    associatedtype Body: View
+    @ViewBuilder func makeImage(url: URL?) -> Body
+}
+
 public protocol InlineImageProvider {
     func image(with url: URL, label: String) async throws -> Image
 }
 
+public struct DefaultImageProvider: ImageProvider {
+    public init() {}
+    public static var `default`: DefaultImageProvider { .init() }
+    public func makeImage(url: URL?) -> some View { Color.clear }
+}
+
+public struct DefaultInlineImageProvider: InlineImageProvider {
+    public init() {}
+    public static var `default`: DefaultInlineImageProvider { .init() }
+    public func image(with url: URL, label: String) async throws -> Image { Image(systemName: "photo") }
+}
+
 public extension View {
+    func markdownImageProvider<I: ImageProvider>(_ imageProvider: I) -> some View { self }
     func markdownInlineImageProvider(_ inlineImageProvider: InlineImageProvider) -> some View { self }
 }
 
