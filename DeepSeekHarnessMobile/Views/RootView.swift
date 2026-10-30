@@ -13,7 +13,9 @@ struct RootView: View {
             .equatable()
             // 直接观察当前 AppStore，避免外层主机容器漏掉外观设置更新。
             .preferredColorScheme(store.interfaceStyle.colorScheme)
-            .alert("Whaleness", isPresented: Binding(get: { store.lastError != nil }, set: { if !$0 { store.lastError = nil } })) {
+            // 全局错误弹窗标题。这里曾硬编码旧品牌 "Whaleness"，改名 Orcarness 时漏了，
+            // 导致所有 lastError 弹窗（含请求超时）都显示旧名（用户 2026-10-30 真机反馈）。
+            .alert("Orcarness", isPresented: Binding(get: { store.lastError != nil }, set: { if !$0 { store.lastError = nil } })) {
                 Button(String(localized: "好"), role: .cancel) { store.lastError = nil }
             } message: { Text(store.lastError ?? "") }
             .onChangeCompat(of: scenePhase) { _, phase in
