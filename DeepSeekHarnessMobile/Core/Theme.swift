@@ -605,8 +605,10 @@ struct DSHRowValue: View {
 
 // MARK: - 6.5 摘要卡（06/07 共用，对应参考实现 RefSummaryCard）
 //
-// 两种主题下都是**深底**（和代码块同一逻辑：保证三色阶段条与图例在浅色下也可读）。
-// 结构：总耗时大数字 + 结束时刻 → 三列指标 → 阶段占比条 → 三色图例。
+// 底色**跟随主题**（用户 59 包反馈；原为「两主题都深底」照参考实现，设计理由是
+// 三色阶段条在浅色下可读性差）。改为跟随主题时整卡文字色从写死 .white 改为
+// palette.ink()，浅色下的三色条/图例用各主题的既有语义色（brand 深浅自动压暗、
+// purple/amber 本身是中饱和色，浅色 cardFill 白底上对比足够，截图已复核）。
 
 struct DSHSummarySegment {
     let color: Color
@@ -623,16 +625,20 @@ struct DSHSummaryCard: View {
     let steps: String
     let segments: [DSHSummarySegment]
 
+    @Environment(\.colorScheme) private var scheme
+
+    private var p: DSHPalette { DSHPalette(scheme: scheme) }
+
     var body: some View {
         VStack(alignment: .leading, spacing: DSHSpacing.md) {
             HStack(alignment: .bottom) {
                 VStack(alignment: .leading, spacing: DSHSpacing.xxs) {
                     Text("总耗时")
                         .appFont(DSHType.meta)
-                        .foregroundStyle(Color.white.opacity(0.55))
+                        .foregroundStyle(p.ink(0.55))
                     Text(totalText)
                         .appFont(AppFont.system(size: 28, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(p.ink(0.92))
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)
                 }
@@ -640,7 +646,7 @@ struct DSHSummaryCard: View {
                 if let endText {
                     Text(endText)
                         .appFont(DSHType.meta)
-                        .foregroundStyle(Color.white.opacity(0.55))
+                        .foregroundStyle(p.ink(0.55))
                 }
             }
 
@@ -668,7 +674,7 @@ struct DSHSummaryCard: View {
                         Circle().fill(segment.color).frame(width: 6, height: 6)
                         Text(segment.label)
                             .appFont(DSHType.meta)
-                            .foregroundStyle(Color.white.opacity(0.6))
+                            .foregroundStyle(p.ink(0.6))
                             .lineLimit(1)
                     }
                 }
@@ -677,7 +683,7 @@ struct DSHSummaryCard: View {
         .padding(DSHSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            DSHPalette(scheme: .dark).contentBackground,
+            p.cardFill,
             in: RoundedRectangle(cornerRadius: DSHRadius.lg, style: .continuous)
         )
     }
@@ -686,12 +692,12 @@ struct DSHSummaryCard: View {
         VStack(alignment: .leading, spacing: DSHSpacing.xxs) {
             Text(value)
                 .appFont(AppFont.system(size: 17, weight: .semibold, design: .monospaced))
-                .foregroundStyle(.white)
+                .foregroundStyle(p.ink(0.92))
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
             Text(label)
                 .appFont(DSHType.meta)
-                .foregroundStyle(Color.white.opacity(0.55))
+                .foregroundStyle(p.ink(0.55))
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }

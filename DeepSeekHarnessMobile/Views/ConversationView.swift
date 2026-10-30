@@ -452,7 +452,10 @@ struct ConversationView: View {
                         timeline: store.trajectoryTimeline(for: store.selectedSessionId),
                         isActive: activeView == 1
                     )
-                    .padding(.top, pageTopInset)
+                    // 轨迹页不再吃 pageTopInset：分段（DSHSegmented）已在其上方让出导航栏，
+                    // 再让一次位就多出一片空白（用户真机反馈 59 包）。页面整体
+                    // ignoresSafeArea(.top)，摘要卡顶缘由上方副行/分段的排版高度决定，
+                    // 不会钻进状态栏。
                 }
             }
         }
