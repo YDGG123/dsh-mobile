@@ -78,6 +78,13 @@ class AndroidSharedStateHolder(
                 .filter { it.parentSessionId != null }.mapTo(mutableSetOf()) { it.sessionId }
         }
 
+    /**
+     * C1：Mobile Bridge 团队适配层（HTTP 执行在平台层，状态合流在 shared 的
+     * `SharedBridgeTeamStore`）。与会话级 `teamStore` 是两条链路，别混用。
+     */
+    internal val bridgeTeam: AndroidBridgeTeamAdapter? =
+        graph?.let { AndroidBridgeTeamAdapter(it.application, it.applicationScope) }
+
     fun isSubagentSession(sessionId: String): Boolean =
         sessionId in childSessionIds || snapshot.sessions.any { it.id == sessionId && it.isSubagent }
     private var persistedTeamAvatars = "[]"
@@ -2744,6 +2751,11 @@ class AndroidSharedStateHolder(
     // 所有实例状态初始化完成后才启动异步观察；回调可在构造线程返回前到达。
     init {
         graph?.let { appGraph ->
+            bridgeTeam?.apply {
+                updateGatewayEndpoint(endpoint)
+                // 落盘会话存在则直接进入 8s 轮询；没有则等 paired 帧下发 bridgeSession。
+                start()
+            }
             val holderScope = requireNotNull(scope)
             runtimeCollection = appGraph.gatewayScope.launch {
                 launch {
@@ -2780,6 +2792,7 @@ class AndroidSharedStateHolder(
                     appGraph.preferences.snapshots.collect { value ->
                         withContext(Dispatchers.Main.immediate) {
                             endpoint = value.endpoint
+                            bridgeTeam?.updateGatewayEndpoint(value.endpoint)
                             if (!workspaceSelectedByUser) selectedWorkspaceId = value.selectedWorkspaceId ?: selectedWorkspaceId
                             workspacePreferenceLoaded = true
                             if (hasReceivedWorkspaces) reconcileWorkspaceSelection()
@@ -2883,6 +2896,14 @@ class AndroidSharedStateHolder(
                             if (chatPrefetcher?.interceptTerminal(event) == true) return@collect
                             when (event) {
                                 is GatewayRuntimeEvent.Frame -> {
+                                    // C1：U5 对称配对 —— 网关在 paired 帧顺带下发团队会话，收到即接上桥接轮询。
+                                    if (event.frame.kind == "paired") {
+                                        event.frame.bridgeSession?.let { session ->
+                                            withContext(Dispatchers.Main.immediate) {
+                                                bridgeTeam?.adoptSession(session)
+                                            }
+                                        }
+                                    }
                                     if (event.frame.kind.startsWith("file-upload-") || event.frame.requestType?.startsWith("file-upload-") == true) {
                                         withContext(Dispatchers.Main.immediate) { fileUploads.accept(event.frame) }
                                         return@collect

@@ -64,6 +64,7 @@ private val drawerPageCornerRadius = 48.dp
 internal fun WorkspaceDrawer(
     onPlugins: () -> Unit,
     onScheduledTasks: () -> Unit,
+    onBotTeam: () -> Unit = {},
     content: @Composable (openDrawer: () -> Unit, canScrollVertically: Boolean) -> Unit
 ) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -161,6 +162,9 @@ internal fun WorkspaceDrawer(
                         contentDescription = null,
                         modifier = Modifier.size(width = 183.dp, height = 29.dp)
                     )
+                }
+                DrawerItem(appText("Bot 团队"), R.drawable.ic_agent_mode, "drawer-bot-team") {
+                    onBotTeam()
                 }
                 DrawerItem(appText("插件"), R.drawable.ic_drawer_plugin, "drawer-plugins") {
                     onPlugins()

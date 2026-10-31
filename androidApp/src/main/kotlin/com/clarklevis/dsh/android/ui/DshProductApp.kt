@@ -105,6 +105,7 @@ private const val ROUTE_PLUGINS = "plugins"
 private const val ROUTE_PLUGIN_BUNDLE = "plugins/bundle/{bundleName}"
 private const val ROUTE_PLUGIN_OFFICIAL = "plugins/official/{pluginId}"
 private const val ROUTE_SCHEDULED_TASKS = "scheduled-tasks"
+private const val ROUTE_BOT_TEAM = "bot-team"
 
 @Composable
 internal fun DshProductApp(
@@ -181,7 +182,8 @@ internal fun DshProductApp(
                 },
                 onSettings = { navController.navigate(ROUTE_SETTINGS) },
                 onPlugins = { navController.navigate(ROUTE_PLUGINS) },
-                onScheduledTasks = { navController.navigate(ROUTE_SCHEDULED_TASKS) }
+                onScheduledTasks = { navController.navigate(ROUTE_SCHEDULED_TASKS) },
+                onBotTeam = { navController.navigate(ROUTE_BOT_TEAM) { launchSingleTop = true } }
             )
         }
         composable(ROUTE_CONVERSATION) {
@@ -236,6 +238,9 @@ internal fun DshProductApp(
                 pluginId = entry.arguments?.getString("pluginId").orEmpty(),
                 onBack = navController::popBackStack
             )
+        }
+        composable(ROUTE_BOT_TEAM) {
+            BotTeamScreen(adapter = stateHolder.bridgeTeam, onBack = navController::popBackStack)
         }
         composable(ROUTE_SCHEDULED_TASKS) {
             ScheduledTasksScreen(
@@ -302,7 +307,8 @@ internal fun WorkspaceScreen(
     onNewSession: () -> Unit,
     onSettings: () -> Unit,
     onPlugins: () -> Unit,
-    onScheduledTasks: () -> Unit
+    onScheduledTasks: () -> Unit,
+    onBotTeam: () -> Unit = {}
 ) {
     val window = adaptiveWindowSize()
     val workspaceListState = rememberLazyListState()
@@ -356,7 +362,11 @@ internal fun WorkspaceScreen(
         }
     }
 
-    WorkspaceDrawer(onPlugins = onPlugins, onScheduledTasks = onScheduledTasks) { openDrawer, canScrollVertically ->
+    WorkspaceDrawer(
+        onPlugins = onPlugins,
+        onScheduledTasks = onScheduledTasks,
+        onBotTeam = onBotTeam
+    ) { openDrawer, canScrollVertically ->
         val backgroundAnimationEnabled by remember(canScrollVertically, workspaceListState) {
             derivedStateOf { canScrollVertically && !workspaceListState.isScrollInProgress }
         }

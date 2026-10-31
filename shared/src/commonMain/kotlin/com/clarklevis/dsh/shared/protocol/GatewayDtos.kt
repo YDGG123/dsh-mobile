@@ -36,6 +36,11 @@ data class GatewayFrame(
     val authenticated: Boolean? = null,
     val token: String? = null,
     val device: GatewayDevice? = null,
+    /**
+     * U5 对称配对：网关在 `paired` 帧里顺带下发的 Mobile Bridge 设备会话。
+     * 老网关不带该字段（缺省 null），客户端按「尚未配对团队」处理。
+     */
+    val bridgeSession: BridgeDeviceSession? = null,
     val port: Int? = null,
     val clients: Int? = null,
     val at: Double? = null,

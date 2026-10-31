@@ -1,5 +1,6 @@
 package com.clarklevis.dsh.shared.protocol
 
+import com.clarklevis.dsh.shared.domain.TeamUiState
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
@@ -257,6 +258,16 @@ fun parseBridgeHistory(raw: String): BridgeHistoryPage = wireJson.decodeFromStri
 fun parseBridgePairing(raw: String): BridgePairing = wireJson.decodeFromString(raw)
 
 fun parseBridgeSession(raw: String): BridgeDeviceSession = wireJson.decodeFromString(raw)
+
+/** 平台层把 `paired` 帧里的 bridgeSession 落盘前的编码入口（与 [parseBridgeSession] 对称）。 */
+fun encodeBridgeSession(session: BridgeDeviceSession): String =
+    wireJson.encodeToString(BridgeDeviceSession.serializer(), session)
+
+/**
+ * [SharedBridgeTeamStore.snapshot] 产出的状态 JSON 回解成 UI 状态。
+ * 平台层（Android/iOS）由此拿到 bots/rooms/phase，不必各自镜像一遍 DTO。
+ */
+fun decodeTeamUiState(raw: String): TeamUiState = wireJson.decodeFromString(raw)
 
 
 fun encodeBridgeAction(endpoint: String, payload: JsonObject): String =
