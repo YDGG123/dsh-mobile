@@ -827,7 +827,7 @@ private fun SessionRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(11.dp)
     ) {
-        val dot = if (session.isRunning) DshColors.Success else if (session.hasUnread) DshColors.Ocean else Color.White.copy(alpha = 0.35f)
+        val dot = if (session.isRunning) DshSemantic.success else if (session.hasUnread) DshColors.Ocean else Color.White.copy(alpha = 0.35f)
         StatusIndicatorDot(
             color = dot,
             modifier = Modifier.size(7.dp),
@@ -863,7 +863,7 @@ private fun SessionRow(
 @Composable
 private fun ConnectionDot(state: GatewayRuntimeState) {
     val color = when (state.connection) {
-        GatewayConnectionState.CONNECTED -> DshColors.Success
+        GatewayConnectionState.CONNECTED -> DshSemantic.success
         else -> Color.Red
     }
     StatusIndicatorDot(
@@ -877,7 +877,7 @@ private fun ConnectionDot(state: GatewayRuntimeState) {
 private fun ConnectionStatusText(state: GatewayRuntimeState) {
     val connected = state.connection == GatewayConnectionState.CONNECTED
     val color = when (state.connection) {
-        GatewayConnectionState.CONNECTED -> DshColors.Success
+        GatewayConnectionState.CONNECTED -> DshSemantic.success
         else -> Color.Red.copy(alpha = 0.85f)
     }
     Text(

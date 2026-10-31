@@ -497,7 +497,7 @@ private fun WorkspaceDownloadIcon(
             painter = painterResource(R.drawable.ic_check_circle),
             contentDescription = appText("%1\$s 已下载，点击重新下载", fileName),
             modifier = Modifier.size(22.dp),
-            tint = DshColors.Success
+            tint = DshSemantic.success
         )
         else -> Icon(
             painter = painterResource(R.drawable.ic_download_circle),

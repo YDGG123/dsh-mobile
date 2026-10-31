@@ -406,13 +406,13 @@ private fun pairingResultPresentation(
         GatewayConnectionState.WAITING_FOR_NETWORK -> PairingResultPresentation(
             appText("正在连接"),
             appText("正在提交一次性配对码并等待 Mobile Gateway 完成设备鉴权…"),
-            DshColors.Amber,
+            DshSemantic.warning,
             R.drawable.ic_link
         )
         GatewayConnectionState.CONNECTED -> PairingResultPresentation(
             appText("连接成功"),
             appText("设备鉴权已完成，长期 token 已安全保存到 Android Keystore。"),
-            DshColors.Success,
+            DshSemantic.success,
             R.drawable.ic_menu_check
         )
         GatewayConnectionState.FAILED -> PairingResultPresentation(

@@ -104,7 +104,7 @@ internal fun GatewaySwitcherBar() {
         Text(hosts.activeProfile?.displayName ?: appText("选择主机"), color = Color.White, fontSize = 12.sp, maxLines = 1)
         val activeOnline = hosts.activeGraph.stateHolder.gatewayState.connection == GatewayConnectionState.CONNECTED
         StatusIndicatorDot(
-            color = if (activeOnline) DshColors.Success else Color.Red,
+            color = if (activeOnline) DshSemantic.success else DshSemantic.danger,
             modifier = Modifier.size(6.dp),
             glowing = activeOnline
         )
@@ -309,7 +309,7 @@ private fun GatewayHostRow(
         }
         val online = profile.localId in hosts.onlineIds
         StatusIndicatorDot(
-            color = if (online) DshColors.Success else Color.Red,
+            color = if (online) DshSemantic.success else DshSemantic.danger,
             modifier = Modifier.size(8.dp),
             glowing = online
         )

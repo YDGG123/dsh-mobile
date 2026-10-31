@@ -212,7 +212,7 @@ private fun TaskRow(task: GatewayTask) {
                     painter = painterResource(R.drawable.ic_check_circle),
                     contentDescription = appText("已完成"),
                     modifier = Modifier.size(iconVisualSize),
-                    tint = DshColors.Success
+                    tint = DshSemantic.success
                 )
                 "in_progress" -> CircularProgressIndicator(
                     modifier = Modifier.size(iconVisualSize),

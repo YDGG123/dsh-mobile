@@ -2832,7 +2832,7 @@ private fun ProcessContextDisclosure(item: ConversationItem) {
         title = item.title.toContextDisplayTitle(),
         preview = item.text.singleLinePreview(),
         iconRes = R.drawable.ic_dsh_context_injection,
-        tint = DshColors.Success
+        tint = DshSemantic.success
     ) {
         DshMarkdownText(item.text, Modifier.fillMaxWidth(), compact = true)
     }
@@ -2866,7 +2866,7 @@ private fun ProcessToolBundle(
         title = title,
         preview = "",
         iconRes = R.drawable.ic_process_tool,
-        tint = DshColors.Orange,
+        tint = DshSemantic.caution,
         bodyStartPadding = 14.dp
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -2892,7 +2892,7 @@ private fun ProcessToolDisclosure(tool: ConversationProcessTool) {
         ).filter(String::isNotBlank).joinToString(" · "),
         stackedPreview = true,
         iconRes = processToolIcon(tool.call?.title),
-        tint = if (failed) Color.Red else DshColors.Orange
+        tint = if (failed) DshSemantic.danger else DshSemantic.caution
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
             tool.call?.text?.takeIf(String::isNotEmpty)?.let { arguments ->
@@ -2911,7 +2911,7 @@ private fun ProcessToolDisclosure(tool: ConversationProcessTool) {
             tool.result?.text?.takeIf(String::isNotEmpty)?.let { result ->
                 Text(
                     if (failed) appText("错误") else appText("结果"),
-                    color = if (failed) Color.Red else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f),
+                    color = if (failed) DshSemantic.danger else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f),
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold
                 )
@@ -3419,9 +3419,9 @@ private fun StatusRow(item: ConversationItem) {
 private fun SystemRow(item: ConversationItem) {
     Row(
         Modifier.fillMaxWidth().padding(vertical = 6.dp)
-            .background((if (item.isError) Color.Red else DshColors.Ocean).copy(alpha = 0.06f), RoundedCornerShape(11.dp)).padding(10.dp)
+            .background((if (item.isError) DshSemantic.danger else DshColors.Ocean).copy(alpha = 0.06f), RoundedCornerShape(11.dp)).padding(10.dp)
     ) {
-        Text(if (item.isError) "!" else "⌁", color = if (item.isError) Color.Red else DshColors.Ocean)
+        Text(if (item.isError) "!" else "⌁", color = if (item.isError) DshSemantic.danger else DshColors.Ocean)
         Spacer(Modifier.width(9.dp))
         Column {
             Text(item.title, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
@@ -3528,8 +3528,8 @@ private fun ConversationHeaderMode(title: String, connection: GatewayConnectionS
 @Composable
 private fun SmallConnectionDot(state: GatewayConnectionState) {
     val color = when (state) {
-        GatewayConnectionState.CONNECTED -> DshColors.Success
-        else -> Color.Red
+        GatewayConnectionState.CONNECTED -> DshSemantic.success
+        else -> DshSemantic.danger
     }
     StatusIndicatorDot(
         color = color,

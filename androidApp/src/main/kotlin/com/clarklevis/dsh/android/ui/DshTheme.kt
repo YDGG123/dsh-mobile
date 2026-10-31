@@ -17,6 +17,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.dropShadow
 import androidx.compose.ui.graphics.Color
@@ -42,6 +43,33 @@ internal object DshColors {
     val Orange = Color(0xFFF07D14)
     val Amber = Color(0xFFFFAD1F)
     val Success = Color(0xFF2EB85C)
+    /** danger 深色档：iOS `#FF0000 @ 90%`。 */
+    val Danger = Color(0xE6FF0000)
+    // 语义色浅色档（iOS Theme.swift:150-167，浅色 AA≥3:1/4.5:1 压暗值）：
+    val SuccessLight = Color(0xFF126B2E)
+    val AmberLight = Color(0xFF8C5200)
+    val OrangeLight = Color(0xFF9E4D00)
+    val DangerLight = Color(0xFFB81F1A)
+}
+
+/** 语义色四态按深浅色选档（iOS DSHStatusKind：warning=Amber、caution=Orange）。 */
+internal class DshSemanticColors(
+    val success: Color,
+    val warning: Color,
+    val caution: Color,
+    val danger: Color,
+)
+
+internal val LocalDshSemanticColors = staticCompositionLocalOf {
+    DshSemanticColors(DshColors.Success, DshColors.Amber, DshColors.Orange, DshColors.Danger)
+}
+
+/** 组件内取语义色：`DshSemantic.success/warning/caution/danger`，自动随深浅色换档（对齐 iOS 语义色双档）。 */
+internal object DshSemantic {
+    val success: Color @Composable get() = LocalDshSemanticColors.current.success
+    val warning: Color @Composable get() = LocalDshSemanticColors.current.warning
+    val caution: Color @Composable get() = LocalDshSemanticColors.current.caution
+    val danger: Color @Composable get() = LocalDshSemanticColors.current.danger
 }
 
 @Composable
@@ -78,8 +106,9 @@ private val LightColors = lightColorScheme(
 private val DarkColors = darkColorScheme(
     primary = Color(0xFF7EA8FF),
     secondary = Color(0xFFB69BFF),
-    background = Color(0xFF090D13),
-    surface = Color(0xFF111720),
+    // 深色底 = iOS navy（Theme.swift:132），抬升面 = navyRaised（:133）—— 视觉规格 §1。
+    background = DshColors.Navy,
+    surface = DshColors.NavyRaised,
     onBackground = Color(0xFFF1F4FA),
     onSurface = Color(0xFFF1F4FA)
 )
@@ -111,13 +140,21 @@ internal fun DshTheme(
         }
     }
     // 所有页面的深浅色判断使用同一份有效配置，避免只更新 MaterialTheme 而留下浅色背景。
+    val semantic = if (dark) {
+        DshSemanticColors(DshColors.Success, DshColors.Amber, DshColors.Orange, DshColors.Danger)
+    } else {
+        DshSemanticColors(DshColors.SuccessLight, DshColors.AmberLight, DshColors.OrangeLight, DshColors.DangerLight)
+    }
     CompositionLocalProvider(
         LocalAppearanceSettings provides appearance,
         LocalDensity provides appDensity,
         LocalConfiguration provides configuration
     ) {
         MaterialTheme(colorScheme = if (dark) DarkColors else LightColors) {
-            CompositionLocalProvider(LocalRippleConfiguration provides null) { DshMenuHost(content) }
+            CompositionLocalProvider(
+                LocalDshSemanticColors provides semantic,
+                LocalRippleConfiguration provides null
+            ) { DshMenuHost(content) }
         }
     }
 }

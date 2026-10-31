@@ -553,7 +553,7 @@ internal fun trajectoryColor(node: TrajectoryNode, isDark: Boolean): Color {
         TrajectoryNodeKind.CONTEXT -> if (isDark) Color(0xFF30D158) else Color(0xFF34C759)
         TrajectoryNodeKind.REQUEST -> Color(0xFF8E8E93)
         TrajectoryNodeKind.ASSISTANT -> DshColors.Purple
-        TrajectoryNodeKind.TOOL, TrajectoryNodeKind.SUBTOOL -> DshColors.Orange
+        TrajectoryNodeKind.TOOL, TrajectoryNodeKind.SUBTOOL -> if (isDark) DshColors.Orange else DshColors.OrangeLight
     }
 }
 

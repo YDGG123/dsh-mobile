@@ -968,7 +968,7 @@ private fun connectionLabel(holder: AndroidSharedStateHolder) = when (holder.gat
 
 @Composable
 private fun statusColor(holder: AndroidSharedStateHolder) = when (holder.gatewayState.connection) {
-    GatewayConnectionState.CONNECTED -> DshColors.Success
+    GatewayConnectionState.CONNECTED -> DshSemantic.success
     GatewayConnectionState.FAILED -> Color.Red
     else -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f)
 }
