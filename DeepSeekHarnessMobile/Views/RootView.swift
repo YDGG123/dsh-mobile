@@ -289,11 +289,14 @@ private struct WorkspaceDrawerDestination: View {
     let title: String
     let message: String
 
+    @Environment(\.colorScheme) private var colorScheme
+    private var palette: DSHPalette { DSHPalette.resolve(colorScheme) }
+
     var body: some View {
         Text(message)
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color(uiColor: .systemBackground))
+            .background(palette.pageBackground)
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
     }
@@ -340,6 +343,8 @@ private struct ScheduledTasksView: View {
         }
     }
 
+    @Environment(\.colorScheme) private var colorScheme
+    private var palette: DSHPalette { DSHPalette.resolve(colorScheme) }
     @ObservedObject var store: AppStore
     let onOpenSession: (String) -> Void
     @State private var expandedTaskIDs: Set<String> = []
@@ -422,14 +427,14 @@ private struct ScheduledTasksView: View {
         .adaptiveListWidth()
         .scrollContentBackground(.hidden)
         .refreshable { store.refreshScheduledTasks() }
-        .background(Color(uiColor: .systemBackground))
+        .background(palette.pageBackground)
         .safeAreaInset(edge: .top, spacing: 0) {
             if isSearching {
                 searchField
                     .padding(.horizontal, 20)
                     .padding(.vertical, 8)
                     .readableContentWidth()
-                    .background(Color(uiColor: .systemBackground))
+                    .background(palette.pageBackground)
             }
         }
         .navigationTitle(String(localized: "定时任务"))

@@ -7,6 +7,7 @@ struct PluginsView: View {
     @State private var containerWidth: CGFloat = 0
     @ObservedObject var store: AppStore
     @Environment(\.colorScheme) private var colorScheme
+    private var palette: DSHPalette { DSHPalette.resolve(colorScheme) }
     @State private var gatewayToggle: MobilePluginBundle?
 
     var body: some View {
@@ -58,7 +59,7 @@ struct PluginsView: View {
                     }
             }
         }
-        .background(Color(uiColor: .systemBackground))
+        .background(palette.pageBackground)
         .navigationTitle("插件")
         // B4：容器级推入页同样整屏盖住背景，推入期间暂停动画（与设置子页同一策略）。
         .pausesBackgroundAnimation()
