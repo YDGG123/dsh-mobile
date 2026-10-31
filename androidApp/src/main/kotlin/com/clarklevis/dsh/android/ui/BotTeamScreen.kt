@@ -1,5 +1,6 @@
 package com.clarklevis.dsh.android.ui
 
+import androidx.annotation.DrawableRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -29,6 +31,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -47,12 +50,23 @@ import kotlinx.serialization.json.JsonPrimitive
  * sessionCell（:375，工作区 + 相对时间）/ avatar（:353，数据色圆 + 白首字母，
  * 颜色来自 `avatar.color` 十六进制，`Color(bridgeHex:)` :1059 —— RRGGBB 或 RRGGBBAA）。
  *
+ * 形态说明（Chief 裁决「差异有意」）：本页内容对应 iOS 的 **TeamView sheet**
+ * （WorkspaceView :189 .sheet(isPresented:$showsTeam)，bridge 名册数据源），
+ * 不是 iOS tab 上的 feed 段（WorkspaceView :580 gatewayTeamSection，dsBotTeam
+ * WS = D 组实时流）——Android 无 sheet 入口，用独立页形态承接。
+ *
+ * 文字档口径（Chief 2026-11-01 裁决「忠实 iOS」）：行上文字走 SwiftUI 系统档
+ * 的实际值 —— .body 17 / .caption 12 / .headline 17 semibold / .subheadline 15 /
+ * .caption2 11 —— 不套 DshType 梯子（TeamView 行内全是系统档，iOSCoder 复核实证）。
+ *
  * 尚未对齐（登记，不假装做了）：
  * - hostGlyph 矢量头像路径（C 组大件，iOS 此处也是首字母圆，先按 iOS 的样子对齐）；
  * - 点行进聊天 / 写操作 / 设备管理（C3、D 组）；
- * - iOS botCell 的 pending 转圈依赖写操作 in-flight 态，随 C3 一起；
+ * - pending 转圈：state 层已有 isPending（TeamReducer :82）但 C2 无写路径，随 C3 接线；
  * - 「置顶」角标是本页有意的少量超出（iOS 只在详情页展示 pin，详情页归 C3）；
- * - busy/waiting 文案已从行上移除 —— iOS bridge 名册行不渲染它们（那是 D 组实时流状态层）。
+ * - waiting 不渲染：真实抓包 0 行带 waiting（05:56 /conversations，AndroidTester 实测）；
+ *   busy 只在 session 行渲染「运行中」徽标（iOS sessionCell :414-416），
+ *   bot/room 行不渲染 busy 是 iOS 本来的行为。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -129,17 +143,17 @@ internal fun BotTeamScreen(
                 }
             }
             if (bots.isNotEmpty()) {
-                item { SectionTitle(appText("Bot（${bots.size}）")) }
+                item { SectionTitle(appText("Bot")) }
                 items(bots, key = { it.id }) { row ->
                     BotRow(row, isMain = mainBotIds.contains(row.id))
                 }
             }
             if (rooms.isNotEmpty()) {
-                item { SectionTitle(appText("群聊（${rooms.size}）")) }
+                item { SectionTitle(appText("群聊")) }
                 items(rooms, key = { it.id }) { row -> RoomRow(row) }
             }
             if (sessions.isNotEmpty()) {
-                item { SectionTitle(appText("会话（${sessions.size}）")) }
+                item { SectionTitle(appText("会话")) }
                 items(sessions, key = { it.id }) { row -> SessionRow(row) }
             }
             if (cards.isNotEmpty()) {
@@ -210,7 +224,7 @@ private fun BridgeCardRow(card: com.clarklevis.dsh.shared.protocol.BridgeCardQue
     }
 }
 
-/** iOS mainBotCard（TeamView :431）：名字 + 角色 + 「主」胶囊（accent 15% 底）。头像位留待 C 组头像件。 */
+/** iOS mainBotCard（TeamView :431-455）：头像 46 + 名字 + 角色 + 「主」胶囊（accent 15% 底）。 */
 @Composable
 private fun PrimaryBotCard(row: BridgeConversationRow, modifier: Modifier = Modifier) {
     Row(
@@ -220,13 +234,16 @@ private fun PrimaryBotCard(row: BridgeConversationRow, modifier: Modifier = Modi
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
+        RosterAvatar(row.name, row.avatar, size = 46)
         Column(Modifier.weight(1f)) {
-            Text(row.name, color = MaterialTheme.colorScheme.onBackground, style = DshType.title)
+            // iOS .headline = 17 semibold（TeamView :435）。裁决原文写「主 Bot 18」，但源码
+            // .headline 实际值是 17 —— 按「忠实 iOS 系统档」原则取 17，如需 18 一行改回。
+            Text(row.name, color = MaterialTheme.colorScheme.onBackground, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
             if (!row.role.isNullOrBlank()) {
                 Text(
                     row.role.orEmpty(),
                     color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
-                    style = DshType.footnote
+                    fontSize = 15.sp // iOS .subheadline（:437）
                 )
             }
         }
@@ -249,14 +266,14 @@ private fun BotRow(row: BridgeConversationRow, isMain: Boolean) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        RosterAvatar(row.name, row.avatar, size = 34)
+        RosterAvatar(row.name, row.avatar, size = 38) // iOS botCell :477 avatar 38（Chief 2026-11-01 裁决；34 无规格出处）
         Column(Modifier.weight(1f)) {
-            Text(row.name, color = MaterialTheme.colorScheme.onBackground, style = DshType.body)
+            Text(row.name, color = MaterialTheme.colorScheme.onBackground, fontSize = 17.sp) // iOS .body（:479）
             if (!row.role.isNullOrBlank()) {
                 Text(
                     row.role.orEmpty(),
                     color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
-                    style = DshType.footnote
+                    fontSize = 12.sp // iOS .caption（:481）
                 )
             }
         }
@@ -280,23 +297,51 @@ private fun RoomRow(row: BridgeConversationRow) {
         Modifier.fillMaxWidth()
             .background(MaterialTheme.colorScheme.onBackground.copy(alpha = 0.06f), RoundedCornerShape(14.dp))
             .padding(horizontal = 14.dp, vertical = 12.dp)
-            .testTag("bot-row-${row.name}"),
+            .testTag("room-row-${row.name}"), // 独立 tag：原与 BotRow 同 tag，验收脚本无法区分（AndroidTester 指出）
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        RosterAvatar(row.name, row.avatar, size = 34)
+        RoomGroupGlyph()
         Column(Modifier.weight(1f)) {
-            Text(row.name, color = MaterialTheme.colorScheme.onBackground, style = DshType.body)
+            Text(row.name, color = MaterialTheme.colorScheme.onBackground, fontSize = 17.sp) // iOS .body（:492）
             if (!row.members.isNullOrEmpty()) {
                 Text(
                     row.members.joinToString(appText("、")),
                     color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
-                    style = DshType.footnote,
+                    fontSize = 12.sp, // iOS .caption（:494）
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
             }
         }
+    }
+}
+
+/** iOS roomCell（:482-486）：person.3.fill 图标 + 灰底圆 38×38，无首字母 —— 与 bot 行（色圆+首字母）两种形态并存。 */
+@Composable
+private fun RoomGroupGlyph() {
+    GlyphCircle(R.drawable.ic_room_group)
+}
+
+/** iOS sessionCell（:377-381）：bubble.left.and.text.bubble.right.fill + 灰底圆 38×38。 */
+@Composable
+private fun SessionBubbleGlyph() {
+    GlyphCircle(R.drawable.ic_session_bubble)
+}
+
+@Composable
+private fun GlyphCircle(@DrawableRes iconRes: Int) {
+    Box(
+        Modifier.size(38.dp)
+            .background(MaterialTheme.colorScheme.onBackground.copy(alpha = 0.12f), CircleShape),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            painterResource(iconRes),
+            contentDescription = null,
+            modifier = Modifier.size(20.dp),
+            tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f) // iOS .foregroundStyle(.secondary)
+        )
     }
 }
 
@@ -311,11 +356,12 @@ private fun SessionRow(row: BridgeConversationRow) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
+        SessionBubbleGlyph()
         Column(Modifier.weight(1f)) {
             Text(
                 row.name,
                 color = MaterialTheme.colorScheme.onBackground,
-                style = DshType.body,
+                fontSize = 17.sp, // iOS .body（:388）
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -324,7 +370,7 @@ private fun SessionRow(row: BridgeConversationRow) {
                     Text(
                         row.workspace.orEmpty(),
                         color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
-                        style = DshType.footnote,
+                        fontSize = 12.sp, // iOS .caption（:390）
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -332,12 +378,22 @@ private fun SessionRow(row: BridgeConversationRow) {
                 row.lastActiveAt?.let { activeMillis ->
                     Text(
                         relativeTime(activeMillis / 1000.0),
-                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.45f),
-                        style = DshType.footnote
+                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.35f), // iOS .tertiary（:393）≈30%，取 0.35 保底对比
+                        fontSize = 12.sp
                     )
                 }
             }
         }
+        // busy 徽标：iOS sessionCell :414-416 明确渲染（真实抓包 4 行 busy 全在 session，AndroidTester 05:56 实测）。
+        if (row.busy == true) {
+            CapsuleBadge(appText("运行中"), container = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.12f))
+        }
+        Icon(
+            painterResource(R.drawable.ic_chevron_right),
+            contentDescription = null,
+            modifier = Modifier.size(12.dp),
+            tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.35f) // iOS chevron.right .caption .tertiary（:401）
+        )
     }
 }
 
@@ -348,9 +404,13 @@ private fun SessionRow(row: BridgeConversationRow) {
  */
 @Composable
 private fun RosterAvatar(name: String, avatar: kotlinx.serialization.json.JsonObject?, size: Int) {
+    // fallback 等价值（AndroidTester 提请 iOSDev 定夺，此处按 iOS 源码推导先行）：
+    // iOS TeamView :539 `Color.secondary.opacity(0.55)`，secondary=标签色 60% ⇒ 等效 onBackground×0.33，
+    // 深浅同式；真实抓包两端现都走 fallback（avatar 无 color 键），故此值即当前上屏色。
+    val fallback = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.33f)
     Box(
         Modifier.size(size.dp)
-            .background(bridgeAvatarColor(avatar), CircleShape),
+            .background(bridgeAvatarColor(avatar, fallback), CircleShape),
         contentAlignment = Alignment.Center
     ) {
         Text(
@@ -362,11 +422,11 @@ private fun RosterAvatar(name: String, avatar: kotlinx.serialization.json.JsonOb
     }
 }
 
-private fun bridgeAvatarColor(avatar: kotlinx.serialization.json.JsonObject?): Color {
-    val hex = (avatar?.get("color") as? JsonPrimitive)?.takeIf { it.isString }?.content ?: return fallbackAvatarColor
+private fun bridgeAvatarColor(avatar: kotlinx.serialization.json.JsonObject?, fallback: Color): Color {
+    val hex = (avatar?.get("color") as? JsonPrimitive)?.takeIf { it.isString }?.content ?: return fallback
     val digits = hex.trim().removePrefix("#")
-    if (digits.length != 6 && digits.length != 8) return fallbackAvatarColor
-    val value = digits.toLongOrNull(16) ?: return fallbackAvatarColor
+    if (digits.length != 6 && digits.length != 8) return fallback
+    val value = digits.toLongOrNull(16) ?: return fallback
     return if (digits.length == 8) {
         Color(
             red = ((value shr 24) and 0xFF).toInt() / 255f,
@@ -382,8 +442,6 @@ private fun bridgeAvatarColor(avatar: kotlinx.serialization.json.JsonObject?): C
         )
     }
 }
-
-private val fallbackAvatarColor = Color(0x8C8C8C99) // 中性灰 ≈ iOS Color.secondary.opacity(0.55)
 
 /** iOS badge(_:)（TeamView :507）：胶囊、caption2、次要色。 */
 @Composable

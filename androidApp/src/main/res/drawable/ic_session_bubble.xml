@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- iOS sessionCell 前导图标：bubble.left.and.text.bubble.right.fill（SF Symbol）的等义自绘矢量。
+     大气泡实心 + 文字行镂空（evenOdd），小气泡描边叠右下（单色 tint 下以轮廓区分两枚气泡）。 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FF000000"
+        android:fillType="evenOdd"
+        android:pathData="M6,4h8a3,3 0 0 1 3,3v3a3,3 0 0 1 -3,3H9.2L4.5,16.4V13.2A3,3 0 0 1 3,10.2V7a3,3 0 0 1 3,-3z M6,7.4h8v1.7h-8z M6,10.1h5v1.7h-5z" />
+    <path
+        android:strokeColor="#FF000000"
+        android:strokeWidth="1.7"
+        android:strokeLineJoin="round"
+        android:pathData="M15.5,10.8h3a2.5,2.5 0 0 1 2.5,2.5v1.7a2.5,2.5 0 0 1 -2.5,2.5h-4.2l-2.1,1.7v-6a2.5,2.5 0 0 1 2.5,-2.5z" />
+</vector>
