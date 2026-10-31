@@ -1,7 +1,6 @@
 package com.clarklevis.dsh.android.ui
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -47,7 +46,8 @@ internal fun BotTeamScreen(
     adapter: AndroidBridgeTeamAdapter?,
     onBack: () -> Unit
 ) {
-    val background = if (isSystemInDarkTheme()) Color.Black else Color(0xFFF2F2F7)
+    // 走主题（与 ScheduledTasksScreen/PluginsScreen 一致）：A1 换品牌海军蓝底时本页自动跟随，不许硬编码。
+    val background = MaterialTheme.colorScheme.background
     val state = adapter?.state
     val phase = state?.phase ?: TeamPhase.IDLE
     val bots = state?.bots.orEmpty()

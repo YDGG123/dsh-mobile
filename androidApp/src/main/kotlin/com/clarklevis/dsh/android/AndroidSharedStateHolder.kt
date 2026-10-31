@@ -83,7 +83,14 @@ class AndroidSharedStateHolder(
      * `SharedBridgeTeamStore`）。与会话级 `teamStore` 是两条链路，别混用。
      */
     internal val bridgeTeam: AndroidBridgeTeamAdapter? =
-        graph?.let { AndroidBridgeTeamAdapter(it.application, it.applicationScope) }
+        graph?.let {
+            AndroidBridgeTeamAdapter(
+                it.application,
+                it.applicationScope,
+                // Chief 拍板（2026-11-01）：对齐 iOS 生产 https-only；debug 源集才放行 loopback 明文。
+                allowInsecureLoopback = BRIDGE_ALLOW_INSECURE_LOOPBACK
+            )
+        }
 
     fun isSubagentSession(sessionId: String): Boolean =
         sessionId in childSessionIds || snapshot.sessions.any { it.id == sessionId && it.isSubagent }
