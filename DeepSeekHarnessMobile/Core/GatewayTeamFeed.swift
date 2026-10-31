@@ -554,13 +554,7 @@ final class GatewayTeamFeed: ObservableObject {
                 return
             }
             if type == "sync.done" {
-                // 回放界标：reason ∈ resume|sync.from|caught-up|gap|unknown-instance|snapshot。
-                let reason = object["reason"] as? String ?? "-"
-                let doneSeq = (object["seq"] as? NSNumber)?.intValue ?? -1
-                // 顺手留好网关侧 B 单的接口：`sync.done` 带上顶层 `degraded` 后自动生效。
-                // 到达这里说明回放数据已全部应用，此刻的判定是权威的；未带字段则不动。
-                degraded = Self.degradedAfter(current: degraded, frame: object)
-                Self.chunkLog.notice("sync.done reason=\(reason, privacy: .public) seq=\(doneSeq, privacy: .public)")
+                applySyncDone(object)
                 return
             }
             if type == "error" {
@@ -818,6 +812,23 @@ final class GatewayTeamFeed: ObservableObject {
         lastError = nil
     }
 
+    /// internal 仅为接线测试（`sync.done` 此前**一条测试都没有**，接口失效才活了很久没人发现）。
+    ///
+    /// `sync.done` = 回放界标：reason ∈ resume|sync.from|caught-up|gap|unknown-instance|snapshot。
+    /// 到达这里说明回放数据已全部应用，此刻的降级判定是权威的。
+    ///
+    /// ⚠️ **界标帧与流内部帧的 degraded 形状不同**（口径曾岔过一次，别再岔）：
+    /// - 界标帧（`ready` / `sync.done`）：**嵌套** `{team, cards}`（一次说明 team+cards 两条流）
+    /// - 流内部帧（`snapshot` / `delta` / `order`）：**顶层** `Bool`
+    /// 所以这里必须用 `degradedAfterReady`；用 `degradedAfter` 的 `as? Bool` 对**字典**必然
+    /// nil → 走 `?? current` → 字段静默失效（fail-safe 但完全无效果）。
+    func applySyncDone(_ object: [String: Any]) {
+        let reason = object["reason"] as? String ?? "-"
+        let doneSeq = (object["seq"] as? NSNumber)?.intValue ?? -1
+        degraded = Self.degradedAfterReady(current: degraded, frame: object)
+        Self.chunkLog.notice("sync.done reason=\(reason, privacy: .public) seq=\(doneSeq, privacy: .public)")
+    }
+
     /// internal 仅为接线测试：degraded 更新这层"接线漏没漏"只有实例能测（order 帧漏网教训）。
     func applyOrder(_ object: [String: Any]) {
         // ⚠️ order 帧也要同步 degraded（网关 `team-feed.mjs:233` 每帧显式带）：
@@ -853,16 +864,18 @@ final class GatewayTeamFeed: ObservableObject {
         (frame["degraded"] as? Bool) ?? current
     }
 
-    /// `ready` 帧的 `degraded` 是**嵌套对象**（`{team, cards}`，见网关 `server.mjs`），
-    /// 与 snapshot/delta/order 的顶层 bool **不同型**，所以要单独一个纯函数。
+    /// **界标帧**（`ready` / `sync.done`）的 `degraded` 是**嵌套对象**（`{team, cards}`，
+    /// 见网关 `server.mjs`），与 snapshot/delta/order 的顶层 bool **不同型**，所以单独一个纯函数。
+    /// 两个界标帧共用它：它们都是「一次说明 team+cards 两条流」的帧。
+    /// ⚠️ 用 `degradedAfter` 读界标帧会**静默失效**（`as? Bool` 对字典必然 nil → `?? current`）。
     ///
     /// 为什么必须读它（2026-10-31 帧级实测）：网关在「`resume` 命中且 seq 已追平」路径上
     /// **零帧**——`history(afterSeq)` 返回 `{mode:'ok', frames:[]}` 时整段跳过快照，
-    /// 只发一条不带 degraded 的 `sync.done`。此时客户端「缓存水合置 true」
+    /// 只发一条界标帧。此时客户端「缓存水合置 true」
     /// （`hydrateRosterCache`：缓存本来就不是实时态）**没有任何帧能清掉**，
     /// 就长期挂「实时状态暂不可用」，要等下一次真实变化才自己好 —— 正是用户
     /// 「经常不可用 / 过会儿自己好」的形态。`ready` 每次连接都发，是这条路径上
-    /// 客户端唯一能拿到实时态判定的入口。
+    /// 客户端唯一能拿到实时态判定的入口；`sync.done` 是同一路径的界标补充。
     ///
     /// 只取 `team`：卡片流有独立的降级通道（`cards.degraded`），混用会把
     /// 「卡片降级」误算成「团队降级」。缺字段 = 不动（缺字段 ≠ 恢复）。

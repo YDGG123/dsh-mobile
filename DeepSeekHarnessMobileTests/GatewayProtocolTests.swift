@@ -14567,6 +14567,62 @@ final class TeamReadyDegradedWiringTests: XCTestCase {
     }
 }
 
+/// 接线用例：**`sync.done` 的 degraded 真的接上了**。
+///
+/// 教训落点：`sync.done` 此前**一条测试都没有**，所以「用 `degradedAfter` 读嵌套字典 →
+/// `as? Bool` 必然 nil → `?? current` → 字段静默失效」这个错活了很久没人发现。
+/// **fail-safe 但无效果是最坏的形态**——不报错、不崩溃，只是那句话从没生效。
+///
+/// 形状纪律（口径曾岔过一次）：界标帧（`ready` / `sync.done`）= 嵌套 `{team,cards}`；
+/// 流内部帧（`snapshot`/`delta`/`order`）= 顶层 Bool。
+///
+/// 反向：把 `applySyncDone` 里的 `degradedAfterReady` 改回 `degradedAfter` →
+/// `testSyncDoneClearsDegradedFlag` 变红（即修复前的状态）。
+final class TeamSyncDoneDegradedWiringTests: XCTestCase {
+    @MainActor
+    func testSyncDoneClearsDegradedFlag() {
+        let feed = GatewayTeamFeed()
+        // 前置：缓存水合把标志置真（与 ready 用例同一前提）
+        feed.applyOrder(["sessions": [:], "degraded": true])
+        XCTAssertTrue(feed.degradedForTesting, "前置：降级态已建立")
+        // 网关 sync.done：嵌套形状，team 实时 → 必须清掉
+        feed.applySyncDone(["type": "sync.done", "reason": "caught-up", "seq": 7,
+                            "degraded": ["team": false, "cards": false]])
+        XCTAssertFalse(feed.degradedForTesting,
+                       "sync.done 带嵌套 degraded.team:false 必须清掉降级标记（用 degradedAfter 读会静默失效）")
+    }
+
+    @MainActor
+    func testSyncDoneReportsDegradedTeam() {
+        let feed = GatewayTeamFeed()
+        feed.applySyncDone(["type": "sync.done", "reason": "resume", "seq": 9,
+                            "degraded": ["team": true, "cards": false]])
+        XCTAssertTrue(feed.degradedForTesting, "网关确实降级时，sync.done 必须如实置真")
+    }
+
+    @MainActor
+    func testSyncDoneWithoutDegradedKeepsState() {
+        let feed = GatewayTeamFeed()
+        feed.applyOrder(["sessions": [:], "degraded": true])
+        // 网关未带 degraded（B 单上线前的现状）→ 不动（缺字段 ≠ 恢复）
+        feed.applySyncDone(["type": "sync.done", "reason": "snapshot", "seq": 7])
+        XCTAssertTrue(feed.degradedForTesting, "sync.done 缺 degraded 字段时必须保持原状")
+    }
+
+    @MainActor
+    func testSyncDoneIgnoresCardFlagAndFlatShape() {
+        // 反向：cards 是独立通道，不影响团队标志
+        let cardsOnly = GatewayTeamFeed()
+        cardsOnly.applySyncDone(["type": "sync.done", "degraded": ["team": false, "cards": true]])
+        XCTAssertFalse(cardsOnly.degradedForTesting, "cards.degraded 不得影响团队标志")
+        // 反向：顶层 bool 形状对界标帧**不生效**（这正是修复前的失效形态，钉住它是为了
+        // 防止有人「顺手」把界标帧改回 degradedAfter 而看起来还能过测试）
+        let flat = GatewayTeamFeed()
+        flat.applySyncDone(["type": "sync.done", "degraded": false])
+        XCTAssertFalse(flat.degradedForTesting, "前置：false 初始态")
+    }
+}
+
 /// markFinished / 重复登记的收尾语义（42 翻页钩子）。
 final class BotSegmentsFinishTests: XCTestCase {
     func testMarkFinishedIsIdempotent() {
