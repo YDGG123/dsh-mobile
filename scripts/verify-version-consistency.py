@@ -109,9 +109,15 @@ if app_short and pbx_short and app_short != pbx_short:
     failures.append(f"short version 不一致：主 App={app_short}，Widget(pbxproj)={pbx_short}")
 
 # ---- 4. 必须比本地已出过的包新（只比同 short version 的包；版本号跨档时 build 可以回小） ----
+# 这一条只在「要出包」时有意义（挡的是"出个和上版同号的包，装完分不出新旧"）。
+# 开发者在本地跑 typecheck 时 build-output/ 里还躺着上一个包，于是它一直红——
+# 而改版本号不是开发者的权限（用户纪律）。所以给一个**显式**逃生口：
+# 默认仍硬判；设 VERSION_GATE_ALLOW_REUSE=1 才跳过第 4 条并打黄字；
+# 前三条（App/Widget 内部一致性）永不跳过。出包路径请保持默认硬判。
 import glob  # noqa: E402 - 只在需要时用
 import zipfile  # noqa: E402
 
+allow_reuse = os.environ.get("VERSION_GATE_ALLOW_REUSE") == "1"
 released: list[tuple[str, str, str]] = []  # (name, short, build)
 for ipa in sorted(glob.glob(os.path.join(ROOT, "build-output", "*.ipa"))):
     try:
@@ -134,9 +140,16 @@ same_version = [(name, build) for name, short, build in released if short and sh
 if same_version and app_build.isdigit():
     newest_name, newest_build = max(same_version, key=lambda item: int(item[1]) if item[1].isdigit() else -1)
     if newest_build.isdigit() and int(app_build) <= int(newest_build):
-        failures.append(
-            f"build 号没有递增：当前 {app_short} ({app_build})，本地已有 {newest_name} 是 "
-            f"{app_short} ({newest_build}) —— 装完在设置里分不出新旧"
+        if allow_reuse:
+            print(
+                f"   ⚠️  build 号未递增（当前 {app_short} ({app_build})，本地已有 {newest_name} "
+                f"{app_short} ({newest_build})）：因 VERSION_GATE_ALLOW_REUSE=1 跳过本条 —— "
+                "**此状态不可出包**，只适用于本地验证/CI 之外的检查。"
+            )
+        else:
+            failures.append(
+                f"build 号没有递增：当前 {app_short} ({app_build})，本地已有 {newest_name} 是 "
+                f"{app_short} ({newest_build}) —— 装完在设置里分不出新旧"
         )
 
 if input_errors:
