@@ -134,9 +134,9 @@ internal fun ConversationSidebarButton(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    WhalenessOrcaIcon(Modifier.size(23.dp))
+                    OrcarnessOrcaIcon(Modifier.size(23.dp))
                     Image(
-                        painterResource(if (isDark) R.drawable.dsh_whaleness_wordmark_dark else R.drawable.dsh_whaleness_wordmark),
+                        painterResource(if (isDark) R.drawable.dsh_orcarness_wordmark_dark else R.drawable.dsh_orcarness_wordmark),
                         null,
                         Modifier.size(144.dp, 23.dp)
                     )
