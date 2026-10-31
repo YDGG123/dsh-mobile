@@ -2120,7 +2120,7 @@ private fun SlashCommandMenus(
                             Text(
                                 command.description,
                                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
-                                fontSize = 13.sp,
+                                style = DshType.footnote,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.padding(start = 10.dp).weight(1f)
@@ -2672,7 +2672,7 @@ private fun ContextUsageRing(stateHolder: AndroidSharedStateHolder) {
                     ContextUsageRow(appText("缓存读取"), usage.cacheReadTokens, Color(0xFF8055CF))
                     ContextUsageRow(appText("模型输出"), usage.outputTokens, Color(0xFFE18B38))
                 } else {
-                    Text(appText("暂无上下文用量明细"), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
+                    Text(appText("暂无上下文用量明细"), color = MaterialTheme.colorScheme.onSurfaceVariant, style = DshType.footnote)
                 }
             }
         }
