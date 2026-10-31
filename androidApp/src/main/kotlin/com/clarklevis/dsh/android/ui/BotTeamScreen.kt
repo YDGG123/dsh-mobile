@@ -23,6 +23,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -52,6 +53,10 @@ internal fun BotTeamScreen(
     val phase = state?.phase ?: TeamPhase.IDLE
     val bots = state?.bots.orEmpty()
     val rooms = state?.rooms.orEmpty()
+    val cards = adapter?.pendingCards.orEmpty()
+    val cardOwnerNames = remember(bots, rooms) {
+        (bots + rooms).associate { it.id to it.name }
+    }
     LaunchedEffect(adapter) {
         adapter?.start()
         adapter?.refreshNow()
@@ -108,6 +113,12 @@ internal fun BotTeamScreen(
                 item { SectionTitle(appText("群聊（${rooms.size}）")) }
                 items(rooms, key = { it.id }) { row -> RosterRow(row) }
             }
+            if (cards.isNotEmpty()) {
+                item { SectionTitle(appText("卡片（${cards.size}）")) }
+                items(cards, key = { it.id }) { card ->
+                    BridgeCardRow(card, ownerName = cardOwnerNames[card.owner])
+                }
+            }
             if (bots.isEmpty() && rooms.isEmpty()) {
                 item {
                     Text(
@@ -122,9 +133,56 @@ internal fun BotTeamScreen(
     }
 }
 
+/**
+ * 桥接卡片行（E1）：`kind:"view"` 出「方案对比」这类正文卡，question/secret 出
+ * 「等你回答／等你填密钥」行 —— 文案与 iOS `statusText`（GatewayTeamFeed :1179）一致。
+ * 纪律同 iOS：bridge 没有 question-answer action，**卡片只能看**，必须标明在电脑端处理。
+ */
 @Composable
-private fun SectionTitle(text: String) {
-    Text(
+private fun BridgeCardRow(card: com.clarklevis.dsh.shared.protocol.BridgeCardQuestion, ownerName: String?) {
+    Column(
+        Modifier.fillMaxWidth()
+            .background(MaterialTheme.colorScheme.onBackground.copy(alpha = 0.06f), RoundedCornerShape(14.dp))
+            .padding(horizontal = 14.dp, vertical = 12.dp)
+            .testTag("bridge-card-${card.kind}")
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                ownerName ?: card.owner,
+                color = MaterialTheme.colorScheme.onBackground,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.weight(1f)
+            )
+            Text(card.statusText, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f), fontSize = 12.sp)
+        }
+        if (card.prompt.isNotBlank()) {
+            Text(
+                card.prompt,
+                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.85f),
+                fontSize = 14.sp,
+                modifier = Modifier.padding(top = 4.dp)
+            )
+        }
+        if (card.options.isNotEmpty()) {
+            Text(
+                card.options.joinToString(" / "),
+                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.55f),
+                fontSize = 12.sp,
+                modifier = Modifier.padding(top = 2.dp)
+            )
+        }
+        Text(
+            appText("在电脑端处理"),
+            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f),
+            fontSize = 11.sp,
+            modifier = Modifier.padding(top = 4.dp)
+        )
+    }
+}
+
+@Composable
+private fun SectionTitle(text: String) {    Text(
         text,
         color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
         fontSize = 13.sp,

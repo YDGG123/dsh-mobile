@@ -11,11 +11,13 @@ import com.clarklevis.dsh.android.platform.AndroidBridgeSessionStore
 import com.clarklevis.dsh.shared.domain.TeamPhase
 import com.clarklevis.dsh.shared.domain.TeamUiState
 import com.clarklevis.dsh.shared.facade.SharedBridgeTeamStore
+import com.clarklevis.dsh.shared.protocol.BridgeCardQuestion
 import com.clarklevis.dsh.shared.protocol.BridgeDeviceSession
 import com.clarklevis.dsh.shared.protocol.BridgeServerInfo
 import com.clarklevis.dsh.shared.protocol.decodeBridgeErrorEnvelope
 import com.clarklevis.dsh.shared.protocol.decodeTeamUiState
 import com.clarklevis.dsh.shared.protocol.encodeBridgeSession
+import com.clarklevis.dsh.shared.protocol.parseBridgeCardsFrame
 import com.clarklevis.dsh.shared.protocol.parseBridgeInfo
 import java.io.IOException
 import java.util.concurrent.TimeUnit
@@ -78,6 +80,14 @@ internal class AndroidBridgeTeamAdapter(
         private set
 
     var lastRefreshAtMillis: Long by mutableLongStateOf(0L)
+        private set
+
+    /**
+     * E1：桥接卡片帧（`GET /mobile/v1/cards` 快照，与 WS 同源）。
+     * 解析语义在 shared（`parseBridgeCardsFrame`）；展示是本地的——bridge 没有
+     * question-answer action，卡片只能看、要在电脑端处理（iOS 同款纪律）。
+     */
+    var pendingCards: List<BridgeCardQuestion> by mutableStateOf(emptyList())
         private set
 
     var isRefreshing: Boolean by mutableStateOf(false)
@@ -197,8 +207,25 @@ internal class AndroidBridgeTeamAdapter(
                 lastError = null
             }
             publishState()
+            refreshCards(base, token)
         } finally {
             isRefreshing = false
+        }
+    }
+
+    /**
+     * 卡片快照是第四个端点：失败**不拖垮**名册刷新（名册已成功），只记日志保留旧卡。
+     * 401 场景下 state/conversations 已先行判死，这里不会误吞判死信号。
+     */
+    private suspend fun refreshCards(base: String, token: String) {
+        val snapshot = fetch("$base/mobile/v1/cards", token)
+        when (snapshot) {
+            is BridgeFetch.Ok -> {
+                pendingCards = parseBridgeCardsFrame(snapshot.body)
+                Log.i(TAG, "cards snapshot parsed: ${pendingCards.size} card(s)")
+            }
+            is BridgeFetch.HttpError -> Log.w(TAG, "cards snapshot failed: ${snapshot.status}（保留旧卡）")
+            else -> Log.w(TAG, "cards snapshot transport failure（保留旧卡）")
         }
     }
 
