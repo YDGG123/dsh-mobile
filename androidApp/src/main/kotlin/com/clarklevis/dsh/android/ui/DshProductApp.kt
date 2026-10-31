@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.safeDrawing
@@ -316,6 +317,7 @@ internal fun WorkspaceScreen(
     var showManualPairing by rememberSaveable { mutableStateOf(false) }
     var showQrScanner by rememberSaveable { mutableStateOf(false) }
     var showWorkspaceMenu by rememberSaveable { mutableStateOf(false) }
+    var homeTab by rememberSaveable { mutableStateOf(DshHomeTab.WORKSPACE) } // B1 只读原型 tab 状态
     var showDirectoryBrowser by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(stateHolder.gatewayState.connection) { stateHolder.refreshProductState() }
     LaunchedEffect(searchQuery) {
@@ -464,7 +466,17 @@ internal fun WorkspaceScreen(
                         }
                     )
                 }
+                item { Spacer(Modifier.height(86.dp)) } // B1：浮动 tab bar（62 高 + 边距）的滚动净空
             }
+            DshTabBar(
+                selected = homeTab,
+                badges = emptyMap(), // 角标三来源（WorkspaceView :366-370）等 D 组；bridge 侧暂无 pending 数据
+                onSelect = { homeTab = it }, // 只读原型：仅选中态（Chief 定），内容切换随 C/D 组接线
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(start = 16.dp, end = 16.dp, bottom = 4.dp)
+            )
         }
     }
 

@@ -64,6 +64,9 @@ internal val LocalDshSemanticColors = staticCompositionLocalOf {
     DshSemanticColors(DshColors.Success, DshColors.Amber, DshColors.Orange, DshColors.Danger)
 }
 
+/** 全 App 统一深浅色有效值（含 AppearanceSettings 覆写）：双色值场景（如 tab bar 阴影 0.24/0.10）用。 */
+internal val LocalDshIsDark = staticCompositionLocalOf { true }
+
 /** 组件内取语义色：`DshSemantic.success/warning/caution/danger`，自动随深浅色换档（对齐 iOS 语义色双档）。 */
 internal object DshSemantic {
     val success: Color @Composable get() = LocalDshSemanticColors.current.success
@@ -153,6 +156,7 @@ internal fun DshTheme(
         MaterialTheme(colorScheme = if (dark) DarkColors else LightColors) {
             CompositionLocalProvider(
                 LocalDshSemanticColors provides semantic,
+                LocalDshIsDark provides dark,
                 LocalRippleConfiguration provides null
             ) { DshMenuHost(content) }
         }

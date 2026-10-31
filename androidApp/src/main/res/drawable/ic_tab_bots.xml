@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- B1 tab bar「Bot」图标：iOS cpu（Theme.swift:1003-1008 映射表）的等义自绘矢量（内孔 evenOdd）。 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FF000000"
+        android:fillType="evenOdd"
+        android:pathData="M7,3h2v2h-2z M11,3h2v2h-2z M15,3h2v2h-2z M7,19h2v2h-2z M11,19h2v2h-2z M15,19h2v2h-2z M3,7h2v2h-2z M3,11h2v2h-2z M3,15h2v2h-2z M19,7h2v2h-2z M19,11h2v2h-2z M19,15h2v2h-2z M7,5h10a2,2 0 0 1 2,2v10a2,2 0 0 1 -2,2h-10a2,2 0 0 1 -2,-2v-10a2,2 0 0 1 2,-2z M10,10h4v4h-4z" />
+</vector>

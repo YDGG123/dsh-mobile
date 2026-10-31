@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- B1 tab bar「设置」图标：iOS slider.horizontal.3（Theme.swift:1003-1008 映射表）的等义自绘矢量。
+     三横线 + 三圆钮错位（同色单 tint，圆钮叠线上读作滑杆）。 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M3,5h18v2h-18z M3,11h18v2h-18z M3,17h18v2h-18z M14,3.5a2.5,2.5 0 1 1 0,5a2.5,2.5 0 1 1 0,-5z M8,9.5a2.5,2.5 0 1 1 0,5a2.5,2.5 0 1 1 0,-5z M17,15.5a2.5,2.5 0 1 1 0,5a2.5,2.5 0 1 1 0,-5z" />
+</vector>
