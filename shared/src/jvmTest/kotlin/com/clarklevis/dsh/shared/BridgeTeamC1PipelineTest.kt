@@ -2,6 +2,7 @@ package com.clarklevis.dsh.shared
 
 import com.clarklevis.dsh.shared.domain.TeamPhase
 import com.clarklevis.dsh.shared.facade.SharedBridgeTeamStore
+import com.clarklevis.dsh.shared.facade.SharedTeamEffect
 import com.clarklevis.dsh.shared.protocol.decodeTeamUiState
 import com.clarklevis.dsh.shared.protocol.parseBridgeState
 import kotlin.test.Test
@@ -55,5 +56,37 @@ class BridgeTeamC1PipelineTest {
         val wireState = parseBridgeState(resource("state.json"))
         assertEquals(11, wireState.bots.size, "state.json bots should decode")
         assertTrue(wireState.revisionValue != null)
+    }
+
+    /** P1 审查修复的判死链用例：401 → wire UNAUTHORIZED → NEEDS_PAIRING + session-clear effect。 */
+    @Test
+    fun unauthorizedRefreshAfterReadyFailsToPairing() {
+        val store = readyStore()
+        val result = store.refreshFailed("UNAUTHORIZED", "token expired")
+        val state = decodeTeamUiState(requireNotNull(store.snapshot().snapshotJson))
+        assertEquals(TeamPhase.NEEDS_PAIRING, state.phase, "wire UNAUTHORIZED must reach NEEDS_PAIRING")
+        assertTrue(
+            result.effectJson?.contains(SharedTeamEffect.KIND_SESSION_CLEAR) == true,
+            "session-clear effect must fire on identity failure, got ${result.effectJson}"
+        )
+    }
+
+    /** fail-closed 边界：非身份类失败（未知 wire 码）只进 OFFLINE，绝不误杀配对。 */
+    @Test
+    fun unrecognizedWireFailureStaysOfflineNotPairing() {
+        val store = readyStore()
+        store.refreshFailed("SOMETHING_ELSE", "unexpected gateway reply")
+        val state = decodeTeamUiState(requireNotNull(store.snapshot().snapshotJson))
+        assertEquals(TeamPhase.OFFLINE, state.phase, "unknown wire code must not kill pairing")
+    }
+
+    private fun readyStore(): SharedBridgeTeamStore {
+        val store = SharedBridgeTeamStore()
+        val session =
+            """{"accessToken":"test-access","refreshToken":"test-refresh","deviceId":"device-1","serverId":"$serverId"}"""
+        assertTrue(store.sessionPaired(session).isSuccess)
+        val result = store.refreshTeam(resource("info.json"), resource("state.json"), resource("conversations.json"))
+        assertTrue(result.isSuccess, "refreshTeam failed: ${result.errorCode} ${result.errorMessage}")
+        return store
     }
 }

@@ -13,6 +13,7 @@ import com.clarklevis.dsh.shared.domain.TeamUiState
 import com.clarklevis.dsh.shared.facade.SharedBridgeTeamStore
 import com.clarklevis.dsh.shared.protocol.BridgeDeviceSession
 import com.clarklevis.dsh.shared.protocol.BridgeServerInfo
+import com.clarklevis.dsh.shared.protocol.decodeBridgeErrorEnvelope
 import com.clarklevis.dsh.shared.protocol.decodeTeamUiState
 import com.clarklevis.dsh.shared.protocol.encodeBridgeSession
 import com.clarklevis.dsh.shared.protocol.parseBridgeInfo
@@ -23,6 +24,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
@@ -44,6 +47,12 @@ import okhttp3.Request
 internal class AndroidBridgeTeamAdapter(
     context: Context,
     private val scope: CoroutineScope,
+    /**
+     * 对齐 iOS `BridgeTransport.allowInsecureLoopback`（iOS 生产两处调用点均显式 false）：
+     * 桥根 origin 默认 https-only；明文 http 仅 loopback host 且显式放行时接受，
+     * LAN 明文（如 3081）与 iOS 生产语义一致默认拒绝。
+     */
+    private val allowInsecureLoopback: Boolean = false,
 ) {
     private val sessionStore = AndroidBridgeSessionStore(context)
     private val store = SharedBridgeTeamStore(sessionStore)
@@ -75,15 +84,29 @@ internal class AndroidBridgeTeamAdapter(
         private set
 
     private var loopJob: Job? = null
+    private var loopOrigin: String? = null
     private var endpoint: String? = null
+
+    /** 串行化 refreshOnce：手动刷新与 8s 轮询不再交错进两次 refreshTeam。 */
+    private val refreshGate = Mutex()
 
     val hasSession: Boolean get() = store.currentAccessToken() != null
 
-    /** 网关 endpoint 变化（换网关/重新配对）时调用；ws(s) → http(s) 推导桥根。 */
+    /** 网关 endpoint 变化（换网关/重新配对）时调用；ws(s) → http(s) 推导桥根并过 origin 策略门。 */
     fun updateGatewayEndpoint(value: String) {
         if (value == endpoint) return
         endpoint = value
-        origin = originFromEndpoint(value)
+        val derived = originFromEndpoint(value)
+        if (derived != null && !isAcceptableBridgeOrigin(derived, allowInsecureLoopback)) {
+            Log.w(
+                TAG,
+                "bridge origin rejected by policy: $derived " +
+                    "(endpoint=$value, allowInsecureLoopback=$allowInsecureLoopback)"
+            )
+            origin = null
+            return
+        }
+        origin = derived
         Log.i(TAG, "gateway endpoint=$value -> bridge origin=$origin")
     }
 
@@ -107,11 +130,17 @@ internal class AndroidBridgeTeamAdapter(
             Log.w(TAG, "restore bridge session failed: ${restore.errorCode} ${restore.errorMessage}")
         }
         publishState()
-        if (loopJob?.isActive == true) return
         if (!hasSession) {
             Log.i(TAG, "bridge polling skipped: no device session (needs pairing)")
             return
         }
+        if (loopJob?.isActive == true) {
+            if (loopOrigin == origin) return
+            Log.i(TAG, "bridge origin changed, restarting polling: $loopOrigin -> $origin")
+            loopJob?.cancel()
+            loopJob = null
+        }
+        loopOrigin = origin
         loopJob = scope.launch {
             while (true) {
                 refreshOnce()
@@ -130,22 +159,36 @@ internal class AndroidBridgeTeamAdapter(
         scope.launch { refreshOnce() }
     }
 
-    private suspend fun refreshOnce() {
-        val base = origin ?: originFromEndpoint(endpoint.orEmpty())
+    private suspend fun refreshOnce() = refreshGate.withLock {
+        // 只信已过策略门的 origin；不在取用时二次推导（那会绕过 updateGatewayEndpoint 的校验）。
+        val base = origin
         if (base == null) {
             lastError = "no-bridge-origin"
-            return
+            return@withLock
         }
         isRefreshing = true
         try {
-            val infoJson = fetch("$base/mobile/v1/info", token = null)
-                ?: return fail("info-failed")
+            val info = fetch("$base/mobile/v1/info", token = null)
+            val infoJson = when (info) {
+                is BridgeFetch.Ok -> info.body
+                is BridgeFetch.HttpError -> return@withLock failWith(info)
+                else -> return@withLock fail("network_error", "/info 传输失败")
+            }
             serverInfo = runCatching { parseBridgeInfo(infoJson) }.getOrNull()
             val token = store.currentAccessToken()
-            if (token.isNullOrBlank()) return fail("no-device-session")
-            val stateJson = fetch("$base/mobile/v1/state", token) ?: return fail("state-failed")
-            val conversationsJson = fetch("$base/mobile/v1/conversations", token)
-                ?: return fail("conversations-failed")
+            if (token.isNullOrBlank()) return@withLock fail("no-device-session", "本地无移动设备会话")
+            val state = fetch("$base/mobile/v1/state", token)
+            val stateJson = when (state) {
+                is BridgeFetch.Ok -> state.body
+                is BridgeFetch.HttpError -> return@withLock failWith(state)
+                else -> return@withLock fail("network_error", "/state 传输失败")
+            }
+            val conversations = fetch("$base/mobile/v1/conversations", token)
+            val conversationsJson = when (conversations) {
+                is BridgeFetch.Ok -> conversations.body
+                is BridgeFetch.HttpError -> return@withLock failWith(conversations)
+                else -> return@withLock fail("network_error", "/conversations 传输失败")
+            }
             val result = store.refreshTeam(infoJson, stateJson, conversationsJson)
             if (!result.isSuccess) {
                 lastError = result.errorMessage ?: result.errorCode
@@ -159,16 +202,22 @@ internal class AndroidBridgeTeamAdapter(
         }
     }
 
-    private fun fail(code: String) {
-        lastError = code
-        store.refreshFailed(code, code)
+    /** 非 2xx：从错误信封取 wire 码（对齐 iOS `BridgeResponseStatus` → `decodeBridgeErrorEnvelope`）。 */
+    private fun failWith(response: BridgeFetch.HttpError) {
+        val error = decodeBridgeErrorEnvelope(response.status, response.body)
+        fail(error.code, error.message ?: "HTTP ${response.status}")
+    }
+
+    private fun fail(code: String, message: String? = null) {
+        lastError = if (message.isNullOrBlank()) code else "$code: $message"
+        store.refreshFailed(code, message)
         publishState()
     }
 
-    private suspend fun fetch(url: String, token: String?): String? = withContext(Dispatchers.IO) {
+    private suspend fun fetch(url: String, token: String?): BridgeFetch = withContext(Dispatchers.IO) {
         if (!isBoundUrl(url)) {
             Log.w(TAG, "blocked unbound request: $url (origin=$origin)")
-            return@withContext null
+            return@withContext BridgeFetch.Blocked
         }
         val request = Request.Builder()
             .url(url)
@@ -180,15 +229,15 @@ internal class AndroidBridgeTeamAdapter(
                 val body = response.body?.string().orEmpty()
                 Log.i(TAG, "GET ${request.url.encodedPath} -> ${response.code} (${body.length}B)")
                 if (!response.isSuccessful) {
-                    Log.w(TAG, "GET ${request.url.encodedPath} body=${body.take(240)}")
-                    null
+                    Log.w(TAG, "GET ${request.url.encodedPath} status=${response.code} body=${body.take(240)}")
+                    BridgeFetch.HttpError(response.code, body)
                 } else {
-                    body
+                    BridgeFetch.Ok(body)
                 }
             }
         } catch (error: IOException) {
             Log.w(TAG, "GET ${request.url.encodedPath} failed: ${error.message}")
-            null
+            BridgeFetch.TransportFailed
         }
     }
 
@@ -237,6 +286,25 @@ internal class AndroidBridgeTeamAdapter(
             return "$scheme://$authority"
         }
 
+        /**
+         * origin 策略门（对齐 iOS `BridgeTransport.swift:41`）：https 直接过；
+         * 明文 http 仅 loopback host 且 allowInsecureLoopback=true 时放行。
+         * iOS 生产两处调用均显式 false ⇒ 生产语义 https-only，Android 同默认。
+         */
+        internal fun isAcceptableBridgeOrigin(origin: String?, allowInsecureLoopback: Boolean): Boolean {
+            val parsed = runCatching { origin?.toHttpUrlOrNull() }.getOrNull() ?: return false
+            return when (parsed.scheme) {
+                "https" -> true
+                "http" -> allowInsecureLoopback && parsed.host.isLoopbackHost()
+                else -> false
+            }
+        }
+
+        private fun String.isLoopbackHost(): Boolean {
+            val host = lowercase().trimStart('[').trimEnd(']')
+            return host == "localhost" || host == "::1" || host.startsWith("127.")
+        }
+
         /** origin 绑定：请求必须与配对 origin 同 scheme/host/port，且路径落在 `/mobile/v1/` 下（镜像 iOS LocalTLS.validateLocalURL 的约束面）。 */
         internal fun isBoundUrl(url: String, boundOrigin: String?): Boolean {
             val base = boundOrigin ?: return false
@@ -251,4 +319,12 @@ internal class AndroidBridgeTeamAdapter(
     }
 
     private fun isBoundUrl(url: String): Boolean = isBoundUrl(url, origin)
+}
+
+/** fetch 三态结果：HTTP 非 2xx 必须带出 status+body，错误信封解码（→ 判死重配链）才有着落。 */
+private sealed interface BridgeFetch {
+    data class Ok(val body: String) : BridgeFetch
+    data class HttpError(val status: Int, val body: String) : BridgeFetch
+    data object TransportFailed : BridgeFetch
+    data object Blocked : BridgeFetch
 }
