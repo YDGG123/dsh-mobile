@@ -26,7 +26,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -227,10 +226,10 @@ private fun RosterRow(row: BridgeConversationRow) {
             Text(appText("置顶"), color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f), fontSize = 11.sp)
         }
         if (row.busy == true) {
-            Text(appText("运行中"), color = Color(0xFF3BA38C), fontSize = 11.sp)
+            Text(appText("运行中"), color = DshSemantic.success, fontSize = 11.sp)
         }
         if (row.waiting == true) {
-            Text(appText("等你"), color = Color(0xFFDBA347), fontSize = 11.sp)
+            Text(appText("等你"), color = DshSemantic.warning, fontSize = 11.sp)
         }
     }
 }
@@ -275,12 +274,12 @@ private fun StatusCard(
         if (!hasSession) {
             Text(
                 appText("尚未配对桥接设备：请先与网关配对（配对成功会自动下发团队会话）"),
-                color = Color(0xFFDBA347),
+                color = DshSemantic.warning,
                 fontSize = 12.sp
             )
         }
         if (error != null) {
-            Text(error, color = Color(0xFFD06A6A), fontSize = 12.sp)
+            Text(error, color = DshSemantic.danger, fontSize = 12.sp)
         }
     }
 }
