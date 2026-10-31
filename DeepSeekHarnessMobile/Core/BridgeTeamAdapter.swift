@@ -105,6 +105,10 @@ struct BridgeTeamRow: Decodable, Identifiable, Hashable {
     let members: [String]?
     let admin: String?
     let mode: String?
+    /// 行级墨色：**ink 名**（`"deepseek"`）或 `#rrggbb`。
+    /// 2026-11-01 真实抓包定位：线上 `avatar` 只有 `shape`（`avatar.color` 命中 0），
+    /// 颜色一直在这个字段上，此前两端都读错了位置、恒落中性兜底色。
+    let color: String?
     let avatar: BridgeAvatarMirror?
     /// U4：普通会话的最近活跃时间（ms）。
     let lastActiveAt: Int64?

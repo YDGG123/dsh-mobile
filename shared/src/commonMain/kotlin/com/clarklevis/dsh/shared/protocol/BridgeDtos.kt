@@ -78,6 +78,15 @@ data class BridgeConversationRow(
     val members: List<String> = emptyList(),
     val admin: String? = null,
     val mode: String? = null,
+    /**
+     * 行级墨色：**ink 名**（`"deepseek"`，ds-bot 的调色板键）或 `#rrggbb`。
+     *
+     * 2026-11-01 用真实抓包定位：头像颜色一直读的是 `avatar.color`，而线上 `avatar`
+     * 只有 `shape`（`/state` 11 行、`/conversations` 72 行里 `avatar.color` 命中 0），
+     * 真正的颜色在这个**行级**字段上 → 两端此前都恒落中性兜底色。
+     * 解析用 [BridgeInks.resolve]（认 ink 名，也认 hex）。
+     */
+    val color: String? = null,
     val avatar: JsonObject? = null,
     /** U4：普通会话行的最近活跃时间（ms），团队行不带。 */
     val lastActiveAt: Long? = null,

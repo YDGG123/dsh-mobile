@@ -533,6 +533,13 @@ struct TeamView: View {
     }
 
     private func avatarColor(_ row: BridgeTeamRow) -> Color {
+        // 首选**行级 `color`**：线上下发的是 ink 名（如 `"deepseek"`），也可能直接给 `#hex`；
+        // `dynamicInk` 两种都认（2026-11-01 真实抓包：`avatar` 只有 shape，
+        // 此前的 `avatar.color` 读取是死路，19/19 恒落中性兜底）。
+        if let ink = GatewayTeamFeed.dynamicInk(row.color) {
+            return ink
+        }
+        // 兼容位：契约若改为把 hex 放进 avatar，这里仍然接得住。
         if let hex = row.avatar?.color, let color = Color(bridgeHex: hex) {
             return color
         }
