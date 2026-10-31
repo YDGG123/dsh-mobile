@@ -225,11 +225,17 @@ final class GatewayTeamFeed: ObservableObject {
         }
         guard let payload = rosterStore.load(serverKey: self.resumeKey) else {
             Self.chunkLog.notice("roster cache miss: key=\(self.resumeKey, privacy: .public)")
+            // 本地没有可用名册（首次安装、缓存版本升级作废、超期）→ **必须作废续连游标**：
+            // resume 里的 seq 在说「我到过这里」，而手上没有那批数据，两者不一致时网关会
+            // 只回 sync.done(caught-up) 且**不发快照**，Bot 页就会永远空着
+            // （2026-10-31 用户反馈「本来能看到，等一下就空了」：v1→v2 缓存作废 + resume 仍在）。
+            discardResumeWithoutLocalRoster(reason: "roster-cache-miss")
             return
         }
         let cachedRows = Self.rosterRows(from: payload.snapshot)
         guard !cachedRows.isEmpty else {
             Self.chunkLog.notice("roster cache skipped: cachedRows empty")
+            discardResumeWithoutLocalRoster(reason: "roster-cache-empty")
             return
         }
         rows = cachedRows
@@ -243,6 +249,15 @@ final class GatewayTeamFeed: ObservableObject {
         phase = .connecting
         markBotsRendered(source: "cache")
         Self.chunkLog.notice("roster cache hydrated rows=\(cachedRows.count, privacy: .public) age=\(Int(Date().timeIntervalSince(payload.savedAt)), privacy: .public)s")
+    }
+
+    /// 本地没有可用名册时作废续连游标（`instanceId + seq`）。
+    /// 「seq 追平 + 无内容」是自相矛盾的组合：网关按 seq 判定已追平就不会再发快照，
+    /// 客户端只能等到下一次真实变更，表现就是 Bot 页一直空。
+    private func discardResumeWithoutLocalRoster(reason: String) {
+        guard !resumeKey.isEmpty else { return }
+        Self.resumeStore.clear(serverKey: resumeKey)
+        Self.chunkLog.notice("resume discarded: \(reason, privacy: .public) — next connect asks for a full snapshot")
     }
 
     /// 从快照 JSON 解析行（缓存水合用的入口；解析器与实时路径**是同一个**）。
@@ -443,9 +458,17 @@ final class GatewayTeamFeed: ObservableObject {
         var authFrame: [String: Any] = ["type": "auth", "token": resource.token,
                                         "capabilities": [FrameReassembler.capabilityName]]
         // ② 零往返续连：带上 {instanceId, afterSeq}，网关命中留窗就直接回 delta（不发整帧快照）。
-        if let resume = Self.resumeStore.load(serverKey: resumeKey),
-           let payload = Self.resumePayload(instanceId: resume.instanceId, seq: resume.seq) {
+        // ⚠️ 前提是**手上真有名册内容**：rows 为空时 seq 没有对应的数据，网关会判定
+        // 「已追平」而不发快照（2026-10-31 Bot 页空白的根因）。此时宁可要整帧，也不要假续连。
+        if rows.isEmpty {
+            discardResumeWithoutLocalRoster(reason: "no-local-rows-at-connect")
+            Self.chunkLog.notice("connect resume=no reason=no-local-roster")
+        } else if let resume = Self.resumeStore.load(serverKey: resumeKey),
+                  let payload = Self.resumePayload(instanceId: resume.instanceId, seq: resume.seq) {
             authFrame["resume"] = payload
+            Self.chunkLog.notice("connect resume=yes afterSeq=\(resume.seq, privacy: .public) instance=\(resume.instanceId, privacy: .public) rows=\(self.rows.count, privacy: .public)")
+        } else {
+            Self.chunkLog.notice("connect resume=no reason=no-stored-resume rows=\(self.rows.count, privacy: .public)")
         }
         let authText = (try? JSONSerialization.data(withJSONObject: authFrame))
             .flatMap { String(data: $0, encoding: .utf8) }
@@ -520,11 +543,7 @@ final class GatewayTeamFeed: ObservableObject {
               let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return }
         if let type = object["type"] as? String {
             if type == "ready" {
-                StartupTimeline.mark("ws.connected")
-                reconnectDelay = 1
-                if let instance = object["instanceId"] as? String { instanceId = instance }
-                phase = .live
-                lastError = nil
+                applyReady(object)
                 return
             }
             if type == "pong" {
@@ -538,6 +557,9 @@ final class GatewayTeamFeed: ObservableObject {
                 // 回放界标：reason ∈ resume|sync.from|caught-up|gap|unknown-instance|snapshot。
                 let reason = object["reason"] as? String ?? "-"
                 let doneSeq = (object["seq"] as? NSNumber)?.intValue ?? -1
+                // 顺手留好网关侧 B 单的接口：`sync.done` 带上顶层 `degraded` 后自动生效。
+                // 到达这里说明回放数据已全部应用，此刻的判定是权威的；未带字段则不动。
+                degraded = Self.degradedAfter(current: degraded, frame: object)
                 Self.chunkLog.notice("sync.done reason=\(reason, privacy: .public) seq=\(doneSeq, privacy: .public)")
                 return
             }
@@ -762,6 +784,8 @@ final class GatewayTeamFeed: ObservableObject {
             if let row = row(from: raw, kind: .room) { next.append(row) }
         }
         rows = next
+        // 诊断（Release 保留）：下一次同类问题不用再猜是「没收到快照」还是「快照是空的」。
+        Self.chunkLog.notice("snapshot rows=\(next.count, privacy: .public) bots=\((object["bots"] as? [[String: Any]])?.count ?? -1, privacy: .public) rooms=\((object["rooms"] as? [[String: Any]])?.count ?? -1, privacy: .public) instance=\(frameInstance, privacy: .public) seq=\(self.seq, privacy: .public)")
         applySnapshotOrderFallback()
         phase = .live
         lastError = nil
@@ -777,6 +801,21 @@ final class GatewayTeamFeed: ObservableObject {
         for index in rows.indices {
             if let stamp = rows[index].updatedAt { orderKeys[rows[index].sessionId] = stamp }
         }
+    }
+
+    /// internal 仅为接线测试：`ready` 的 degraded 读了没读，只有实例能测
+    /// （与 `applyOrder` 同一理由——纯函数用例测不到「接线漏没漏」）。
+    ///
+    /// `ready` = WS 认证通过后的第一帧，网关每次都发（`server.mjs`）。
+    /// 这一帧携带的 `degraded.team` 是**「resume caught-up 零帧」路径上唯一的实时态判定**，
+    /// 详见 `degradedAfterReady` 的注释。
+    func applyReady(_ object: [String: Any]) {
+        StartupTimeline.mark("ws.connected")
+        reconnectDelay = 1
+        if let instance = object["instanceId"] as? String { instanceId = instance }
+        degraded = Self.degradedAfterReady(current: degraded, frame: object)
+        phase = .live
+        lastError = nil
     }
 
     /// internal 仅为接线测试：degraded 更新这层"接线漏没漏"只有实例能测（order 帧漏网教训）。
@@ -812,6 +851,25 @@ final class GatewayTeamFeed: ObservableObject {
     /// `kind:'delta' ... degraded:true`）每次都带，恢复靠 snapshot 或显式 `degraded:false`。
     nonisolated static func degradedAfter(current: Bool, frame: [String: Any]) -> Bool {
         (frame["degraded"] as? Bool) ?? current
+    }
+
+    /// `ready` 帧的 `degraded` 是**嵌套对象**（`{team, cards}`，见网关 `server.mjs`），
+    /// 与 snapshot/delta/order 的顶层 bool **不同型**，所以要单独一个纯函数。
+    ///
+    /// 为什么必须读它（2026-10-31 帧级实测）：网关在「`resume` 命中且 seq 已追平」路径上
+    /// **零帧**——`history(afterSeq)` 返回 `{mode:'ok', frames:[]}` 时整段跳过快照，
+    /// 只发一条不带 degraded 的 `sync.done`。此时客户端「缓存水合置 true」
+    /// （`hydrateRosterCache`：缓存本来就不是实时态）**没有任何帧能清掉**，
+    /// 就长期挂「实时状态暂不可用」，要等下一次真实变化才自己好 —— 正是用户
+    /// 「经常不可用 / 过会儿自己好」的形态。`ready` 每次连接都发，是这条路径上
+    /// 客户端唯一能拿到实时态判定的入口。
+    ///
+    /// 只取 `team`：卡片流有独立的降级通道（`cards.degraded`），混用会把
+    /// 「卡片降级」误算成「团队降级」。缺字段 = 不动（缺字段 ≠ 恢复）。
+    nonisolated static func degradedAfterReady(current: Bool, frame: [String: Any]) -> Bool {
+        guard let degraded = frame["degraded"] as? [String: Any],
+              let team = degraded["team"] as? Bool else { return current }
+        return team
     }
 
     nonisolated static func cardOwner(_ card: [String: Any]) -> String? {
