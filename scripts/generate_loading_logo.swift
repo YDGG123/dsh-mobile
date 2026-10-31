@@ -6,11 +6,11 @@ import ImageIO
 import UniformTypeIdentifiers
 
 let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-// 2026-10-27：数据源换成用户新虎鲸矢量（build 37 的 `DshOrcaMark`）。
+// 2026-10-27：数据源换成用户新虎鲸矢量（build 37 的 `DshOrcaMark`，现名 `OrcarnessOrcaBlack`）。
 // 它有 **8 条 path**（旧版只有 1 条），且用了 **Q 二次曲线** —— 旧解析只取 firstMatch
 // 且只支持 M/C/Z，照搬会画出残缺形状/直接崩。这里改成：遍历全部 path，按序并入同一个
 // CGPath；指令支持 M/L/H/V/C/Q/Z（H/V 是 1 参数的直线）。
-let source = root.appendingPathComponent("DeepSeekHarnessMobile/Resources/Assets.xcassets/DshOrcaMark.imageset/dsh-orca-mark.svg")
+let source = root.appendingPathComponent("DeepSeekHarnessMobile/Resources/Assets.xcassets/OrcarnessOrcaBlack.imageset/orcarness-orca-black.svg")
 let svg = try String(contentsOf: source, encoding: .utf8)
 let pathRegex = try NSRegularExpression(pattern: #"<path d="([^"]+)""#)
 let matches = pathRegex.matches(in: svg, range: NSRange(svg.startIndex..., in: svg))

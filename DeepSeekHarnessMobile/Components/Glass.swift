@@ -188,8 +188,6 @@ struct HarnessMark: View {
     var width: CGFloat = 216
 
     /// 只有字标，**不再前置那只虎鲸**（2026-10-26 真机反馈：「字的左右还有原版的图标在」）。
-    /// 原来它读 `DshOrcaMark`——那是原版 Whaleness 的图形、还带
-    /// `aria-label="Whaleness orca mark"`，挂在 Orcarness 字标旁边就是拼盘。
     /// 新字标本身已经表达完整（Orcarness + HARNESS 徽章），前面再放一只鲸是重复。
     /// 顺带好处：去掉图标后字标可用满 `width`（216pt），163:24 在 29pt 高时宽约 197pt，
     /// 正好不再被压到 183pt，字比之前更清楚。
@@ -212,16 +210,22 @@ struct OrcarnessOrcaIcon: View {
         // ⚠️ 用户拍板（2026-10-27）：**不用 template**——多色品牌图套模板会压平细节
         // （黑鲸+白眼斑+灰眼睛 → 一块纯色剪影，"认不出"）。原始渲染保留全部细节。
         // 深色模式黑上黑 → 给一层极浅灰圆底（浅色模式直接原图）。
-        // 资产级 `template-rendering-intent` 也已移除（见 DshOrcaMark.imageset/Contents.json）。
+        // 资产级 `template-rendering-intent` 也已移除（见 OrcarnessOrcaBlack.imageset/Contents.json）。
+        //
+        // 📌 命名坑（2026-10-31 整改）：**`OrcarnessOrcaBlack`（原 `DshOrcaMark`）才是正牌
+        // Orcarness 图形**；旧文件里叫 `OrcarnessOrcaMark` 的那份其实是 **Whaleness 旧图**
+        // （aria-label 至今写着 "Whaleness orca mark"，已删除）。两个名字曾经反着叫，
+        // 现在按「名字=图形」统一：黑鲸 `OrcarnessOrcaBlack`（主 App）、
+        // 蓝鲸 `OrcarnessOrcaBlue`（Live Activity 专用）。别只凭名字猜图形。
         if colorScheme == .dark {
-            Image("DshOrcaMark")
+            Image("OrcarnessOrcaBlack")
                 .resizable().scaledToFit()
                 .padding(size * 0.14)
                 .background(Circle().fill(Color(white: 0.92)))
                 .frame(width: size, height: size)
                 .accessibilityHidden(true)
         } else {
-            Image("DshOrcaMark")
+            Image("OrcarnessOrcaBlack")
                 .resizable().scaledToFit()
                 .frame(width: size, height: size)
                 .accessibilityHidden(true)

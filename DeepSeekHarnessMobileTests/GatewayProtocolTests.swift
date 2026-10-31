@@ -10093,11 +10093,11 @@ final class WorkspaceFilePreviewPresentationTests: XCTestCase {
     }
 
     func testLogoUsesVectorInsteadOfApng() {
-        // 2026-10-27 重做：加载标识从 APNG 自绘改为矢量（`DshOrcaMark`）。
+        // 2026-10-27 重做：加载标识从 APNG 自绘改为矢量（`OrcarnessOrcaBlack`，原名 `DshOrcaMark`）。
         // 理由见 WorkspaceLoadingLogo 头注释——自绘管线换矢量后连续两次产出不像鲸的图。
         // 这里钉住两件事：① 不再引用 APNG dataset ② 模板渲染保证形状与空态一致。
         XCTAssertNil(NSDataAsset(name: "OrcarnessLoading") ?? nil)
-        XCTAssertTrue(UIImage(named: "DshOrcaMark") != nil, "矢量资源必须在位")
+        XCTAssertTrue(UIImage(named: "OrcarnessOrcaBlack") != nil, "矢量资源必须在位")
         // reduceMotion 下不做呼吸动画（防闪）——行为由 SwiftUI `.animation(value:)` 保证，
         // 这类纯视图动画无法在无宿主窗口下断言，真机验收覆盖。
     }

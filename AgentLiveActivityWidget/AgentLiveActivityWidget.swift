@@ -29,7 +29,7 @@ struct AgentLiveActivityWidget: Widget {
                     AgentIslandExpanded(context: context)
                 }
             } compactLeading: {
-                AgentWhaleMark(compact: true, forceDark: true)
+                AgentWhaleMark(compact: true)
                     .frame(width: 20, height: 20)
             } compactTrailing: {
                 AgentCompactStatus(context: context)
@@ -530,7 +530,7 @@ private enum AgentActivityMetrics {
 private struct AgentIslandBrand: View {
     var body: some View {
         HStack(spacing: 6) {
-            AgentWhaleMark(compact: false, forceDark: true)
+            AgentWhaleMark(compact: false)
             Text("Orcarness")
                 .font(.system(size: 10.5, weight: .semibold))
                 .foregroundStyle(S29IslandColors.dim)
@@ -696,28 +696,26 @@ private struct AgentCompactStatus: View {
 
 // MARK: - 鲸鱼品牌图（用户 2026-10-30 口径）
 
-/// **不用 template**——多色品牌图套模板会压平细节（黑身 + 白斑 + 灰眼睛 → 一块纯色剪影，
-/// "认不出"）；资产级 `template-rendering-intent` 也已移除（见 OrcarnessOrcaMark.imageset）。
-/// · 浅色 = 原图直接渲染：白色是负空间，显白卡底，黑鲸 + 白斑天然成立
-/// · 深色 / 灵动岛 = 浅灰圆底托住负空间，白斑不糊进深底（与主 App `OrcarnessOrcaIcon`
-///   同款方案，2026-10-27 已验收）
+/// 蓝鲸品牌图（用户 2026-10-31 定稿：**不要浅灰圆底，要蓝鲸，白色必须保留**）。
+///
+/// 资源 `orcarness-orca-mark-blue.svg` 是**双层**结构（源 SVG 只有一个 `#111111`、
+/// 白色是透明负空间，直接改色做不到"黑变蓝、白保留"）：
+///   第 1 层 = 身体外轮廓实心**白**
+///   第 2 层 = 完整路径（含两条挖孔子路径）染品牌蓝 #2E6BE6
+/// 挖孔处露出第 1 层白 → 深黑底（锁屏深卡 / 恒黑灵动岛）上白斑清晰。
+///
+/// **不能用 `.renderingMode(.template)`**：会把双层压成单色剪影，白斑与鲸身细节全丢
+/// （资产级 `template-rendering-intent` 同样不能加）。浅色与深色统一用这张蓝鲸
+/// （白底上也是蓝身白斑，用户要求统一）。
 private struct AgentWhaleMark: View {
-    @Environment(\.colorScheme) private var scheme
     var compact: Bool = false
-    /// 灵动岛岛体恒黑，等同深色场景
-    var forceDark: Bool = false
 
     private var size: CGFloat { compact ? 16 : 16 }
 
     var body: some View {
-        let dark = forceDark || scheme == .dark
-        Image("OrcarnessOrcaMark")
+        Image("OrcarnessOrcaBlue")
             .resizable()
             .scaledToFit()
-            .padding(size * 0.14)
-            .background {
-                if dark { Circle().fill(Color(white: 0.92)) }
-            }
             .frame(width: size, height: size)
             .accessibilityHidden(true)
     }
