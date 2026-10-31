@@ -2953,7 +2953,7 @@ private fun ProcessDisclosure(
                         fontSize = 14.sp, fontWeight = FontWeight.Medium)
                     if (preview.isNotEmpty()) Text(preview,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
-                        fontSize = 12.sp, fontFamily = FontFamily.Monospace,
+                        style = DshType.mono,
                         maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
             } else {

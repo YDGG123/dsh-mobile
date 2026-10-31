@@ -111,7 +111,7 @@ internal fun SettingsScreen(
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
-                title = { Text(appText("设置"), fontSize = 17.sp, fontWeight = FontWeight.SemiBold) },
+                title = { Text(appText("设置"), style = DshType.title) },
                 navigationIcon = {
                     TopBarCircleButton(
                         iconRes = R.drawable.ic_back_chevron,
@@ -244,7 +244,7 @@ internal fun SettingsScreen(
                         }
                     }
                     stateHolder.platformError?.let { error ->
-                        Text(error, color = MaterialTheme.colorScheme.error, fontSize = 13.sp)
+                        Text(error, color = MaterialTheme.colorScheme.error, style = DshType.footnote)
                     }
                     Spacer(Modifier.padding(bottom = 20.dp))
                 }
@@ -459,7 +459,7 @@ private fun SettingsSelectionScaffold(
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
-                title = { Text(title, fontSize = 17.sp, fontWeight = FontWeight.SemiBold) },
+                title = { Text(title, style = DshType.title) },
                 navigationIcon = {
                     TopBarCircleButton(
                         iconRes = R.drawable.ic_back_chevron,
@@ -513,11 +513,11 @@ private fun SettingsEmptyState(title: String, description: String) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Text(title, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+        Text(title, style = DshType.title)
         Text(
             description,
             color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.52f),
-            fontSize = 13.sp,
+            style = DshType.footnote,
             lineHeight = 18.sp
         )
     }
@@ -549,8 +549,7 @@ private fun AgentPresetCard(
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
                 agentPresetDisplayName(preset.id, preset.name),
-                fontSize = 17.sp,
-                fontWeight = FontWeight.SemiBold
+                style = DshType.title
             )
             Text(
                 preset.id,
@@ -558,8 +557,7 @@ private fun AgentPresetCard(
                     MaterialTheme.colorScheme.onSurface.copy(alpha = 0.07f),
                     RoundedCornerShape(50)
                 ).padding(horizontal = 7.dp, vertical = 3.dp),
-                fontSize = 12.sp,
-                fontFamily = FontFamily.Monospace,
+                style = DshType.mono,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f)
             )
             Spacer(Modifier.weight(1f))
@@ -609,7 +607,7 @@ private fun DefaultModelCard(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Text(model.name, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            Text(model.name, style = DshType.title, modifier = Modifier.weight(1f))
             if (selected) CurrentDefaultBadge()
         }
         val efforts = model.reasoning?.efforts.orEmpty()
