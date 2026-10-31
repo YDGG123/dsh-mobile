@@ -257,6 +257,26 @@ struct ModelPickerPanel: View {
     }
 }
 
+// MARK: - 锚定浮层的几何常量（只定义一次）
+//
+//  浮层「能分到多少高度」= 锚点上方/下方里较大的那一侧 − margin − gap − 箭头高。
+//  调用方要传 `maximumContentHeight` 时必须走 `maxContentHeight(...)`，**不要自己拿屏高乘比例**：
+//  传一个没扣过空间的数，内容会比浮层实际分到的位置高，卡片底部（footer / 最后一行）
+//  会被屏幕边缘切掉（2026-10-31 设置页 66% 上限踩到这个坑）。
+enum ComposerPopoverMetrics {
+    /// 卡片与锚点之间的垂直间隙
+    static let gap: CGFloat = 6
+    /// 箭头高度（卡片内容要再扣掉它）
+    static let arrowHeight: CGFloat = 8
+
+    /// 锚点上下两侧里较大的一侧能放下的内容高度（已扣 margin / gap / 箭头）。
+    static func maxContentHeight(sourceFrame: CGRect, availableSize: CGSize, margin: CGFloat) -> CGFloat {
+        let above = max(0, sourceFrame.minY - margin - gap)
+        let below = max(0, availableSize.height - sourceFrame.maxY - margin - gap)
+        return max(0, max(above, below) - arrowHeight)
+    }
+}
+
 // MARK: - 锚定浮层（原 ConversationView 私有件，S25 起共享给设置页）
 //
 //  相比原版仅新增两个可选参数（既有调用点行为不变）：
@@ -312,8 +332,8 @@ struct ComposerPopoverOverlay<Content: View>: View {
     }
 
     var body: some View {
-        let gap: CGFloat = 6
-        let arrowHeight: CGFloat = 8
+        let gap = ComposerPopoverMetrics.gap
+        let arrowHeight = ComposerPopoverMetrics.arrowHeight
         let width = min(preferredWidth, max(1, availableSize.width - margin * 2))
         let above = max(0, sourceFrame.minY - margin - gap)
         let below = max(0, availableSize.height - sourceFrame.maxY - margin - gap)

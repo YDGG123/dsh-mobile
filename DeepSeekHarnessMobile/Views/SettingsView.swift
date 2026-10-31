@@ -1747,7 +1747,21 @@ private struct DefaultModelPickerOverlay: ViewModifier {
             .overlayPreferenceValue(ModelPickerAnchorKey.self) { anchor in
                 if let anchor {
                     GeometryReader { geometry in
-                        let cardCap = min(geometry.size.height * 0.66, max(240, geometry[anchor].minY - 44))
+                        // 高度上限 = min(屏高 66%, 锚点某一侧真正能放下的高度)。
+                        // ⚠️ 不能再用「锚点上方空间」单独当上限：设置页的「默认模型」行在可滚动列表里，
+                        // 行滑到中下部时 `minY - 44` 会掉到 240 地板，卡片被压成很矮一条——
+                        // 用户 2026-10-31 真机反馈「设置页模型弹窗被压成很矮一条」，根因就是这条。
+                        // 也不能只写「屏高 66%」：那会比浮层实际分到的位置高，卡片 footer 被屏幕边缘切掉。
+                        // 所以统一走 ComposerPopoverMetrics（与会话页同一个浮层共用一份几何口径）。
+                        let anchorFrame = geometry[anchor]
+                        let cardCap = min(
+                            geometry.size.height * 0.66,
+                            ComposerPopoverMetrics.maxContentHeight(
+                                sourceFrame: anchorFrame,
+                                availableSize: geometry.size,
+                                margin: 8
+                            )
+                        )
                         ComposerPopoverOverlay(
                             sourceFrame: geometry[anchor],
                             availableSize: geometry.size,
