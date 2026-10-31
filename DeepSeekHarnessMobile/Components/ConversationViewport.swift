@@ -332,6 +332,27 @@ final class ConversationViewportController: UIViewController, UICollectionViewDe
     private var needsInitialBottomPlacement = false
     private var needsBottomAlignment = false
     private var bottomAlignmentGeneration = 0
+    // P1 进入会话的「尾部追平抑制窗」：首次底部对齐完成后的一小段时间里，
+    // 内容还在继续到达（跑任务时尤为明显）。这段窗口内不再逐条 setContentOffset
+    // 硬跳到新底部，而是把 offset 差并进下一帧用短动画追平——
+    // 2026-10-31 用户实测：退出会话 → 期间有新输出 → 再进入时「抖动抽搐」，
+    // 打点测得对齐完成后 ~100ms 内 offset 一帧硬跳 +75 / +195 / +491pt（内容越长越大）。
+    // 仅对「进入后首次对齐完成」生效；用户手势立即放弃（见 followStreamingTail 与 scrollViewWillBeginDragging）。
+    private var tailFollowSuppressionUntil: CFAbsoluteTime = 0
+    private var hasCompletedInitialBottomAlignment = false
+    /// 抑制窗长度（秒）。覆盖 0.18s 内容淡入 + 一帧余量；真机上按体感调，只动这个常量。
+    private static let tailFollowSuppressionInterval: CFAbsoluteTime = 0.35
+    /// 进入阶段「内容还在落位」的续期：内容每次继续到达就把窗口往后延 0.2s，
+    /// 但整体不超过对齐完成后的 1.2s（超过就回到正常的尾部跟随，别把跟随永久压住）。
+    private static let tailFollowSuppressionExtension: CFAbsoluteTime = 0.2
+    private static let tailFollowSuppressionHardCap: CFAbsoluteTime = 1.2
+    private var initialAlignmentAt: CFAbsoluteTime = 0
+    /// 抑制窗内的追平动画（CADisplayLink 自己插值——实测 UIView.animate 改 contentOffset
+    /// 在同一次布局收尾里会被拍平成一帧硬跳，只有显式逐帧插值才真的平滑）。
+    private var tailFollowCatchUpLink: CADisplayLink?
+    /// 抑制窗内追平的每帧阻尼（吃掉剩余距离的比例）。0.25 → 约 10 帧（0.17s）收敛到视差，
+    /// 同时把单帧位移限在剩余距离的 1/4。
+    private static let tailFollowCatchUpDamping: CGFloat = 0.25
     /// Advanced only by an actual user drag. Layout invalidation can briefly
     /// move the collection view away from its old bottom while a new user or
     /// reasoning row is inserted; that transient offset must not cancel the
@@ -471,6 +492,11 @@ final class ConversationViewportController: UIViewController, UICollectionViewDe
     private var pendingContentRevealStamp: HistoryPresentationStamp?
     private var contentRevealGeometry: HistoryScrollIndicatorGeometry?
     private var initialContentRevealDisplayLink: CADisplayLink?
+    private final class TailFollowCatchUpTarget: NSObject {
+        weak var owner: ConversationViewportController?
+        @MainActor @objc func tick() { owner?.stepTailFollowCatchUp() }
+    }
+
     private final class InitialContentRevealTarget: NSObject {
         weak var owner: ConversationViewportController?
         @MainActor @objc func tick() { owner?.advanceInitialContentReveal() }
@@ -2177,25 +2203,109 @@ final class ConversationViewportController: UIViewController, UICollectionViewDe
         .fullWidth
     }
 
+    // MARK: 进入会话尾部追平（P1）
+
+    /// 进入会话后的首次底部对齐完成后，开启一段抑制窗。
+    /// 只标记「初始对齐已发生过一次」；再次进入会话时 `scrollToBottom()` 会重置标记，
+    /// 所以窗口天然只对本次进入生效一次。
+    private func armTailFollowSuppressionAfterInitialAlignment() {
+        guard !hasCompletedInitialBottomAlignment else { return }
+        hasCompletedInitialBottomAlignment = true
+        initialAlignmentAt = CFAbsoluteTimeGetCurrent()
+        tailFollowSuppressionUntil = initialAlignmentAt + Self.tailFollowSuppressionInterval
+    }
+
+    /// 实测（2026-10-31）：对齐完成后新内容到达，但自尺寸 cell 量高要 ~200ms 才落位，
+    /// 固定 350ms 窗口会错过这批落位（实测内容在 +410ms 才变高 → 窗口已过期 → 又硬跳）。
+    /// 所以内容每继续到达一次就续期 0.2s，硬上限 1.2s。
+    private func extendTailFollowSuppressionWhileContentSettles() {
+        guard hasCompletedInitialBottomAlignment else { return }
+        let now = CFAbsoluteTimeGetCurrent()
+        let hardCap = initialAlignmentAt + Self.tailFollowSuppressionHardCap
+        guard now < hardCap else { return }
+        tailFollowSuppressionUntil = min(max(tailFollowSuppressionUntil, now + Self.tailFollowSuppressionExtension), hardCap)
+    }
+
+    private func isTailFollowSuppressionActive() -> Bool {
+        guard hasCompletedInitialBottomAlignment,
+              CFAbsoluteTimeGetCurrent() < tailFollowSuppressionUntil else { return false }
+        // 用户手势优先级最高：拖拽/减速/按下立刻放弃抑制，绝不让窗口压住手。
+        return !collectionView.isTracking
+            && !collectionView.isDragging
+            && !collectionView.isDecelerating
+    }
+
     /// Streaming updates only need one lightweight tail adjustment. The
     /// multi-pass stabilizer in `scrollToBottom()` is reserved for initial
     /// history presentation and explicit user requests; running it for every
     /// token competes directly with touch handling and Markdown measurement.
     private func followStreamingTail() {
         guard !dataSource.snapshot().itemIdentifiers.isEmpty else { return }
+        extendTailFollowSuppressionWhileContentSettles()
         collectionView.layoutIfNeeded()
         let bottomOffset = max(
             -collectionView.adjustedContentInset.top,
             collectionView.contentSize.height - collectionView.bounds.height + collectionView.adjustedContentInset.bottom
         )
+        let currentOffset = collectionView.contentOffset.y
+        // 抑制窗内：内容继续到达时不再逐条硬跳，交给逐帧插值的追平动画
+        // （每帧只吃剩余距离的 1/4，见 startTailFollowCatchUp）。
+        if isTailFollowSuppressionActive(), abs(bottomOffset - currentOffset) > 0.5 {
+            startTailFollowCatchUp(from: currentOffset)
+            return
+        }
         isProgrammaticScroll = true
         collectionView.setContentOffset(CGPoint(x: 0, y: bottomOffset), animated: false)
         isProgrammaticScroll = false
         setPinned(true)
     }
 
+    /// 从当前 offset 出发逐帧追到「当前」底部。目标每帧重算（内容还在长），
+    /// 已经在追就不重启动画（重启动会顿一下，让既有曲线继续吃剩余距离）。
+    private func startTailFollowCatchUp(from startOffset: CGFloat) {
+        if tailFollowCatchUpLink != nil { return } // 已经在追，别重启动画（重启动会顿一下）
+        isProgrammaticScroll = true
+        let target = TailFollowCatchUpTarget(); target.owner = self
+        let link = CADisplayLink(target: target, selector: #selector(TailFollowCatchUpTarget.tick))
+        link.add(to: .main, forMode: .common)
+        tailFollowCatchUpLink = link
+    }
+
+    fileprivate func stepTailFollowCatchUp() {
+        guard !collectionView.isTracking, !collectionView.isDragging, !collectionView.isDecelerating else {
+            finishTailFollowCatchUp()
+            return
+        }
+        // 指数逼近（每帧吃掉剩余距离的 25%）而不是固定时长的缓动：
+        // 追平期间内容往往还在长，固定时长会把「新长出来的一段」揉进下一帧一次性吃掉
+        // （实测出现单帧 225pt 的二次硬跳）。指数逼近每帧位移 ∝ 剩余距离，
+        // 内容再长也只是让曲线拉长，单帧位移被天然限幅。
+        let bottomOffset = max(
+            -collectionView.adjustedContentInset.top,
+            collectionView.contentSize.height - collectionView.bounds.height + collectionView.adjustedContentInset.bottom
+        )
+        let remaining = bottomOffset - collectionView.contentOffset.y
+        if abs(remaining) < 0.5 {
+            finishTailFollowCatchUp()
+            return
+        }
+        collectionView.contentOffset = CGPoint(x: 0, y: collectionView.contentOffset.y + remaining * Self.tailFollowCatchUpDamping)
+    }
+
+    private func finishTailFollowCatchUp() {
+        tailFollowCatchUpLink?.invalidate()
+        tailFollowCatchUpLink = nil
+        isProgrammaticScroll = false
+        if isAtBottomForPinning(collectionView) { setPinned(true) }
+    }
+
     func scrollToBottom() {
         guard !dataSource.snapshot().itemIdentifiers.isEmpty else { return }
+        // 新一轮「进入对齐」开始：清掉上一轮的抑制窗与标记，
+        // 让「抑制只在进入后首次对齐完成时生效一次」对每次进入都重新成立。
+        hasCompletedInitialBottomAlignment = false
+        tailFollowSuppressionUntil = 0
+        finishTailFollowCatchUp()
         needsBottomAlignment = true
         bottomAlignmentGeneration &+= 1
         let generation = bottomAlignmentGeneration
@@ -2229,6 +2339,7 @@ final class ConversationViewportController: UIViewController, UICollectionViewDe
                 nextStablePasses = 0
             }
             if nextStablePasses >= 2 || remainingPasses <= 0 {
+                self.armTailFollowSuppressionAfterInitialAlignment()
                 self.onBottomAlignmentCompleted()
             } else {
                 self.confirmStableBottomAlignment(
@@ -2319,6 +2430,9 @@ final class ConversationViewportController: UIViewController, UICollectionViewDe
         needsBottomAlignment = false
         bottomAlignmentGeneration &+= 1
         userInteractionGeneration &+= 1
+        // 用户开始拖拽 → 抑制窗立刻作废（P1 硬要求：不许抑制压住用户的手）。
+        tailFollowSuppressionUntil = 0
+        finishTailFollowCatchUp()
         // 用户主动阅读优先于之前尚未执行的自动搜索定位。
         if searchTargetID != nil { positionedSearchTargetID = searchTargetID }
     }
@@ -2543,6 +2657,7 @@ final class ConversationViewportController: UIViewController, UICollectionViewDe
             reusableReadingAnchor = nil
             restore(anchor)
             setPinned(false)
+            armTailFollowSuppressionAfterInitialAlignment()
             onBottomAlignmentCompleted()
         } else if let target = searchTargetID, dataSource.indexPath(for: target) != nil {
             setPinned(false)
