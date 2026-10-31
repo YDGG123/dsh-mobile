@@ -46,8 +46,12 @@ struct HumanQuestionView: View {
             else if let plan = planReview { planReviewCard(plan) }
             else { questionCard }
         }
-        // 05 问答卡：蓝 = brand（与审批卡的琥珀分开），卡片走设计系统 token
-        .background(palette.cardFill, in: RoundedRectangle(cornerRadius: DSHRadius.xl, style: .continuous))
+        // 05 问答卡：蓝 = brand（与审批卡的琥珀分开），卡片走设计系统 token。
+        // ⚠️ 底必须**不透明**（composerFill），不能用 cardFill：cardFill 浅色是白 55% / 深色是白 6%
+        // 半透（那是首页卡片「透鲸鱼」的定制值）。问答卡浮在正文上，半透会把下面的消息透出来——
+        // 2026-10-31 用户真机截图反馈「问题卡片变透明了」，就是这里用了 cardFill 造成的回归。
+        // `Theme.swift` 的 composerFill 注释已经写明「浮在正文上的东西必须不透明」，按它走。
+        .background(palette.composerFill, in: RoundedRectangle(cornerRadius: DSHRadius.xl, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: DSHRadius.xl, style: .continuous)
                 .strokeBorder(palette.brand.opacity(0.5), lineWidth: 1.5)

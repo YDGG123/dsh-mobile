@@ -21,7 +21,9 @@ struct ApprovalRequestView: View {
             if isCollapsed { collapsedCard }
             else { expandedCard }
         }
-        .background(palette.cardFill)
+        // ⚠️ 与问答卡同一条：审批卡浮在正文上，底必须不透明（composerFill）。
+        // 用 cardFill（浅 55% / 深 6% 白）会把下面的消息透出来 —— 2026-10-31 同批修复。
+        .background(palette.composerFill)
         .clipShape(cardShape)
         .overlay { cardShape.strokeBorder(amber.opacity(0.55), lineWidth: 1.5) }
         .padding(.horizontal, DSHSpacing.lg)
