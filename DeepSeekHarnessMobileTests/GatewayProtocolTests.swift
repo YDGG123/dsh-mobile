@@ -14521,6 +14521,52 @@ final class TeamOrderDegradedWiringTests: XCTestCase {
     }
 }
 
+/// 接线用例：**ready 帧的 degraded 真的接上了**（纯函数用例测不到这层）。
+///
+/// 场景（2026-10-31 帧级实测）：客户端有缓存 → `hydrateRosterCache` 置 degraded=true；
+/// 连接带 resume → 网关在 seq 已追平时**零帧**（`history(afterSeq)` 返回
+/// `{mode:'ok', frames:[]}` 后整段跳过快照，只发一条不带 degraded 的 `sync.done`），
+/// → 没有任何帧能清掉这个 true，界面上「实时状态暂不可用」就一直挂着，
+/// 直到下一次真实变化（用户症状：经常不可用、过会儿自己好）。
+/// `ready` 每次连接都发，是这条路径上唯一的实时态判定入口。
+///
+/// 反向：删掉 `applyReady` 里 `degraded = Self.degradedAfterReady(...)` 那行 →
+/// `testReadyFrameClearsDegradedFlagOnResumeCaughtUp` 变红（即修复前的状态）。
+final class TeamReadyDegradedWiringTests: XCTestCase {
+    @MainActor
+    func testReadyFrameClearsDegradedFlagOnResumeCaughtUp() {
+        let feed = GatewayTeamFeed()
+        // 前置：模拟缓存水合把标志置真（缓存不是实时态，这一步本身是诚实的）
+        feed.applyOrder(["sessions": [:], "degraded": true])
+        XCTAssertTrue(feed.degradedForTesting, "前置：缓存水合后的降级态已建立")
+        // 网关 ready：团队实时 —— resume caught-up 路径上唯一能翻回 false 的帧
+        feed.applyReady(["type": "ready", "instanceId": "i-1",
+                         "degraded": ["team": false, "cards": false]])
+        XCTAssertFalse(feed.degradedForTesting,
+                       "ready 带 degraded.team:false 必须清掉「实时状态不可用」（否则 resume caught-up 零帧场景永久挂着）")
+    }
+
+    @MainActor
+    func testReadyFrameReportsDegradedTeam() {
+        let feed = GatewayTeamFeed()
+        feed.applyReady(["type": "ready", "degraded": ["team": true, "cards": false]])
+        XCTAssertTrue(feed.degradedForTesting, "网关确实在降级供数时，ready 必须如实置真")
+    }
+
+    @MainActor
+    func testReadyKeepsStateForCardFlagAndMissingField() {
+        // 反向①：cards 是独立降级通道，不许把「卡片降级」算成「团队降级」
+        let cardsOnly = GatewayTeamFeed()
+        cardsOnly.applyReady(["type": "ready", "degraded": ["team": false, "cards": true]])
+        XCTAssertFalse(cardsOnly.degradedForTesting, "cards.degraded 不得影响团队标志")
+        // 反向②：缺字段 = 不动（缺字段 ≠ 恢复，与 degradedAfter 同一纪律）
+        let missing = GatewayTeamFeed()
+        missing.applyOrder(["sessions": [:], "degraded": true])
+        missing.applyReady(["type": "ready", "instanceId": "i-1"])
+        XCTAssertTrue(missing.degradedForTesting, "ready 缺 degraded 字段时必须保持原状，不能当成恢复")
+    }
+}
+
 /// markFinished / 重复登记的收尾语义（42 翻页钩子）。
 final class BotSegmentsFinishTests: XCTestCase {
     func testMarkFinishedIsIdempotent() {
