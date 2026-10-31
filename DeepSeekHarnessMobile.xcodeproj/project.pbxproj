@@ -26,6 +26,7 @@
 		375D401B1B6F03015EC9073D /* GatewayProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = E638ED93D0BBFD018966FB52 /* GatewayProfile.swift */; };
 		3874FCB0CE354690A304E63F /* WorkspaceDrawerFeedbackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9A3BDFA7B0949F8BA0B01A6 /* WorkspaceDrawerFeedbackTests.swift */; };
 		39FD319C875F4B4A6893D676 /* GatewayProtocolTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B53A008218F24CA9A4DB4D1 /* GatewayProtocolTests.swift */; };
+		AA7700000000000000000004 /* TeamAvatarFileCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA7700000000000000000003 /* TeamAvatarFileCacheTests.swift */; };
 		48857E4314868A4DD9F695EA /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BE407E6C6512836EB108990D /* Foundation.framework */; };
 		5ED39F22065A71FC54D755AC /* AppStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61A1F439244BA594BF547C92 /* AppStore.swift */; };
 		605DCE79952E970820A95606 /* ConversationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEABECFD00017A6E10B1F4A2 /* ConversationView.swift */; };
@@ -96,6 +97,7 @@
 		E20191A4C7B1C0A8FF57CAC1 /* Glass.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCF581253EBCFEB43865AB51 /* Glass.swift */; };
 		AA6100000000000000000011 /* TeamGlyph.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA6100000000000000000010 /* TeamGlyph.swift */; };
 		AA6600000000000000000011 /* TeamRosterCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA6600000000000000000010 /* TeamRosterCache.swift */; };
+		AA7700000000000000000002 /* TeamAvatarFileCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA7700000000000000000001 /* TeamAvatarFileCache.swift */; };
 		AA6500000000000000000011 /* FrameReassembler.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA6500000000000000000010 /* FrameReassembler.swift */; };
 		AA6200000000000000000011 /* TeamAvatarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA6200000000000000000010 /* TeamAvatarView.swift */; };
 		AA6300000000000000000011 /* TeamGlyphTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA6300000000000000000010 /* TeamGlyphTests.swift */; };
@@ -173,6 +175,7 @@
 		AF17C0000000000000000004 /* FileIconAssetTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileIconAssetTests.swift; sourceTree = "<group>"; };
 		A9A3BDFA7B0949F8BA0B01A6 /* WorkspaceDrawerFeedbackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceDrawerFeedbackTests.swift; sourceTree = "<group>"; };
 		0B53A008218F24CA9A4DB4D1 /* GatewayProtocolTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GatewayProtocolTests.swift; sourceTree = "<group>"; };
+		AA7700000000000000000003 /* TeamAvatarFileCacheTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TeamAvatarFileCacheTests.swift; sourceTree = "<group>"; };
 		12863E736F832D8F502B94A0 /* Theme.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		152A3874C0D169644C9C7B6D /* Assets.xcassets */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		38457CD5C46830D1CA7E6D73 /* DshMobile.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = DshMobile.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -262,6 +265,7 @@
 		FCF581253EBCFEB43865AB51 /* Glass.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Glass.swift; sourceTree = "<group>"; };
 		AA6100000000000000000010 /* TeamGlyph.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TeamGlyph.swift; sourceTree = "<group>"; };
 		AA6600000000000000000010 /* TeamRosterCache.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TeamRosterCache.swift; sourceTree = "<group>"; };
+		AA7700000000000000000001 /* TeamAvatarFileCache.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TeamAvatarFileCache.swift; sourceTree = "<group>"; };
 		AA6500000000000000000010 /* FrameReassembler.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FrameReassembler.swift; sourceTree = "<group>"; };
 		AA6200000000000000000010 /* TeamAvatarView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TeamAvatarView.swift; sourceTree = "<group>"; };
 		AA6300000000000000000010 /* TeamGlyphTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TeamGlyphTests.swift; sourceTree = "<group>"; };
@@ -323,6 +327,7 @@
 			children = (
 				AA6100000000000000000010 /* TeamGlyph.swift */,
 				AA6600000000000000000010 /* TeamRosterCache.swift */,
+				AA7700000000000000000001 /* TeamAvatarFileCache.swift */,
 				AA6500000000000000000010 /* FrameReassembler.swift */,
 				873D1E0F3E1B1B2CB2366B06 /* VoiceInputAdapter.swift */,
 				A9F100000000000000000002 /* AppPreferences.swift */,
@@ -366,6 +371,7 @@
 				AA6300000000000000000010 /* TeamGlyphTests.swift */,
 				AA6400000000000000000010 /* RosterLookParityTests.swift */,
 				0B53A008218F24CA9A4DB4D1 /* GatewayProtocolTests.swift */,
+				AA7700000000000000000003 /* TeamAvatarFileCacheTests.swift */,
 				A9A3BDFA7B0949F8BA0B01A6 /* WorkspaceDrawerFeedbackTests.swift */,
 				81886703A6C3AB2164852990 /* VoiceInputTests.swift */,
 				AF17C0000000000000000004 /* FileIconAssetTests.swift */,
@@ -769,6 +775,7 @@
 				AA6300000000000000000011 /* TeamGlyphTests.swift in Sources */,
 				AA6400000000000000000011 /* RosterLookParityTests.swift in Sources */,
 				39FD319C875F4B4A6893D676 /* GatewayProtocolTests.swift in Sources */,
+				AA7700000000000000000004 /* TeamAvatarFileCacheTests.swift in Sources */,
 				CF2280000000000000000070 /* MarkdownMathTests.swift in Sources */,
 				3874FCB0CE354690A304E63F /* WorkspaceDrawerFeedbackTests.swift in Sources */,
 				CD86C5C4C6FF6F4BD8D715A6 /* VoiceInputTests.swift in Sources */,
@@ -791,6 +798,7 @@
 			files = (
 				AA6100000000000000000011 /* TeamGlyph.swift in Sources */,
 				AA6600000000000000000011 /* TeamRosterCache.swift in Sources */,
+				AA7700000000000000000002 /* TeamAvatarFileCache.swift in Sources */,
 				AA6500000000000000000011 /* FrameReassembler.swift in Sources */,
 				AA6200000000000000000011 /* TeamAvatarView.swift in Sources */,
 				BA1261E01FBB7F30C9AAE9D1 /* VoiceRipplePanel.swift in Sources */,

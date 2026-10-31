@@ -101,6 +101,9 @@ final class GatewayTeamFeed: ObservableObject {
         /// shape 是角色形状 id（whale/star/…，缺省时电脑端按 bot id 推导），image 是可选图片。
         var avatarShape: String?
         var avatarImage: String?
+        /// 头像文件的**内容哈希**（sha256 前 16 位）：磁盘缓存里的文件名、也是解码缓存键。
+        /// 缓存水合时只有它（字节在 `TeamAvatarFileCache` 里），实时帧会同时带上 data URL。
+        var avatarImageHash: String?
         /// 方案 C：矢量定义（与电脑端 SHAPES 同源）。有它就用 Path 画，回落顺序见 TeamAvatarView。
         var glyph: TeamAvatarGlyph?
         /// ds-bot 调色板 key（契约明写「手机端需同名映射」），默认块颜色优先用它。
@@ -302,6 +305,8 @@ final class GatewayTeamFeed: ObservableObject {
         if let avatar = raw["avatar"] as? [String: Any] {
             row.avatarShape = (avatar["shape"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             row.avatarImage = (avatar["image"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            // 缓存水合路径只有哈希（字节在文件缓存里，见 TeamAvatarFileCache）。
+            row.avatarImageHash = (avatar["imageHash"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         } else if let single = raw["avatar"] as? String, !single.isEmpty {
             row.avatarShape = nil
             row.avatarImage = single
@@ -719,7 +724,11 @@ final class GatewayTeamFeed: ObservableObject {
             let avatar = (item["avatar"] as? [String: Any]) ?? [:]
             if avatar["shape"] != nil || avatar["image"] != nil {
                 rows[position].avatarShape = (avatar["shape"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-                rows[position].avatarImage = (avatar["image"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+                let image = (avatar["image"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+                rows[position].avatarImage = image
+                // 只算哈希（几十 KB 的 sha256 是微秒级），不在这里做文件 IO：
+                // 哈希一致时 `avatarImage` 走解码缓存，画面和 Row 值都不变 → 不重绘、不重复解码。
+                rows[position].avatarImageHash = image.flatMap { TeamAvatarFileCache.hashOfDataURL($0) }
             }
             // 旁路帧的 glyph 也在**项顶层**（与 avatar 平级）：合并时不能丢，
             // 否则大快照延后头像的那批会退化成符号层。
@@ -1277,28 +1286,53 @@ final class GatewayTeamFeed: ObservableObject {
         return cache
     }()
 
+    /// 头像解析顺序：**文件缓存（按内容哈希）→ 实时帧 data URL → nil（回落 glyph/符号层）**。
+    ///
+    /// 键从「data URL 的 FNV 哈希」换成**内容 sha256 前 16 位**：与磁盘文件名同源，
+    /// 这样「启动水合读到的图」和「联网后同一张图」共用同一条缓存，内容没变就不重复解码。
     static func avatarImage(_ row: Row) -> UIImage? {
-        guard let raw = row.avatarImage, raw.hasPrefix("data:"),
-              let comma = raw.firstIndex(of: ","),
-              raw[raw.startIndex..<comma].contains("base64") else { return nil }
-        // 32 字符的稳定哈希键（FNV-1a 双轮），比整串 data URL 当键省内存
-        var hash: UInt64 = 0xcbf29ce484222325
-        for byte in raw.utf8 { hash = (hash ^ UInt64(byte)) &* 0x100000001b3 }
-        let key = NSString(string: String(hash, radix: 36))
-        if let cached = avatarCache.object(forKey: key) { return cached }
-        let base64 = String(raw[raw.index(after: comma)...])
-        guard let data = Data(base64Encoded: base64), let image = UIImage(data: data) else {
-            let prefix = String(raw.prefix(28))
-            if !reportedAvatarFailures.contains(key as String) {
-                reportedAvatarFailures.insert(key as String)
-                // 例：avatar undecodable: prefix=data:image/svg+xml;base64, bytes=1234
-                onAvatarDiagnostic?("avatar undecodable: prefix=\(prefix) bytes=\(raw.count)")
+        let hash = row.avatarImageHash ?? row.avatarImage.flatMap { TeamAvatarFileCache.hashOfDataURL($0) }
+        if let hash, let cached = avatarCache.object(forKey: hash as NSString) { return cached }
+
+        // ① 磁盘缓存命中（冷启动/断网的水合路径）
+        if let hash, let data = TeamAvatarFileCache.shared.data(for: hash) {
+            if let image = decodeAvatar(data, hash: hash, diagnosticPrefix: "cache") {
+                StartupTimeline.mark("bots.avatar.image")
+                return image
+            }
+        }
+
+        // ② 实时帧带来 data URL：解码成功后顺手落盘（解码失败不写坏文件）
+        guard let raw = row.avatarImage, raw.hasPrefix("data:") else { return nil }
+        guard let data = TeamAvatarFileCache.imageData(fromDataURL: raw) else {
+            if let hash, !reportedAvatarFailures.contains(hash) {
+                reportedAvatarFailures.insert(hash)
+                onAvatarDiagnostic?("avatar undecodable: prefix=\(String(raw.prefix(28))) bytes=\(raw.count)")
             }
             return nil
         }
-        // 渲染尺寸压到 ≤256pt（头像最大 46pt），避免为小图解码整张原图占内存
+        let resolvedHash = hash ?? TeamAvatarFileCache.hash(of: data)
+        if let cached = avatarCache.object(forKey: resolvedHash as NSString) { return cached }
+        guard let image = decodeAvatar(data, hash: resolvedHash, diagnosticPrefix: String(raw.prefix(28))) else {
+            return nil
+        }
+        // 落盘失败不影响本次显示（内存缓存已经拿到图），下次快照会再试。
+        TeamAvatarFileCache.shared.store(imageData: data)
+        return image
+    }
+
+    /// 解码 + 压到 128pt 缩略 + 进内存缓存。失败**不许静默**（只报前缀与长度，绝不写内容）。
+    private static func decodeAvatar(_ data: Data, hash: String, diagnosticPrefix: String) -> UIImage? {
+        guard let image = UIImage(data: data) else {
+            if !reportedAvatarFailures.contains(hash) {
+                reportedAvatarFailures.insert(hash)
+                // 例：avatar undecodable: prefix=cache bytes=1234
+                onAvatarDiagnostic?("avatar undecodable: prefix=\(diagnosticPrefix) bytes=\(data.count)")
+            }
+            return nil
+        }
         let scaled = image.preparingThumbnail(of: CGSize(width: 128, height: 128)) ?? image
-        avatarCache.setObject(scaled, forKey: key)
+        avatarCache.setObject(scaled, forKey: hash as NSString)
         return scaled
     }
 

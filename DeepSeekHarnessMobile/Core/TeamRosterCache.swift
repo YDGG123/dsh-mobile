@@ -7,16 +7,19 @@ import os
 /// 联网也要等握手 + 快照。会话页之所以"秒出"，是因为 `AppPreferences` 把会话列表存成
 /// `UserDefaults` 里的 JSON、启动时同步水合（`AppStore` 初始化）——这里照同一套姿势做。
 ///
-/// 设计约束（Chief 已拍）：
-/// - **照片头像不入缓存**：`avatar.image`（用户上传的 data URL，单个可达数十 KB）只保留
-///   `hasImage` 标记，将来要补照片加文件缓存即可，结构不用改；
+/// 设计约束：
+/// - **照片头像字节不入这份 JSON**（单个数十 KB，塞 `UserDefaults` 会撑爆 512KB 上限）：
+///   `avatar.image` 落盘到 `TeamAvatarFileCache`（文件名 = 内容 sha256 前 16 位），
+///   JSON 里只留 `avatar.imageHash` 引用 + `hasImage` 兼容标记；
+///   （2026-10-31 依据用户「打开 App 就能看到头像、电脑端变了才换」的要求，把旧的
+///    「照片头像不入缓存」约束改成文件缓存，`cacheVersion` 随之升到 2）
 /// - **glyph 全量保留**：20 个角色合计才 24KB，是断网时"头像可见"的关键；
 /// - **带版本号**：结构里写 `cacheVersion`，对不上或解不出来一律**静默回空态**，
 ///   绝不让 `JSONDecoder` 的错误打断启动；
 /// - 水合可以同步（几百 KB 很快），**回写必须后台**（见 `TeamRosterCacheStore.save`）。
 struct TeamRosterCache {
 
-    static let version = 1
+    static let version = 2
     static let defaultTTL: TimeInterval = 7 * 24 * 60 * 60
     /// 缓存体积上限：超了就逐步裁剪，仍然超就放弃缓存（绝不写超大 JSON）。
     static let maxBytes = 512 * 1024
@@ -75,17 +78,39 @@ struct TeamRosterCache {
         return nil
     }
 
-    /// 单个实体裁剪：去掉照片字节、保留标记与 glyph。
+    /// 单个实体裁剪：照片字节落盘成文件、JSON 里只留内容哈希；其余字段原样保留。
+    ///
+    /// 落盘失败（磁盘满 / 不是 base64 data URL）也**只留 `hasImage` 标记**，不报错、不阻塞：
+    /// 下次快照到了会再试一次；这期间 App 内仍用内存里的 data URL 画头像。
     private static func trimEntity(_ entity: [String: Any]) -> [String: Any] {
         var copy = entity
         if let avatar = copy["avatar"] as? [String: Any] {
-            let hasImage = (avatar["image"] as? String)?.isEmpty == false
             var slimAvatar = avatar
-            slimAvatar.removeValue(forKey: "image")
-            if hasImage { slimAvatar["hasImage"] = true }
+            if let image = avatar["image"] as? String, !image.isEmpty {
+                if let hash = TeamAvatarFileCache.shared.store(dataURL: image) {
+                    slimAvatar["imageHash"] = hash
+                }
+                slimAvatar["hasImage"] = true
+                slimAvatar.removeValue(forKey: "image")
+            } else if slimAvatar["imageHash"] == nil {
+                slimAvatar.removeValue(forKey: "hasImage")
+            }
             copy["avatar"] = slimAvatar
         }
         return copy
+    }
+
+    /// 快照里引用到的全部头像哈希（清理文件缓存时用：名册里没有的就是该删的）。
+    static func avatarImageHashes(in snapshot: [String: Any]) -> Set<String> {
+        var out: Set<String> = []
+        for key in ["bots", "rooms"] {
+            for entity in (snapshot[key] as? [[String: Any]]) ?? [] {
+                guard let avatar = entity["avatar"] as? [String: Any],
+                      let hash = avatar["imageHash"] as? String else { continue }
+                out.insert(hash)
+            }
+        }
+        return out
     }
 
     // MARK: - 读（校验）
@@ -164,6 +189,8 @@ final class TeamRosterCacheStore {
                 return
             }
             defaults.set(payload, forKey: key)
+            // 名册写成功后，清掉已经没有任何 Bot 引用的头像文件（删 Bot / 换头像都靠这一条兜底）。
+            TeamAvatarFileCache.shared.prune(keeping: TeamRosterCache.avatarImageHashes(in: trimmedObject))
         }
     }
 
@@ -178,6 +205,7 @@ final class TeamRosterCacheStore {
                   let trimmedObject = (try? JSONSerialization.jsonObject(with: trimmedData)) as? [String: Any],
                   let payload = TeamRosterCache.encode(snapshot: trimmedObject, instanceId: instanceId, savedAt: now) else { return }
             defaults.set(payload, forKey: key)
+            TeamAvatarFileCache.shared.prune(keeping: TeamRosterCache.avatarImageHashes(in: trimmedObject))
         }
         TeamRosterCache.log.notice("roster cache saved on background (sync)")
     }
