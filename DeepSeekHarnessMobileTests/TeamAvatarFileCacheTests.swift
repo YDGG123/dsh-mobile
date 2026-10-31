@@ -244,4 +244,3 @@ final class TeamAvatarFileCacheTests: XCTestCase {
         XCTAssertFalse(TeamAvatarFileCache.shared.contains(hashB), "名册里已经没有的 Bot，头像文件必须被清掉")
     }
 }
-

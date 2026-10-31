@@ -723,12 +723,19 @@ final class GatewayTeamFeed: ObservableObject {
             guard let id = item["id"] as? String, let position = index[id] else { continue }
             let avatar = (item["avatar"] as? [String: Any]) ?? [:]
             if avatar["shape"] != nil || avatar["image"] != nil {
-                rows[position].avatarShape = (avatar["shape"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+                let shape = (avatar["shape"] as? String).flatMap { $0.isEmpty ? nil : $0 }
                 let image = (avatar["image"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+                // 只算哈希（几十 KB 的 sha256 是微秒级），不在这里做文件 IO。
+                let hash = image.flatMap { TeamAvatarFileCache.hashOfDataURL($0) }
+                // **内容没变就不动这一行**：不写 data URL、不写哈希 → Row 的值与之前完全相同，
+                // SwiftUI 的 Hashable 比较相等就不会重排/重绘，解码缓存也不会被再问一次。
+                // （用户口径：电脑端没变就保持原头像，「不要重复渲染」。）
+                if hash != nil, hash == rows[position].avatarImageHash, rows[position].avatarShape == shape {
+                    continue
+                }
+                rows[position].avatarShape = shape
                 rows[position].avatarImage = image
-                // 只算哈希（几十 KB 的 sha256 是微秒级），不在这里做文件 IO：
-                // 哈希一致时 `avatarImage` 走解码缓存，画面和 Row 值都不变 → 不重绘、不重复解码。
-                rows[position].avatarImageHash = image.flatMap { TeamAvatarFileCache.hashOfDataURL($0) }
+                rows[position].avatarImageHash = hash
             }
             // 旁路帧的 glyph 也在**项顶层**（与 avatar 平级）：合并时不能丢，
             // 否则大快照延后头像的那批会退化成符号层。
