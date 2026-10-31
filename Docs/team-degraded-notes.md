@@ -103,7 +103,47 @@ history(7) → mode=ok frames=0        # afterSeq === head
 |---|---|---|
 | **A** | 客户端 `ready` 读 `degraded.team`（`applyReady` + `degradedAfterReady` 纯函数） | **已入库**（`ecf3dcf` 的 `GatewayTeamFeed.swift`），用例 `b23bf3e` |
 | **B** | 网关 `sync.done` 带顶层 `degraded`（语义最精确：回放界标，到达时回放数据已全部应用）；客户端分支已留好接口（缺字段不动） | 网关侧派给 DSBotDev，随下次重启生效 |
-| **C** | 源服务消失时主动推一帧 `degraded:true`（修结论 ② 的反向谎报） | 待办，单独排 |
+| **C** | 源服务消失时主动推一帧 `degraded:true`（修结论 ② 的反向谎报） | 待办；**评估已完成，见 §4.1** |
+
+### 4.1 C 的评估（2026-10-31，源码副本 + 探针实测）
+
+**问题**：结论 ② —— 源服务 DOWN 时网关静默，已连接手机继续显示旧实时态。
+
+**推荐修法 C1（两处小改，复用现成帧型）**：
+
+1. `maybeOrder` 的**去重签名并入当前降级状态**：
+   ```js
+   const signature = `${JSON.stringify(keys)}|degraded=${degraded()}`
+   ```
+   降级状态变化本身就是「要告知客户端的事件」，不能因为「排序没变」被去重掉。
+2. `bind()` 的**服务消失分支**（`if (!next && service)`）主动调一次 `maybeOrder()`，
+   不等下一个 tick。
+
+**实测证据**（把 C1 应用到 `team-feed.mjs` 副本，用探针跑）：
+
+```
+    133 STATE service=DOWN
+    135 帧 order degraded=true seq=0      ← 2ms 内送达
+```
+
+服务消失后 **2ms** 就发出 `order{degraded:true}`；客户端 `applyOrder` 已经接线
+（`degradedAfter`），直接显示「实时状态暂不可用」。探针结论 ② 从「静默 0 帧」
+变为「收到 1 帧」→ 探针报红 + `EXIT=1`，**这正是 C1 生效的信号**。
+
+**为什么选 C1 而不是重发快照**：零新帧型（复用 `order`，客户端已处理）、零异步重活
+（不等 `fallback.state()`）、天然去重（`if (!next && service)` 只在「从有到无」的转变
+触发一次，`service` 随即为 null，不会帧风暴）、不占契约 seq（`order` 本来就不占）。
+代价：`order` 的语义被扩展为「也承载降级状态变化」，网关侧注释要写明。
+
+**可选 C2（不优先）**：服务消失时异步补发**降级名册快照**，让 `rows` 也变成诚实的
+降级名册。好处是与「首次连接的降级态」完全一致；代价是一次 `/state` 读取，且服务
+闪断时界面会闪一下（降级→恢复），抖动频繁时体验更差。**建议 C1 先做，C2 视用户反馈。**
+
+**归属与验证**：改动在网关侧（自研插件），需**重启宿主**生效；与 B 单同一次重启。
+验证命令（DSBotDev 用完把断言 ② 改成「应有帧」即可，或直接看探针报红）：
+```bash
+MOBILE_GATEWAY_LIB=<改后的 team-feed.mjs> node scripts/team_feed_degraded_probe.mjs
+```
 
 **A 的风险评估**（为什么可以清 true）：`ready` 带 `degraded.team:false` 只出现在
 网关实时供数的连接上；caught-up 路径本身表示**客户端 seq 已追平网关 head**，
@@ -130,6 +170,33 @@ MOBILE_GATEWAY_LIB=/nope/team-feed.mjs node scripts/team_feed_degraded_probe.mjs
 探针的结论 ① 也会说明「该路径零帧，无帧可清」。
 
 **判读纪律**：看退出码 + 是否打印 `all ok`，不要用 `wc -l` 数输出行数（空行会把有输出的脚本统计成 0 行）。
+
+### 探针跑的是**已装进宿主的网关**，不是仓库源码
+
+网关 `dsh-plugin-mobile-gateway` 是**自研插件、装在宿主 profile 里**（本机是
+`~/.dsh/profiles/desktop/node_modules/dsh-plugin-mobile-gateway/lib/mobile-v1/team-feed.mjs`），
+**仓库里没有它的源码副本**。所以：
+
+- 探针启动会打印它实际读到的路径（`探针目标: …`）——先看这一行，确认读的是哪一份
+- 宿主**没装**网关（新 clone、profile 换了、插件被卸载）→ 探针 `EXIT=2` 并提示用
+  `MOBILE_GATEWAY_LIB` 显式指定路径。**这是预期行为，不是脚本坏了**
+- 结论读的是**宿主机上正在跑的那一版**行为：网关改了但没重启宿主，探针仍报旧行为
+
+### 结论 ① 会随「caught-up 补快照」上线而变化 —— 这是**修复生效的验证方法**
+
+当前三条结论对应的宿主版本是 **0.11.1**：`resume` caught-up 路径**零帧**（还没有补快照）。
+
+DSBotDev 在网关侧做的「caught-up 补快照」上线并**重启宿主**后，重跑探针应有如下变化：
+
+| 断言 | 0.11.1（现在） | 补快照上线后（预期） |
+|---|---|---|
+| ① caught-up 零帧 | ✅ 零帧（正是主根因） | **❌ 变成「有 1 帧 snapshot」** → 探针报红 + `EXIT=1` |
+| ② 服务缺席静默 | ✅ 0 帧 | 不变（待办 C 修完才变） |
+| ③ 恢复补发翻回 | ✅ 有 snapshot(false) | 不变 |
+
+**所以「重跑变成 1 帧」不是回归，而是修复生效的信号。** 届时把断言①从「零帧」
+改成「有快照」，并更新本表的版本号即可。反之，**如果补快照上线并重启后仍然零帧，
+那才是修复没生效**——探针会继续报绿，这时要回头查网关改动是否真的装进了宿主。
 
 ---
 
