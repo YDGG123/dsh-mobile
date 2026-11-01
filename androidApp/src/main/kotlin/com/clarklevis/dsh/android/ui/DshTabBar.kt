@@ -94,10 +94,16 @@ internal fun DshTabBar(
                     offset = DpOffset(0.dp, 6.dp)
                 )
             )
-            // 浅色档先垫一层近白磨砂底：这条栏在 `DshLiquidGlassHost` 之外（兄弟节点，
-            // LocalDshBackdrop 恒为 null → 只走 fallback），玻璃自带的 surfaceAlpha=0.005 等于没底、
-            // 也没有真模糊，浅底上整条栏就和页面同色。iOS 浅色是 thinMaterial（透出模糊、非实色）。
-            // 没有真模糊时用 62% 白近似；要真模糊得把栏也放进 host（待真机截图确认后再决定）。
+            // 浅色档垫一层 62% 白：**只在 API<31 的 fallback 支生效**（`dshLiquidGlass` 的降级路径）。
+            // 历史（已被 `eff4be7` 取代，2026-11-01 材质批）：这条栏原在 `DshLiquidGlassHost` **之外**
+            // （兄弟节点，`LocalDshBackdrop` 恒 null）→ 只走 fallback；host 上提后栏已成为 host 子节点，
+            // **S+ 走真 backdrop 模糊**，那层白被不透明的模糊面盖住（视觉无害，但不再是"没有真模糊"的近似手段）。
+            //
+            // **仍存在的一处结构性差异（AndroidTester 2026-11-01 读出机制）**：host 的 `backdrop`
+            // 只挂在 `background` lambda 上（`DshLiquidGlass.kt:57-66`，同文件 `:36-38` 注明"页面内玻璃控件
+            // 只采样背景层"）⇒ 栏采样的是**动效背景**，不含页面内容。iOS 的 `.thinMaterial` 模糊的是
+            // **真实身后的一切**（含滚动中的列表文字）⇒ 滚动到中段时 iOS 会把栏下文字化开、Android 不会。
+            // 要消除它得让栏采样"背景+内容"那一层（递归/重影风险），属独立改动，当前记为已知偏差。
             .then(
                 if (dark) Modifier
                 else Modifier.background(Color.White.copy(alpha = 0.62f), RoundedCornerShape(percent = 50))
