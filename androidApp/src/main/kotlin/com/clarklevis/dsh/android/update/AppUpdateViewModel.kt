@@ -3,6 +3,7 @@ package com.clarklevis.dsh.android.update
 import android.app.Application
 import android.content.pm.PackageManager
 import android.os.Build
+import android.util.Log
 import androidx.core.content.pm.PackageInfoCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -25,11 +26,15 @@ import okhttp3.Request
 internal data class AndroidRelease(
     val version: String,
     val url: String,
-    val size: Long,
+    /** 体积（字节）。**未知 = null** —— 不填 -1 这类看起来像真值的假值；
+     *  下载时未知则回落 Content-Length 校验。API/manifest 路为精确值，发布页路见 sizeIsApproximate。 */
+    val size: Long?,
     val digest: String?,
     val versionCode: Long? = null,
     val fallbackUrl: String? = null,
-    val releaseNotes: String? = null
+    val releaseNotes: String? = null,
+    /** 体积取自发布页文本（四舍五入显示），校验时按容差比较（68 批，降级路完整性校验）。 */
+    val sizeIsApproximate: Boolean = false
 )
 internal data class UpdateState(
     val busy: Boolean = false,
@@ -82,10 +87,41 @@ internal fun selectReleasePageApk(version: String, html: String): AndroidRelease
         }.toList()
     val path = paths.sortedByDescending { it.contains("universal", true) }.firstOrNull()
         ?: error(appText("最新正式发布尚未提供可安装的 Android APK，请稍后重试"))
-    return AndroidRelease(version, "https://github.com$path", -1, null)
+    // versionCode = null（不是 -1）：未知本该是 null，validateApk 的 let 等值校验才会跳过。
+    // 原 -1 会让 `实际 == -1` 恒假 → 「能下载、装不上」（AndroidTester 复核实测，68 修复）。
+    val size = parseApproximateSize(html, path)
+    return AndroidRelease(
+        version = version,
+        url = "https://github.com$path",
+        size = size,
+        digest = null,
+        versionCode = null,
+        sizeIsApproximate = size != null
+    )
+}
+
+/**
+ * 从发布页行内体积文本（GitHub expanded_assets 形如 "44.4 MB"）解析近似体积。
+ * 抓不到返回 -1：下载时回落 `body.contentLength()` 校验，不会静默无校验。
+ * 本机此刻取不到该页（curl 超时）——解析按常见格式写，未命中一律安全回落。
+ */
+private fun parseApproximateSize(html: String, href: String): Long? {
+    val at = html.indexOf(href)
+    if (at < 0) return null
+    val window = html.substring(at, minOf(html.length, at + 600))
+    val match = Regex("([0-9]+(?:\\.[0-9]+)?)\\s*(B|KB|MB|GB)\\b").find(window) ?: return null
+    val value = match.groupValues[1].toDoubleOrNull() ?: return null
+    val factor = when (match.groupValues[2]) {
+        "B" -> 1L
+        "KB" -> 1024L
+        "MB" -> 1024L * 1024L
+        else -> 1024L * 1024L * 1024L
+    }
+    return (value * factor).toLong()
 }
 
 internal class AppUpdateViewModel(application: Application) : AndroidViewModel(application) {
+    private companion object { const val TAG = "DshUpdate" }
     private val context = application
     private val cacheStorage = com.clarklevis.dsh.android.AndroidCacheStorage.shared(application)
     private var updateLease: java.io.Closeable? = null
@@ -241,7 +277,10 @@ internal class AppUpdateViewModel(application: Application) : AndroidViewModel(a
                 client.newCall(Request.Builder().url(url).build()).execute().use { response ->
                     check(response.isSuccessful) { appText("下载失败（%1\$s）", response.code) }
                     val body = response.body ?: error(appText("下载内容为空"))
-                    val expectedSize = release.size.takeIf { it > 0 } ?: body.contentLength()
+                    val approximate = release.sizeIsApproximate && (release.size ?: 0L) > 0
+                    val expectedSize = release.size?.takeIf { it > 0 } ?: body.contentLength()
+                    // 发布页体积是四舍五入显示值 → 容差 ≈3%（下限 512KB）；精确来源（API/manifest）仍走严格等值。
+                    val sizeTolerance = if (approximate) maxOf(expectedSize / 33, 512L * 1024L) else 0L
                     body.byteStream().use { input ->
                         partial.outputStream().use { output ->
                             val buffer = ByteArray(64 * 1024)
@@ -251,14 +290,24 @@ internal class AppUpdateViewModel(application: Application) : AndroidViewModel(a
                                 val count = input.read(buffer)
                                 if (count < 0) break
                                 total += count
-                                check(expectedSize <= 0 || total <= expectedSize) { appText("安装包大小异常") }
+                                check(expectedSize <= 0 || total <= expectedSize + sizeTolerance) { appText("安装包大小异常") }
                                 check(cacheStorage.canWriteTemporary(count.toLong())) { appText("可用存储空间不足") }
                                 output.write(buffer, 0, count)
                                 mutableState.value = UpdateState(busy = true, status = if (expectedSize > 0) appText("正在下载 %1\$s%", total * 100 / expectedSize) else appText("正在下载 %1\$s MB", total / 1024 / 1024))
                             }
-                            check((expectedSize <= 0 || total == expectedSize) && total > 0) { appText("安装包下载不完整") }
+                            val sizeSettled = if (approximate) {
+                                total >= expectedSize - sizeTolerance
+                            } else {
+                                total == expectedSize
+                            }
+                            check((expectedSize <= 0 || sizeSettled) && total > 0) { appText("安装包下载不完整") }
                         }
                     }
+                }
+                if (release.digest == null) {
+                    // Chief 2026-11-01：降级路（发布页抓取）没有 sha256，显式记录而非静默跳过；
+                    // 该路仍受 体积校验 + 包名/版本递增/签名一致性 三重约束。
+                    Log.w(TAG, "降级路无摘要校验（digest=null）：已按体积 + 包名 + 版本递增 + 签名校验")
                 }
                 release.digest?.takeIf { it.startsWith("sha256:") }?.let { expected ->
                     val hash = MessageDigest.getInstance("SHA-256")

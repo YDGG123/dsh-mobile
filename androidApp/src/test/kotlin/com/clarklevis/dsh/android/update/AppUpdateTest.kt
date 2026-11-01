@@ -38,7 +38,18 @@ class AppUpdateTest {
             <a href="/Clarklevis1995/dsh-mobile/releases/download/v1.8.0/mobile.apk">Android</a>"""
         val selected = selectReleasePageApk("v1.8.0", html)
         assertEquals("https://github.com/Clarklevis1995/dsh-mobile/releases/download/v1.8.0/mobile.apk", selected.url)
-        assertEquals(-1L, selected.size)
+        assertNull(selected.size)
+        // 68 修复：未知版本号必须是 null（原 -1 会让 validateApk 等值校验恒假 → 能下载装不上）
+        assertNull(selected.versionCode)
+    }
+
+    @Test fun releasePageSizeTextIsParsedAsApproximate() {
+        // GitHub expanded_assets 行内体积文本（四舍五入显示）→ 近似体积 + 容差校验标记
+        val html = """<div class="Box-row"><a href="/Clarklevis1995/dsh-mobile/releases/download/v1.8.0/mobile.apk">mobile.apk</a><span>44.4 MB</span></div>"""
+        val selected = selectReleasePageApk("v1.8.0", html)
+        assertEquals((44.4 * 1024 * 1024).toLong(), selected.size)
+        assertTrue(selected.sizeIsApproximate)
+        assertNull(selected.versionCode)
     }
 
     @Test(expected = IllegalStateException::class)
