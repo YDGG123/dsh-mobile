@@ -82,10 +82,21 @@ class DshAndroidApplication : Application(), DefaultLifecycleObserver {
         isInForeground = true
         graph.diagnostics.lifecycle(GatewayLifecycleEvent.FOREGROUND)
         graph.gatewayRuntime.applicationDidBecomeActive()
+        // 回前台补拉一次（iOS AppStore.swift:1657-1680 同语义：「补查后台期间漏掉的会话终态」）：
+        // bridge 名册恢复轮询 + 网关会话列表拉一次，**不在循环里补**，避免回前台请求风暴。
+        graph.stateHolder.bridgeTeam?.let { team ->
+            team.start()
+            team.refreshNow()
+        }
+        graph.gatewayScope.launch { graph.gatewayRuntime.requestSessions() }
     }
 
     override fun onStop(owner: LifecycleOwner) {
         isInForeground = false
+        // 后台停常驻（对齐 iOS：chatPrefetcher.stop("background") + stopPolling()）：
+        // bridge 轮询整支取消；后台只留 WS 与保活。这也是把「熄屏挂着崩」的
+        // 候选链整条切掉——后台不再有轮询，就没有那条后台抛异常的路径。
+        graph.stateHolder.bridgeTeam?.stop()
         maintainCacheStorage()
         hosts.stopPresence()
         hosts.cancelPairing()

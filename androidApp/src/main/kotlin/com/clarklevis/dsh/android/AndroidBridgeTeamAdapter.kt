@@ -24,7 +24,9 @@ import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -152,9 +154,20 @@ internal class AndroidBridgeTeamAdapter(
         }
         loopOrigin = origin
         loopJob = scope.launch {
-            while (true) {
+            // 对齐 iOS startPolling（BridgeTeamAdapter.swift:827-847）：
+            // ① 可取消循环（`while(true)` → `isActive`）；② 失败在循环体内处理、非静默；
+            // ③ 离线指数退避 750ms→15s（在线仍 8s）；④ 进后台由宿主 stop() 整支取消。
+            var failureAttempt = 0
+            while (currentCoroutineContext().isActive) {
                 refreshOnce()
-                delay(POLL_INTERVAL_MILLIS)
+                val offline = lastError != null
+                val delayMillis = if (offline) {
+                    (750L shl failureAttempt.coerceAtMost(5)).coerceAtMost(15_000L)
+                } else {
+                    POLL_INTERVAL_MILLIS
+                }
+                if (offline) failureAttempt++ else failureAttempt = 0
+                delay(delayMillis)
             }
         }
     }
