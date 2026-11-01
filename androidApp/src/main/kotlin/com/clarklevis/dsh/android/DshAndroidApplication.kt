@@ -41,6 +41,8 @@ class DshAndroidApplication : Application(), DefaultLifecycleObserver {
 
     override fun onCreate() {
         super<Application>.onCreate()
+        // 取证设施：未捕获异常落盘（时间/线程/前后台/版本/堆栈），设置「关于」里可查看。
+        com.clarklevis.dsh.android.platform.CrashLog.install(this) { isInForeground }
         hosts = AndroidMultiGatewayStore(this)
         maintainCacheStorage()
         ProcessLifecycleOwner.get().lifecycle.addObserver(this)

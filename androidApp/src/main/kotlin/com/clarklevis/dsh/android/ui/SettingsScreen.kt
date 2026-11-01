@@ -103,6 +103,7 @@ internal fun SettingsScreen(
     var pendingPermission by remember { mutableStateOf<String?>(null) }
     var showPrivacyPolicy by remember { mutableStateOf(false) }
     var showReleaseNotes by remember { mutableStateOf(false) }
+    var showCrashLog by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
     val releaseInfo = remember(context) { AppReleaseInfo.load(context) }
@@ -277,6 +278,12 @@ internal fun SettingsScreen(
                         // **平台必需差异**（Chief 2026-11-01 裁定）：iOS 走 App Store 更新，
                         // Android 无对应系统通道，必须自留更新入口；不是漏删项。
                         SettingsActionRow(appText("检查更新"), enabled = !updateState.busy, onClick = updateModel::check)
+                        SettingsDivider()
+                        // 取证入口：闪退日志落盘在应用私有目录，用户没电脑也能看/截图（用户 2026-11-02「挂着会闪退」）。
+                        val crash = com.clarklevis.dsh.android.platform.CrashLog.read(context)
+                        SettingsActionRow(appText("上次崩溃日志"), enabled = crash != null) {
+                            showCrashLog = true
+                        }
                     }
                     // ⑥ 更多
                     SettingsSection(title = appText("更多")) {
@@ -321,6 +328,31 @@ internal fun SettingsScreen(
             onConfirm = {
                 stateHolder.setDefault("permission", value)
                 pendingPermission = null
+            }
+        )
+    }
+    if (showCrashLog) {
+        // 只读展示 + 可选清空：日志含堆栈与版本，用户可直接截图发群（无需电脑）。
+        val crashText = com.clarklevis.dsh.android.platform.CrashLog.read(context).orEmpty()
+        DshAlertDialog(
+            title = appText("上次崩溃日志"),
+            onDismissRequest = { showCrashLog = false },
+            dismissLabel = appText("关闭"),
+            confirmLabel = appText("清空"),
+            onConfirm = {
+                com.clarklevis.dsh.android.platform.CrashLog.clear(context)
+                showCrashLog = false
+            },
+            content = {
+                Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+                    Text(
+                        crashText,
+                        fontSize = 12.sp,
+                        lineHeight = 16.sp,
+                        color = homeInk(0.85f),
+                        modifier = Modifier.testTag("crash-log-text")
+                    )
+                }
             }
         )
     }
