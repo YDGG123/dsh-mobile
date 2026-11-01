@@ -56,6 +56,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import com.clarklevis.dsh.shared.protocol.GatewaySessionStatsSnapshot
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -450,6 +452,17 @@ internal fun WorkspaceScreen(
                                 )
                             }
                             GatewaySwitcherBar()
+                            // A1 §1.5 运行中会话卡（iOS runningSessionCard :417）：有运行中会话才出现
+                            sessions.firstOrNull { it.isRunning }?.let { running ->
+                                val stats = stateHolder.snapshot.statsBySessionSnapshot[running.id]
+                                LaunchedEffect(running.id) { stateHolder.requestRunningSessionStats(running.id) }
+                                RunningSessionCard(
+                                    session = running,
+                                    stats = stats,
+                                    offline = stateHolder.gatewayState.connection != GatewayConnectionState.CONNECTED,
+                                    onClick = { onOpenSession(running.id) }
+                                )
+                            }
                         },
                         recentSessions = {
                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -714,6 +727,66 @@ private fun WorkspaceCard(
             colorFilter = ColorFilter.tint(homeInk(0.35f)),
             modifier = Modifier.size(11.dp)
         )
+    }
+}
+
+/**
+ * A1 §1.5 运行中会话卡：VStack(spacing 12)；
+ * 行 1 = 状态点 + 标题 13 semibold ink(0.92) + 相对时间 11 ink(0.45) + chevron.forward 11 品牌色；
+ * 行 2 = 两列指标：数值 monoValue 17 ink(0.92) + 标签 11 ink(0.45)（「轮次」「步骤」）；
+ * 壳 padding 16 / 圆角 20 / cardFill + 1pt cardStroke；离线整体 0.6 透明。
+ * 指标来源：`snapshot.statsBySessionSnapshot[sessionId]`（shared 侧按会话缓存，缺失时不编数，显示 —）。
+ */
+@Composable
+private fun RunningSessionCard(
+    session: SessionSummary,
+    stats: GatewaySessionStatsSnapshot?,
+    offline: Boolean,
+    onClick: () -> Unit
+) {
+    val fill = if (LocalDshIsDark.current) Color.White.copy(alpha = 0.06f)
+    else Color.White.copy(alpha = 0.55f)
+    Column(
+        Modifier.fillMaxWidth()
+            .then(if (offline) Modifier.alpha(0.6f) else Modifier)
+            .background(fill, RoundedCornerShape(20.dp))
+            .border(1.dp, homeStroke(if (LocalDshIsDark.current) 0.12f else 0.17f), RoundedCornerShape(20.dp))
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(16.dp)
+            .testTag("workspace-running-session"),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Box(Modifier.size(8.dp).background(DshSemantic.success, CircleShape))
+            Text(
+                session.title,
+                color = homeInk(0.92f),
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
+            Text(relativeTime(session.lastActivityEpochSeconds), color = homeInk(0.45f), fontSize = 11.sp)
+            Image(
+                painter = painterResource(R.drawable.ic_chevron_right),
+                contentDescription = null,
+                colorFilter = ColorFilter.tint(DshColors.OceanDark),
+                modifier = Modifier.size(11.dp)
+            )
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(28.dp)) {
+            RunningMetric(value = stats?.stats?.turns?.toString() ?: "—", label = appText("轮次"))
+            RunningMetric(value = stats?.stats?.steps?.toString() ?: "—", label = appText("步骤"))
+        }
+    }
+}
+
+@Composable
+private fun RunningMetric(value: String, label: String) {
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(value, color = homeInk(0.92f), fontSize = 17.sp, fontWeight = FontWeight.Medium, fontFamily = FontFamily.Monospace)
+        Text(label, color = homeInk(0.45f), fontSize = 11.sp)
     }
 }
 

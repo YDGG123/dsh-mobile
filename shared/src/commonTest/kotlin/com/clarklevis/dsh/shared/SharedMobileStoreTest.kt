@@ -165,6 +165,37 @@ class SharedMobileStoreTest {
     }
 
     @Test
+    fun sessionStatsAreKeptPerSessionForNonSelectedSessions() {
+        val store = SharedMobileStore()
+        store.selectSession("s1")
+
+        // 选中会话 s1 的 stats：既进 statsSnapshot，也进按会话表
+        store.acceptFrame(
+            """{"kind":"session-stats","sessionId":"s1","asOfSeq":5,"sessionStats":{"turns":2,"steps":3}}"""
+        )
+        // 非选中会话 s2 的 stats：只进按会话表（首页运行中会话卡要用它）
+        store.acceptFrame(
+            """{"kind":"session-stats","sessionId":"s2","asOfSeq":7,"sessionStats":{"turns":9,"steps":11}}"""
+        )
+
+        val snapshot = store.snapshot()
+        assertEquals(2, snapshot.statsSnapshot?.stats?.turns)
+        assertEquals(5L, snapshot.statsBySessionSnapshot["s1"]?.asOfSeq)
+        assertEquals(9, snapshot.statsBySessionSnapshot["s2"]?.stats?.turns)
+        assertEquals(11, snapshot.statsBySessionSnapshot["s2"]?.stats?.steps)
+
+        // asOfSeq 单调：乱序推来的旧帧不覆盖新值（与 tasks/goals 同一条判据）
+        store.acceptFrame(
+            """{"kind":"session-stats","sessionId":"s2","asOfSeq":4,"sessionStats":{"turns":1,"steps":1}}"""
+        )
+        assertEquals(9, store.snapshot().statsBySessionSnapshot["s2"]?.stats?.turns)
+
+        // projection-baseline 清空按会话表（重新同步起点）
+        store.acceptFrame("""{"kind":"projection-baseline","projections":{}}""")
+        assertEquals(0, store.snapshot().statsBySessionSnapshot.size)
+    }
+
+    @Test
     fun taskAndGoalProjectionsUseAsOfSequenceToRejectOutOfOrderPushes() {
         val store = SharedMobileStore()
         store.selectSession("s1")

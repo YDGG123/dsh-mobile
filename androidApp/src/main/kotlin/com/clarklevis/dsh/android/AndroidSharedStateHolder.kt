@@ -1187,6 +1187,16 @@ class AndroidSharedStateHolder(
         }
     }
 
+    /** 首页「运行中会话卡」的数据源：按会话取一份 stats（结果落 `snapshot.statsBySessionSnapshot`）。
+     *  与 `requestSessionControls` 走的同一条 `session-stats` 请求；不选中该会话也能拿到。 */
+    fun requestRunningSessionStats(sessionId: String) {
+        val appGraph = graph ?: return
+        if (gatewayState.connection != GatewayConnectionState.CONNECTED) return
+        appGraph.gatewayScope.launch {
+            appGraph.gatewayRuntime.sendRequest(GatewayRequests.sessionControl("session-stats", sessionId))
+        }
+    }
+
     fun pingGateway() {
         val appGraph = graph ?: return
         if (gatewayState.connection != GatewayConnectionState.CONNECTED) return

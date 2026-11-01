@@ -63,6 +63,9 @@ data class SharedMobileSnapshot(
     val permissions: GatewaySessionPermissions? = null,
     val contextSnapshot: GatewayContextSnapshot? = null,
     val statsSnapshot: GatewaySessionStatsSnapshot? = null,
+    /** 按会话缓存的 stats（`statsSnapshot` 只保留**当前选中会话**那一份；首页运行中会话卡需要
+     *  非选中会话的 turns/steps，故另存一张表，字段形状与 `tasksBySession` 同构）。 */
+    val statsBySessionSnapshot: Map<String, GatewaySessionStatsSnapshot> = emptyMap(),
     val taskSnapshot: GatewayTaskSnapshot? = null,
     val goalSnapshot: GatewayGoalProjection? = null,
     val hostSnapshot: GatewayHostSnapshot? = null,
@@ -124,6 +127,7 @@ class SharedMobileStore(
     private var contextSnapshot: GatewayContextSnapshot? = null
     private var statsSnapshot: GatewaySessionStatsSnapshot? = null
     private val tasksBySession = mutableMapOf<String, GatewayTaskSnapshot>()
+    private val statsBySession = mutableMapOf<String, GatewaySessionStatsSnapshot>()
     private val goalsBySession = mutableMapOf<String, GatewayGoalProjection>()
     private var hostSnapshot: GatewayHostSnapshot? = null
     private var lastFrameKind: String? = null
@@ -279,6 +283,7 @@ class SharedMobileStore(
                 "projection-baseline" -> {
                     tasksBySession.clear()
                     goalsBySession.clear()
+                    statsBySession.clear()
                     frame.projections?.objectValue.orEmpty().forEach { (id, projection) ->
                         installTaskGoalProjection(id, projection)
                     }
@@ -400,14 +405,29 @@ class SharedMobileStore(
                     tokenUsage = frame.tokenUsage,
                     pressure = frame.contextPressure
                 )
-                "session-stats" -> statsSnapshot = GatewaySessionStatsSnapshot(
-                    asOfSeq = frame.asOfSeq,
-                    stats = frame.sessionStats,
-                    tokenUsage = frame.tokenUsage?.let { usage ->
-                        com.clarklevis.dsh.shared.protocol.GatewaySessionTokenUsage(usage.totals)
-                    },
-                    contextPressure = frame.contextPressure
-                )
+                "session-stats" -> {
+                    val snapshot = GatewaySessionStatsSnapshot(
+                        asOfSeq = frame.asOfSeq,
+                        stats = frame.sessionStats,
+                        tokenUsage = frame.tokenUsage?.let { usage ->
+                            com.clarklevis.dsh.shared.protocol.GatewaySessionTokenUsage(usage.totals)
+                        },
+                        contextPressure = frame.contextPressure
+                    )
+                    // `statsSnapshot` 的语义是「**当前选中会话**的 stats」——原来任何会话的帧都会覆盖它，
+                    // 于是别的会话推一条就把当前会话的数字冲掉（首页运行卡还会因此显示错人）。
+                    // 现在只有「帧没带 sessionId」或「正好是选中会话」才更新它；所有会话一律进按会话表。
+                    val frameSession = frame.sessionId?.takeIf(String::isNotBlank)
+                    if (frameSession == null || frameSession == sessionListState.selectedSessionId) {
+                        statsSnapshot = snapshot
+                    }
+                    frameSession?.let { sessionId ->
+                        val existing = statsBySession[sessionId]
+                        if (existing == null || projectionIsNotOlder(snapshot.asOfSeq, existing.asOfSeq)) {
+                            statsBySession[sessionId] = snapshot
+                        }
+                    }
+                }
                 "tasks", "tasks-updated" -> frame.sessionId?.takeIf(String::isNotBlank)?.let { sessionId ->
                     val candidate = GatewayTaskSnapshot(frame.asOfSeq, frame.todos)
                     val existing = tasksBySession[sessionId]
@@ -586,6 +606,7 @@ class SharedMobileStore(
         permissions = null
         contextSnapshot = null
         statsSnapshot = null
+        statsBySession.clear()
         tasksBySession.clear()
         goalsBySession.clear()
         hostSnapshot = null
@@ -635,6 +656,7 @@ class SharedMobileStore(
             permissions = permissions,
             contextSnapshot = contextSnapshot,
             statsSnapshot = statsSnapshot,
+            statsBySessionSnapshot = statsBySession.toMap(),
             taskSnapshot = selected?.let(tasksBySession::get),
             goalSnapshot = selected?.let(goalsBySession::get),
             hostSnapshot = hostSnapshot,
