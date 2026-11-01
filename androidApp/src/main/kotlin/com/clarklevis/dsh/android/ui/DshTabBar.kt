@@ -27,6 +27,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.DpOffset
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.clarklevis.dsh.android.R
@@ -139,20 +140,21 @@ private fun DshTabItem(
                 tint = tint
             )
             if (badge > 0 && !active) {
-                // 角标挂图标右上（用户第五轮反馈，不挂整个按钮），与图标留固定间隙
-                //（用户拍板 7pt = DSHTabBadge.iconGap）。B1 原型先落位置，
-                // DSHTabBadge 完整样式（两位数收窄防顶进胶囊圆角）待真机校准批次。
+                // 角标定稿值（iOS DSHTabBadge :1113-1114 + 规格 §4，Tester 逐值核）：
+                // 锚定 = 角标「左缘」= 图标右缘 + 7 —— TopStart + offset(x=图标宽+7)，
+                //   空隙恒等于 iconGap、与位数无关（旧写法 TopEnd 右缘固定 = 两位数往左长、空隙随位数变，与 iOS 相反）；
+                // 纵向 = -6（不是 -7）；样式 = 11 semibold 白字、padding H5/V1.5、
+                //   底色 cautionAA（深 #F07D14 / 浅 #9E4D00）—— 语义类是 caution 不是 danger。
                 Text(
                     badge.toString(),
                     color = Color.White,
-                    fontSize = 9.sp,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
                     modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        // 固定 7pt 间隙（iOS :1085+ 定稿 iconGap=7：按宽度算会让两位数顶进胶囊圆角被裁）。
-                        // 轴向假设：徽标整体移出图标右上角各 7dp，两位数再往右自然延伸，待真机校准。
-                        .offset(x = 7.dp, y = (-7).dp)
-                        .background(DshSemantic.danger, RoundedCornerShape(percent = 50))
-                        .padding(horizontal = 3.dp)
+                        .align(Alignment.TopStart)
+                        .offset(x = (15 * fontScale).dp + 7.dp, y = (-6).dp)
+                        .background(DshSemantic.caution, RoundedCornerShape(percent = 50))
+                        .padding(start = 5.dp, end = 5.dp, top = 1.5.dp, bottom = 1.5.dp)
                 )
             }
         }
