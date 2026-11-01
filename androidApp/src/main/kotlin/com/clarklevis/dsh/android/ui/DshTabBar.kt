@@ -2,6 +2,7 @@ package com.clarklevis.dsh.android.ui
 
 import androidx.annotation.DrawableRes
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -59,6 +60,18 @@ internal enum class DshHomeTab(@DrawableRes val iconRes: Int, val label: String)
     SETTINGS(R.drawable.ic_tab_tune, "设置")
 }
 
+/** 栏总高 62 = 54 + 2×4（iOS DSHTabBar.totalHeight，Theme.swift:1015/:1073）。 */
+internal val DshTabBarTotalHeight = 62.dp
+
+/**
+ * B2：栏底离安全区底的上移量（iOS `WorkspaceView.swift:334-339`）。
+ * `padding(.bottom, DSHSpacing.sm + DSHTabBar.totalHeight / 2)` = 8 + 31 = **39pt**，两段叠加：
+ * ① 8 = 补 safeAreaInset「只吃安全区不留白」的贴底（第一次真机反馈）；
+ * ② 31 = 栏自身高度的一半（第二次真机反馈「离底边太近，上移自身高度的一半」）。
+ * 照 iOS 用「栏高/2」表达、不写死 39 —— 以后改栏高，上移量自动跟随。
+ */
+internal val DshTabBarBottomRise = 8.dp + DshTabBarTotalHeight / 2
+
 @Composable
 internal fun DshTabBar(
     selected: DshHomeTab,
@@ -82,6 +95,16 @@ internal fun DshTabBar(
                 )
             )
             .dshLiquidGlass(RoundedCornerShape(percent = 50))
+            // B3：浅色下玻璃的边缘高光/描边全是**白**（DshLiquidGlass 的 Highlight 与 0.8dp 白边），
+            // 白边压浅底等于没有边界 → 整条栏「糊进背景」，用户的观感就是「未选中变透明」。
+            // iOS 16–25 分支补的是 ink 系描边：`Capsule().strokeBorder(palette.cardStroke, 1)`
+            // （Theme.swift:1070-1074），浅色 = stroke(0.17) ≈ #0E131A 16.2%，深色 = stroke(0.12)。
+            // 用户实机 iPhone 走的就是这条分支，所以 Android 一律补（含 S+ 玻璃路径），与所见一致。
+            .border(
+                width = 1.dp,
+                color = homeStroke(if (dark) 0.12f else 0.17f),
+                shape = RoundedCornerShape(percent = 50)
+            )
             // 内层 padding(xs)=4：总高 62 = 4 + 54 + 4（iOS :1073/:1015）
             .padding(4.dp)
             .fillMaxWidth(),

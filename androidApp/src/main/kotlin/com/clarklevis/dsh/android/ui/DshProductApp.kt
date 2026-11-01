@@ -59,6 +59,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.Shadow as TextShadow
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalView
@@ -183,7 +184,6 @@ internal fun DshProductApp(
                         }
                     }
                 },
-                onSettings = { navController.navigate(ROUTE_SETTINGS) },
                 onPlugins = { navController.navigate(ROUTE_PLUGINS) },
                 onScheduledTasks = { navController.navigate(ROUTE_SCHEDULED_TASKS) },
                 onBotTeam = { navController.navigate(ROUTE_BOT_TEAM) { launchSingleTop = true } },
@@ -313,7 +313,6 @@ internal fun WorkspaceScreen(
     stateHolder: AndroidSharedStateHolder,
     onOpenSession: (String) -> Unit,
     onNewSession: () -> Unit,
-    onSettings: () -> Unit,
     onPlugins: () -> Unit,
     onScheduledTasks: () -> Unit,
     onBotTeam: () -> Unit = {},
@@ -330,11 +329,15 @@ internal fun WorkspaceScreen(
     var showQrScanner by rememberSaveable { mutableStateOf(false) }
     var showWorkspaceMenu by rememberSaveable { mutableStateOf(false) }
     var homeTab by rememberSaveable { mutableStateOf(DshHomeTab.WORKSPACE) }
-    // tab bar 内容净空 = 动态导航安全区 + 栏 62 + 外距 4 + 8pt 呼吸位。
-    // iOS 同语义：safeAreaInset(edge:.bottom) 动态吃安全区 + 明文补 8pt（WorkspaceView:318 注释，真机贴底反馈）。
-    // 旧写死 86 = 66+20，只在导航 inset=20dp 的设备刚好够且零余量（三键导航 48dp 时末行被遮——AndroidTester 判缺陷）。
+    // tab bar 内容净空 = 动态导航安全区 + 栏高 62 + 栏底上移（8 + 62/2，B2）+ 8dp 呼吸位。
+    // iOS 同语义：safeAreaInset(edge:.bottom) 动态吃安全区 + `padding(.bottom, sm + totalHeight/2)`
+    // = 39pt（WorkspaceView:334-339 两条真机反馈叠加）。B2 把栏抬高 35dp 后此处必须同步，
+    // 否则抬起来的栏会压住最近会话最后一行。两处都引用 DshTabBar 的常量，改栏高自动跟随。
     val navBarInset = with(LocalDensity.current) { WindowInsets.navigationBars.getBottom(this).toDp() }
-    val tabClearance = 62.dp + 4.dp + navBarInset + 8.dp
+    // 内容避让量 = 栏高 62 + 栏底上移 39 = **101dp**（iOS safeAreaInset 会把它自动顶高，
+    // Android 没有该机制，所以手工等价）。**别再额外 +8**：那 8 已在 39 里（8 + 62/2），
+    // 重复计数是今天第三次数值错传（iOSTester 21:45 回源码核出）。
+    val tabClearance = DshTabBarTotalHeight + DshTabBarBottomRise + navBarInset
     var showDirectoryBrowser by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(stateHolder.gatewayState.connection) { stateHolder.refreshProductState() }
     LaunchedEffect(searchQuery) {
@@ -423,7 +426,6 @@ internal fun WorkspaceScreen(
                                         stateHolder.clearPlatformError()
                                         showManualPairing = true
                                     },
-                                    onSettings = onSettings,
                                     onOpenDrawer = openDrawer
                                 )
                                 GatewaySwitcherBar()
@@ -489,7 +491,7 @@ internal fun WorkspaceScreen(
                         }
                     )
                 }
-                item { Spacer(Modifier.height(tabClearance)) } // 浮动 tab bar 净空：动态安全区 + 62 + 4 + 8（iOS safeAreaInset 同语义）
+                item { Spacer(Modifier.height(tabClearance)) } // 浮动 tab bar 净空 = 动态安全区 + 62（栏高）+ 39（8 + 62/2，B2）= 101（iOS safeAreaInset 同语义）
             }
             } // DshHomeTab.WORKSPACE
             // P0-1（Chief 2026-11-01 改裁决）：tab 必须切内容 —— 「点了没反应」在用户眼里就是坏的。
@@ -519,7 +521,9 @@ internal fun WorkspaceScreen(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .navigationBarsPadding()
-                .padding(start = 16.dp, end = 16.dp, bottom = 4.dp)
+                // B2：栏底 = 安全区 + 39（8 + 62/2，照 iOS 表达式，不写死）。原来只有 4dp → 用户两轮报「太贴底」。
+                // 水平 16 只由 DshTabBar 内部那一处给（iOS 也只有一次 lg=16）：原先调用点再叠 16 = 两侧 32，比 iOS 每侧窄 16dp。
+                .padding(bottom = DshTabBarBottomRise)
         )
         } // Box
     }
@@ -553,7 +557,6 @@ private fun WorkspaceHeader(
     state: GatewayRuntimeState,
     onScan: () -> Unit,
     onManualEntry: () -> Unit,
-    onSettings: () -> Unit,
     onOpenDrawer: () -> Unit
 ) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -565,13 +568,14 @@ private fun WorkspaceHeader(
             onScan = onScan,
             onManualEntry = onManualEntry
         )
-        Spacer(Modifier.width(12.dp))
-        GlassCircleButton(R.drawable.ic_settings, appText("设置"), onSettings)
+        // B1：顶栏的设置齿轮已删 —— iOS 把「设置」收进底部 tab 后就不再留重复入口
+        // （WorkspaceView header 只有 认证菜单 + 新建会话圆钮）。
     }
 }
 
 @Composable
 private fun HarnessMark(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val dark = LocalDshIsDark.current
     BoxWithConstraints(
         modifier = modifier.heightIn(min = 52.dp)
             .clip(RoundedCornerShape(12.dp))
@@ -579,27 +583,36 @@ private fun HarnessMark(onClick: () -> Unit, modifier: Modifier = Modifier) {
             .semantics { contentDescription = appText("打开侧边栏") },
         contentAlignment = Alignment.CenterStart
     ) {
+        // B1 + A2：对齐 iOS `HarnessMark`（Components/Glass.swift:186-203）
+        // ① 鲸鱼已删 —— iOS 按用户 2026-10-26 真机反馈（「字的左右还有原版的图标在」）移除，Android 跟删；
+        // ② 字标宽 **216**（iOS `.frame(maxWidth: 216)` 的基准值）、高 29，点按开侧栏；
+        // ③ **一张图 + 按主题反相**（iOS `colorInvertIfNeeded(onDarkBackground: colorScheme == .dark)`）：
+        //    不再「挑 light/dark 变体」——那正是之前硬编码 `_dark` 白字、浅色下字标变白的坑。
+        //    反相用 4×5 颜色矩阵（RGB 取负 + 255 偏移，alpha 不动），等价 iOS 的 colorInvert。
         // 不按机型或屏幕像素缩放整页：仅品牌图片根据其实际可用宽度等比例收缩。
         val showWordmark = maxWidth >= 128.dp
-        val scale = (maxWidth / 219.dp).coerceIn(0f, 1f)
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(7.dp * scale)
-        ) {
-            OrcarnessOrcaIcon(
-                modifier = Modifier.size(if (showWordmark) 29.dp * scale else 29.dp),
-                tint = homeInk()
+        val scale = (maxWidth / 216.dp).coerceIn(0f, 1f)
+        if (showWordmark) {
+            Image(
+                painter = painterResource(R.drawable.dsh_orcarness_wordmark),
+                contentDescription = null,
+                colorFilter = if (dark) ColorFilter.colorMatrix(wordmarkInvertMatrix) else null,
+                modifier = Modifier.size(width = 216.dp * scale, height = 29.dp * scale)
             )
-            if (showWordmark) {
-                Image(
-                    painter = painterResource(R.drawable.dsh_orcarness_wordmark_dark),
-                    contentDescription = null,
-                    modifier = Modifier.size(width = 183.dp * scale, height = 29.dp * scale)
-                )
-            }
         }
     }
 }
+
+/** iOS `colorInvertIfNeeded` 的 Android 等价物：RGB 取负 + 255 偏移，alpha 原样保留。
+ *  Compose ColorMatrix 的偏移列是 0–255 量纲（不是 0–1），所以写 255 而不是 1。 */
+private val wordmarkInvertMatrix = ColorMatrix(
+    floatArrayOf(
+        -1f, 0f, 0f, 0f, 255f,
+        0f, -1f, 0f, 0f, 255f,
+        0f, 0f, -1f, 0f, 255f,
+        0f, 0f, 0f, 1f, 0f
+    )
+)
 
 @Composable
 internal fun OrcarnessOrcaIcon(
