@@ -90,7 +90,15 @@ internal class AndroidBridgeTeamAdapter(
     var serverInfo: BridgeServerInfo? by mutableStateOf(null)
         private set
 
+    /**
+     * **给用户看的**错误（人话）。技术 code 一律不进这里——
+     * 截图实测 `no-device-session: 本地无移动设备会话` 就是 code 外露（AndroidTester/iOSDev 2026-11-02 定位）。
+     */
     var lastError: String? by mutableStateOf(null)
+        private set
+
+    /** 技术错误码，只进日志与「上次崩溃日志」，**不参与 UI 渲染**。 */
+    var lastErrorCode: String? by mutableStateOf(null)
         private set
 
     var lastRefreshAtMillis: Long by mutableLongStateOf(0L)
@@ -171,7 +179,8 @@ internal class AndroidBridgeTeamAdapter(
                 "ok=${result.isSuccess} code=${result.errorCode ?: "-"}"
         )
         if (!result.isSuccess) {
-            lastError = result.errorMessage ?: result.errorCode
+            lastError = result.errorMessage ?: HUMAN_GENERIC_FAILURE
+            lastErrorCode = result.errorCode
             Log.w(TAG, "adopt bridge session failed: ${result.errorCode} ${result.errorMessage}")
             return
         }
@@ -239,8 +248,8 @@ internal class AndroidBridgeTeamAdapter(
      * @return true = 成功（含"服务端返回空列表"）；false = 失败，`lastError` 已置原因。
      */
     suspend fun loadChatMessages(conversationId: String, maxPages: Int = 8, merge: Boolean = false): Boolean {
-        val base = origin ?: run { lastError = "no-bridge-origin"; return false }
-        val token = store.currentAccessToken() ?: run { lastError = "no-device-session"; return false }
+        val base = origin ?: run { fail("no-bridge-origin", HUMAN_NO_ORIGIN); return false }
+        val token = store.currentAccessToken() ?: run { fail("no-device-session", HUMAN_NOT_PAIRED); return false }
         val pages = ArrayList<String>()
         var cursor: String? = null
         var pageIndex = 0
@@ -270,7 +279,9 @@ internal class AndroidBridgeTeamAdapter(
                 Log.w(TAG, "chat history page#$index dropped: ${error.javaClass.simpleName} ${error.message}")
             }
         }.getOrElse { error ->
-            lastError = "chat_parse_failed: ${error.javaClass.simpleName}"
+            Log.w(TAG, "chat parse failed: ${error.javaClass.simpleName}")
+            lastError = HUMAN_CHAT_FAILED
+            lastErrorCode = "chat_parse_failed"
             return false
         }
         if (pages.isEmpty()) return false
@@ -294,7 +305,7 @@ internal class AndroidBridgeTeamAdapter(
         // 只信已过策略门的 origin；不在取用时二次推导（那会绕过 updateGatewayEndpoint 的校验）。
         val base = origin
         if (base == null) {
-            lastError = "no-bridge-origin"
+            fail("no-bridge-origin", HUMAN_NO_ORIGIN)
             return@withLock
         }
         isRefreshing = true
@@ -329,10 +340,12 @@ internal class AndroidBridgeTeamAdapter(
             }
             val result = store.refreshTeam(infoJson, stateJson, conversationsJson)
             if (!result.isSuccess) {
-                lastError = result.errorMessage ?: result.errorCode
+                lastError = result.errorMessage ?: HUMAN_GENERIC_FAILURE
+                lastErrorCode = result.errorCode
                 Log.w(TAG, "team refresh rejected: ${result.errorCode} ${result.errorMessage}")
             } else {
                 lastError = null
+                lastErrorCode = null
             }
             applyEffects(result) // 只有显式 session-clear 才销毁凭证（不再按 phase 推断）
             publishState()
@@ -349,7 +362,8 @@ internal class AndroidBridgeTeamAdapter(
             // 而它跑在 applicationScope（SupervisorJob、无 CoroutineExceptionHandler）里——
             // 一次解析/状态机异常（Serialization / IllegalState / NPE）就会逃逸成进程崩溃，
             // 与用户「挂着不动会闪退」的形态吻合。这里把它降级成 lastError + 继续轮询。
-            lastError = "refresh_unhandled: ${unexpected.javaClass.simpleName}"
+            lastError = HUMAN_GENERIC_FAILURE
+            lastErrorCode = "refresh_unhandled: ${unexpected.javaClass.simpleName}"
             Log.w(TAG, "refresh unhandled: ${unexpected.javaClass.simpleName}: ${unexpected.message}")
         } finally {
             isRefreshing = false
@@ -380,7 +394,9 @@ internal class AndroidBridgeTeamAdapter(
     }
 
     private fun fail(code: String, message: String? = null) {
-        lastError = if (message.isNullOrBlank()) code else "$code: $message"
+        // 只把**人话**放进 lastError；code 单独存（不拼进用户可见文本）
+        lastError = message?.takeIf { it.isNotBlank() } ?: humanMessageFor(code)
+        lastErrorCode = code
         store.refreshFailed(code, message)
         publishState()
     }
@@ -567,8 +583,21 @@ internal class AndroidBridgeTeamAdapter(
         }
     }
 
+    /** code → 人话（新增 code 必须在这里登记，否则 UI 只会看到兜底文案——不允许把 code 漏出去）。 */
+    private fun humanMessageFor(code: String): String = when (code) {
+        "no-bridge-origin" -> HUMAN_NO_ORIGIN
+        "no-device-session" -> HUMAN_NOT_PAIRED
+        "network_error", "transport_failed" -> "网络不通，稍后会自动重试"
+        "unauthorized", "invalid_session", "session_clear", "blocked_url" -> HUMAN_NOT_PAIRED
+        else -> HUMAN_GENERIC_FAILURE
+    }
+
     companion object {
         private const val TAG = "DshBridgeTeam"
+        private const val HUMAN_NO_ORIGIN = "尚未连接桌面端：请先在设置里配对服务器"
+        private const val HUMAN_NOT_PAIRED = "尚未配对桥接设备：请先与网关配对"
+        private const val HUMAN_CHAT_FAILED = "聊天记录读取失败，稍后会自动重试"
+        private const val HUMAN_GENERIC_FAILURE = "连接出问题了，稍后会自动重试"
         private const val POLL_INTERVAL_MILLIS = 8_000L
         private const val CONNECT_TIMEOUT_SECONDS = 8L
         private const val READ_TIMEOUT_SECONDS = 12L

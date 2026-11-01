@@ -27,8 +27,20 @@ internal class AndroidBridgeSessionStore(context: Context) : BridgeSessionStore 
 
     private fun preferences() = appContext.getSharedPreferences(FILE_NAME, Context.MODE_PRIVATE)
 
+    /** prefs 文件是否真的在磁盘上（覆盖安装排查：文件在但读不到 = 更早的问题）。 */
+    private fun prefsFileExists(): Boolean = runCatching {
+        java.io.File(appContext.applicationInfo.dataDir, "shared_prefs/$FILE_NAME.xml").exists()
+    }.getOrDefault(false)
+
     override fun loadJson(): String? = synchronized(lock) {
-        val encoded = preferences().getString(KEY_SESSION, null) ?: return null
+        val prefs = preferences()
+        val encoded = prefs.getString(KEY_SESSION, null)
+        if (encoded == null) {
+            // 覆盖安装排查用：区分「密文不存在」与「密文在但解不开」（后者由下一条日志报）。
+            Log.i(TAG, "loadJson: no ciphertext (prefs=${FILE_NAME}, fileExists=${prefsFileExists()})")
+            return null
+        }
+        Log.i(TAG, "loadJson: ciphertext ${encoded.length}B")
         runCatching { decrypt(encoded) }.getOrElse {
             // **非销毁式失败**（iOSCoder 2026-11-02）：一次 Keystore 不可用就把会话密文删掉，
             // 等于把瞬时故障变成"必须重新扫码"。改为保留密文 + 标记，由上层提示重新配对。

@@ -284,16 +284,6 @@ internal fun BotTeamScreen(
                     )
                 }
             }
-            if (bots.isEmpty() && rooms.isEmpty()) {
-                item {
-                    Text(
-                        appText("还没有收到团队名册数据"),
-                        color = homeInk(0.6f),
-                        style = DshType.body,
-                        modifier = Modifier.padding(top = 8.dp)
-                    )
-                }
-            }
         }
     }
 }
@@ -815,7 +805,9 @@ private fun StatusCard(
                 style = DshType.footnote
             )
         }
-        if (error != null) {
+        // 一屏只允许一条主提示（iOSDev 规则 1）：未配对档已经把原因说清，
+        // 再叠一条 error 就是同一件事讲两遍（截图实测出现过三条同义提示）。
+        if (error != null && hasSession) {
             Text(error, color = DshSemantic.danger, style = DshType.footnote)
         }
     }
