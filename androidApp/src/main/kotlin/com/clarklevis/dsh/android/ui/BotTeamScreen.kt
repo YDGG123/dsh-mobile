@@ -588,6 +588,35 @@ private fun SessionRow(row: BridgeConversationRow) {
 }
 
 /**
+ * Bot 头像 shape → 符号（vc43 D4）：iOS 用 SF Symbols 表（20 项），Android 无等价符号集，
+ * 按语义画了 20 个等价矢量。**未知/缺失形状 ⇒ 不画符号**（回落到色圆+首字母，
+ * 记为有意差异——iOS 那层是中性圆点，但 Android 保留字母比落空点更可读，待 AndroidTester 定）。
+ */
+internal fun shapeIconRes(shape: String?): Int? = when (shape?.lowercase()) {
+    "whale" -> R.drawable.shape_whale
+    "star" -> R.drawable.shape_star
+    "moon" -> R.drawable.shape_moon
+    "wave" -> R.drawable.shape_wave
+    "squircle" -> R.drawable.shape_squircle
+    "zed" -> R.drawable.shape_zed
+    "hex" -> R.drawable.shape_hex
+    "gumdrop" -> R.drawable.shape_gumdrop
+    "peanut" -> R.drawable.shape_peanut
+    "saucer" -> R.drawable.shape_saucer
+    "bunny" -> R.drawable.shape_bunny
+    "kitty" -> R.drawable.shape_kitty
+    "beacon" -> R.drawable.shape_beacon
+    "plus" -> R.drawable.shape_plus
+    "magnet" -> R.drawable.shape_magnet
+    "acorn" -> R.drawable.shape_acorn
+    "pebbles" -> R.drawable.shape_pebbles
+    "cushion" -> R.drawable.shape_cushion
+    "ring" -> R.drawable.shape_ring
+    "gem" -> R.drawable.shape_gem
+    else -> null
+}
+
+/**
  * iOS avatar(for:)（TeamView :353）+ avatarColor（:535）+ dynamicInk 同链路：
  * **行级 `row.color`（ink 名或 #hex）→ `BridgeInks.resolve`（shared 单一来源，
  * 与 iOS `dynamicInk` 同口径）→ 回落 `avatar.color` 十六进制（`Color(bridgeHex:)`
@@ -633,6 +662,13 @@ private fun RosterAvatar(
         }
     }
     val avatarHex = (avatar?.get("color") as? JsonPrimitive)?.takeIf { it.isString }?.content
+    // ② shape 符号（iOS 兜底顺序：image > glyph > shape 符号 > 中性圆点）
+    val shapeValue = (avatar?.get("shape") as? JsonPrimitive)?.takeIf { it.isString }?.content
+    val shapeRes = shapeValue?.let { shapeIconRes(it) }
+    // 三档兜底：① 有映射 ⇒ 画符号；② 字段有值但未知 ⇒ **中性圆点**（对齐 iOS `circle.fill`，
+    // Chief 2026-11-02 指定）；③ 字段缺失 ⇒ 保留色圆+首字母（无信息时字母比一群同色点可读，
+    // 这条是**有意差异**，已登记）。
+    val unknownShape = shapeValue != null && shapeRes == null
     val color = remember(rowColor, avatarHex, dark, fallback) {
         rosterAvatarColor(rowColor, avatarHex, dark, fallback)
     }
@@ -649,6 +685,15 @@ private fun RosterAvatar(
                 modifier = Modifier.fillMaxSize().clip(CircleShape),
                 contentScale = ContentScale.Crop
             )
+        } else if (shapeRes != null) {
+            Icon(
+                painter = painterResource(shapeRes),
+                contentDescription = null,
+                modifier = Modifier.size((size * 0.62f).dp),
+                tint = Color.White
+            )
+        } else if (unknownShape) {
+            Box(Modifier.size((size * 0.34f).dp).background(Color.White, CircleShape))
         } else Text(
             name.take(1),
             color = Color.White,

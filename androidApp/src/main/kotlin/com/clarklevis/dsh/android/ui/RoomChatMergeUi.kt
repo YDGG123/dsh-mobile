@@ -51,7 +51,9 @@ internal fun mergeRoomChatEntries(
         GatewayTimelineRef(id = item.id, sessionId = sessionId, seq = item.seq, epochSeconds = item.epochSeconds)
     }
     val merged = mergeRoomChat(gateway = refs, bridge = bubbles)
-    merged.withoutSeq.forEach { logWithoutSeq(it.id) } // 第三档：留痕（C7-b 判据靠它）
+    // 第三档：留痕（C7-b 判据靠它）——**两侧都要记**：bridge 气泡与网关条目各记各的
+    merged.withoutSeq.forEach { logWithoutSeq("bridge:${it.id}") }
+    merged.withoutSeqGateway.forEach { logWithoutSeq("gateway:${it.id}") }
     return (merged.bubbles + merged.withoutSeq).map { bubble ->
         ConversationTimelineEntry.PeerMessage(
             key = bubble.id,

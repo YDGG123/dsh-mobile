@@ -280,6 +280,57 @@ fun chatMessagesFromHistory(historyJson: String): String {
     )
 }
 
+/**
+ * 多页历史（REST 翻页，从新到旧逐页取）→ 单一 `BridgeChatSnapshot` JSON。
+ *
+ * 翻页不可避免会拿到重叠条目（服务端 `cursor:null` 前最后几页常与上一页交叠），
+ * 这里**按 message id 去重并保持"先出现的在前"**（页序即时间序，新→旧取完再按到达顺序排）。
+ * AndroidTester 2026-11-02 的 C9 边界：**返回 null 后再请求不得出现重复条目**。
+ */
+fun chatMessagesFromHistoryPages(
+    pages: List<String>,
+    /**
+     * 某页解析失败时回调 `(页序号, 异常)`——**不吞**：调用方据此打日志/自检。
+     * 单页坏掉不该让整批失败，但也不该毫无痕迹（2026-11-02 自测抓到的静默吞没）。
+     */
+    onPageDropped: (Int, Throwable) -> Unit = { _, _ -> },
+): String {
+    val seen = LinkedHashMap<String, BridgeChatMessage>()
+    pages.forEachIndexed { index, pageJson ->
+        val page = runCatching {
+            com.clarklevis.dsh.shared.protocol.parseBridgeHistory(pageJson)
+        }.getOrElse { error ->
+            onPageDropped(index, error)
+            return@forEachIndexed
+        }
+        page.messages.map { it.toChatMessage() }.forEach { message ->
+            seen.putIfAbsent(message.id, message)
+        }
+    }
+    return com.clarklevis.dsh.shared.protocol.wireJson.encodeToString(
+        BridgeChatSnapshot.serializer(),
+        BridgeChatSnapshot(seen.values.toList())
+    )
+}
+
+/**
+ * 两个快照**按 message id 并集合并**（[existing] 在前、[incoming] 里新出现的追加）。
+ *
+ * 用途：群聊只在进入时全量拉过一次；停留期间成员继续发言，轮询只取最新一页——
+ * 若直接覆盖，早先几页就会消失。合并后老的保留、新的追加，交给时间线按时间排序。
+ */
+fun mergeChatSnapshots(existing: String?, incoming: String): String {
+    val old = existing?.let { decodeBridgeChatSnapshot(it) }?.messages.orEmpty()
+    val new = decodeBridgeChatSnapshot(incoming)?.messages.orEmpty()
+    val seen = LinkedHashMap<String, BridgeChatMessage>()
+    old.forEach { seen.putIfAbsent(it.id, it) }
+    new.forEach { seen.putIfAbsent(it.id, it) }
+    return com.clarklevis.dsh.shared.protocol.wireJson.encodeToString(
+        BridgeChatSnapshot.serializer(),
+        BridgeChatSnapshot(seen.values.toList())
+    )
+}
+
 /** 应用 WS 事件，返回新消息列表 JSON。 */
 fun chatApplyEvent(messagesJson: String, eventJson: String, nowMillis: Long): String {
     val current = runCatching {

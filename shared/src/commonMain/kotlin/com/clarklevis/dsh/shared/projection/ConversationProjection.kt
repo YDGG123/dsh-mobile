@@ -82,7 +82,20 @@ data class ConversationItem(
      *
      * 用户消息两条路径（steering / user-message）**已填 seq**，③「自己发的只出现一次」不缺字段。
      */
-    val seq: Int? = null
+    val seq: Int? = null,
+    /**
+     * 群聊里这条发言人是谁（**只来自服务端 `author.name`**，Chief 2026-11-02 定为方案 B）。
+     *
+     * 三条渲染规则（**同样定死，勿各自发挥**）：
+     * ```
+     * senderName == null 且 role == user        ⇒ 显示「我」
+     * senderName != null                        ⇒ 显示该名字（气泡上方小号灰字）
+     * senderName == null 且 role == assistant   ⇒ **不显示任何名字**（绝不回落成「我」）
+     * ```
+     * 纪律：**禁止本地推断**（不拿会话标题凑、不写「未知/成员」）——假身份比空更糟；
+     * `role == user` 一律不显示名字，否则会与网关侧那条用户条目重复显示自己的名字。
+     */
+    val senderName: String? = null
 )
 
 /** 高频 token 流只发送有序操作，不重复发送已经累计的完整消息文本。 */

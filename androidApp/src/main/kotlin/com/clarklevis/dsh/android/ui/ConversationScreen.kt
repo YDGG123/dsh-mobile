@@ -902,7 +902,18 @@ private fun ConversationTimeline(
     val room = stateHolder.bridgeTeam?.state?.rooms.orEmpty()
         .firstOrNull { it.sessionId == selectedSessionId }
     LaunchedEffect(room?.id) {
+        // 换会话时重新拉（旧 cursor 随新的循环丢弃；cursor 不透明，不跨会话复用）
         room?.id?.let { stateHolder.bridgeTeam?.loadChatMessages(it) }
+    }
+    DisposableEffect(room?.id) {
+        // 停留期间由轮询增量补最新一页（合并，不清空）；离开本页即撤掉，避免白发请求。
+        val adapter = stateHolder.bridgeTeam
+        adapter?.activeChatConversationId = room?.id
+        onDispose {
+            if (adapter != null && adapter.activeChatConversationId == room?.id) {
+                adapter.activeChatConversationId = null
+            }
+        }
     }
     val peerEntries = remember(room?.id, stateHolder.bridgeTeam?.chatMessagesByConversation) {
         val bubbles = decodeRoomChatBubbles(stateHolder.bridgeTeam?.chatMessagesByConversation?.get(room?.id))

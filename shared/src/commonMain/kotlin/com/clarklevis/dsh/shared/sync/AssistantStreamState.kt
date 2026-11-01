@@ -90,7 +90,12 @@ class AssistantStreamState {
         val projector = ConversationProjector()
         projector.foldAssistantChunks(attemptId, chunks)
         // 轨迹使用真实的生成起点作锚；records 为空，临时 chunk 不伪装成 SessionEvent。
-        val anchor = attempt?.long("startedAfterSeq")?.toInt() ?: cursors[sessionId] ?: -1
+        // 窄化必须带范围检查：`Long.toInt()` 是**静默截断**（不像 Swift 会 trap），
+        // 超范围时会得到一个看似合法的负/错 seq。拿不到就退回 cursor，绝不硬转（AndroidTester C10）。
+        val anchor = attempt?.long("startedAfterSeq")
+            ?.takeIf { it in 0..Int.MAX_VALUE.toLong() }
+            ?.toInt()
+            ?: cursors[sessionId] ?: -1
         return projector.items.map { item ->
             TrajectoryNode(
                 item.id,
@@ -240,8 +245,9 @@ class AssistantStreamState {
         // 同一 follow 保证 committed event 在 end 之前。先移除临时行，避免两份最终内容。
         val settled =
             frame.event?.type in setOf("assistant/message", "assistant/attempt") &&
-                frame.event?.turn == attempt?.long("turn")?.toInt() &&
-                frame.event?.step == attempt?.long("step")?.toInt()
+                // 两侧同宽比较（不窄化）：turn/step 是 Int，比较时提升为 Long，杜绝截断
+                frame.event?.turn?.toLong() == attempt?.long("turn") &&
+                frame.event?.step?.toLong() == attempt?.long("step")
         if (settled) {
             chunks.clear()
             committed = requireNotNull(frame.event).type to seq
@@ -280,9 +286,15 @@ class AssistantStreamState {
         revision = incomingRevision
         if (value.string("type") == "end") {
             val outcome = value["outcome"] as? JsonObject ?: return fail(id, "流结算缺少 outcome")
-            if (outcome.string("kind") == "committed" &&
-                committed != (outcome.string("eventType") to outcome.long("seq")?.toInt())
-            ) {
+            // 同款：seq 是 Long，比较时提升为 Long，不做静默截断（原写法 `long("seq")?.toInt()`）
+            val expectedSeq = committed
+            val committedMismatch = outcome.string("kind") == "committed" && (
+                expectedSeq == null ||
+                    expectedSeq.first != outcome.string("eventType") ||
+                    outcome.long("seq") == null ||
+                    expectedSeq.second.toLong() != outcome.long("seq")
+                )
+            if (committedMismatch) {
                 return fail(id, "流结算缺少对应的持久消息，正在重新订阅")
             }
             clearAttempt()

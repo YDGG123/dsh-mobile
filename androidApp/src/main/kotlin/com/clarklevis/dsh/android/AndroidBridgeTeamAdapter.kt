@@ -10,6 +10,8 @@ import androidx.compose.runtime.setValue
 import com.clarklevis.dsh.android.platform.AndroidBridgeSessionStore
 import com.clarklevis.dsh.shared.domain.TeamPhase
 import com.clarklevis.dsh.shared.domain.chatMessagesFromHistory
+import com.clarklevis.dsh.shared.domain.mergeChatSnapshots
+import com.clarklevis.dsh.shared.domain.chatMessagesFromHistoryPages
 import com.clarklevis.dsh.shared.domain.TeamUiState
 import com.clarklevis.dsh.shared.facade.SharedBridgeTeamStore
 import com.clarklevis.dsh.shared.protocol.BridgeCardQuestion
@@ -100,6 +102,13 @@ internal class AndroidBridgeTeamAdapter(
      */
     var chatMessagesByConversation: Map<String, String> by mutableStateOf(emptyMap())
         private set
+
+    /**
+     * 当前**正在看的**群聊 conversationId（由会话页设置/清除，故 setter 开放）。
+     * 轮询时若它非空，就顺带增量拉最新一页并**合并**进已有快照——
+     * 否则停留在群聊里收不到成员新发言，只能退出重进才看到（与 iOS 的常驻引擎不对齐）。
+     */
+    var activeChatConversationId: String? by mutableStateOf(null)
 
     var isRefreshing: Boolean by mutableStateOf(false)
         private set
@@ -197,25 +206,51 @@ internal class AndroidBridgeTeamAdapter(
      *
      * @return true = 成功（含"服务端返回空列表"）；false = 失败，`lastError` 已置原因。
      */
-    suspend fun loadChatMessages(conversationId: String, cursor: String? = null): Boolean {
+    suspend fun loadChatMessages(conversationId: String, maxPages: Int = 8, merge: Boolean = false): Boolean {
         val base = origin ?: run { lastError = "no-bridge-origin"; return false }
         val token = store.currentAccessToken() ?: run { lastError = "no-device-session"; return false }
-        val url = buildString {
-            append(base).append("/mobile/v1/conversations/").append(conversationId).append("/messages?limit=50")
-            if (!cursor.isNullOrBlank()) append("&cursor=").append(cursor)
-        }
-        return when (val result = fetch(url, token)) {
-            is BridgeFetch.Ok -> {
-                val snapshotJson = runCatching { chatMessagesFromHistory(result.body) }.getOrElse { error ->
-                    lastError = "chat_parse_failed: ${error.javaClass.simpleName}"
-                    return false
-                }
-                chatMessagesByConversation = chatMessagesByConversation + (conversationId to snapshotJson)
-                true
+        val pages = ArrayList<String>()
+        var cursor: String? = null
+        var pageIndex = 0
+        while (pageIndex < maxPages) {
+            val url = buildString {
+                append(base).append("/mobile/v1/conversations/").append(conversationId).append("/messages?limit=50")
+                // cursor 是**不透明**的（含 conversationId，服务端会校验），一律原样回传，不自己拼。
+                if (!cursor.isNullOrBlank()) append("&cursor=").append(cursor)
             }
-            is BridgeFetch.HttpError -> failWith(result).let { false }
-            else -> fail("chat_messages_failed", "群聊消息拉取失败").let { false }
+            when (val result = fetch(url, token)) {
+                is BridgeFetch.Ok -> {
+                    pages += result.body
+                    // 拿到 cursor:null 就停止翻页（AndroidTester C9：不许空转重试）
+                    cursor = runCatching {
+                        com.clarklevis.dsh.shared.protocol.parseBridgeHistory(result.body).cursor
+                    }.getOrNull()
+                    if (cursor.isNullOrBlank()) break
+                }
+                is BridgeFetch.HttpError -> return failWith(result).let { false }
+                else -> return fail("chat_messages_failed", "群聊消息拉取失败").let { false }
+            }
+            pageIndex++
         }
+        val snapshotJson = runCatching {
+            chatMessagesFromHistoryPages(pages) { index, error ->
+                // 丢页必须留痕（否则"少几条"没有任何线索）；首尾页丢失也要能在日志里看到。
+                Log.w(TAG, "chat history page#$index dropped: ${error.javaClass.simpleName} ${error.message}")
+            }
+        }.getOrElse { error ->
+            lastError = "chat_parse_failed: ${error.javaClass.simpleName}"
+            return false
+        }
+        if (pages.isEmpty()) return false
+        val merged = if (merge) {
+            chatMessagesByConversation[conversationId].let { previous ->
+                runCatching { mergeChatSnapshots(previous, snapshotJson) }.getOrDefault(snapshotJson)
+            }
+        } else {
+            snapshotJson
+        }
+        chatMessagesByConversation = chatMessagesByConversation + (conversationId to merged)
+        return true
     }
 
     /** 手动刷新一次（点按重试 / 进入团队页时调用）。 */
@@ -262,6 +297,11 @@ internal class AndroidBridgeTeamAdapter(
             }
             publishState()
             refreshCards(base, token)
+            // 停留在某个群聊里时顺带补拉最新一页（合并而非覆盖，老的几页不会丢）
+            activeChatConversationId?.let { id ->
+                runCatching { loadChatMessages(id, maxPages = 1, merge = true) }
+                    .onFailure { Log.w(TAG, "active chat refresh failed: ${it.javaClass.simpleName}") }
+            }
         } catch (cancelled: kotlinx.coroutines.CancellationException) {
             throw cancelled
         } catch (unexpected: Throwable) {

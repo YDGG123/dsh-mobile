@@ -22,7 +22,7 @@ android {
         applicationId = "com.clarklevis.dsh.android"
         minSdk = 24
         targetSdk = 36
-        versionCode = 43 // 本批（Bot 区群聊合流：bridge 只读消息流 + (sessionId,seq) 精确去重 + 身份显示；凭证不可读三态提示与动作）；42 为上一批
+        versionCode = 44 // 本批（严格版 id 拆解防假 seq、网关侧第三档留痕、群聊翻页+停留增量合并、senderName 承载、20 个矢量头像 shape、5 处 Long 窄化消除）；43 为上一批
         versionName = "1.7.13"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

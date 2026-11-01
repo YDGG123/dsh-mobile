@@ -41,7 +41,13 @@ data class RoomChatMergeResult(
     /** bridge 独有条目（应插入时间线）。 */
     val bubbles: List<RoomChatBubble>,
     /** 拿不到 seq 的条目：**仍插入**，但不参与去重；调用方**必须**为每条留日志。 */
-    val withoutSeq: List<RoomChatBubble>
+    val withoutSeq: List<RoomChatBubble>,
+    /**
+     * **网关侧**拿不到 seq 的条目：它们只是不进去重键集合，**但同样必须留日志**。
+     * 2026-11-02 自查发现：原先这类条目被 `mapNotNull` **静默丢弃**，页面上毫无痕迹——
+     * 正是"看起来去了重、实际漏了"的反面形态（漏记 ≠ 漏显示，但同样是判据缺口）。
+     */
+    val withoutSeqGateway: List<GatewayTimelineRef> = emptyList()
 )
 
 private const val USER_ID_MARKER = "-user-"
@@ -69,26 +75,44 @@ fun parseSeqFromTimelineId(id: String): Long? {
     return tail.toLongOrNull()
 }
 
+/**
+ * 严版拆解：**要求 id 恰好是 `"$sessionId-$seq"`**（即 `eventId(record)` 的原样形态）。
+ *
+ * 为什么需要：宽松版只看"末段是纯数字"，而同一投影里还有 `sessionId-command-<id>` 这类 id，
+ * 若 `commandId` 恰好是数字（或将来出现别的数字后缀），就会拆出一个**不属于该条目的 seq**，
+ * 于是 bridge 里真正 seq 相等于该数字的消息被当成"重复"吞掉——症状就是「少一条」，且难复现。
+ * 一旦 `sessionId` 已知（合流两个来源都带），就应当用这条严判，宽松版只留作无 sessionId 时的兜底。
+ */
+fun parseSeqFromTimelineId(id: String, sessionId: String?): Long? {
+    val seq = parseSeqFromTimelineId(id) ?: return null
+    if (sessionId != null && id != "$sessionId-$seq") return null
+    return seq
+}
+
 fun mergeRoomChat(
     gateway: List<GatewayTimelineRef>,
     bridge: List<RoomChatBubble>
 ): RoomChatMergeResult {
+    val withoutSeqGateway = ArrayList<GatewayTimelineRef>()
     val keys = gateway.mapNotNull { ref ->
-        val seq = ref.seq?.toLong() ?: parseSeqFromTimelineId(ref.id) ?: return@mapNotNull null
+        val seq = ref.seq?.toLong() ?: parseSeqFromTimelineId(ref.id, ref.sessionId) ?: run {
+            withoutSeqGateway += ref // 不参与去重，但**不静默**：由调用方留日志
+            return@mapNotNull null
+        }
         key(ref.sessionId, seq)
     }.toSet()
 
     val bubbles = ArrayList<RoomChatBubble>()
     val withoutSeq = ArrayList<RoomChatBubble>()
     bridge.forEach { bubble ->
-        val seq = bubble.seq ?: parseSeqFromTimelineId(bubble.id)
+        val seq = bubble.seq ?: parseSeqFromTimelineId(bubble.id, bubble.sessionId)
         if (seq == null) {
             withoutSeq += bubble // 仍显示；调用方必须记日志（不许静默跳过）
         } else if (key(bubble.sessionId, seq) !in keys) {
             bubbles += bubble
         }
     }
-    return RoomChatMergeResult(keys, bubbles, withoutSeq)
+    return RoomChatMergeResult(keys, bubbles, withoutSeq, withoutSeqGateway)
 }
 
 private fun key(sessionId: String, seq: Long): String = "$sessionId|$seq"

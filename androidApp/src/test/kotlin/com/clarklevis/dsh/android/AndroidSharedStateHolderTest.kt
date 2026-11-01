@@ -1,5 +1,6 @@
 package com.clarklevis.dsh.android
 
+import com.clarklevis.dsh.android.localization.AndroidStrings
 import com.clarklevis.dsh.android.platform.AndroidPreparedImage
 import com.clarklevis.dsh.shared.gateway.GatewayOutgoingImage
 import com.clarklevis.dsh.shared.gateway.GatewayRuntimeEvent
@@ -196,5 +197,58 @@ class AndroidSharedStateHolderTest {
         holder.retryAttachment("visible-image")
         assertEquals(AttachmentLoadState.LOADING, holder.attachmentStates["visible-image"])
         assertEquals(listOf("visible-image"), holder.queuedAttachmentIdsForTest())
+    }
+
+    /**
+     * B7 行为判据（Chief 2026-11-02 定的"按行为判、不看实现形式"）：
+     * 凭证失效弹窗（PAIR）显示期间被普通错误覆盖 ⇒ 按钮必须回到「重新连接」，
+     * 不许残留 PAIR——两个状态若各存一份，这条就会红。
+     */
+    @Test
+    fun credentialFailureActionIsPair() {
+        val holder = AndroidSharedStateHolder()
+        holder.platformError = AndroidSharedStateHolder.CREDENTIAL_ERROR_GATEWAY
+        assertEquals(PlatformErrorAction.PAIR, holder.platformErrorAction)
+
+        holder.platformError = AndroidSharedStateHolder.CREDENTIAL_ERROR_RESTORE
+        assertEquals(PlatformErrorAction.PAIR, holder.platformErrorAction)
+    }
+
+    @Test
+    fun ordinaryErrorOverwritingCredentialFailureReturnsToReconnect() {
+        val holder = AndroidSharedStateHolder()
+        holder.platformError = AndroidSharedStateHolder.CREDENTIAL_ERROR_GATEWAY
+        assertEquals(PlatformErrorAction.PAIR, holder.platformErrorAction)
+
+        // 弹出期间被普通错误覆盖（例如拉列表 500）⇒ 动作必须跟着文案变回 RECONNECT
+        holder.platformError = "拉取会话列表失败"
+        assertEquals(PlatformErrorAction.RECONNECT, holder.platformErrorAction)
+
+        // 再清除弹窗 ⇒ 仍是 RECONNECT，不许残留 PAIR
+        holder.platformError = null
+        assertEquals(PlatformErrorAction.RECONNECT, holder.platformErrorAction)
+    }
+
+    @Test
+    fun ordinaryErrorAloneIsReconnect() {
+        val holder = AndroidSharedStateHolder()
+        holder.platformError = "网络不可达"
+        assertEquals(PlatformErrorAction.RECONNECT, holder.platformErrorAction)
+    }
+
+    /**
+     * B8 的第三份拷贝（AndroidTester 2026-11-02 只数到两份：集合 + 赋值点）：
+     * **英文翻译表是按中文原文当 key 的**（`AndroidStrings.kt`），文案一改，语言包会静默失配、
+     * 英文界面直接回落中文——同样没有编译错误。这条用例把「常量 → 翻译存在」锁在编译期链上。
+     */
+    @Test
+    fun credentialMessagesHaveEnglishTranslations() {
+        for (message in listOf(
+            AndroidSharedStateHolder.CREDENTIAL_ERROR_GATEWAY,
+            AndroidSharedStateHolder.CREDENTIAL_ERROR_RESTORE
+        )) {
+            val english = AndroidStrings.text(message, java.util.Locale.ENGLISH)
+            assertTrue("缺少英文翻译，语言包 key 与常量已失配: $message", english != message)
+        }
     }
 }

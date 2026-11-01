@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Bot 头像 shape 符号（vc43 D4）：iOS 用 SF Symbols 画同一批形状（whale/star/…），
+     Android 无等价符号集，按语义画等价矢量；形状未知 ⇒ 不画（落中性圆点）。 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="@android:color/transparent"
+        android:pathData="M8,4c0,3 1,5 1,7 M16,4c0,3 -1,5 -1,7 M12,11a4,4 0 1 0 0,8a4,4 0 1 0 0,-8z"
+        android:strokeColor="#FF000000"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:strokeWidth="1.6" />
+</vector>

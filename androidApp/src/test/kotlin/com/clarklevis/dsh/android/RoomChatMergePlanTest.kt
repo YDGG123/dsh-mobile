@@ -1,8 +1,11 @@
 package com.clarklevis.dsh.android
 
 import com.clarklevis.dsh.shared.domain.GatewayTimelineRef
+import com.clarklevis.dsh.shared.domain.chatMessagesFromHistoryPages
+import com.clarklevis.dsh.shared.domain.decodeBridgeChatSnapshot
 import com.clarklevis.dsh.shared.domain.RoomChatBubble
 import com.clarklevis.dsh.shared.domain.interleaveByTime
+import com.clarklevis.dsh.shared.domain.mergeChatSnapshots
 import com.clarklevis.dsh.shared.domain.mergeRoomChat
 import com.clarklevis.dsh.shared.domain.parseSeqFromTimelineId
 import org.junit.Assert.assertEquals
@@ -159,5 +162,108 @@ class RoomChatMergePlanTest {
         )
         assertEquals(1, result.bubbles.size)
         assertEquals("另一个群", result.bubbles.first().text)
+    }
+
+    /** C9 多页翻页：页间重叠条目按 message id 去重，且**保持首次出现顺序**（新→旧页序即时间序）。 */
+    @Test
+    fun deduplicatesOverlappingHistoryPages() {
+        val page1 = """{"sessionId":"s","messages":[{"id":"s:3","sessionId":"s","seq":3,"role":"assistant","text":"第三"},{"id":"s:2","sessionId":"s","seq":2,"role":"user","text":"第二"}]}"""
+        val page2 = """{"sessionId":"s","messages":[{"id":"s:2","sessionId":"s","seq":2,"role":"user","text":"第二"},{"id":"s:1","sessionId":"s","seq":1,"role":"assistant","text":"第一"}]}"""
+        val snapshot = decodeBridgeChatSnapshot(chatMessagesFromHistoryPages(listOf(page1, page2)))
+        assertEquals(listOf("s:3", "s:2", "s:1"), snapshot?.messages?.map { it.id })
+    }
+
+    /** C9 边界：某页 JSON 坏了**不抛**、也不整批丢——其余页照常合成，且不产生重复。 */
+    @Test
+    fun survivesOneBrokenHistoryPage() {
+        val good = """{"sessionId":"s","messages":[{"id":"s:1","sessionId":"s","seq":1,"role":"assistant","text":"第一"}]}"""
+        val dropped = ArrayList<Int>()
+        val snapshot = decodeBridgeChatSnapshot(
+            chatMessagesFromHistoryPages(listOf(good, "{ not json", good)) { index, _ -> dropped += index }
+        )
+        assertEquals(listOf("s:1"), snapshot?.messages?.map { it.id })
+        // 坏页必须留痕（不能静默丢），且只报真正坏的那一页
+        assertEquals(listOf(1), dropped)
+    }
+
+    /** C9 边界：服务端 cursor:null 后仍被再请求一次（空转），条目不得增多。 */
+    @Test
+    fun repeatedFinalPageDoesNotDuplicate() {
+        val page = """{"sessionId":"s","messages":[{"id":"s:9","sessionId":"s","seq":9,"role":"assistant","text":"末"}],"cursor":null}"""
+        val once = decodeBridgeChatSnapshot(chatMessagesFromHistoryPages(listOf(page)))
+        val twice = decodeBridgeChatSnapshot(chatMessagesFromHistoryPages(listOf(page, page)))
+        assertEquals(1, once?.messages?.size)
+        assertEquals(1, twice?.messages?.size)
+    }
+
+    /** 严版拆解：只有 id 恰好是 `<sessionId>-<seq>` 才拆得出来（数字后缀的 command id 不算）。 */
+    @Test
+    fun strictIdParseRejectsNonEventIds() {
+        assertEquals(123L, parseSeqFromTimelineId("room-1-123", "room-1"))
+        // 宽松版能拆出 123（末段是数字），严版必须拒绝：它不是 eventId 形态
+        assertEquals(123L, parseSeqFromTimelineId("room-1-command-123"))
+        assertNull(parseSeqFromTimelineId("room-1-command-123", "room-1"))
+        assertNull(parseSeqFromTimelineId("room-1-12-reason", "room-1"))
+    }
+
+    /** 假 seq 不得吞掉 bridge 真条目：command 条目 id 尾号 = 99，而 bridge 真有 seq 99 的发言。 */
+    @Test
+    fun numericCommandIdDoesNotSwallowRealMessage() {
+        val result = mergeRoomChat(
+            gateway = listOf(gateway("room-1-command-99", seq = null, session = "room-1")),
+            bridge = listOf(bubble("room-1:99", seq = 99L, session = "room-1", text = "该留"))
+        )
+        assertEquals(listOf("该留"), result.bubbles.map { it.text })
+    }
+
+    /** 第三档**两侧都要留痕**：网关条目拿不到 seq 时，不得被 mapNotNull 静默丢掉（2026-11-02 自查修正）。 */
+    @Test
+    fun gatewayEntryWithoutSeqIsReportedNotSilentlyDropped() {
+        val result = mergeRoomChat(
+            gateway = listOf(
+                gateway("room-1-7", seq = null, session = "room-1"),
+                gateway("room-1-command-abc", seq = null, session = "room-1")
+            ),
+            bridge = emptyList()
+        )
+        assertEquals(setOf("room-1|7"), result.gatewayKeys)
+        assertEquals(listOf("room-1-command-abc"), result.withoutSeqGateway.map { it.id })
+    }
+
+    /** iOS 侧 ⑭⑮⑯ 三条逐条落地（Chief 要求确认拆解依据是"末段纯数字"，而不是"含某前缀就跳过"）。 */
+    @Test
+    fun idParsingFollowsTailDigitRuleNotPrefixRule() {
+        // ⑮ 合法 sessionId-seq：末段纯数字 ⇒ 拆出（sessionId 本身含连字符/字母也不影响）
+        assertEquals(1234L, parseSeqFromTimelineId("sess-1234"))
+        assertEquals(1234L, parseSeqFromTimelineId("room-1-1234", "room-1"))
+        // ⑭ 合成 key：末段不是数字 ⇒ null（末段规则本身就能挡住，不是"看到 stream- 字样就跳过"）
+        assertNull(parseSeqFromTimelineId("stream-text-2f1c"))
+        assertNull(parseSeqFromTimelineId("stream-reason-9"))
+        // 末段是数字但整体不是 eventId 形态 ⇒ 严版拒绝（宽松版仍可拆，仅作无 sessionId 时兜底）
+        assertNull(parseSeqFromTimelineId("room-1-command-1234", "room-1"))
+        // -user- 形态：末段即便是数字（messageId）也不拆
+        assertNull(parseSeqFromTimelineId("s-42-user-77"))
+    }
+}
+
+// 合并快照的用例放在文件末尾（另一个类）
+private fun snapshotJson(vararg ids: String): String =
+    """{"messages":[${ids.joinToString(",") { """{"id":"$it","sessionId":"s","role":"assistant","text":"$it"}""" }}]}"""
+
+class ChatSnapshotMergeTest {
+    /** 轮询增量：老快照里的条目必须保留，新出现的追加（直接覆盖会让早先几页消失）。 */
+    @Test
+    fun mergeKeepsOldMessagesAndAppendsNew() {
+        val merged = decodeBridgeChatSnapshot(
+            mergeChatSnapshots(snapshotJson("s:3", "s:2"), snapshotJson("s:2", "s:1"))
+        )
+        assertEquals(listOf("s:3", "s:2", "s:1"), merged?.messages?.map { it.id })
+    }
+
+    /** 没有旧快照时等价于直接返回新快照（首次进入）。 */
+    @Test
+    fun mergeWithoutPreviousReturnsIncoming() {
+        val merged = decodeBridgeChatSnapshot(mergeChatSnapshots(null, snapshotJson("s:1")))
+        assertEquals(listOf("s:1"), merged?.messages?.map { it.id })
     }
 }
