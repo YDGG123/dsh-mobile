@@ -241,7 +241,7 @@ internal fun TrajectoryPage(
                         )
                         Text(
                             appText("正在生成轨迹…"),
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f),
+                            color = homeInk(0.58f),
                             fontSize = 12.sp
                         )
                     }
@@ -310,9 +310,9 @@ private fun TrajectoryOverview(
                     modifier = Modifier.width(34.dp).height(52.dp),
                     verticalArrangement = Arrangement.spacedBy(7.dp)
                 ) {
-                    Text("Input", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.56f), fontSize = 11.sp)
-                    Text("Model", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.56f), fontSize = 11.sp)
-                    Text("Tools", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.56f), fontSize = 11.sp)
+                    Text("Input", color = homeInk(0.56f), fontSize = 11.sp)
+                    Text("Model", color = homeInk(0.56f), fontSize = 11.sp)
+                    Text("Tools", color = homeInk(0.56f), fontSize = 11.sp)
                 }
                 BoxWithConstraints(Modifier.weight(1f).height(52.dp)) {
                     val plotWidth = maxOf(maxWidth, (summary.entries.size * 8).dp)
@@ -328,14 +328,14 @@ private fun TrajectoryOverview(
             if (usesActualDuration) Row {
                 Text(
                     "0s",
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f),
+                    color = homeInk(0.58f),
                     fontSize = 11.sp,
                     fontFamily = FontFamily.Monospace
                 )
                 Spacer(Modifier.weight(1f))
                 Text(
                     duration,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f),
+                    color = homeInk(0.58f),
                     fontSize = 11.sp,
                     fontFamily = FontFamily.Monospace
                 )
@@ -421,7 +421,7 @@ private fun TrajectoryTurnHeader(turn: Int) {
     ) {
         Text(
             "Turn $turn",
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f),
+            color = homeInk(0.58f),
             fontSize = 11.sp,
             fontFamily = FontFamily.Monospace
         )
@@ -517,7 +517,7 @@ private fun TrajectoryRow(
                 Text(
                     node.subtitle.replace('\n', ' '),
                     modifier = Modifier.weight(1f),
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f),
+                    color = homeInk(0.58f),
                     fontSize = 12.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -527,7 +527,7 @@ private fun TrajectoryRow(
             }
             Text(
                 "#${formatSequence(node.startSequence)}",
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f),
+                color = homeInk(0.58f),
                 fontSize = 11.sp,
                 fontFamily = FontFamily.Monospace,
                 maxLines = 1
@@ -536,7 +536,7 @@ private fun TrajectoryRow(
                 painter = painterResource(R.drawable.ic_chevron_right),
                 contentDescription = null,
                 modifier = Modifier.size(10.dp),
-                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.28f)
+                tint = homeInk(0.28f)
             )
         }
     }

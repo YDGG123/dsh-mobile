@@ -162,14 +162,14 @@ private fun TaskPanel(
                     painter = painterResource(R.drawable.ic_checklist),
                     contentDescription = null,
                     modifier = Modifier.size(22.dp),
-                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.62f)
+                    tint = homeInk(0.62f)
                 )
                 Spacer(Modifier.width(10.dp))
                 Text(appText("任务"), fontWeight = FontWeight.SemiBold, fontSize = 18.sp)
                 Spacer(Modifier.width(12.dp))
                 Text(
                     taskSummary(completed, active, pending),
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.56f),
+                    color = homeInk(0.56f),
                     fontSize = 14.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -179,7 +179,7 @@ private fun TaskPanel(
                     painter = painterResource(R.drawable.ic_chevron_up),
                     contentDescription = null,
                     modifier = Modifier.size(18.dp).rotate(arrowRotation),
-                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
+                    tint = homeInk(0.55f)
                 )
             }
             AnimatedVisibility(
@@ -223,7 +223,7 @@ private fun TaskRow(task: GatewayTask) {
                     painter = painterResource(R.drawable.ic_task_pending),
                     contentDescription = appText("待处理"),
                     modifier = Modifier.size(iconVisualSize),
-                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.28f)
+                    tint = homeInk(0.28f)
                 )
             }
         }
@@ -274,7 +274,7 @@ private fun GoalPanel(
                 painter = painterResource(R.drawable.ic_goal_target),
                 contentDescription = null,
                 modifier = Modifier.size(25.dp),
-                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f)
+                tint = homeInk(0.58f)
             )
             Spacer(Modifier.width(10.dp))
             Text(phaseLabel, fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
@@ -317,7 +317,7 @@ private fun GoalActionButton(icon: Int, description: String, onClick: () -> Unit
             painter = painterResource(icon),
             contentDescription = null,
             modifier = Modifier.size(22.dp),
-            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
+            tint = homeInk(0.55f)
         )
     }
 }

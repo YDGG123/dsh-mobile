@@ -196,7 +196,7 @@ internal fun BotTeamScreen(
                 item {
                     Text(
                         appText("还没有收到团队名册数据"),
-                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+                        color = homeInk(0.6f),
                         style = DshType.body,
                         modifier = Modifier.padding(top = 8.dp)
                     )
@@ -227,12 +227,12 @@ private fun BridgeCardRow(card: com.clarklevis.dsh.shared.protocol.BridgeCardQue
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.weight(1f)
             )
-            Text(card.statusText, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f), fontSize = 12.sp)
+            Text(card.statusText, color = homeInk(0.7f), fontSize = 12.sp)
         }
         if (card.prompt.isNotBlank()) {
             Text(
                 card.prompt,
-                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.85f),
+                color = homeInk(0.85f),
                 fontSize = 14.sp,
                 modifier = Modifier.padding(top = 4.dp)
             )
@@ -240,14 +240,14 @@ private fun BridgeCardRow(card: com.clarklevis.dsh.shared.protocol.BridgeCardQue
         if (card.options.isNotEmpty()) {
             Text(
                 card.options.joinToString(" / "),
-                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.55f),
+                color = homeInk(0.55f),
                 fontSize = 12.sp,
                 modifier = Modifier.padding(top = 2.dp)
             )
         }
         Text(
             appText("在电脑端处理"),
-            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f),
+            color = homeInk(0.5f),
             fontSize = 11.sp,
             modifier = Modifier.padding(top = 4.dp)
         )
@@ -272,7 +272,7 @@ private fun PrimaryBotCard(row: BridgeConversationRow, modifier: Modifier = Modi
             if (!row.role.isNullOrBlank()) {
                 Text(
                     row.role.orEmpty(),
-                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+                    color = homeInk(0.6f),
                     fontSize = 15.sp // iOS .subheadline（:437）
                 )
             }
@@ -302,7 +302,7 @@ private fun BotRow(row: BridgeConversationRow, isMain: Boolean) {
             if (!row.role.isNullOrBlank()) {
                 Text(
                     row.role.orEmpty(),
-                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+                    color = homeInk(0.6f),
                     fontSize = 12.sp // iOS .caption（:481）
                 )
             }
@@ -315,7 +315,7 @@ private fun BotRow(row: BridgeConversationRow, isMain: Boolean) {
         }
         // 「置顶」为有意的少量超出：iOS 只在详情页显示 pin（详情页归 C3），此处先保留可见性。
         if (row.pinned == true) {
-            Text(appText("置顶"), color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f), fontSize = 11.sp)
+            Text(appText("置顶"), color = homeInk(0.5f), fontSize = 11.sp)
         }
     }
 }
@@ -337,7 +337,7 @@ private fun RoomRow(row: BridgeConversationRow) {
             if (!row.members.isNullOrEmpty()) {
                 Text(
                     row.members.joinToString(appText("、")),
-                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+                    color = homeInk(0.6f),
                     fontSize = 12.sp, // iOS .caption（:494）
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -370,7 +370,7 @@ private fun GlyphCircle(@DrawableRes iconRes: Int) {
             painterResource(iconRes),
             contentDescription = null,
             modifier = Modifier.size(20.dp),
-            tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f) // iOS .foregroundStyle(.secondary)
+            tint = homeInk(0.6f) // iOS .foregroundStyle(.secondary)
         )
     }
 }
@@ -399,7 +399,7 @@ private fun SessionRow(row: BridgeConversationRow) {
                 if (!row.workspace.isNullOrBlank()) {
                     Text(
                         row.workspace.orEmpty(),
-                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+                        color = homeInk(0.6f),
                         fontSize = 12.sp, // iOS .caption（:390）
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -408,7 +408,7 @@ private fun SessionRow(row: BridgeConversationRow) {
                 row.lastActiveAt?.let { activeMillis ->
                     Text(
                         relativeTime(activeMillis / 1000.0),
-                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.35f), // iOS .tertiary（:393）≈30%，取 0.35 保底对比
+                        color = homeInk(0.35f), // iOS .tertiary（:393）≈30%，取 0.35 保底对比
                         fontSize = 12.sp
                     )
                 }
@@ -422,7 +422,7 @@ private fun SessionRow(row: BridgeConversationRow) {
             painterResource(R.drawable.ic_chevron_right),
             contentDescription = null,
             modifier = Modifier.size(12.dp),
-            tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.35f) // iOS chevron.right .caption .tertiary（:401）
+            tint = homeInk(0.35f) // iOS chevron.right .caption .tertiary（:401）
         )
     }
 }
@@ -519,7 +519,7 @@ private fun CapsuleBadge(
 private fun EmptyRosterRow(text: String) {
     Text(
         text,
-        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f),
+        color = homeInk(0.5f),
         fontSize = 13.sp,
         modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp)
     )
@@ -529,7 +529,7 @@ private fun EmptyRosterRow(text: String) {
 private fun SectionTitle(text: String) {
     Text(
         text,
-        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
+        color = homeInk(0.7f),
         style = DshType.footnote,
         fontWeight = FontWeight.SemiBold,
         modifier = Modifier.padding(top = 12.dp, bottom = 2.dp)
@@ -561,16 +561,16 @@ private fun StatusCard(
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(appText("桥接状态"), color = MaterialTheme.colorScheme.onBackground, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.weight(1f))
-            Text(label, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f), style = DshType.footnote)
+            Text(label, color = homeInk(0.7f), style = DshType.footnote)
         }
         Text(
             appText("服务器：") + (serverName ?: "—"),
-            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+            color = homeInk(0.6f),
             style = DshType.footnote
         )
         Text(
             appText("地址：") + (origin ?: "—"),
-            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+            color = homeInk(0.6f),
             style = DshType.footnote
         )
         if (!hasSession) {

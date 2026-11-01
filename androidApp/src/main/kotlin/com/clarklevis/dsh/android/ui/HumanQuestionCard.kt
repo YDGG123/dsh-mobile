@@ -226,7 +226,7 @@ internal fun HumanQuestionCard(
                 ) + fadeOut(tween(120))
             ) {
                 Column {
-                    HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f))
+                    HorizontalDivider(color = homeStroke(0.12f))
                     val scrollState = rememberScrollState()
                     LaunchedEffect(currentIndex) { scrollState.scrollTo(0) }
                     Column(
@@ -265,7 +265,7 @@ internal fun HumanQuestionCard(
                             )
                         }
                     }
-                    HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f))
+                    HorizontalDivider(color = homeStroke(0.12f))
                     QuestionFooter(
                         currentIndex = currentIndex,
                         questionCount = request.questions.size,
@@ -400,7 +400,7 @@ private fun QuestionCancelConfirmation(
                                 )
                                 Text(
                                     appText("当前填写的答案不会提交。"),
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.56f),
+                                    color = homeInk(0.56f),
                                     fontSize = 14.sp,
                                     lineHeight = 20.sp
                                 )
@@ -500,7 +500,7 @@ private fun QuestionHeader(
                         if (targetCollapsed) question.question else appText("已从断线前恢复"),
                         fontSize = 11.sp,
                         lineHeight = 14.sp,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f),
+                        color = homeInk(0.55f),
                         maxLines = 1
                     )
                 }
@@ -510,7 +510,7 @@ private fun QuestionHeader(
             Icon(
                 painterResource(R.drawable.ic_question_chevron_down),
                 contentDescription = if (collapsed) appText("展开问题卡片") else appText("收起问题卡片"),
-                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f),
+                tint = homeInk(0.58f),
                 modifier = Modifier.size(20.dp).rotate(chevronRotation)
             )
         }
@@ -536,7 +536,7 @@ private fun HeaderIconButton(iconRes: Int, contentDescription: String, onClick: 
         Icon(
             painterResource(iconRes),
             contentDescription,
-            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f),
+            tint = homeInk(0.58f),
             modifier = Modifier.size(20.dp)
         )
     }
@@ -551,7 +551,7 @@ private fun QuestionHeading(question: GatewayQuestion) {
                 fontSize = 12.sp,
                 lineHeight = 16.sp,
                 fontWeight = FontWeight.Medium,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f)
+                color = homeInk(0.58f)
             )
         }
         Text(question.question, fontSize = 20.sp, lineHeight = 26.sp, fontWeight = FontWeight.SemiBold)
@@ -566,13 +566,13 @@ private fun QuestionHeading(question: GatewayQuestion) {
                 Icon(
                     painterResource(R.drawable.ic_checklist),
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f),
+                    tint = homeInk(0.58f),
                     modifier = Modifier.size(16.dp)
                 )
                 Text(
                     appText("可以选择多项"),
                     fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f)
+                    color = homeInk(0.58f)
                 )
             }
         }
@@ -658,7 +658,7 @@ private fun AnswerControls(
                             description,
                             fontSize = 14.sp,
                             lineHeight = 20.sp,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f)
+                            color = homeInk(0.58f)
                         )
                     }
                 }
@@ -693,14 +693,14 @@ private fun CustomAnswerField(value: String, onValueChange: (String) -> Unit, ha
         Icon(
             painterResource(R.drawable.ic_pencil_line),
             contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f),
+            tint = homeInk(0.58f),
             modifier = Modifier.padding(top = if (hasOptions) 0.dp else 2.dp).size(18.dp)
         )
         Box(Modifier.weight(1f)) {
             if (value.isEmpty()) {
                 Text(
                     if (hasOptions) appText("或输入自定义答案") else appText("输入你的答案"),
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.34f),
+                    color = homeInk(0.34f),
                     fontSize = 16.sp,
                     lineHeight = 22.sp
                 )
@@ -763,7 +763,7 @@ private fun QuestionFooter(
             Text(
                 "${currentIndex + 1} / $questionCount",
                 fontSize = 14.sp,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f),
+                color = homeInk(0.58f),
                 maxLines = 1
             )
             FooterIconButton(

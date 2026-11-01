@@ -130,7 +130,7 @@ internal fun TeamEntryButton(holder: AndroidSharedStateHolder) {
                 Modifier.padding(start = 24.dp, end = 24.dp, top = 4.dp, bottom = 6.dp),
                 fontSize = 12.sp,
                 lineHeight = 16.sp,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f),
+                color = homeInk(0.55f),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -149,7 +149,7 @@ internal fun TeamEntryButton(holder: AndroidSharedStateHolder) {
                     }
                 }
             }
-            HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+            HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = homeStroke(0.08f))
             Row(
                 Modifier
                     .fillMaxWidth()
@@ -325,7 +325,7 @@ private fun TeamSheetContent(
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         item {
-            Text(holder.teamSessionTitle, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
+            Text(holder.teamSessionTitle, fontSize = 12.sp, color = homeInk(0.5f))
         }
         team.error?.let { error -> item { Text(error, color = MaterialTheme.colorScheme.error) } }
         if (team.state != "ready") {
@@ -379,7 +379,7 @@ private fun TeamSheetContent(
                         else -> appText("此会话尚无团队共享任务；普通子智能体的内部待办显示在各自会话中。")
                     },
                     fontSize = 14.sp,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+                    color = homeInk(0.5f),
                 )
             }
         }

@@ -541,7 +541,7 @@ private fun DirectoryDivider() {
     HorizontalDivider(
         Modifier.padding(start = 58.dp),
         thickness = 0.6.dp,
-        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f)
+        color = homeInk(0.10f)
     )
 }
 
@@ -565,7 +565,7 @@ private fun DirectoryCreateWorkspaceBar(
         path?.let {
             Text(
                 it,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.42f),
+                color = homeInk(0.42f),
                 fontSize = 12.sp,
                 fontFamily = FontFamily.Monospace,
                 maxLines = 1,
@@ -603,7 +603,7 @@ private fun DirectoryCreateWorkspaceBar(
         if (directoryCreationIsLoading) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 1.7.dp)
-                Text(appText("正在创建文件夹…"), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f), fontSize = 12.sp)
+                Text(appText("正在创建文件夹…"), color = homeInk(0.52f), fontSize = 12.sp)
             }
         }
     }

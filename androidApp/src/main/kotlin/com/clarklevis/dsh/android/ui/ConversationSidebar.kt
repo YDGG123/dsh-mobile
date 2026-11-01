@@ -144,7 +144,7 @@ internal fun ConversationSidebarButton(
                 Text(
                     appText("工作区"),
                     fontSize = 14.sp,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f),
+                    color = homeInk(0.55f),
                     modifier = Modifier.padding(start = 18.dp, top = 18.dp, bottom = 6.dp)
                 )
                 LazyColumn(Modifier.weight(1f).padding(horizontal = 8.dp)) {
@@ -180,7 +180,7 @@ internal fun ConversationSidebarButton(
                                     Text(
                                         appText("暂无会话"),
                                         fontSize = 13.sp,
-                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
+                                        color = homeInk(0.4f),
                                         modifier = Modifier.padding(start = 42.dp, top = 6.dp, bottom = 6.dp)
                                     )
                                 }
@@ -208,7 +208,7 @@ internal fun ConversationSidebarButton(
                                         Text(
                                             relativeTime(session.lastActivityEpochSeconds),
                                             fontSize = 12.sp,
-                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f),
+                                            color = homeInk(0.55f),
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis,
                                             modifier = Modifier.widthIn(max = 80.dp)
@@ -232,7 +232,7 @@ internal fun ConversationSidebarButton(
                         }
                     }
                 }
-                HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
+                HorizontalDivider(color = homeStroke(0.1f))
                 SidebarNavigationItem("设置", R.drawable.ic_settings, "conversation-sidebar-settings") { select(onSettings) }
             }
         }

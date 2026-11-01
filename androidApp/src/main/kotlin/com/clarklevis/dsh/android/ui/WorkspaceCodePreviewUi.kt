@@ -111,7 +111,7 @@ internal fun WorkspaceCodePreviewContent(
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     CircularProgressIndicator()
-                    Text(appText("正在准备代码预览…"), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.60f))
+                    Text(appText("正在准备代码预览…"), color = homeInk(0.60f))
                 }
             }
             is CodePreviewLoadState.Failed -> Box(
@@ -122,7 +122,7 @@ internal fun WorkspaceCodePreviewContent(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Text(state.message, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.60f))
+                    Text(state.message, color = homeInk(0.60f))
                     TextButton(onClick = onOpenExternal) { Text(appText("使用系统应用打开")) }
                 }
             }

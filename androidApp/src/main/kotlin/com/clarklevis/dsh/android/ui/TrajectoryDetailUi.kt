@@ -134,7 +134,7 @@ private fun DetailSheetHeader(title: String, onDismiss: () -> Unit) {
 private fun GenericDetail(node: TrajectoryNode) {
     var tab by remember(node.id) { mutableStateOf(GenericDetailTab.SUMMARY) }
     DetailTabs(GenericDetailTab.entries.toList(), tab, { it.title }) { tab = it }
-    HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f))
+    HorizontalDivider(color = homeStroke(0.10f))
     DetailScroll {
         when (tab) {
             GenericDetailTab.SUMMARY -> GenericSummary(node)
@@ -148,7 +148,7 @@ private fun GenericDetail(node: TrajectoryNode) {
 private fun RequestDetail(node: TrajectoryNode) {
     var tab by remember(node.id) { mutableStateOf(RequestDetailTab.SUMMARY) }
     DetailTabs(RequestDetailTab.entries.toList(), tab, { it.title }) { tab = it }
-    HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f))
+    HorizontalDivider(color = homeStroke(0.10f))
     DetailScroll {
         when (tab) {
             RequestDetailTab.SUMMARY -> RequestSummary(node)
@@ -166,7 +166,7 @@ private fun ToolDetail(node: TrajectoryNode) {
         ToolDetailTab.entries.filter { node.kind == TrajectoryNodeKind.TOOL || it != ToolDetailTab.SCHEMA }
     }
     DetailTabs(tabs, tab, { it.title }) { tab = it }
-    HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f))
+    HorizontalDivider(color = homeStroke(0.10f))
     DetailScroll {
         when (tab) {
             ToolDetailTab.SUMMARY -> ToolSummary(node)
@@ -402,7 +402,7 @@ private fun PreviewSection(title: String, text: String) {
 private fun RawBlock(index: Int, type: String, text: String) {
     Text(
         "Block #$index $type",
-        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f),
+        color = homeInk(0.58f),
         fontSize = 14.sp,
         fontFamily = FontFamily.Monospace
     )
@@ -423,14 +423,14 @@ private fun JsonCode(value: JsonValue) {
 
 @Composable
 private fun Unavailable(text: String) {
-    Text(text, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f), fontSize = 14.sp)
+    Text(text, color = homeInk(0.58f), fontSize = 14.sp)
 }
 
 @Composable
 private fun DetailSectionTitle(title: String) {
     Text(
         title,
-        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.62f),
+        color = homeInk(0.62f),
         fontSize = 16.sp,
         fontWeight = FontWeight.SemiBold
     )
@@ -438,7 +438,7 @@ private fun DetailSectionTitle(title: String) {
 
 @Composable
 private fun DetailDivider() {
-    HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f))
+    HorizontalDivider(color = homeStroke(0.10f))
 }
 
 @Composable
@@ -451,7 +451,7 @@ private fun DetailRow(label: String, value: String, indented: Boolean = false) {
         Text(
             label,
             modifier = Modifier.width(158.dp).padding(start = if (indented) 16.dp else 0.dp),
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f),
+            color = homeInk(0.58f),
             fontSize = 14.sp
         )
         SelectionContainer {

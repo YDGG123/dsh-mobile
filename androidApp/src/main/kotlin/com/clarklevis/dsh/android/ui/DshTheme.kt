@@ -97,6 +97,21 @@ internal fun homeInk(alpha: Float = 1f): Color =
     }
 
 /** 容器填充（iOS surface）：浅色不用低透明白（白底上等于没有），用高不透明白衬底。 */
+/**
+ * iOS **系统语义色档**（`label` / `secondaryLabel` / `tertiaryLabel`）的 Android 等价物。
+ *
+ * **基底是纯黑（深色纯白），不是品牌墨 `#0E131A`**：iOSDev 2026-11-01 实测，白底上
+ * `alpha 1.0/0.60/0.30` 用纯黑是 **21.00 / 5.74 / 2.11**，用品牌墨只有 **18.64 / 4.87 / 1.98**
+ * —— 后者会**系统性偏淡一档**（0.60 档差 0.87）。
+ *
+ * 适用范围：**对话页的消息正文/次要/最淡**（SwiftUI `.primary/.secondary/.tertiary`）。
+ * **组件**（卡片/行/设置项）走 `homeInk/...` 那四支 palette 公式，别混用：
+ * 两张网格的正文差 2.36 个对比度（21.00 vs 18.64），混用会一边改对一边改错。
+ */
+@Composable
+internal fun semanticLabel(alpha: Float = 1f): Color =
+    if (LocalDshIsDark.current) Color.White.copy(alpha = alpha) else Color.Black.copy(alpha = alpha)
+
 @Composable
 internal fun homeSurface(alpha: Float): Color =
     if (LocalDshIsDark.current) {

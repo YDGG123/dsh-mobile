@@ -757,7 +757,7 @@ internal fun HistoryLoadingOverlay(
             )
             Text(
                 historyLoadingProgressText(loadedEventCount, totalEventCount),
-                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.50f),
+                color = semanticLabel(0.60f),
                 fontSize = 14.sp,
                 textAlign = TextAlign.Center
             )
@@ -1361,7 +1361,7 @@ private fun DeepSearchProgressRow(
     ) {
         HorizontalDivider(
             thickness = 0.5.dp,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.025f)
+            color = semanticLabel(0.30f)
         )
         Row(
             modifier = Modifier.padding(top = 13.dp),
@@ -1545,7 +1545,7 @@ private fun EmptyConversation(modifier: Modifier = Modifier) {
         Text(appText("操作远端 DSH Agent"), fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
         Text(
             appText("发送任务后，工具调用、推理进度和最终回复会通过 Mobile Gateway 实时返回。"),
-            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+            color = semanticLabel(0.60f),
             fontSize = 14.sp,
             textAlign = TextAlign.Center
         )
@@ -1749,7 +1749,9 @@ private fun Composer(
                             if (stateHolder.messageDraft.isEmpty()) {
                                 Text(
                                     appText(voice.state.hint),
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.42f)
+                                    // iOS 输入框占位符/hint = `secondaryLabel.withAlphaComponent(0.62)`
+                                    // = black@0.372（`ConversationView.swift:328/:347`）→ 白底 2.61:1
+                                    color = semanticLabel(0.372f)
                                 )
                             } else if (
                                 commandToken != null &&
@@ -1764,7 +1766,8 @@ private fun Composer(
                                         if (!stateHolder.messageDraft.last().isWhitespace()) append(" ")
                                         withStyle(
                                             SpanStyle(
-                                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.42f)
+                                                // 同上：命令补全 hint 也是占位符档（0.372 → 2.61:1）
+                                                color = semanticLabel(0.372f)
                                             )
                                         ) {
                                             append(commandHint)
@@ -2030,7 +2033,7 @@ internal fun QueueDock(
                             HorizontalDivider(
                                 modifier = Modifier.padding(horizontal = 10.dp),
                                 thickness = 0.5.dp,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f)
+                                color = semanticLabel(0.30f)
                             )
                         }
                     }
@@ -2092,7 +2095,7 @@ private fun SlashCommandMenus(
             if (optionsCommand != null) {
                 Text(
                     text = "/${optionsCommand.name}",
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
+                    color = semanticLabel(0.60f),
                     fontSize = 12.sp,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 7.dp)
                 )
@@ -2104,7 +2107,7 @@ private fun SlashCommandMenus(
                 state.filteredGroups.forEach { group ->
                     Text(
                         text = group.title,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.64f),
+                        color = semanticLabel(0.60f),
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Medium,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
@@ -2119,7 +2122,7 @@ private fun SlashCommandMenus(
                             Text(command.name, fontSize = 15.sp, fontWeight = FontWeight.Medium)
                             Text(
                                 command.description,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
+                                color = semanticLabel(0.60f),
                                 style = DshType.footnote,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
@@ -2146,7 +2149,7 @@ private fun SlashCommandMenus(
                             (option.description ?: option.detail)?.let {
                                 Text(
                                     it,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
+                                    color = semanticLabel(0.60f),
                                     fontSize = 12.sp,
                                     maxLines = 1
                                 )
@@ -2266,7 +2269,7 @@ internal fun SessionAgentPresetControl(
                 )
                 Icon(
                     painterResource(R.drawable.ic_question_chevron_down), contentDescription = appText("选择会话模式"),
-                    modifier = Modifier.size(10.dp), tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f)
+                    modifier = Modifier.size(10.dp), tint = semanticLabel(0.60f)
                 )
             }
         }
@@ -2294,7 +2297,7 @@ internal fun SessionAgentPresetControl(
                             Text(
                                 if (preset.broken == true) preset.brokenReason ?: appText("模式不可用")
                                 else agentPresetCompactDescription(preset.id, preset.description),
-                                fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f),
+                                fontSize = 12.sp, color = semanticLabel(0.60f),
                                 maxLines = 1, overflow = TextOverflow.Ellipsis
                             )
                         }
@@ -2333,7 +2336,7 @@ private fun PermissionControl(
                 painter = painterResource(permissionIcon(selected)),
                 contentDescription = null,
                 modifier = Modifier.size(14.dp),
-                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.62f)
+                tint = semanticLabel(0.60f)
             )
             Text(
                 options.firstOrNull { it.value == selected }?.name
@@ -2341,7 +2344,7 @@ private fun PermissionControl(
                     ?: permissionTitle(selected),
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Medium,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.62f),
+                color = semanticLabel(0.60f),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -2389,7 +2392,7 @@ private fun ComposerMenuSectionTitle(title: String) {
     Text(
         title,
         modifier = Modifier.padding(start = 18.dp, end = 18.dp, top = 6.dp, bottom = 2.dp),
-        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.48f),
+        color = semanticLabel(0.60f),
         fontSize = 13.sp,
         lineHeight = 16.sp,
         fontWeight = FontWeight.Medium
@@ -2448,7 +2451,7 @@ private fun ModelControl(
                 textAlign = TextAlign.End,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Medium,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.62f),
+                color = semanticLabel(0.60f),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -2459,7 +2462,7 @@ private fun ModelControl(
                 painter = painterResource(R.drawable.ic_chevrons_vertical),
                 contentDescription = null,
                 modifier = Modifier.size(9.dp),
-                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.30f)
+                tint = semanticLabel(0.30f)
             )
         }
         ComposerPopupMenu(
@@ -2484,13 +2487,13 @@ private fun ModelControl(
                 }
                 HorizontalDivider(
                     modifier = Modifier.padding(horizontal = 18.dp, vertical = 4.dp),
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f)
+                    color = semanticLabel(0.30f)
                 )
             }
             groups.forEachIndexed { index, group ->
                 if (index > 0) HorizontalDivider(
                     modifier = Modifier.padding(horizontal = 18.dp, vertical = 4.dp),
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f)
+                    color = semanticLabel(0.30f)
                 )
                 ComposerMenuSectionTitle(group.name)
                 group.models.forEach { model ->
@@ -2742,7 +2745,7 @@ private fun ConversationProcessRow(group: ConversationProcessGroup) {
                     contentDescription = null,
                     modifier = Modifier.size(16.dp),
                     tint = if (command.isError) MaterialTheme.colorScheme.error
-                        else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f)
+                        else semanticLabel(0.60f)
                 )
             }
             if (command != null) {
@@ -2755,14 +2758,14 @@ private fun ConversationProcessRow(group: ConversationProcessGroup) {
                 )
                 Text(
                     "·",
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.35f),
+                    color = semanticLabel(0.30f),
                     fontSize = 14.sp
                 )
                 Text(
                     command.text.singleLinePreview(),
                     modifier = Modifier.weight(1f),
                     color = if (command.isError) MaterialTheme.colorScheme.error
-                        else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f),
+                        else semanticLabel(0.60f),
                     fontSize = 14.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -2771,7 +2774,7 @@ private fun ConversationProcessRow(group: ConversationProcessGroup) {
                 Text(
                     group.title,
                     modifier = Modifier.weight(1f),
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f),
+                    color = semanticLabel(0.60f),
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Medium,
                     maxLines = 1,
@@ -2898,7 +2901,7 @@ private fun ProcessToolDisclosure(tool: ConversationProcessTool) {
             tool.call?.text?.takeIf(String::isNotEmpty)?.let { arguments ->
                 Text(
                     appText("调用参数"),
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f),
+                    color = semanticLabel(0.60f),
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold
                 )
@@ -2911,7 +2914,7 @@ private fun ProcessToolDisclosure(tool: ConversationProcessTool) {
             tool.result?.text?.takeIf(String::isNotEmpty)?.let { result ->
                 Text(
                     if (failed) appText("错误") else appText("结果"),
-                    color = if (failed) DshSemantic.danger else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f),
+                    color = if (failed) DshSemantic.danger else semanticLabel(0.60f),
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold
                 )
@@ -2949,10 +2952,10 @@ private fun ProcessDisclosure(
             }
             if (stackedPreview) {
                 Column(Modifier.weight(1f).padding(vertical = 5.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(title, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
+                    Text(title, color = semanticLabel(0.60f),
                         fontSize = 14.sp, fontWeight = FontWeight.Medium)
                     if (preview.isNotEmpty()) Text(preview,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
+                        color = semanticLabel(0.60f),
                         style = DshType.mono,
                         maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
@@ -2966,11 +2969,11 @@ private fun ProcessDisclosure(
                     overflow = TextOverflow.Ellipsis
                 )
                 if (preview.isNotEmpty()) {
-                    Text("·", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.32f))
+                    Text("·", color = semanticLabel(0.30f))
                     Text(
                         preview,
                         modifier = Modifier.weight(1f),
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
+                        color = semanticLabel(0.60f),
                         fontSize = 14.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -2995,7 +2998,7 @@ private fun ProcessChevron(expanded: Boolean) {
         painter = painterResource(R.drawable.ic_chevron_right),
         contentDescription = null,
         modifier = Modifier.size(15.dp).rotate(if (expanded) 90f else 0f),
-        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.30f)
+        tint = semanticLabel(0.30f)
     )
 }
 
@@ -3210,7 +3213,7 @@ private fun UserAttachmentImage(
                 },
                 modifier = Modifier.padding(10.dp),
                 fontSize = 11.sp,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                color = semanticLabel(0.60f)
             )
         }
     }
@@ -3407,11 +3410,11 @@ private fun StatusRow(item: ConversationItem) {
             contentDescription = null,
             modifier = Modifier.size(16.dp),
             tint = if (item.isError) MaterialTheme.colorScheme.error
-                else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f)
+                else semanticLabel(0.60f)
         )
         Text(item.title, fontSize = 14.sp, color = if (item.isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
-        Text("·", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.35f))
-        Text(item.text, fontSize = 14.sp, color = if (item.isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f))
+        Text("·", fontSize = 14.sp, color = semanticLabel(0.30f))
+        Text(item.text, fontSize = 14.sp, color = if (item.isError) MaterialTheme.colorScheme.error else semanticLabel(0.60f))
     }
 }
 
@@ -3425,7 +3428,7 @@ private fun SystemRow(item: ConversationItem) {
         Spacer(Modifier.width(9.dp))
         Column {
             Text(item.title, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-            if (item.text.isNotEmpty()) Text(item.text, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+            if (item.text.isNotEmpty()) Text(item.text, fontSize = 12.sp, color = semanticLabel(0.60f))
         }
     }
 }
@@ -3461,7 +3464,7 @@ private fun AttachmentGrid(
                                     else -> appText("正在加载图片…")
                                 },
                                 fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                                color = semanticLabel(0.60f)
                             )
                         }
                     }
@@ -3495,7 +3498,7 @@ private fun CopyButton(text: String, markdown: Boolean = false) {
             painter = painterResource(if (copied) R.drawable.ic_menu_check else R.drawable.ic_copy_message),
             contentDescription = null,
             modifier = Modifier.size(if (copied) 14.dp else 16.dp),
-            tint = if (copied) DshColors.Ocean else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
+            tint = if (copied) DshColors.Ocean else semanticLabel(0.60f)
         )
     }
 }
@@ -3514,7 +3517,7 @@ private fun ConversationHeaderMode(title: String, connection: GatewayConnectionS
         SmallConnectionDot(connection)
         Text(
             title,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+            color = semanticLabel(0.60f),
             fontSize = if (compact) 11.sp else 12.sp,
             lineHeight = if (compact) 14.sp else TextUnit.Unspecified,
             fontWeight = if (compact) FontWeight.Medium else FontWeight.Normal,

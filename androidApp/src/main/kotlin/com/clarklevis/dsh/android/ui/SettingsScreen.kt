@@ -156,7 +156,7 @@ internal fun SettingsScreen(
                     Text(
                         appText("设置"),
                         style = DshType.title,
-                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.92f),
+                        color = homeInk(0.92f),
                         modifier = Modifier.adaptiveContentWidth()
                             .fillMaxWidth()
                             .padding(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 4.dp)
@@ -459,7 +459,7 @@ internal fun AgentPresetSelectionScreen(
                 item {
                     Text(
                         text = "ⓘ  ${presetCapabilityText(stateHolder)}",
-                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.52f),
+                        color = homeInk(0.52f),
                         fontSize = 12.sp,
                         lineHeight = 17.sp,
                         modifier = Modifier.padding(top = 4.dp)
@@ -523,7 +523,7 @@ internal fun DefaultModelSelectionScreen(
                                 group.name,
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.52f)
+                                color = homeInk(0.52f)
                             )
                             group.models.forEach { model ->
                                 val selected = stateHolder.snapshot.defaultModel?.let {
@@ -619,7 +619,7 @@ private fun SettingsSelectionHeader(title: String, description: String) {
         Text(title, fontSize = 22.sp, fontWeight = FontWeight.Bold)
         Text(
             description,
-            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.52f),
+            color = homeInk(0.52f),
             fontSize = 14.sp,
             lineHeight = 20.sp
         )
@@ -635,7 +635,7 @@ private fun SettingsLoadingState(label: String) {
     ) {
         CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
         Spacer(Modifier.width(10.dp))
-        Text(label, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.52f))
+        Text(label, color = homeInk(0.52f))
     }
 }
 
@@ -649,7 +649,7 @@ private fun SettingsEmptyState(title: String, description: String) {
         Text(title, style = DshType.title)
         Text(
             description,
-            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.52f),
+            color = homeInk(0.52f),
             style = DshType.footnote,
             lineHeight = 18.sp
         )
@@ -691,14 +691,14 @@ private fun AgentPresetCard(
                     RoundedCornerShape(50)
                 ).padding(horizontal = 7.dp, vertical = 3.dp),
                 style = DshType.mono,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f)
+                color = homeInk(0.52f)
             )
             Spacer(Modifier.weight(1f))
             if (selected) CurrentDefaultBadge()
         }
         Text(
             agentPresetDisplayDescription(preset.id, preset.description),
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
+            color = homeInk(0.52f),
             fontSize = 14.sp,
             lineHeight = 19.sp
         )
@@ -748,7 +748,7 @@ private fun DefaultModelCard(
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
                     appText("思考等级"),
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
+                    color = homeInk(0.52f),
                     fontSize = 12.sp
                 )
                 efforts.forEach { effort ->
@@ -858,7 +858,7 @@ private fun SettingsSection(
                 modifier = Modifier.padding(horizontal = 20.dp),
                 fontSize = 12.sp,
                 lineHeight = 18.sp,
-                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.52f)
+                color = homeInk(0.52f)
             )
         }
     }
