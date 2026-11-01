@@ -58,6 +58,9 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 @Stable
+/** 全局错误弹窗的主行动：重新连接（默认）或打开扫码配对。 */
+enum class PlatformErrorAction { RECONNECT, PAIR }
+
 class AndroidSharedStateHolder(
     store: SharedMobileStore = SharedMobileStore(),
     private val graph: AndroidAppGraph? = null,
@@ -438,7 +441,22 @@ class AndroidSharedStateHolder(
     var attachmentStates: Map<String, AttachmentLoadState> by mutableStateOf(emptyMap())
         private set
     var platformError: String? by mutableStateOf(null)
+
+    /**
+     * 错误弹窗的主行动（AndroidTester 2026-11-02 指出：文案说「请重新扫码配对」，
+     * 但弹窗只有一个固定的「重新连接」按钮 ⇒ 指向的动作不可达）。
+     */
+    var platformErrorAction: PlatformErrorAction by mutableStateOf(PlatformErrorAction.RECONNECT)
         private set
+
+    /** 请求打开扫码配对（app 级弹窗 → 工作区页的配对 UI 之间的事件计数）。 */
+    var pairingRequestTick: Int by mutableStateOf(0)
+        private set
+
+    fun requestPairing() {
+        pairingRequestTick += 1
+    }
+
     var successfulMessageSendCount: Long by mutableLongStateOf(0L)
         private set
     var defaultConfigurationLoadingKinds: Set<String> by mutableStateOf(emptySet())
@@ -1985,6 +2003,7 @@ class AndroidSharedStateHolder(
 
     fun clearPlatformError() {
         platformError = null
+        platformErrorAction = PlatformErrorAction.RECONNECT
     }
 
     fun showPlatformError(message: String) {
@@ -3388,12 +3407,14 @@ class AndroidSharedStateHolder(
                     val connected = runCatching { appGraph.gatewayRuntime.connectStoredIfPaired() }
                         .getOrElse {
                             withContext(Dispatchers.Main.immediate) {
-                                platformError = "读取已保存的连接失败，请重新扫码配对或手动连接"
+                                platformErrorAction = PlatformErrorAction.PAIR
+                        platformError = "读取已保存的连接失败，请重新扫码配对或手动连接"
                             }
                             false
                         }
                     if (!connected && tokenUnreadable) {
                         withContext(Dispatchers.Main.immediate) {
+                            platformErrorAction = PlatformErrorAction.PAIR
                             platformError = "网关凭证已失效（系统密钥不可用），请重新扫码配对"
                         }
                     }

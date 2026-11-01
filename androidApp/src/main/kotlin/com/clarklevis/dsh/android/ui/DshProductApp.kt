@@ -255,10 +255,17 @@ internal fun DshProductApp(
             onDismissRequest = stateHolder::clearPlatformError,
             dismissLabel = appText("好"),
             onDismissClick = stateHolder::clearPlatformError,
-            confirmLabel = appText("重新连接"),
+            confirmLabel = appText(
+                if (stateHolder.platformErrorAction == com.clarklevis.dsh.android.PlatformErrorAction.PAIR) "重新扫码配对" else "重新连接"
+            ),
             onConfirm = {
+                val pair = stateHolder.platformErrorAction == com.clarklevis.dsh.android.PlatformErrorAction.PAIR
                 stateHolder.clearPlatformError()
-                stateHolder.connect()
+                if (pair) {
+                    stateHolder.requestPairing()
+                } else {
+                    stateHolder.connect()
+                }
             }
         )
     }
@@ -330,6 +337,13 @@ internal fun WorkspaceScreen(
     val tabClearance = tabBarInset + navBarInset
     var showDirectoryBrowser by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(stateHolder.gatewayState.connection) { stateHolder.refreshProductState() }
+    // app 级弹窗（凭证失效）点「重新扫码配对」→ 这里真正打开扫码 UI。
+    LaunchedEffect(stateHolder.pairingRequestTick) {
+        if (stateHolder.pairingRequestTick > 0) {
+            stateHolder.clearPlatformError()
+            showQrScanner = true
+        }
+    }
     LaunchedEffect(searchQuery) {
         if (searchQuery.isNotBlank()) delay(350)
         stateHolder.search(searchQuery)
