@@ -53,10 +53,14 @@ import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun FontSizeSettingsScreen(onBack: () -> Unit) {
+internal fun FontSizeSettingsScreen(onBack: () -> Unit, embedded: Boolean = false) {
     val dark = isSystemInDarkTheme()
     val background = if (dark) Color(0xFF0D1118) else Color(0xFFF7F7F8)
-    val bubble = if (dark) Color(0xFF1C2D49) else Color(0xFFEDF2FF)
+    // B4 §4：设置内选择一律弹层 —— embedded=true 时由 sheet 承载，不出自带顶栏/整页底色
+    if (embedded) {
+        FontSizeSettingsBody(Modifier.fillMaxSize())
+        return
+    }
     Scaffold(
         containerColor = background,
         topBar = {
@@ -74,7 +78,15 @@ internal fun FontSizeSettingsScreen(onBack: () -> Unit) {
             )
         }
     ) { padding ->
-        BoxWithConstraints(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.TopCenter) {
+        FontSizeSettingsBody(Modifier.fillMaxSize().padding(padding))
+    }
+}
+
+@Composable
+private fun FontSizeSettingsBody(modifier: Modifier) {
+    val dark = isSystemInDarkTheme()
+    val bubble = if (dark) Color(0xFF1C2D49) else Color(0xFFEDF2FF)
+BoxWithConstraints(modifier, contentAlignment = Alignment.TopCenter) {
             val compactHeight = maxHeight < 500.dp
             Column(
                 Modifier.adaptiveContentWidth().fillMaxSize().testTag("font-size-content")
@@ -106,7 +118,6 @@ internal fun FontSizeSettingsScreen(onBack: () -> Unit) {
                 FontSizeControls(Modifier.padding(horizontal = 12.dp).padding(bottom = 20.dp))
             }
         }
-    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

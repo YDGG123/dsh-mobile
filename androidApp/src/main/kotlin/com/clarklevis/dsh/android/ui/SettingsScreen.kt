@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -31,6 +32,8 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
@@ -77,9 +80,6 @@ import kotlinx.coroutines.withContext
 internal fun SettingsScreen(
     stateHolder: AndroidSharedStateHolder,
     onBack: () -> Unit,
-    onOpenAgentPresets: () -> Unit,
-    onOpenDefaultModel: () -> Unit,
-    onOpenFontSize: () -> Unit,
     onOpenStorage: () -> Unit = {},
     onOpenPlugins: () -> Unit = {},
     updateModel: com.clarklevis.dsh.android.update.AppUpdateViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
@@ -91,6 +91,9 @@ internal fun SettingsScreen(
     embedded: Boolean = false
 ) {
     val updateState by updateModel.state.collectAsStateWithLifecycle()
+    // B4 §4 交互纪律：设置内的选择一律弹层（sheet），不 push。
+    // 理由照 iOS 注释：避免「推入 × 设置」死锁面。
+    var activeSelectionSheet by remember { mutableStateOf<SettingsSelectionSheet?>(null) }
     var showPermissionPicker by remember { mutableStateOf(false) }
     var pendingPermission by remember { mutableStateOf<String?>(null) }
     var showPrivacyPolicy by remember { mutableStateOf(false) }
@@ -168,7 +171,7 @@ internal fun SettingsScreen(
                         SettingsDivider()
                         LanguageSettingsRow()
                         SettingsDivider()
-                        FontSizeSettingsRow(onOpenFontSize)
+                        FontSizeSettingsRow { activeSelectionSheet = SettingsSelectionSheet.FONT_SIZE }
                     }
                     // ② 新会话
                     SettingsSection(
@@ -183,7 +186,7 @@ internal fun SettingsScreen(
                                 it == "defaults" || it == "agent-presets"
                             }
                         ) {
-                            onOpenAgentPresets()
+                            activeSelectionSheet = SettingsSelectionSheet.AGENT_PRESETS
                         }
                         SettingsDivider()
                         SettingsValueRow(
@@ -194,7 +197,7 @@ internal fun SettingsScreen(
                                 it == "default-model" || it == "save-default-model"
                             }
                         ) {
-                            onOpenDefaultModel()
+                            activeSelectionSheet = SettingsSelectionSheet.DEFAULT_MODEL
                         }
                         SettingsDivider()
                         PermissionSettingsRow(
@@ -247,7 +250,8 @@ internal fun SettingsScreen(
                             showPrivacyPolicy = true
                         }
                         SettingsDivider()
-                        // Android 专有（iOS 走 App Store；此处保留更新入口，登记为有意差异）
+                        // **平台必需差异**（Chief 2026-11-01 裁定）：iOS 走 App Store 更新，
+                        // Android 无对应系统通道，必须自留更新入口；不是漏删项。
                         SettingsActionRow(appText("检查更新"), enabled = !updateState.busy, onClick = updateModel::check)
                     }
                     // ⑥ 更多
@@ -271,7 +275,8 @@ internal fun SettingsScreen(
                             onClick = onOpenStorage
                         )
                     }
-                    // Android 专有诊断组（iOS 无此屏）：登记为有意差异，不擅自删
+                    // **平台必需差异**（Chief 2026-11-01 裁定）：Android 特有的连接信息
+                    // （版本 / 已连接会话 / cwd），iOS 的对应信息在「连接」组内，语义等价，保留。
                     stateHolder.snapshot.hostSnapshot?.let { host ->
                         SettingsSection("DSH Host") {
                             SettingsValueRow(appText("版本"), dshHostVersion(host.dshVersion, host.version))
@@ -324,13 +329,34 @@ internal fun SettingsScreen(
     if (showPrivacyPolicy) {
         PrivacyPolicyBottomSheet { showPrivacyPolicy = false }
     }
+    activeSelectionSheet?.let { sheet ->
+        ModalBottomSheet(
+            onDismissRequest = { activeSelectionSheet = null },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ) {
+            Box(Modifier.fillMaxHeight(0.88f)) {
+                when (sheet) {
+                    SettingsSelectionSheet.AGENT_PRESETS ->
+                        AgentPresetSelectionScreen(stateHolder, onBack = { activeSelectionSheet = null }, embedded = true)
+                    SettingsSelectionSheet.DEFAULT_MODEL ->
+                        DefaultModelSelectionScreen(stateHolder, onBack = { activeSelectionSheet = null }, embedded = true)
+                    SettingsSelectionSheet.FONT_SIZE ->
+                        FontSizeSettingsScreen(onBack = { activeSelectionSheet = null }, embedded = true)
+                }
+            }
+        }
+    }
 }
+
+/** B4 §4：设置内的选择弹层种类（语言/主题/权限已有各自弹层）。 */
+private enum class SettingsSelectionSheet { AGENT_PRESETS, DEFAULT_MODEL, FONT_SIZE }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun AgentPresetSelectionScreen(
     stateHolder: AndroidSharedStateHolder,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    embedded: Boolean = false
 ) {
     var pendingPreset by remember { mutableStateOf<GatewayAgentPreset?>(null) }
     val presets = stateHolder.snapshot.agentPresets
@@ -340,7 +366,7 @@ internal fun AgentPresetSelectionScreen(
         if (presets.isEmpty()) stateHolder.refreshDefaultConfiguration()
     }
 
-    SettingsSelectionScaffold(title = appText("Agent 预设"), onBack = onBack) {
+    SettingsSelectionScaffold(title = appText("Agent 预设"), onBack = onBack, embedded = embedded) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(20.dp),
@@ -401,7 +427,8 @@ internal fun AgentPresetSelectionScreen(
 @Composable
 internal fun DefaultModelSelectionScreen(
     stateHolder: AndroidSharedStateHolder,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    embedded: Boolean = false
 ) {
     var pendingChange by remember { mutableStateOf<PendingDefaultModelChange?>(null) }
     val groups = stateHolder.snapshot.modelCatalog?.groups.orEmpty()
@@ -409,7 +436,7 @@ internal fun DefaultModelSelectionScreen(
     val isBusy = "save-default-model" in stateHolder.defaultConfigurationLoadingKinds
     LaunchedEffect(Unit) { stateHolder.ensureDefaultModelConfiguration() }
 
-    SettingsSelectionScaffold(title = appText("默认模型"), onBack = onBack) {
+    SettingsSelectionScaffold(title = appText("默认模型"), onBack = onBack, embedded = embedded) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(20.dp),
@@ -492,8 +519,14 @@ internal fun DefaultModelSelectionScreen(
 private fun SettingsSelectionScaffold(
     title: String,
     onBack: () -> Unit,
+    /** B4 §4：设置内选择一律弹层 —— embedded=true 时不出自带顶栏/整页底色，由 sheet 承载。 */
+    embedded: Boolean = false,
     content: @Composable () -> Unit
 ) {
+    if (embedded) {
+        Box(Modifier.fillMaxSize().adaptiveContentWidth().testTag("settings-selection-content")) { content() }
+        return
+    }
     val dark = isSystemInDarkTheme()
     val background = if (dark) Color(0xFF0D1118) else Color(0xFFF1F1F6)
     Scaffold(

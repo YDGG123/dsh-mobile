@@ -103,9 +103,6 @@ private const val ROUTE_WORKSPACE = "workspace"
 private const val ROUTE_CONVERSATION = "conversation"
 private const val ROUTE_SETTINGS = "settings"
 private const val ROUTE_SETTINGS_STORAGE = "settings/storage"
-private const val ROUTE_SETTINGS_FONT_SIZE = "settings/font-size"
-private const val ROUTE_SETTINGS_AGENT_PRESETS = "settings/agent-presets"
-private const val ROUTE_SETTINGS_DEFAULT_MODEL = "settings/default-model"
 private const val ROUTE_PLUGINS = "plugins"
 private const val ROUTE_PLUGIN_BUNDLE = "plugins/bundle/{bundleName}"
 private const val ROUTE_PLUGIN_OFFICIAL = "plugins/official/{pluginId}"
@@ -187,9 +184,7 @@ internal fun DshProductApp(
                 onPlugins = { navController.navigate(ROUTE_PLUGINS) },
                 onScheduledTasks = { navController.navigate(ROUTE_SCHEDULED_TASKS) },
                 updateModel = updateModel,
-                onOpenAgentPresets = { navController.navigate(ROUTE_SETTINGS_AGENT_PRESETS) },
-                onOpenDefaultModel = { navController.navigate(ROUTE_SETTINGS_DEFAULT_MODEL) },
-                onOpenFontSize = { navController.navigate(ROUTE_SETTINGS_FONT_SIZE) },
+                // B4 §4：设置内的选择（预设/模型/字体大小）已改 sheet，不再有对应路由
                 onOpenStorage = { navController.navigate(ROUTE_SETTINGS_STORAGE) }
             )
         }
@@ -206,23 +201,12 @@ internal fun DshProductApp(
                 updateModel = updateModel,
                 stateHolder = stateHolder,
                 onBack = navController::popBackStack,
-                onOpenAgentPresets = { navController.navigate(ROUTE_SETTINGS_AGENT_PRESETS) },
-                onOpenDefaultModel = { navController.navigate(ROUTE_SETTINGS_DEFAULT_MODEL) },
-                onOpenFontSize = { navController.navigate(ROUTE_SETTINGS_FONT_SIZE) },
+                // B4 §4：设置内的选择（预设/模型/字体大小）已改 sheet，不再有对应路由
                 onOpenStorage = { navController.navigate(ROUTE_SETTINGS_STORAGE) }
             )
         }
         composable(ROUTE_SETTINGS_STORAGE) {
             StorageSpaceScreen(stateHolder, navController::popBackStack)
-        }
-        composable(ROUTE_SETTINGS_FONT_SIZE) {
-            FontSizeSettingsScreen(navController::popBackStack)
-        }
-        composable(ROUTE_SETTINGS_AGENT_PRESETS) {
-            AgentPresetSelectionScreen(stateHolder, navController::popBackStack)
-        }
-        composable(ROUTE_SETTINGS_DEFAULT_MODEL) {
-            DefaultModelSelectionScreen(stateHolder, navController::popBackStack)
         }
         composable(ROUTE_PLUGINS) {
             PluginsScreen(
@@ -520,9 +504,6 @@ internal fun WorkspaceScreen(
                 updateModel = updateModel,
                 stateHolder = stateHolder,
                 onBack = { homeTab = DshHomeTab.WORKSPACE },
-                onOpenAgentPresets = onOpenAgentPresets,
-                onOpenDefaultModel = onOpenDefaultModel,
-                onOpenFontSize = onOpenFontSize,
                 onOpenStorage = onOpenStorage,
                 bottomInset = tabClearance,
                 embedded = true // iOSDev 裁定：设置 tab 撤顶栏 + 页顶自绘「设置」大标题（对齐 iOS embedded:）
