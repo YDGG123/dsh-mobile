@@ -43,6 +43,9 @@ class DshAndroidApplication : Application(), DefaultLifecycleObserver {
         super<Application>.onCreate()
         // 取证设施：未捕获异常落盘（时间/线程/前后台/版本/堆栈），设置「关于」里可查看。
         com.clarklevis.dsh.android.platform.CrashLog.install(this) { isInForeground }
+        // 头像文件缓存初始化（AndroidTester 2026-11-02 抓的：init 零调用 = 整层永不生效，
+        // store/fileFor/prune 全部在首行 directory ?: return 处静默早退）。
+        com.clarklevis.dsh.android.platform.BotAvatarFileCache.init(this)
         hosts = AndroidMultiGatewayStore(this)
         maintainCacheStorage()
         ProcessLifecycleOwner.get().lifecycle.addObserver(this)
