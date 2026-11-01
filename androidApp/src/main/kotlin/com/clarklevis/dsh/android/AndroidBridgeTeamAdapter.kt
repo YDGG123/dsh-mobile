@@ -9,6 +9,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.clarklevis.dsh.android.platform.AndroidBridgeSessionStore
 import com.clarklevis.dsh.shared.domain.TeamPhase
+import com.clarklevis.dsh.shared.domain.chatMessagesFromHistory
 import com.clarklevis.dsh.shared.domain.TeamUiState
 import com.clarklevis.dsh.shared.facade.SharedBridgeTeamStore
 import com.clarklevis.dsh.shared.protocol.BridgeCardQuestion
@@ -90,6 +91,14 @@ internal class AndroidBridgeTeamAdapter(
      * question-answer action，卡片只能看、要在电脑端处理（iOS 同款纪律）。
      */
     var pendingCards: List<BridgeCardQuestion> by mutableStateOf(emptyList())
+        private set
+
+    /**
+     * 群聊消息流（vc43 ③）：conversationId → KMP `BridgeChatSnapshot` JSON。
+     * **只读**——不接 bridge 的 send/submissions（room 的发送一律走网关，避免一次发言提交两次，
+     * iOSCoder 2026-11-02 指出的坑）。合并/去重逻辑用 commonMain 的 chatApplyEvent。
+     */
+    var chatMessagesByConversation: Map<String, String> by mutableStateOf(emptyMap())
         private set
 
     var isRefreshing: Boolean by mutableStateOf(false)
@@ -180,6 +189,33 @@ internal class AndroidBridgeTeamAdapter(
     fun stop() {
         loopJob?.cancel()
         loopJob = null
+    }
+
+    /**
+     * 拉取某群聊的消息历史（REST `GET /mobile/v1/conversations/{id}/messages?limit=50[&cursor=]`），
+     * 交给 KMP `chatMessagesFromHistory` 解析成 `BridgeChatSnapshot` JSON 后缓存。
+     *
+     * @return true = 成功（含"服务端返回空列表"）；false = 失败，`lastError` 已置原因。
+     */
+    suspend fun loadChatMessages(conversationId: String, cursor: String? = null): Boolean {
+        val base = origin ?: run { lastError = "no-bridge-origin"; return false }
+        val token = store.currentAccessToken() ?: run { lastError = "no-device-session"; return false }
+        val url = buildString {
+            append(base).append("/mobile/v1/conversations/").append(conversationId).append("/messages?limit=50")
+            if (!cursor.isNullOrBlank()) append("&cursor=").append(cursor)
+        }
+        return when (val result = fetch(url, token)) {
+            is BridgeFetch.Ok -> {
+                val snapshotJson = runCatching { chatMessagesFromHistory(result.body) }.getOrElse { error ->
+                    lastError = "chat_parse_failed: ${error.javaClass.simpleName}"
+                    return false
+                }
+                chatMessagesByConversation = chatMessagesByConversation + (conversationId to snapshotJson)
+                true
+            }
+            is BridgeFetch.HttpError -> failWith(result).let { false }
+            else -> fail("chat_messages_failed", "群聊消息拉取失败").let { false }
+        }
     }
 
     /** 手动刷新一次（点按重试 / 进入团队页时调用）。 */
