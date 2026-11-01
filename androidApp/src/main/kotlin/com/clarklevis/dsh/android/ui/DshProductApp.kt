@@ -382,10 +382,11 @@ internal fun WorkspaceScreen(
         val backgroundAnimationEnabled by remember(canScrollVertically, workspaceListState) {
             derivedStateOf { canScrollVertically && !workspaceListState.isScrollInProgress }
         }
-        Box(Modifier.fillMaxSize()) {
-        when (homeTab) {
-            DshHomeTab.WORKSPACE -> DshLiquidGlassHost(
-            modifier = Modifier.fillMaxSize().testTag("workspace-screen"),
+        // **host 上提到这一层**（材质批）：原先只包 WORKSPACE 分支 → tab bar 是它的**兄弟节点**，
+        // `LocalDshBackdrop` 对栏恒为 null，栏只走 fallback（无模糊、只能垫白）。
+        // 上提后 tab bar 成为 host 子节点，拿到同一张 backdrop → **真背景模糊**（对齐 iOS `.thinMaterial`）。
+        DshLiquidGlassHost(
+            modifier = Modifier.fillMaxSize(),
             background = { backdropModifier ->
                 HarnessAnimatedBackground(
                     backdropModifier,
@@ -394,6 +395,8 @@ internal fun WorkspaceScreen(
                 )
             }
         ) {
+        when (homeTab) {
+            DshHomeTab.WORKSPACE -> Box(Modifier.fillMaxSize().testTag("workspace-screen")) {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = WindowInsets.safeDrawing.asPaddingValues(),
@@ -546,11 +549,13 @@ internal fun WorkspaceScreen(
                 // 依据：两张 iOS 模拟器图（首页 00:38 / 设置页 22:58）实测**都是容器底 39、pill 底 43** ⇒ 生效底区 = 0；
                 // 源码侧 `WorkspaceView.swift:318-341` 前面没有 `.ignoresSafeArea`（全仓 4 处都不在 tab 容器路径上）
                 // ⇒ 代码没抹掉安全区，差异在环境/窗口层。所以**不能拿模拟器图当「34 类机型」的分母**，
-                // iOS 真机上量到 39 或 73 都算对；Android 本机 inset≈0 时量到 43dp 与模拟器同值，无平台差。
+                // 判据仍是二选一（别的机型可能叠安全区），但**本批用户真机实测 = 39/43（已证）**，
+                // 73 是"叠了安全区"那一支的备选、本批未出现——别把 73 当本批预期。
+                // Android 本机 inset≈0 时量到 43dp，与真机/模拟器同值，无平台差。
                 // 水平 16 只由 DshTabBar 内部那一处给（iOS 也只有一次 lg=16）：原先调用点再叠 16 = 两侧 32，比 iOS 每侧窄 16dp。
                 .padding(bottom = DshTabBarBottomRise)
         )
-        } // Box
+        } // DshLiquidGlassHost（内容 + tab bar 同层 → 栏有 backdrop）
     }
 
     if (showQrScanner) {

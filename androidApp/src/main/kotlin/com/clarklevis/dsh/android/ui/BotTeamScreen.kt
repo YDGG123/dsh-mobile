@@ -99,7 +99,10 @@ internal fun BotTeamScreen(
     }
     Scaffold(
         modifier = Modifier.testTag("bot-team-page"),
-        containerColor = background,
+        // 材质批：iOS 真机量到 **Bot 页背后是动效背景**（左右留白列 std 12.65、range 180–249），
+        // 而设置页是常数实底（std 0.05）。所以 tab 内嵌时透明、露出 host 的动效背景；
+        // 独立路由（非 embedded，无 host）保持原实底，否则会露窗口底。
+        containerColor = if (embedded) Color.Transparent else background,
         topBar = {
             CenterAlignedTopAppBar(
                 title = { Text(appText(if (embedded) "团队" else "Bot 团队"), fontSize = 17.sp, fontWeight = FontWeight.SemiBold) },

@@ -117,7 +117,9 @@ internal fun SettingsScreen(
         }
     }
     val dark = isSystemInDarkTheme()
-    val pageBackground = if (dark) Color(0xFF0D1118) else Color(0xFFF1F1F6)
+    // 材质批：底色改用 iOS 自己的 pageBackground（spec §0）——浅 `#F4F6F9`（真机实测 245.8，
+    // 原 `#F1F1F6` 折算 241.4，差 4.4 灰阶）/ 深 navy `#06172B`（原 `#0D1118`）。
+    val pageBackground = if (dark) DshColors.Navy else Color(0xFFF4F6F9)
     LaunchedEffect(stateHolder.gatewayState.connection) {
         stateHolder.refreshProductState()
         stateHolder.refreshCacheStorage()
