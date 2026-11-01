@@ -22,7 +22,7 @@
   svg2vectordrawable.py --self-check    # 正反用例：正=元素全落位+两层平移+rect 转换+底板包围盒；
                                         # 反=<circle> 必须拒、绝对不该出现的字面量判据必须失效
 
-团队纪律：转换完成后 a) 报提交 hash 并 `git show <hash>:<path>` 自证关键值；
+判"转换成功"时注意一个经典假绿：`python3 svg2vectordrawable.py ... | tail -1` 这类管道后\n`$?` 取到的是管道末端（tail/grep）的退出码，不是转换器的 —— 本脚本所有失败路径都 exit 1，\n判成功请直接看脚本自己的退出码或 `set -o pipefail`，别被管道尾巴骗了（2026-11-01 踩过）。\n\n团队纪律：转换完成后 a) 报提交 hash 并 `git show <hash>:<path>` 自证关键值；
 b) 交双工具（形状清单 + 几何比对）对**当前 HEAD**复核，别各自挑提交。
 """
 
