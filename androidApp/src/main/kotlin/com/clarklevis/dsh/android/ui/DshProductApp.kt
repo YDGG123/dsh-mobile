@@ -433,12 +433,12 @@ internal fun WorkspaceScreen(
                             Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
                                 Text(
                                     stringResource(R.string.workspace_hero_title),
-                                    color = Color.White,
+                                    color = homeInk(),
                                     fontSize = 32.sp,
                                     fontWeight = FontWeight.Bold,
                                     modifier = Modifier.semantics { heading() }.testTag("workspace-hero-title")
                                 )
-                                Text(appText("Deepseek Harness 预览版"), color = Color.White.copy(alpha = 0.65f), fontSize = 14.sp)
+                                Text(appText("Deepseek Harness 预览版"), color = homeInk(0.65f), fontSize = 14.sp)
                             }
                             Box(Modifier.fillMaxWidth()) {
                                 WorkspaceCard(
@@ -472,7 +472,7 @@ internal fun WorkspaceScreen(
                         },
                         recentSessions = {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(appText("最近会话"), color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
+                                Text(appText("最近会话"), color = homeInk(), fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
                                 Spacer(Modifier.weight(1f))
                                 ConnectionStatusText(stateHolder.gatewayState)
                             }
@@ -588,7 +588,7 @@ private fun HarnessMark(onClick: () -> Unit, modifier: Modifier = Modifier) {
         ) {
             OrcarnessOrcaIcon(
                 modifier = Modifier.size(if (showWordmark) 29.dp * scale else 29.dp),
-                tint = Color.White
+                tint = homeInk()
             )
             if (showWordmark) {
                 Image(
@@ -627,7 +627,7 @@ internal fun GlassCircleButton(iconRes: Int, description: String, onClick: () ->
             painter = painterResource(iconRes),
             contentDescription = null,
             modifier = Modifier.size(22.dp),
-            colorFilter = ColorFilter.tint(Color.White)
+            colorFilter = ColorFilter.tint(homeInk())
         )
     }
 }
@@ -662,7 +662,7 @@ private fun WorkspaceCard(
                 if (allWorkspaces) appText("全部会话")
                 else if (ungrouped) appText("未分组")
                 else workspace?.title ?: "DeepseekHarnessProject",
-                color = Color.White,
+                color = homeInk(),
                 fontSize = 14.sp,
                 lineHeight = 16.sp,
                 fontWeight = FontWeight.SemiBold
@@ -671,7 +671,7 @@ private fun WorkspaceCard(
                 if (allWorkspaces) appText("%1\$s 个会话（跨全部工作区）", sessionCount)
                 else if (ungrouped) appText("%1\$s 个未归属会话", ungroupedCount)
                 else workspace?.path ?: appText("通过 Mobile Gateway 连接"),
-                color = Color.White.copy(alpha = 0.55f),
+                color = homeInk(0.55f),
                 fontSize = 12.sp,
                 lineHeight = 14.sp,
                 maxLines = 1,
@@ -682,7 +682,7 @@ private fun WorkspaceCard(
         Image(
             painter = painterResource(R.drawable.ic_question_chevron_down),
             contentDescription = null,
-            colorFilter = ColorFilter.tint(Color.White.copy(alpha = 0.55f)),
+            colorFilter = ColorFilter.tint(homeInk(0.55f)),
             modifier = Modifier.size(16.dp)
         )
     }
@@ -697,11 +697,11 @@ private fun GlassActionButton(icon: String, title: String, onClick: () -> Unit) 
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(Modifier.size(26.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.10f)), contentAlignment = Alignment.Center) {
-            Text(icon, color = Color.White, fontWeight = FontWeight.SemiBold)
+        Box(Modifier.size(26.dp).clip(CircleShape).background(homeInk(0.10f)), contentAlignment = Alignment.Center) {
+            Text(icon, color = homeInk(), fontWeight = FontWeight.SemiBold)
         }
         Spacer(Modifier.width(8.dp))
-        Text(title, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
+        Text(title, color = homeInk(), fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
     }
 }
 
@@ -720,7 +720,7 @@ internal fun LocalChatSearchContent(
         } else {
             appText("本地聊天内容（仅已缓存部分）；联网时同时补充网关搜索。")
         },
-        color = Color.White.copy(alpha = 0.7f),
+        color = homeInk(0.7f),
         fontSize = 12.sp,
         modifier = Modifier.padding(vertical = 8.dp)
     )
@@ -742,10 +742,10 @@ internal fun LocalChatSearchContent(
         ) {
             Text(
                 stateHolder.snapshot.sessions.firstOrNull { it.id == match.sessionId }?.title ?: appText("已缓存会话"),
-                color = Color.White,
+                color = homeInk(),
                 fontWeight = FontWeight.Medium
             )
-            Text(match.snippet, color = Color.White.copy(alpha = 0.8f), maxLines = 3, fontSize = 13.sp)
+            Text(match.snippet, color = homeInk(0.8f), maxLines = 3, fontSize = 13.sp)
         }
     }
 }
@@ -764,21 +764,21 @@ private fun SessionSearch(query: String, onChange: (String) -> Unit) {
             painter = painterResource(R.drawable.ic_search),
             contentDescription = null,
             modifier = Modifier.size(20.dp),
-            colorFilter = ColorFilter.tint(Color.White.copy(alpha = 0.68f))
+            colorFilter = ColorFilter.tint(homeInk(0.68f))
         )
         BasicTextField(
             value = query,
             onValueChange = onChange,
             modifier = Modifier.weight(1f),
-            textStyle = TextStyle(color = Color.White.copy(alpha = 0.92f), fontSize = 16.sp),
-            cursorBrush = SolidColor(Color.White),
+            textStyle = TextStyle(color = homeInk(0.92f), fontSize = 16.sp),
+            cursorBrush = SolidColor(homeInk()),
             singleLine = true,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
             keyboardActions = KeyboardActions(onSearch = {}),
             decorationBox = { innerTextField ->
                 Box(contentAlignment = Alignment.CenterStart) {
                     if (query.isEmpty()) {
-                        Text(appText("搜索会话内容"), color = Color.White.copy(alpha = 0.58f), fontSize = 16.sp)
+                        Text(appText("搜索会话内容"), color = homeInk(0.58f), fontSize = 16.sp)
                     }
                     innerTextField()
                 }
@@ -791,7 +791,7 @@ private fun SessionSearch(query: String, onChange: (String) -> Unit) {
 private fun EmptySessions() {
     Text(
         appText("暂无已知会话。连接服务后创建第一个任务。"),
-        color = Color.White.copy(alpha = 0.5f),
+        color = homeInk(0.5f),
         fontSize = 14.sp,
         modifier = Modifier.fillMaxWidth()
             .dshLiquidGlass(RoundedCornerShape(15.dp), DshGlassStyle.SUBTLE)
@@ -864,7 +864,7 @@ private fun SessionList(
             HorizontalDivider(
                 modifier = Modifier.padding(start = 18.dp),
                 thickness = 0.5.dp,
-                color = Color.White.copy(alpha = 0.10f)
+                color = homeInk(0.10f)
             )
         }
     }
@@ -883,7 +883,7 @@ private fun SessionRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(11.dp)
     ) {
-        val dot = if (session.isRunning) DshSemantic.success else if (session.hasUnread) DshColors.Ocean else Color.White.copy(alpha = 0.35f)
+        val dot = if (session.isRunning) DshSemantic.success else if (session.hasUnread) DshColors.Ocean else homeInk(0.35f)
         StatusIndicatorDot(
             color = dot,
             modifier = Modifier.size(7.dp),
@@ -892,7 +892,7 @@ private fun SessionRow(
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
             Text(
                 text = session.title,
-                color = Color.White,
+                color = homeInk(),
                 fontSize = 15.sp,
                 lineHeight = 17.sp,
                 fontWeight = FontWeight.Medium,
@@ -901,7 +901,7 @@ private fun SessionRow(
             )
             Text(
                 text = folderLabel?.let { "$it · ${session.id.take(16)}" } ?: session.id.take(16),
-                color = Color.White.copy(alpha = 0.42f),
+                color = homeInk(0.42f),
                 fontSize = 12.sp,
                 lineHeight = 14.sp,
                 fontFamily = FontFamily.Monospace,
@@ -910,7 +910,7 @@ private fun SessionRow(
         }
         Text(
             if (session.isRunning) appText("运行中") else relativeTime(session.lastActivityEpochSeconds),
-            color = if (session.isRunning) Color(0xFF68A0FF) else Color.White.copy(alpha = 0.48f),
+            color = if (session.isRunning) Color(0xFF68A0FF) else homeInk(0.48f),
             fontSize = 13.sp
         )
     }

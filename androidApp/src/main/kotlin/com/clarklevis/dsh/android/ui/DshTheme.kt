@@ -78,6 +78,21 @@ internal object DshSemantic {
     val danger: Color @Composable get() = LocalDshSemanticColors.current.danger
 }
 
+
+/**
+ * 压在 HarnessAnimatedBackground 上的前景墨色（首页专用）。
+ * 深色档 = 白×alpha（原样）；浅色档 = Ink×（×0.9 压暗，夹取 [0.06,0.92]）。
+ * 对应 Chief 2026-11-01 映射表：1.0→0.92 / 0.70→0.65 / 0.65→0.60 / 0.58→0.50 / 0.55→0.50 / 0.50→0.45 / 0.10→0.08
+ * （统一公式 ×0.9 与表内采样误差 ≤0.02；对照浅底 #E4EAF4~#F9FAFC，Ink@0.9 对比度 ≈ 13:1 ≥ 4.5）。
+ */
+@Composable
+internal fun homeInk(alpha: Float = 1f): Color =
+    if (LocalDshIsDark.current) {
+        Color.White.copy(alpha = alpha)
+    } else {
+        DshColors.Ink.copy(alpha = (alpha * 0.92f).coerceIn(0.06f, 0.92f))
+    }
+
 @Composable
 internal fun StatusIndicatorDot(
     color: Color,

@@ -94,14 +94,14 @@ internal fun GatewaySwitcherBar() {
     var editing by remember { mutableStateOf<GatewayProfile?>(null) }
     Row(
         Modifier
-            .background(Color.White.copy(alpha = 0.09f), RoundedCornerShape(30.dp))
+            .background(homeInk(0.09f), RoundedCornerShape(30.dp))
             .clickable { expanded = true }
             .padding(horizontal = 11.dp, vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        HostIcon(hosts.activeProfile?.server == true, Color.White, Modifier.size(15.dp))
-        Text(hosts.activeProfile?.displayName ?: appText("选择主机"), color = Color.White, fontSize = 12.sp, maxLines = 1)
+        HostIcon(hosts.activeProfile?.server == true, homeInk(), Modifier.size(15.dp))
+        Text(hosts.activeProfile?.displayName ?: appText("选择主机"), color = homeInk(), fontSize = 12.sp, maxLines = 1)
         val activeOnline = hosts.activeGraph.stateHolder.gatewayState.connection == GatewayConnectionState.CONNECTED
         StatusIndicatorDot(
             color = if (activeOnline) DshSemantic.success else DshSemantic.danger,
@@ -111,7 +111,7 @@ internal fun GatewaySwitcherBar() {
         androidx.compose.foundation.Image(
             painter = androidx.compose.ui.res.painterResource(com.clarklevis.dsh.android.R.drawable.ic_question_chevron_down),
             contentDescription = null,
-            colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(Color.White),
+            colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(homeInk()),
             modifier = Modifier.size(14.dp)
         )
     }
