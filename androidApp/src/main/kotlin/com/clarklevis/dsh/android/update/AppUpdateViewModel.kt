@@ -102,7 +102,7 @@ internal fun selectReleasePageApk(version: String, html: String): AndroidRelease
 
 /**
  * 从发布页行内体积文本（GitHub expanded_assets 形如 "44.4 MB"）解析近似体积。
- * 抓不到返回 -1：下载时回落 `body.contentLength()` 校验，不会静默无校验。
+ * 抓不到返回 **null**（未知语义，不给 -1 这类假值）：下载时回落 `body.contentLength()` 等值校验，不会静默无校验。
  * 本机此刻取不到该页（curl 超时）——解析按常见格式写，未命中一律安全回落。
  */
 private fun parseApproximateSize(html: String, href: String): Long? {
