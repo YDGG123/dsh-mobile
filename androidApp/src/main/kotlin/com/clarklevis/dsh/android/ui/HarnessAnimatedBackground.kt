@@ -287,7 +287,7 @@ private fun WhaleParticleField(time: () -> Float, isStatic: Boolean, largeWindow
             val shimmer = 0.90f + 0.10f * sin(t * 1.5f + particle.x * 15f + particle.y * 9f)
             // 粒子双档（iOS HarnessWhaleField :291-308）：浅底共需更高不透明度才看得见（底明暗两档）
             val baseAlpha = if (isLight) 0.30f + particle.luminance * 0.45f else 0.10f + particle.luminance * 0.38f
-            val layerOpacity = if (isLight) 0.5f else 0.42f // 浅色 iOS 整体 0.5；深色保持既有 0.42 校准不漂移
+            val layerOpacity = if (isLight) 0.5f else 0.56f // iOS :308 .opacity(isLight ? 0.5 : 0.56) 逐值对齐（旧 0.42 为本地校准值，按 iOS 基准退役）
             val point = Offset(
                 center.x + (particle.x - 0.5f) * whaleWidth + driftX + staggerX,
                 center.y + (particle.y - 0.5f) * square + driftY + staggerY + tailWave
