@@ -2,6 +2,7 @@ package com.clarklevis.dsh.android
 
 import com.clarklevis.dsh.shared.domain.GatewayTimelineRef
 import com.clarklevis.dsh.shared.domain.RoomChatBubble
+import com.clarklevis.dsh.shared.domain.interleaveByTime
 import com.clarklevis.dsh.shared.domain.mergeRoomChat
 import com.clarklevis.dsh.shared.domain.parseSeqFromTimelineId
 import org.junit.Assert.assertEquals
@@ -101,6 +102,52 @@ class RoomChatMergePlanTest {
     fun handlesEmptyInput() {
         val result = mergeRoomChat(emptyList(), emptyList())
         assertTrue(result.bubbles.isEmpty() && result.withoutSeq.isEmpty() && result.gatewayKeys.isEmpty())
+    }
+
+    /** ⑭/⑮/⑯ 合成 key 不拆、合法 seq 形态仍拆、合成 key 落第三档（与 iOS 同规则）。 */
+    @Test
+    fun parseRulesMirrorIosSide() {
+        assertEquals(1234L, parseSeqFromTimelineId("sess-1234"))   // ⑮ 末段纯数字 ⇒ 拆
+        assertNull(parseSeqFromTimelineId("stream-text-3f2a-8b1c")) // ⑭ 末段 uuid ⇒ 不拆
+        assertNull(parseSeqFromTimelineId("s-42-user-77"))          // `-user-` 形态：末段是 messageId
+        val result = mergeRoomChat(
+            gateway = emptyList(),
+            bridge = listOf(bubble("stream-text-3f2a-8b1c", seq = null))
+        )
+        assertEquals(1, result.withoutSeq.size)                     // ⑯ 第三档是常态
+    }
+
+    /** ⑭ 补强：合成 id（`stream-` 开头）**末段是纯数字也不拆**——否则会被误当 seq ⇒ 偶发吞噬。 */
+    @Test
+    fun doesNotParseSeqFromSyntheticIdsEvenWhenTailIsNumeric() {
+        assertNull(parseSeqFromTimelineId("stream-text-42"))
+        assertNull(parseSeqFromTimelineId("stream-text-20261102"))
+        assertNull(parseSeqFromTimelineId("stream-reason-7"))
+    }
+
+    /** ⑤ 插入位置在纯函数里可测：有时按时间插到中间，**不是两段拼接**（两端同规则）。 */
+    @Test
+    fun interleavesByTimeInTheMiddle() {
+        val existing = listOf(1_000L to "gw-1", 3_000L to "gw-3")
+        val inserted = listOf(2_000L to "br-2")
+        assertEquals(listOf("gw-1", "br-2", "gw-3"), interleaveByTime(existing, inserted))
+    }
+
+    /** ⑥/⑬ 无时间（null / NaN 语义下的 0 或负）一律追加末尾，不插到最前。 */
+    @Test
+    fun appendsUntimedEntriesAtTheEnd() {
+        val existing = listOf(1_000L to "gw-1", 2_000L to "gw-2")
+        val inserted = listOf(null to "br-no-time", 0L to "br-zero")
+        assertEquals(listOf("gw-1", "gw-2", "br-no-time", "br-zero"), interleaveByTime(existing, inserted))
+    }
+
+    /** ⑬ epochSeconds 非有限或 ≤0 ⇒ 视为"无时间"，不参与排序（Chief 采纳的跨端口径）。 */
+    @Test
+    fun treatsNonPositiveEpochAsNoTime() {
+        // 直接测 shared 的纯函数（不依赖 UI 类型）：0/负数/无值都算"无时间"，一律追加末尾。
+        val existing = listOf<Pair<Long?, String>>(5_000L to "gw-5")
+        val inserted = listOf<Pair<Long?, String>>(0L to "zero", -1L to "negative", null to "missing")
+        assertEquals(listOf("gw-5", "zero", "negative", "missing"), interleaveByTime(existing, inserted))
     }
 
     /** ⑧ 别的会话同 seq 不被吞（键必须两个分量都参与）。 */

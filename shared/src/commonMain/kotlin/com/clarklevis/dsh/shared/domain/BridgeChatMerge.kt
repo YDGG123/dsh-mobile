@@ -261,6 +261,15 @@ private fun com.clarklevis.dsh.shared.protocol.BridgeStreamMessage.toChatMessage
 @Serializable
 data class BridgeChatSnapshot(val messages: List<BridgeChatMessage> = emptyList())
 
+/**
+ * 快照 JSON → `BridgeChatSnapshot`；解析失败返回 null（**不抛**）。
+ * 平台侧（Android UI 层）需要读快照，`wireJson` 是 internal，所以这里开一个公开入口。
+ */
+fun decodeBridgeChatSnapshot(snapshotJson: String): BridgeChatSnapshot? =
+    runCatching {
+        com.clarklevis.dsh.shared.protocol.wireJson.decodeFromString<BridgeChatSnapshot>(snapshotJson)
+    }.getOrNull()
+
 /** 历史页 → 聊天消息列表 JSON。 */
 fun chatMessagesFromHistory(historyJson: String): String {
     val page = com.clarklevis.dsh.shared.protocol.parseBridgeHistory(historyJson)

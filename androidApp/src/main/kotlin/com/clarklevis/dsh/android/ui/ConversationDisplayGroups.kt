@@ -35,13 +35,37 @@ internal enum class ConversationDisplayContentType {
     ASSISTANT_FOOTER,
     PROCESS,
     STATUS,
-    SYSTEM
+    SYSTEM,
+    /** 群聊成员发言（合流气泡；非网关条目）。 */
+    PEER
 }
 
 internal sealed interface ConversationTimelineEntry {
     val id: String
     val contentType: ConversationDisplayContentType
     val images: List<GatewayImageAttachment>
+
+    /**
+     * 群聊成员发言（vc43 ③ 合流的 bridge 气泡）——**Android 侧条目类型，不进 KMP 枚举**
+     * （给 `ConversationItemKind` 加 PEER 会改两端共用模型，可能撞 iOS 的 switch）。
+     *
+     * 身份纪律（Chief 2026-11-02 定）：`authorName != null` ⇒ 显示名字；
+     * `role == "user"` ⇒ 「我」（不显示名字）；**`authorName == null` 且是 assistant ⇒ 不显示任何名字，
+     * 绝不回落成「我」**（错误归属比信息不足更糟）。
+     */
+    data class PeerMessage(
+        val key: String,
+        val sessionId: String,
+        val seq: Long?,
+        val role: String,
+        val authorName: String?,
+        val text: String,
+        val dateMillis: Long?
+    ) : ConversationTimelineEntry {
+        override val id: String = "peer:$key"
+        override val contentType: ConversationDisplayContentType = ConversationDisplayContentType.PEER
+        override val images: List<GatewayImageAttachment> = emptyList()
+    }
 
     data class Display(val entry: ConversationDisplayEntry) : ConversationTimelineEntry {
         override val id: String = entry.id

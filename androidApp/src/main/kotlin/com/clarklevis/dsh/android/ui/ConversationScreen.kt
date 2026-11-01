@@ -1322,6 +1322,7 @@ private fun ConversationTimeline(
                             )
                             is ConversationDisplayEntry.Process -> ConversationProcessRow(display.group)
                         }
+                        is ConversationTimelineEntry.PeerMessage -> PeerMessageRow(entry)
                         is ConversationTimelineEntry.AssistantHeader -> AssistantMessageHeader(
                             item = entry.item,
                             thumbnails = stateHolder.attachmentThumbnails,
@@ -2000,6 +2001,40 @@ private fun Composer(
                 }
             }
         }
+    }
+}
+
+/**
+ * 群聊成员发言行（vc43 ③ 合流气泡）。身份纪律（Chief 2026-11-02）：
+ * `authorName != null` ⇒ 名字在上方小号灰字；`role == "user"` ⇒ 显示「我」；
+ * **assistant 且无 authorName ⇒ 不显示任何身份**（绝不回落成「我」——错误归属比信息不足更糟）。
+ */
+@Composable
+private fun PeerMessageRow(entry: ConversationTimelineEntry.PeerMessage) {
+    val label = when {
+        entry.role == "user" -> appText("我")
+        !entry.authorName.isNullOrBlank() -> entry.authorName
+        else -> null
+    }
+    Column(
+        Modifier.fillMaxWidth().padding(vertical = 3.dp)
+            .testTag("peer-message:${entry.key}")
+    ) {
+        label?.let {
+            Text(
+                it,
+                color = homeInk(0.45f),
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.padding(bottom = 3.dp)
+            )
+        }
+        Text(
+            entry.text,
+            color = homeInk(if (entry.role == "user") 0.92f else 0.85f),
+            fontSize = 15.sp,
+            lineHeight = 21.sp
+        )
     }
 }
 

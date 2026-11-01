@@ -22,7 +22,7 @@ android {
         applicationId = "com.clarklevis.dsh.android"
         minSdk = 24
         targetSdk = 36
-        versionCode = 42 // 本批（挂起闪退候选链收窄：轮询 iOS 化/凭证非销毁/崩溃取证落盘/重配提示/备份排除/三屏 inset 同源）；41 为上一批
+        versionCode = 43 // 本批（Bot 区群聊合流：bridge 只读消息流 + (sessionId,seq) 精确去重 + 身份显示；凭证不可读三态提示与动作）；42 为上一批
         versionName = "1.7.13"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

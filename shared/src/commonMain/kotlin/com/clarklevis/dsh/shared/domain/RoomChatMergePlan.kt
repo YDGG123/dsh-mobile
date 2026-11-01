@@ -47,11 +47,21 @@ data class RoomChatMergeResult(
 private const val USER_ID_MARKER = "-user-"
 
 /**
+ * 已知**合成 id 前缀**：这类 id 不是事件 id、没有 seq 语义，一律不拆
+ * （iOSTester 2026-11-02 指出：`stream-text-42` 这类"末段恰好是数字"会被误拆成 seq ⇒ 偶发吞噬）。
+ */
+private val SYNTHETIC_ID_PREFIXES = setOf("stream-")
+// ⚠️ **新增合成 id 前缀必须在此登记**（AndroidTester 2026-11-02 前瞻建议）：
+// `steering-` 那条目前靠 `-user-` marker 顺带覆盖，并非显式登记；将来出现 `attempt-` 之类新前缀
+// 若忘了登记，就会漏拆 ⇒ 被误当 seq ⇒ 「偶发吞噬」那类难查的错。
+
+/**
  * 从条目 id 里拆 seq：仅当末段是**纯数字**。
  * `sessionId-seq` ⇒ 取到；`sessionId-user-<messageId>` / `stream-text-<key>` ⇒ null
  * （**不得抛异常、不得默认 0**——那会变成另一个静默错值）。
  */
 fun parseSeqFromTimelineId(id: String): Long? {
+    if (SYNTHETIC_ID_PREFIXES.any { id.startsWith(it) }) return null
     if (id.contains(USER_ID_MARKER)) return null
     val tail = id.substringAfterLast('-', "")
     if (tail.isEmpty() || tail.length > 18) return null
@@ -82,3 +92,35 @@ fun mergeRoomChat(
 }
 
 private fun key(sessionId: String, seq: Long): String = "$sessionId|$seq"
+/**
+ * 按时间把 [inserted] 插进 [existing] 之间（**不是两段拼接**；iOSTester 判据④）。
+ *
+ * 规则（与 iOS `RoomChatMergePlan` 的 ⑤/⑥/⑬ 同款，两端共用同一份可测逻辑）：
+ * - 时间是**毫秒**；`null` 或非正视为"无时间"（NaN/≤0 一律不参与排序，避免实现间排序漂移）；
+ * - 稳定：`existing` 内部顺序不变，`inserted` 中有时按时间升序插到正确位置；
+ * - 无时间的 `inserted` 条目**追加到末尾**（不得插到最前）。
+ */
+fun <T> interleaveByTime(
+    existing: List<Pair<Long?, T>>,
+    inserted: List<Pair<Long?, T>>
+): List<T> {
+    if (inserted.isEmpty()) return existing.map { it.second }
+    val timed = inserted.filter { (it.first ?: 0L) > 0L }.sortedBy { it.first }
+    val untimed = inserted.filter { (it.first ?: 0L) <= 0L }
+    val out = ArrayList<T>(existing.size + inserted.size)
+    var next = 0
+    existing.forEach { (millis, value) ->
+        val existingMillis = millis?.takeIf { it > 0L }
+        while (next < timed.size && existingMillis != null && (timed[next].first ?: Long.MAX_VALUE) <= existingMillis) {
+            out += timed[next].second
+            next++
+        }
+        out += value
+    }
+    while (next < timed.size) {
+        out += timed[next].second
+        next++
+    }
+    out += untimed.map { it.second }
+    return out
+}
