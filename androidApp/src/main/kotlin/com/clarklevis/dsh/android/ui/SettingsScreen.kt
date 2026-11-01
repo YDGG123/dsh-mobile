@@ -82,7 +82,12 @@ internal fun SettingsScreen(
     onOpenFontSize: () -> Unit,
     onOpenStorage: () -> Unit = {},
     updateModel: com.clarklevis.dsh.android.update.AppUpdateViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
-    bottomInset: androidx.compose.ui.unit.Dp = androidx.compose.ui.unit.Dp(0f)
+    bottomInset: androidx.compose.ui.unit.Dp = androidx.compose.ui.unit.Dp(0f),
+    /** tab 内嵌形态（iOSDev 裁定 2026-11-01，对齐 iOS SettingsView embedded:）：
+     *  撤系统导航栏（无 TopAppBar / 无返回键），页顶自绘「设置」大标题
+     *  = DSHType.title(18 semibold) + ink(0.92)，左对齐（SettingsView:222-228）。
+     *  独立路由（非 embedded）保持原顶栏。 */
+    embedded: Boolean = false
 ) {
     val updateState by updateModel.state.collectAsStateWithLifecycle()
     var showPermissionPicker by remember { mutableStateOf(false) }
@@ -111,7 +116,7 @@ internal fun SettingsScreen(
     }
     Scaffold(
         topBar = {
-            CenterAlignedTopAppBar(
+            if (!embedded) CenterAlignedTopAppBar(
                 title = { Text(appText("设置"), style = DshType.title) },
                 navigationIcon = {
                     TopBarCircleButton(
@@ -131,6 +136,20 @@ internal fun SettingsScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             contentPadding = PaddingValues(bottom = bottomInset)
         ) {
+            if (embedded) {
+                // iOS SettingsView:222-228 embedded 自绘标题：DSHType.title + ink(0.92)，左对齐
+                item {
+                    Text(
+                        appText("设置"),
+                        style = DshType.title,
+                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.92f),
+                        modifier = Modifier.adaptiveContentWidth()
+                            .fillMaxWidth()
+                            .padding(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 4.dp)
+                            .testTag("settings-embedded-title")
+                    )
+                }
+            }
             item {
                 Column(
                     Modifier.adaptiveContentWidth().testTag("settings-content")
