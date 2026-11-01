@@ -4520,6 +4520,16 @@
         }
       }
     },
+    "共享任务" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shared tasks"
+          }
+        }
+      }
+    },
     "共享任务 %@" : {
       "localizations" : {
         "en" : {
@@ -6090,6 +6100,16 @@
         }
       }
     },
+    "尚未完成配对或会话不可用，请先配对桌面端。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Not paired yet, or the session is unavailable. Pair with the desktop first."
+          }
+        }
+      }
+    },
     "尚未连接到 DeepSeek Harness。请点击主页右上角的 🔑 按钮，扫描配对二维码或手动输入 Token 进行连接。" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -6157,6 +6177,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Expand approval card"
+          }
+        }
+      }
+    },
+    "工作中" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Working"
           }
         }
       }
@@ -6923,6 +6953,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "待处理"
+          }
+        }
+      }
+    },
+    "待审批" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Needs approval"
           }
         }
       }
@@ -8237,6 +8277,36 @@
         }
       }
     },
+    "暂无" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "None"
+          }
+        }
+      }
+    },
+    "暂无 Bot" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No bots"
+          }
+        }
+      }
+    },
+    "暂无 Bot 或群聊" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No bots or groups"
+          }
+        }
+      }
+    },
     "暂无 Bot 或群聊。桌面端有 Bot 团队后这里会出现。" : {
       "localizations" : {
         "en" : {
@@ -8263,6 +8333,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "No chats yet. They appear here after you talk to a Bot on the desktop."
+          }
+        }
+      }
+    },
+    "暂无其他会话" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No other chats"
           }
         }
       }
@@ -8326,6 +8406,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "No delivery history"
+          }
+        }
+      }
+    },
+    "暂无群聊" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No groups"
           }
         }
       }
@@ -10187,6 +10277,26 @@
         }
       }
     },
+    "管理员" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Admin"
+          }
+        }
+      }
+    },
+    "管理员主导" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Admin-led"
+          }
+        }
+      }
+    },
     "管理员指派" : {
       "localizations" : {
         "en" : {
@@ -11312,6 +11422,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "返回最新消息"
+          }
+        }
+      }
+    },
+    "这条对话还没同步到会话列表，稍后重试或下拉刷新团队页。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This chat hasn't synced to the list yet. Try again later, or pull down to refresh the team page."
           }
         }
       }

@@ -285,7 +285,7 @@ struct TeamView: View {
             dismiss()
             return
         }
-        openFailure = "这条对话还没同步到会话列表，稍后重试或下拉刷新团队页。"
+        openFailure = String(localized: "这条对话还没同步到会话列表，稍后重试或下拉刷新团队页。")
     }
 
     // MARK: - 内容
@@ -504,7 +504,7 @@ struct TeamView: View {
         .buttonStyle(.plain)
     }
 
-    private func emptyRow(_ text: String) -> some View {
+    private func emptyRow(_ text: LocalizedStringKey) -> some View {
         Text(text)
             .font(.subheadline)
             .foregroundStyle(.secondary)
@@ -512,7 +512,7 @@ struct TeamView: View {
             .padding(.vertical, 6)
     }
 
-    private func badge(_ text: String) -> some View {
+    private func badge(_ text: LocalizedStringKey) -> some View {
         Text(text)
             .font(.caption2)
             .padding(.horizontal, 6)
@@ -654,7 +654,7 @@ struct TeamView: View {
                         LabeledContent("开始于", value: Self.relativeTime(since))
                     }
                     ForEach(row.approvals) { approval in
-                        LabeledContent("待审批", value: approval.reason ?? approval.tool ?? "工具调用")
+                        LabeledContent("待审批", value: approval.reason ?? approval.tool ?? String(localized: "工具调用"))
                     }
                     if let updated = row.updatedAt {
                         LabeledContent("最近活动", value: Self.relativeTime(updated))
@@ -729,7 +729,7 @@ struct TeamView: View {
                     labeledRow("管理员", admin)
                 }
                 if let mode = row.mode {
-                    labeledRow("发言模式", mode == "admin" ? "管理员主导" : mode)
+                    labeledRow("发言模式", mode == "admin" ? String(localized: "管理员主导") : mode)
                 }
             }
             Section {
@@ -827,9 +827,9 @@ struct TeamView: View {
             }
 
             Section {
-                labeledRow("会话", row.sessionId.isEmpty ? "暂无" : row.sessionId)
+                labeledRow("会话", row.sessionId.isEmpty ? String(localized: "暂无") : row.sessionId)
                 if row.waiting == true {
-                    labeledRow("状态", "工作中")
+                    labeledRow("状态", String(localized: "工作中"))
                 }
             }
         }
@@ -924,7 +924,7 @@ struct TeamView: View {
                 }
             }
         } header: {
-            Text(ready ? "共享任务 \(String(tasks.count))" : "共享任务")
+            Text(ready ? String(localized: "共享任务 \(String(tasks.count))") : String(localized: "共享任务"))
         }
     }
 
@@ -1023,7 +1023,7 @@ struct TeamView: View {
         return formatter.string(from: Date(timeIntervalSince1970: Double(epochMillis) / 1000))
     }
 
-    private func labeledRow(_ label: String, _ value: String) -> some View {
+    private func labeledRow(_ label: LocalizedStringKey, _ value: String) -> some View {
         HStack {
             Text(label).foregroundStyle(.secondary)
             Spacer()
@@ -1044,7 +1044,7 @@ struct TeamView: View {
             detail = nil
             bridgeChat = BridgeChatTarget(row: row, engine: engine)
         } else {
-            openFailure = "尚未完成配对或会话不可用，请先配对桌面端。"
+            openFailure = String(localized: "尚未完成配对或会话不可用，请先配对桌面端。")
         }
     }
 
