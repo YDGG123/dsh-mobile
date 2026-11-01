@@ -134,12 +134,8 @@ internal fun ConversationSidebarButton(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    OrcarnessOrcaIcon(Modifier.size(23.dp))
-                    Image(
-                        painterResource(if (isDark) R.drawable.dsh_orcarness_wordmark_dark else R.drawable.dsh_orcarness_wordmark),
-                        null,
-                        Modifier.size(144.dp, 23.dp)
-                    )
+                    // iOS ConversationSidebar:108 `HarnessMark(width: 116)`：无鲸鱼、宽 116、恒高 29、按主题反相
+                    OrcarnessWordmark(width = 116.dp)
                 }
                 SidebarNavigationItem("插件", R.drawable.ic_drawer_plugin, "conversation-sidebar-plugins") { select(onPlugins) }
                 SidebarNavigationItem("定时任务", R.drawable.ic_drawer_schedule, "conversation-sidebar-scheduled-tasks") {

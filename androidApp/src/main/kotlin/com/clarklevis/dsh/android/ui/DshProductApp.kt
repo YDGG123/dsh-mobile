@@ -110,7 +110,6 @@ private const val ROUTE_PLUGINS = "plugins"
 private const val ROUTE_PLUGIN_BUNDLE = "plugins/bundle/{bundleName}"
 private const val ROUTE_PLUGIN_OFFICIAL = "plugins/official/{pluginId}"
 private const val ROUTE_SCHEDULED_TASKS = "scheduled-tasks"
-private const val ROUTE_BOT_TEAM = "bot-team"
 
 @Composable
 internal fun DshProductApp(
@@ -187,7 +186,6 @@ internal fun DshProductApp(
                 },
                 onPlugins = { navController.navigate(ROUTE_PLUGINS) },
                 onScheduledTasks = { navController.navigate(ROUTE_SCHEDULED_TASKS) },
-                onBotTeam = { navController.navigate(ROUTE_BOT_TEAM) { launchSingleTop = true } },
                 updateModel = updateModel,
                 onOpenAgentPresets = { navController.navigate(ROUTE_SETTINGS_AGENT_PRESETS) },
                 onOpenDefaultModel = { navController.navigate(ROUTE_SETTINGS_DEFAULT_MODEL) },
@@ -247,9 +245,6 @@ internal fun DshProductApp(
                 pluginId = entry.arguments?.getString("pluginId").orEmpty(),
                 onBack = navController::popBackStack
             )
-        }
-        composable(ROUTE_BOT_TEAM) {
-            BotTeamScreen(adapter = stateHolder.bridgeTeam, onBack = navController::popBackStack)
         }
         composable(ROUTE_SCHEDULED_TASKS) {
             ScheduledTasksScreen(
@@ -316,7 +311,6 @@ internal fun WorkspaceScreen(
     onNewSession: () -> Unit,
     onPlugins: () -> Unit,
     onScheduledTasks: () -> Unit,
-    onBotTeam: () -> Unit = {},
     updateModel: com.clarklevis.dsh.android.update.AppUpdateViewModel,
     onOpenAgentPresets: () -> Unit = {},
     onOpenDefaultModel: () -> Unit = {},
@@ -357,6 +351,8 @@ internal fun WorkspaceScreen(
         buildMap { workspaces.forEach { ws -> ws.sessionIds.forEach { sid -> put(sid, ws.title) } } }
     }
     val showingAllWorkspaces = stateHolder.selectedWorkspaceId == AndroidSharedStateHolder.ALL_WORKSPACES_ID
+    // A1 §1.6 段头右侧「全部 N 个」：iOS sessionsHeader 的可点链接，展开最近会话列表（默认 12 行）
+    var sessionsExpanded by rememberSaveable { mutableStateOf(false) }
     val ungroupedSelected = stateHolder.isUngroupedWorkspaceSelected
     val sessions = remember(
         stateHolder.snapshot.sessions,
@@ -476,7 +472,25 @@ internal fun WorkspaceScreen(
                                 // A1 §1.6 段头：「最近会话」11pt semibold ink(0.55)（iOS sessionsHeader :1254）
                                 Text(appText("最近会话"), color = homeInk(0.55f), fontWeight = FontWeight.SemiBold, fontSize = 11.sp)
                                 Spacer(Modifier.weight(1f))
-                                ConnectionStatusText(stateHolder.gatewayState)
+                                // 连接状态在 §1.4 网关行里已有；段头右侧按 iOS 换成「全部 N 个」+ chevron
+                                Row(
+                                    Modifier.clickable(role = Role.Button) { sessionsExpanded = true }
+                                        .testTag("sessions-show-all"),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Text(
+                                        appText("全部 %1\$s 个", sessions.size),
+                                        color = homeInk(0.4f), // iOS ink(0.40)
+                                        fontSize = 11.sp
+                                    )
+                                    Image(
+                                        painter = painterResource(R.drawable.ic_chevron_right),
+                                        contentDescription = null,
+                                        colorFilter = ColorFilter.tint(homeInk(0.4f)),
+                                        modifier = Modifier.size(11.dp)
+                                    )
+                                }
                             }
                             LocalChatSearchContent(stateHolder, searchQuery, { searchQuery = it }, onOpenSession)
                             if (sessions.isEmpty()) EmptySessions()
@@ -486,7 +500,7 @@ internal fun WorkspaceScreen(
                                 onOpenSession(id)
                             }, stateHolder::renameSession, stateHolder::archiveSession,
                                 folderLabels = sessionFolderLabels,
-                                maxRows = if (showingAllWorkspaces) 200 else 12)
+                                maxRows = if (showingAllWorkspaces || sessionsExpanded) 200 else 12)
                             Spacer(Modifier.height(24.dp))
                         }
                     )
@@ -620,26 +634,17 @@ private fun HarnessMark(onClick: () -> Unit, modifier: Modifier = Modifier) {
         val showWordmark = maxWidth >= 128.dp
         val scale = (maxWidth / 216.dp).coerceIn(0f, 1f)
         if (showWordmark) {
+            // 共享实现（OrcarnessWordmark.kt）：一处反相逻辑，四处调用点（首页/抽屉/会话侧栏）
             Image(
                 painter = painterResource(R.drawable.dsh_orcarness_wordmark),
                 contentDescription = null,
-                colorFilter = if (dark) ColorFilter.colorMatrix(wordmarkInvertMatrix) else null,
+                colorFilter = if (dark) ColorFilter.colorMatrix(OrcarnessWordmarkInvertMatrix) else null,
                 modifier = Modifier.size(width = 216.dp * scale, height = 29.dp * scale)
             )
         }
     }
 }
 
-/** iOS `colorInvertIfNeeded` 的 Android 等价物：RGB 取负 + 255 偏移，alpha 原样保留。
- *  Compose ColorMatrix 的偏移列是 0–255 量纲（不是 0–1），所以写 255 而不是 1。 */
-private val wordmarkInvertMatrix = ColorMatrix(
-    floatArrayOf(
-        -1f, 0f, 0f, 0f, 255f,
-        0f, -1f, 0f, 0f, 255f,
-        0f, 0f, -1f, 0f, 255f,
-        0f, 0f, 0f, 1f, 0f
-    )
-)
 
 @Composable
 internal fun OrcarnessOrcaIcon(
@@ -955,33 +960,6 @@ private fun ConnectionDot(state: GatewayRuntimeState) {
         color = color,
         modifier = Modifier.size(8.dp),
         glowing = state.connection == GatewayConnectionState.CONNECTED
-    )
-}
-
-@Composable
-private fun ConnectionStatusText(state: GatewayRuntimeState) {
-    val connected = state.connection == GatewayConnectionState.CONNECTED
-    val color = when (state.connection) {
-        GatewayConnectionState.CONNECTED -> DshSemantic.success
-        else -> Color.Red.copy(alpha = 0.85f)
-    }
-    Text(
-        when (state.connection) {
-            GatewayConnectionState.CONNECTED -> appText("已连接")
-            GatewayConnectionState.CONNECTING, GatewayConnectionState.AUTHENTICATING -> appText("连接中")
-            GatewayConnectionState.WAITING_FOR_NETWORK -> appText("等待网络")
-            GatewayConnectionState.FAILED -> appText("连接失败")
-            else -> appText("未连接")
-        },
-        color = color,
-        fontSize = 12.sp,
-        style = TextStyle(
-            shadow = if (connected) {
-                TextShadow(color = color.copy(alpha = 0.30f), offset = Offset.Zero, blurRadius = 7f)
-            } else {
-                null
-            }
-        )
     )
 }
 

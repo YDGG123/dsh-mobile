@@ -146,23 +146,19 @@ internal fun WorkspaceDrawer(
                     .then(if (!drawerVisible) Modifier.clearAndSetSemantics {} else Modifier),
                 verticalArrangement = Arrangement.Top
             ) {
-                Row(
+                // iOS WorkspaceView:966 `HarnessMark(width: min(width-48, 216))`：无鲸鱼、字标取满可用宽度。
+                // 旧值 183 正是 iOS Glass.swift:192-193 点名的「被鲸鱼压窄的旧值」，删鲸鱼后应取满。
+                Image(
                     modifier = Modifier.padding(start = 12.dp, bottom = 16.dp)
-                        .size(width = minOf(216.dp, (drawerWidth - 48.dp).coerceAtLeast(0.dp)), height = 29.dp)
+                        .size(
+                            width = minOf(216.dp, (drawerWidth - 48.dp).coerceAtLeast(0.dp)),
+                            height = 29.dp
+                        )
                         .semantics { contentDescription = "Orcarness Harness" },
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    OrcarnessOrcaIcon(
-                        modifier = Modifier.size(29.dp),
-                        tint = if (dark) Color.White else Color.Black
-                    )
-                    Image(
-                        painter = painterResource(R.drawable.dsh_orcarness_wordmark),
-                        contentDescription = null,
-                        modifier = Modifier.size(width = 183.dp, height = 29.dp)
-                    )
-                }
+                    painter = painterResource(R.drawable.dsh_orcarness_wordmark),
+                    contentDescription = null,
+                    colorFilter = if (dark) ColorFilter.colorMatrix(OrcarnessWordmarkInvertMatrix) else null
+                )
                 DrawerItem(appText("Bot 团队"), R.drawable.ic_agent_mode, "drawer-bot-team") {
                     onBotTeam()
                 }
