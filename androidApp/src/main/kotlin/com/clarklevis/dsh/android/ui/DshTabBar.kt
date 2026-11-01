@@ -67,14 +67,14 @@ internal fun DshTabBar(
             .testTag("home-tab-bar")
             // 阴影：iOS glassSurface shadowOpacity 深 0.24 / 浅 0.10（:1075）。半径验收清单未给值，取 16dp 待真机校准。
             .dropShadow(
-                shape = RoundedCornerShape(31.dp),
+                shape = RoundedCornerShape(percent = 50),
                 shadow = Shadow(
                     radius = 16.dp,
                     color = Color.Black.copy(alpha = if (dark) 0.24f else 0.10f),
                     offset = DpOffset(0.dp, 6.dp)
                 )
             )
-            .dshLiquidGlass(RoundedCornerShape(31.dp))
+            .dshLiquidGlass(RoundedCornerShape(percent = 50))
             // 内层 padding(xs)=4：总高 62 = 4 + 54 + 4（iOS :1073/:1015）
             .padding(4.dp)
             .fillMaxWidth()
@@ -99,13 +99,16 @@ private fun DshTabItem(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val dark = LocalDshIsDark.current
     val tint = if (active) Color.White else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.55f) // 未选中 ink(0.55)（:1048）
     Column(
         modifier
             .testTag("home-tab-${tab.name.lowercase()}")
             .height(54.dp) // 单项最小高 54（iOS :1046）
             .clip(RoundedCornerShape(percent = 50)) // Capsule（iOS :1047）
-            .background(if (active) DshColors.Ocean else Color.Transparent) // 选中品牌底 #2E6BE6（:1044-1045）
+            .background( // 选中品牌底分档：浅 ocean #2E6BE6 / 深 #4D8CFF（iOS :462-464）
+                if (active) (if (dark) DshColors.OceanDark else DshColors.Ocean) else Color.Transparent
+            )
             .clickable(onClick = onClick),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(3.dp, Alignment.CenterVertically) // 图标↔文字竖距 3（iOS :1034）

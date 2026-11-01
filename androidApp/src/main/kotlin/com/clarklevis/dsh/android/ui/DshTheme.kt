@@ -36,6 +36,9 @@ internal object DshColors {
     val Navy = Color(0xFF06172B)
     val NavyRaised = Color(0xFF0D2440)
     val Ocean = Color(0xFF2E6BE6)
+
+    /** 品牌选中底·深色档 #4D8CFF（iOS Theme.swift:462-464 p.brand 深 `Color(0.30,0.55,1.0)`）。别拿 DarkColors.primary(0xFF7EA8FF) 顶替。 */
+    val OceanDark = Color(0xFF4D8CFF)
     val Mist = Color(0xFFBFD6FF)
     val Ink = Color(0xFF0E131A)
     val Paper = Color(0xFFF9FAFC)

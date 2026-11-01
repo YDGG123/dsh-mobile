@@ -40,6 +40,7 @@ import com.clarklevis.dsh.android.AndroidBridgeTeamAdapter
 import com.clarklevis.dsh.android.R
 import com.clarklevis.dsh.android.localization.appText
 import com.clarklevis.dsh.shared.domain.TeamPhase
+import com.clarklevis.dsh.shared.protocol.BridgeInks
 import com.clarklevis.dsh.shared.protocol.BridgeConversationRow
 import kotlinx.serialization.json.JsonPrimitive
 
@@ -48,7 +49,8 @@ import kotlinx.serialization.json.JsonPrimitive
  * 合流后渲染真实名册。行语义逐项对照 iOS `TeamView.swift`：
  * 主 Bot 卡（:431）/ botCell（:466，Main Bot + Hidden 徽标）/ roomCell（:482，成员串）/
  * sessionCell（:375，工作区 + 相对时间）/ avatar（:353，数据色圆 + 白首字母，
- * 颜色来自 `avatar.color` 十六进制，`Color(bridgeHex:)` :1059 —— RRGGBB 或 RRGGBBAA）。
+ * 颜色链路：行级 `color`（ink 名）→ `BridgeInks.resolve` → 回落 `avatar.color` hex → 中性；
+ * 大部分行为中性是数据没给行级 color，不是解析缺位。）
  *
  * 形态说明（Chief 裁决「差异有意」）：本页内容对应 iOS 的 **TeamView sheet**
  * （WorkspaceView :189 .sheet(isPresented:$showsTeam)，bridge 名册数据源），
@@ -234,7 +236,7 @@ private fun PrimaryBotCard(row: BridgeConversationRow, modifier: Modifier = Modi
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        RosterAvatar(row.name, row.avatar, size = 46)
+        RosterAvatar(row.name, row.color, row.avatar, size = 46)
         Column(Modifier.weight(1f)) {
             // iOS .headline = 17 semibold（TeamView :435）。裁决原文写「主 Bot 18」，但源码
             // .headline 实际值是 17 —— 按「忠实 iOS 系统档」原则取 17，如需 18 一行改回。
@@ -266,7 +268,7 @@ private fun BotRow(row: BridgeConversationRow, isMain: Boolean) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        RosterAvatar(row.name, row.avatar, size = 38) // iOS botCell :477 avatar 38（Chief 2026-11-01 裁决；34 无规格出处）
+        RosterAvatar(row.name, row.color, row.avatar, size = 38) // iOS botCell :477 avatar 38（Chief 2026-11-01 裁决；34 无规格出处）
         Column(Modifier.weight(1f)) {
             Text(row.name, color = MaterialTheme.colorScheme.onBackground, fontSize = 17.sp) // iOS .body（:479）
             if (!row.role.isNullOrBlank()) {
@@ -398,19 +400,33 @@ private fun SessionRow(row: BridgeConversationRow) {
 }
 
 /**
- * iOS avatar(for:)（TeamView :353）：数据色圆 + 白色首字母（size*0.42 semibold）。
- * 颜色来自 `avatar.color` 十六进制（`Color(bridgeHex:)` :1059：RRGGBB 或 RRGGBBAA，
- * alpha 在末尾），解析失败回退中性色。hostGlyph 矢量头像归 C 组头像件。
+ * iOS avatar(for:)（TeamView :353）+ avatarColor（:535）+ dynamicInk 同链路：
+ * **行级 `row.color`（ink 名或 #hex）→ `BridgeInks.resolve`（shared 单一来源，
+ * 与 iOS `dynamicInk` 同口径）→ 回落 `avatar.color` 十六进制（`Color(bridgeHex:)`
+ * :1059：RRGGBB / RRGGBBAA，alpha 在末）→ 中性色**。
+ *
+ * ⚠️ 改完大部分头像仍是灰的——这是**数据没给**（2026-11-01 实测 14 行里只有
+ * Chief 一行带行级 color，其余 13 行就是 None），不是解析没接对。
+ * hostGlyph 矢量头像归 C 组头像件。
  */
 @Composable
-private fun RosterAvatar(name: String, avatar: kotlinx.serialization.json.JsonObject?, size: Int) {
-    // fallback 等价值（AndroidTester 提请 iOSDev 定夺，此处按 iOS 源码推导先行）：
-    // iOS TeamView :539 `Color.secondary.opacity(0.55)`，secondary=标签色 60% ⇒ 等效 onBackground×0.33，
-    // 深浅同式；真实抓包两端现都走 fallback（avatar 无 color 键），故此值即当前上屏色。
+private fun RosterAvatar(
+    name: String,
+    rowColor: String?,
+    avatar: kotlinx.serialization.json.JsonObject?,
+    size: Int
+) {
+    // fallback 等价值（iOSDev 裁决落规格 §14）：iOS TeamView :539 `Color.secondary.opacity(0.55)`，
+    // secondary=标签色 60% ⇒ 等效 onBackground×0.33，深浅同式。
     val fallback = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.33f)
+    val dark = androidx.compose.foundation.isSystemInDarkTheme()
+    val avatarHex = (avatar?.get("color") as? JsonPrimitive)?.takeIf { it.isString }?.content
+    val color = remember(rowColor, avatarHex, dark, fallback) {
+        rosterAvatarColor(rowColor, avatarHex, dark, fallback)
+    }
     Box(
         Modifier.size(size.dp)
-            .background(bridgeAvatarColor(avatar, fallback), CircleShape),
+            .background(color, CircleShape),
         contentAlignment = Alignment.Center
     ) {
         Text(
@@ -422,8 +438,16 @@ private fun RosterAvatar(name: String, avatar: kotlinx.serialization.json.JsonOb
     }
 }
 
-private fun bridgeAvatarColor(avatar: kotlinx.serialization.json.JsonObject?, fallback: Color): Color {
-    val hex = (avatar?.get("color") as? JsonPrimitive)?.takeIf { it.isString }?.content ?: return fallback
+/** 行级 color（ink 名/#hex）→ avatar.color hex → fallback；两头都 null 才轮到中性色。 */
+private fun rosterAvatarColor(rowColor: String?, avatarHex: String?, dark: Boolean, fallback: Color): Color {
+    BridgeInks.resolve(rowColor, dark)?.let { return parseBridgeHexColor(it, fallback) }
+    avatarHex?.let { return parseBridgeHexColor(it, fallback) }
+    return fallback
+}
+
+/** iOS `Color(bridgeHex:)`（TeamView :1059）：#RGB/#RRGGBB/#RRGGBBAA（alpha 在末），非法落 fallback。 */
+private fun parseBridgeHexColor(hex: String?, fallback: Color): Color {
+    if (hex == null) return fallback
     val digits = hex.trim().removePrefix("#")
     if (digits.length != 6 && digits.length != 8) return fallback
     val value = digits.toLongOrNull(16) ?: return fallback
