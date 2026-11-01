@@ -514,7 +514,24 @@ internal fun WorkspaceScreen(
                 adapter = stateHolder.bridgeTeam,
                 onBack = { homeTab = DshHomeTab.WORKSPACE },
                 bottomInset = tabClearance,
-                embedded = true // tab 根分段形态：标题「团队」+ 无返回箭头 + 刷新（iOSDev 裁定，对齐 iOS TeamView:55-73）
+                embedded = true, // tab 根分段：不自绘顶栏，页头由下方 header 注入
+                // iOS 三个 tab 共用同一条页头（WorkspaceView:936 字标 + :950 认证圆钮 + :955 ＋新建）。
+                // vc39 之前 Bot tab 只有一条居中「团队」标题，是 Android 自造的（用户 11-02 指出）。
+                header = {
+                    WorkspaceHeader(
+                        state = stateHolder.gatewayState,
+                        onScan = {
+                            stateHolder.clearPlatformError()
+                            showQrScanner = true
+                        },
+                        onManualEntry = {
+                            stateHolder.clearPlatformError()
+                            showManualPairing = true
+                        },
+                        onOpenDrawer = openDrawer,
+                        onNewSession = onNewSession
+                    )
+                }
             )
             DshHomeTab.SETTINGS -> SettingsScreen(
                 updateModel = updateModel,
@@ -858,7 +875,7 @@ internal fun LocalChatSearchContent(
 }
 
 @Composable
-private fun SessionSearch(query: String, onChange: (String) -> Unit) {
+internal fun SessionSearch(query: String, onChange: (String) -> Unit) {
     Row(
         // A1 §1.6 搜索框：高 42、圆角 12、cardFill + 1pt cardStroke、左右 padding 12（iOS sessionSearch :1293）
         modifier = Modifier.fillMaxWidth().height(42.dp)

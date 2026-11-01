@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -26,6 +27,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -79,7 +84,10 @@ internal fun BotTeamScreen(
     /** tab 根分段形态（iOSDev 裁定 2026-11-01，对齐 iOS TeamView:55-73）：
      *  标题「团队」、**有顶栏但无返回箭头**、右侧刷新；抽屉/独立路由（非 embedded）标题
      *  「Bot 团队」+ 返回箭头。左侧「完成」是 iOS sheet 场景残留，不复制。 */
-    embedded: Boolean = false
+    embedded: Boolean = false,
+    /** tab 根分段注入的共享页头（字标 + 认证圆钮 + ＋）：iOS 三个 tab 共用同一条页头，
+     *  Android 侧由 `DshProductApp.WorkspaceHeader` 提供，避免 Bot tab 自绘第二条。 */
+    header: (@Composable () -> Unit)? = null
 ) {
     // 走主题（与 ScheduledTasksScreen/PluginsScreen 一致）：A1 换品牌海军蓝底时本页自动跟随，不许硬编码。
     val background = MaterialTheme.colorScheme.background
@@ -99,100 +107,107 @@ internal fun BotTeamScreen(
     }
     Scaffold(
         modifier = Modifier.testTag("bot-team-page"),
-        // 材质批：iOS 真机量到 **Bot 页背后是动效背景**（左右留白列 std 12.65、range 180–249），
-        // 而设置页是常数实底（std 0.05）。所以 tab 内嵌时透明、露出 host 的动效背景；
+        // 材质批：iOS 真机量到 **Bot 页背后是动效背景**，tab 内嵌时透明、露出 host 的动效背景；
         // 独立路由（非 embedded，无 host）保持原实底，否则会露窗口底。
         containerColor = if (embedded) Color.Transparent else background,
         topBar = {
-            CenterAlignedTopAppBar(
-                title = { Text(appText(if (embedded) "团队" else "Bot 团队"), fontSize = 17.sp, fontWeight = FontWeight.SemiBold) },
-                navigationIcon = {
-                    // tab 根分段不放返回箭头（iOSDev 裁定：返回逻辑可留、箭头不要）
-                    if (!embedded) {
+            // tab 根分段（embedded）：iOS 的共享页头由 host 提供（字标 + 认证圆钮 + ＋），
+            // 页内不再自绘顶栏——vc39 那个居中「团队」标题就是多余的那一层（用户 11-02 指出）。
+            if (!embedded) {
+                CenterAlignedTopAppBar(
+                    title = { Text(appText("Bot 团队"), fontSize = 17.sp, fontWeight = FontWeight.SemiBold) },
+                    navigationIcon = {
                         TopBarCircleButton(
                             R.drawable.ic_back_chevron,
                             appText("返回"),
                             onBack,
                             modifier = Modifier.padding(start = 8.dp)
                         )
-                    }
-                },
-                actions = {
-                    // iOS TeamView:62-72 顶栏右侧有两个动作：设备管理(iphone.gen2) + 刷新(arrow.clockwise)。
-                    // 刷新已接（adapter.refreshNow + isRefreshing 禁用态）；**设备管理暂无 Android 数据通路**
-                    // （devices 效果执行器属 C3），按「不给点了没反应的按钮」纪律先不复制，C3 补齐。
-                    if (adapter?.isRefreshing == true) {
-                        CircularProgressIndicator(Modifier.padding(16.dp).size(20.dp), strokeWidth = 2.dp)
-                    } else {
-                        TopBarCircleButton(
-                            R.drawable.ic_refresh,
-                            appText("刷新团队"),
-                            { adapter?.refreshNow() },
-                            modifier = Modifier.padding(end = 8.dp)
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = background)
-            )
-        }
-    ) { padding ->
-        LazyColumn(
-            Modifier.fillMaxSize().padding(padding).testTag("bot-team-list"),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 16.dp + bottomInset),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            item {
-                StatusCard(
-                    phase = phase,
-                    serverName = adapter?.serverInfo?.name,
-                    origin = adapter?.origin,
-                    error = adapter?.lastError,
-                    hasSession = adapter?.hasSession == true
+                    },
+                    actions = {
+                        if (adapter?.isRefreshing == true) {
+                            CircularProgressIndicator(Modifier.padding(16.dp).size(20.dp), strokeWidth = 2.dp)
+                        } else {
+                            TopBarCircleButton(
+                                R.drawable.ic_refresh,
+                                appText("刷新团队"),
+                                { adapter?.refreshNow() },
+                                modifier = Modifier.padding(end = 8.dp)
+                            )
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = background)
                 )
             }
-            // iOS botsSection（TeamView :337-351）：主 Bot 单独一节，行本身仍在 Bots 列表里（不去重）。
-            val primaryBot = bots.firstOrNull { mainBotIds.contains(it.id) }
-            if (primaryBot != null) {
-                item { SectionTitle(appText("主 Bot")) }
-                item {
-                    PrimaryBotCard(primaryBot, modifier = Modifier.testTag("bot-row-primary-${primaryBot.name}"))
-                }
+        }
+    ) { padding ->
+        var query by rememberSaveable { mutableStateOf("") }
+        val filteredBots = remember(bots, query) {
+            if (query.isBlank()) bots else bots.filter { it.name.contains(query, ignoreCase = true) }
+        }
+        val filteredRooms = remember(rooms, query) {
+            if (query.isBlank()) rooms else rooms.filter { it.name.contains(query, ignoreCase = true) }
+        }
+        LazyColumn(
+            Modifier.fillMaxSize().padding(padding).testTag("bot-team-list"),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 16.dp + bottomInset),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            // ① 共享页头（字标 + 认证圆钮 + 品牌蓝＋）：由 host 注入，Bot tab 与工作区 tab 同一份。
+            header?.let { item { it() } }
+            // ② 区标题「Bot」：iOS WorkspaceView:653-655，左对齐 18 semibold（不是居中大标题）。
+            item {
+                Text(
+                    appText("Bot"),
+                    color = homeInk(0.92f),
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(top = 4.dp, bottom = 8.dp).testTag("bot-roster-title")
+                )
             }
-            // Bots 节（iOS :343 Section("Bots")，zh-Hans 值同为 "Bots"——iOSDev 裁决）：
-            // 标题常显、空时 emptyRow「暂无 Bot」（iOS 空节也显示，Android 原来整节隐藏）。
-            item { SectionTitle(appText("Bots")) }
-            if (bots.isEmpty()) {
+            // ③ 搜索框：复用会话 tab 的同一个 SessionSearch（iOS Bot tab 也挂同一个 sessionSearch）。
+            item {
+                SessionSearch(query, { query = it })
+            }
+            // ④ 单一分组「Agent」（iOS gatewayTeamSection 按 kind 分组：bot → Agent，room → 群聊）。
+            item { SectionTitle(appText("Agent")) }
+            if (filteredBots.isEmpty()) {
                 item { EmptyRosterRow(appText("暂无 Bot")) }
             } else {
-                items(bots, key = { it.id }) { row ->
+                items(filteredBots, key = { it.id }) { row ->
                     BotRow(row, isMain = mainBotIds.contains(row.id))
                 }
             }
-            // 群聊节：标题常显，空时「暂无群聊」（iOS :420-422）。
+            // 群聊节：标题常显，空时「暂无群聊」。
             item { SectionTitle(appText("群聊")) }
-            if (rooms.isEmpty()) {
+            if (filteredRooms.isEmpty()) {
                 item { EmptyRosterRow(appText("暂无群聊")) }
             } else {
-                items(rooms, key = { it.id }) { row -> RoomRow(row) }
+                items(filteredRooms, key = { it.id }) { row -> RoomRow(row) }
             }
-            // 会话节：标题常显，空时「暂无其他会话」（iOS :356-359）。
-            item { SectionTitle(appText("会话")) }
-            if (sessions.isEmpty()) {
-                item { EmptyRosterRow(appText("暂无其他会话")) }
-            } else {
-                items(sessions, key = { it.id }) { row -> SessionRow(row) }
-            }
-            // 「卡片」节 = Android 有意超出（iOSDev 裁决，规格 §15）：BridgeCardRow 全仓唯一渲染点，
-            // 是 Android 侧 pending view/question/secret 卡唯一可见入口；iOS 对应可见性走 Bot tab 行
-            // 状态文案（GatewayTeamFeed:1179 statusText，D 组 feed 层，Android 未接）。
-            // D 组落地、tab 切 feed 后重评，预期移除。
+            // ⑤「卡片（N）」节**保留**：BridgeCardRow 全仓唯一渲染点，承载 A4 密钥卡 / E1 view 卡
+            // 的可见入口（iOS 走 Bot 行状态文案，D 组 feed 未接）。删它 = 删掉卡片显示，不许顺手删。
             if (cards.isNotEmpty()) {
                 item { SectionTitle(appText("卡片（${cards.size}）")) }
                 items(cards, key = { it.id }) { card ->
                     BridgeCardRow(card, ownerName = cardOwnerNames[card.owner])
                 }
             }
-            if (bots.isEmpty() && rooms.isEmpty() && sessions.isEmpty()) {
+            // ⑥ 桥接状态卡：iOS 正常态什么都不画，只有离线横幅 / 未就绪诊断卡。
+            // 这里从"常驻整卡"改成**只在异常/未就绪时出现**（用户 11-02：常驻那张是 Android 多出来的）。
+            item {
+                when (phase) {
+                    TeamPhase.IDLE, TeamPhase.LOADING, TeamPhase.READY -> Unit
+                    else -> StatusCard(
+                        phase = phase,
+                        serverName = adapter?.serverInfo?.name,
+                        origin = adapter?.origin,
+                        error = adapter?.lastError,
+                        hasSession = adapter?.hasSession == true
+                    )
+                }
+            }
+            if (bots.isEmpty() && rooms.isEmpty()) {
                 item {
                     Text(
                         appText("还没有收到团队名册数据"),
@@ -285,39 +300,55 @@ private fun PrimaryBotCard(row: BridgeConversationRow, modifier: Modifier = Modi
     }
 }
 
-/** iOS botCell（TeamView :466）：名字 + 角色 + Main Bot / Hidden 徽标。 */
+/**
+ * Bot 名册行——对齐 iOS Bot tab 的 `gatewayTeamRow`（WorkspaceView:690-730）：
+ * **纯列表**（无卡片底、无圆角框，靠留白分隔；iOS 注释：「08 设计稿：Bot 行是纯列表」）、
+ * minHeight 64、头像 38、名字 + 「主」小字 + **状态副行**（空闲／正在干活）+ 头像右下状态点。
+ *
+ * 状态文案的边界（B 批未接）：动作文本（「正在干活：Read root layout…」）来自 D 组 team-feed
+ * `row.activity`，bridge 名册只有 `busy`，所以这里只渲染「正在干活」/「空闲」，**不编造动作**。
+ */
 @Composable
 private fun BotRow(row: BridgeConversationRow, isMain: Boolean) {
+    val busy = row.busy == true
     Row(
         Modifier.fillMaxWidth()
-            .background(MaterialTheme.colorScheme.onBackground.copy(alpha = 0.06f), RoundedCornerShape(14.dp))
-            .padding(horizontal = 14.dp, vertical = 12.dp)
+            .heightIn(min = 64.dp)
+            .padding(horizontal = 4.dp, vertical = 8.dp)
             .testTag("bot-row-${row.name}"),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        RosterAvatar(row.name, row.color, row.avatar, size = 38) // iOS botCell :477 avatar 38（Chief 2026-11-01 裁决；34 无规格出处）
-        Column(Modifier.weight(1f)) {
-            Text(row.name, color = MaterialTheme.colorScheme.onBackground, fontSize = 17.sp) // iOS .body（:479）
-            if (!row.role.isNullOrBlank()) {
-                Text(
-                    row.role.orEmpty(),
-                    color = homeInk(0.6f),
-                    fontSize = 12.sp // iOS .caption（:481）
-                )
-            }
+        Box {
+            RosterAvatar(row.name, row.color, row.avatar, size = 38)
+            RosterStatusDot(busy = busy, modifier = Modifier.align(Alignment.BottomEnd))
         }
-        if (isMain) {
-            CapsuleBadge(appText("Main Bot"), container = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.12f))
+        Column(Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(row.name, color = homeInk(0.92f), fontSize = 17.sp)
+                if (isMain) {
+                    Text(appText("主"), color = homeInk(0.45f), fontSize = 11.sp)
+                }
+            }
+            Text(
+                if (busy) appText("正在干活") else appText("空闲"),
+                color = if (busy) DshSemantic.success else homeInk(0.55f),
+                fontSize = 13.sp
+            )
         }
         if (row.hidden == true) {
             CapsuleBadge(appText("Hidden"), container = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.12f))
         }
-        // 「置顶」为有意的少量超出：iOS 只在详情页显示 pin（详情页归 C3），此处先保留可见性。
-        if (row.pinned == true) {
-            Text(appText("置顶"), color = homeInk(0.5f), fontSize = 11.sp)
-        }
     }
+}
+
+/** 头像右下 9×9 状态点（iOS WorkspaceView:705-712）：干活 = success 绿，空闲 = veil 灰。 */
+@Composable
+private fun RosterStatusDot(busy: Boolean, modifier: Modifier = Modifier) {
+    Box(
+        modifier.size(9.dp)
+            .background(if (busy) DshSemantic.success else homeVeil(0.35f), CircleShape)
+    )
 }
 
 /** iOS roomCell（TeamView :482）：名字 + 成员串（、分隔，单行截断）。 */
@@ -325,8 +356,8 @@ private fun BotRow(row: BridgeConversationRow, isMain: Boolean) {
 private fun RoomRow(row: BridgeConversationRow) {
     Row(
         Modifier.fillMaxWidth()
-            .background(MaterialTheme.colorScheme.onBackground.copy(alpha = 0.06f), RoundedCornerShape(14.dp))
-            .padding(horizontal = 14.dp, vertical = 12.dp)
+            .heightIn(min = 64.dp)
+            .padding(horizontal = 4.dp, vertical = 8.dp)
             .testTag("room-row-${row.name}"), // 独立 tag：原与 BotRow 同 tag，验收脚本无法区分（AndroidTester 指出）
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
