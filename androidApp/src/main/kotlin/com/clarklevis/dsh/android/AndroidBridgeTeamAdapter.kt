@@ -208,6 +208,15 @@ internal class AndroidBridgeTeamAdapter(
             }
             publishState()
             refreshCards(base, token)
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (unexpected: Throwable) {
+            // 兜底（AndroidTester 2026-11-02）：这条 while(true) 轮询**只有 finally、没有 catch**，
+            // 而它跑在 applicationScope（SupervisorJob、无 CoroutineExceptionHandler）里——
+            // 一次解析/状态机异常（Serialization / IllegalState / NPE）就会逃逸成进程崩溃，
+            // 与用户「挂着不动会闪退」的形态吻合。这里把它降级成 lastError + 继续轮询。
+            lastError = "refresh_unhandled: ${unexpected.javaClass.simpleName}"
+            Log.w(TAG, "refresh unhandled: ${unexpected.javaClass.simpleName}: ${unexpected.message}")
         } finally {
             isRefreshing = false
         }
