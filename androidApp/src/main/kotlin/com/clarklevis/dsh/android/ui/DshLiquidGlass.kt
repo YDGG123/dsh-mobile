@@ -88,23 +88,18 @@ internal enum class DshGlassStyle(
 @Composable
 internal fun Modifier.dshLiquidGlass(
     shape: Shape,
-    style: DshGlassStyle = DshGlassStyle.CARD
+    style: DshGlassStyle = DshGlassStyle.CARD,
+    drawEdge: Boolean = true
 ): Modifier {
     val backdrop = LocalDshBackdrop.current
     val frameSignal = LocalDshGlassFrameSignal.current
     if (backdrop == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
-        // B3：浅色档描边**不能用白**。iOS 浅色玻璃是 thinMaterial 透模糊 + `strokeBorder(cardStroke)`
-        // （Theme.swift:1070-1074，1pt = ink@16.2%）；白边压浅底等于没有边界，用户看到的就是
-        // 「整条栏糊进背景 / 未选中像透明」。深色档维持白描边（与 iOS `white@0.12` 同构）。
-        val dark = LocalDshIsDark.current
-        return clip(shape)
-            .background(Color.White.copy(alpha = style.surfaceAlpha), shape)
-            .border(
-                width = 0.8.dp,
-                color = if (dark) Color.White.copy(alpha = style.borderAlpha)
-                else homeStroke(style.borderAlpha),
-                shape = shape
-            )
+        // drawEdge=false 的调用方（如底部 tab bar）**自己带精确描边**，这里不能再画一圈：
+        // 两圈叠加会把边界从 iOS 的 ink@16.2% 加深到 ~31%（AndroidTester 21:5x 预测量化）。
+        val base = clip(shape).background(Color.White.copy(alpha = style.surfaceAlpha), shape)
+        return if (drawEdge) {
+            base.border(0.8.dp, Color.White.copy(alpha = style.borderAlpha), shape)
+        } else base
     }
     val frameInvalidatingModifier = drawWithContent {
         frameSignal?.longValue

@@ -94,7 +94,15 @@ internal fun DshTabBar(
                     offset = DpOffset(0.dp, 6.dp)
                 )
             )
-            .dshLiquidGlass(RoundedCornerShape(percent = 50))
+            // 浅色档先垫一层近白磨砂底：这条栏在 `DshLiquidGlassHost` 之外（兄弟节点，
+            // LocalDshBackdrop 恒为 null → 只走 fallback），玻璃自带的 surfaceAlpha=0.005 等于没底、
+            // 也没有真模糊，浅底上整条栏就和页面同色。iOS 浅色是 thinMaterial（透出模糊、非实色）。
+            // 没有真模糊时用 62% 白近似；要真模糊得把栏也放进 host（待真机截图确认后再决定）。
+            .then(
+                if (dark) Modifier
+                else Modifier.background(Color.White.copy(alpha = 0.62f), RoundedCornerShape(percent = 50))
+            )
+            .dshLiquidGlass(RoundedCornerShape(percent = 50), drawEdge = false)
             // B3：浅色下玻璃的边缘高光/描边全是**白**（DshLiquidGlass 的 Highlight 与 0.8dp 白边），
             // 白边压浅底等于没有边界 → 整条栏「糊进背景」，用户的观感就是「未选中变透明」。
             // iOS 16–25 分支补的是 ink 系描边：`Capsule().strokeBorder(palette.cardStroke, 1)`

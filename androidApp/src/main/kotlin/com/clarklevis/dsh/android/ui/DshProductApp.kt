@@ -334,10 +334,14 @@ internal fun WorkspaceScreen(
     // = 39pt（WorkspaceView:334-339 两条真机反馈叠加）。B2 把栏抬高 35dp 后此处必须同步，
     // 否则抬起来的栏会压住最近会话最后一行。两处都引用 DshTabBar 的常量，改栏高自动跟随。
     val navBarInset = with(LocalDensity.current) { WindowInsets.navigationBars.getBottom(this).toDp() }
-    // 内容避让量 = 栏高 62 + 栏底上移 39 = **101dp**（iOS safeAreaInset 会把它自动顶高，
-    // Android 没有该机制，所以手工等价）。**别再额外 +8**：那 8 已在 39 里（8 + 62/2），
-    // 重复计数是今天第三次数值错传（iOSTester 21:45 回源码核出）。
-    val tabClearance = DshTabBarTotalHeight + DshTabBarBottomRise + navBarInset
+    // 内容避让量拆两个值（规格 v1.5 / AndroidTester 21:49）—— 一个值喂两种 inset 语义会多算一整条导航栏：
+    // ① tabBarInset = 栏高 62 + 栏底上移 39 = **101dp**，给**已有** safeDrawing contentPadding 的列表
+    //    （工作区 LazyColumn :409，Spacer 在它内部，再加 navBarInset 就吃两次）；
+    // ② tabClearance = 101 + navBarInset，给**自身零 inset 来源**的独立页（BotTeamScreen / SettingsScreen，
+    //    两文件里 WindowInsets|navigationBars|safeDrawing 零命中）。
+    // 顺带：**别再额外 +8** —— 那 8 已在 39 里（8 + 62/2），重复会早停 8dp（iOSTester 21:45 核出）。
+    val tabBarInset = DshTabBarTotalHeight + DshTabBarBottomRise
+    val tabClearance = tabBarInset + navBarInset
     var showDirectoryBrowser by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(stateHolder.gatewayState.connection) { stateHolder.refreshProductState() }
     LaunchedEffect(searchQuery) {
@@ -491,7 +495,7 @@ internal fun WorkspaceScreen(
                         }
                     )
                 }
-                item { Spacer(Modifier.height(tabClearance)) } // 浮动 tab bar 净空 = 动态安全区 + 62（栏高）+ 39（8 + 62/2，B2）= 101（iOS safeAreaInset 同语义）
+                item { Spacer(Modifier.height(tabBarInset)) } // 浮动 tab bar 净空 101（栏高 62 + 上移 39）；列表自带 safeDrawing，故不含 navBarInset
             }
             } // DshHomeTab.WORKSPACE
             // P0-1（Chief 2026-11-01 改裁决）：tab 必须切内容 —— 「点了没反应」在用户眼里就是坏的。

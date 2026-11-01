@@ -3,6 +3,17 @@ plugins {
     alias(libs.plugins.compose.compiler)
 }
 
+// AppRelease/ 里只有 release-info.json / release-notes.md 是 App 资产；其余（源码 zip 等）不打包。
+val appReleaseAssetsDir = layout.buildDirectory.dir("generated/appReleaseAssets").get().asFile
+val stageAppReleaseAssets = tasks.register<Copy>("stageAppReleaseAssets") {
+    from(rootProject.file("AppRelease")) {
+        include("release-info.json", "release-notes.md")
+    }
+    into(appReleaseAssetsDir)
+}
+tasks.matching { it.name.startsWith("merge") && it.name.endsWith("Assets") }
+    .configureEach { dependsOn(stageAppReleaseAssets) }
+
 android {
     namespace = "com.clarklevis.dsh.android"
     compileSdk = 36
@@ -37,7 +48,11 @@ android {
         buildConfig = false
     }
 
-    sourceSets.getByName("main").assets.srcDir(rootProject.file("AppRelease"))
+    // App 只从 AppRelease/ 读这两份（`ui/AppReleaseInfo.kt:12-14`）。**白名单暂存**，不能整目录当 assets：
+    // 该目录还放过发版用的源码 zip，整目录打包会把源码塞进 APK —— 2026-11-01 实测 debug APK 156MB，
+    // 内含 assets/Orcarness-source-20261027.zip (99MB) + Orcarness-source-code-20261027.zip (5.5MB)。
+    // （AGP 的 assets 没有可用的 include/exclude DSL，故用 Copy 任务只搬这两份到 build/generated。）
+    sourceSets.getByName("main").assets.srcDir(appReleaseAssetsDir)
 
     packaging {
         resources {
