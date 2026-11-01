@@ -17,8 +17,13 @@ import kotlinx.serialization.json.jsonPrimitive
  * - secret 取 `secret.name/description` 第一个非空；
  * - 未知 kind 返回 null（iOS default 分支）。
  *
- * 展示纪律（iOS :1179 起同款）：bridge 没有 question-answer action，
- * 卡片是**本地展示**，UI 必须标明「在电脑端处理」，绝不假装能点。
+ * 展示纪律（**2026-11-01 更正**）：bridge **有** question-answer 动作
+ * （iOS `BridgeTeamAdapter.swift:371-394`，载荷 = `selected` + 可选 `custom`；
+ *  Android 侧对应 `ConversationScreen.kt:644-647 → AndroidSharedStateHolder.kt:1637-1639`）。
+ * 原先此处写「bridge 没有 question-answer action，绝不假装能点」是**过期错注释**——
+ * 照它会把这个组件做成不可点，少一个 iOS 有的能力。
+ * **仍然成立的是**：`secret` 卡**没有**提交通道（网关 `actions.mjs` 无 `secret-set`，
+ * iOS 也只解析不提交）→ secret 卡保持只读，行内文案「等你填密钥」并标明在电脑端填写。
  */
 data class BridgeCardQuestion(
     val id: String,

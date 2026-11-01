@@ -1,5 +1,6 @@
 package com.clarklevis.dsh.android.ui
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -49,6 +50,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
@@ -84,6 +86,7 @@ internal fun SettingsScreen(
     onBack: () -> Unit,
     onOpenStorage: () -> Unit = {},
     onOpenPlugins: () -> Unit = {},
+    onOpenScheduledTasks: () -> Unit = {},
     updateModel: com.clarklevis.dsh.android.update.AppUpdateViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
     bottomInset: androidx.compose.ui.unit.Dp = androidx.compose.ui.unit.Dp(0f),
     /** tab 内嵌形态（iOSDev 裁定 2026-11-01，对齐 iOS SettingsView embedded:）：
@@ -218,7 +221,8 @@ internal fun SettingsScreen(
                             onPermissionSelected = { pendingPermission = it }
                         )
                     }
-                    // ③ 扩展
+                    // ③ 扩展：iOS 该行 → ExtensionsView（聚合入口页：插件 + 定时任务 + 一句说明），
+                    // 不是直接进插件页（ExtensionsView.swift:1-10 注释：只做两个入口，不重做列表）
                     SettingsSection(title = appText("扩展")) {
                         SettingsValueRow(
                             title = appText("全部扩展"),
@@ -228,7 +232,7 @@ internal fun SettingsScreen(
                                 stateHolder.pluginCatalog?.bundles?.size ?: 0,
                                 stateHolder.scheduledTasks.size
                             ),
-                            onClick = onOpenPlugins
+                            onClick = { activeSelectionSheet = SettingsSelectionSheet.EXTENSIONS }
                         )
                     }
                     // ④ 连接
@@ -240,14 +244,26 @@ internal fun SettingsScreen(
                         SettingsDivider()
                         SettingsActionRow(appText("Ping 网关"), enabled = isConnected(stateHolder), onClick = stateHolder::pingGateway)
                     }
+                    // **平台必需差异**（Chief 2026-11-01 裁定）：Android 特有的连接信息
+                    // （版本 / 已连接会话 / cwd），iOS 的对应信息在「连接」组内，语义等价，保留。
+                    stateHolder.snapshot.hostSnapshot?.let { host ->
+                        SettingsSection("DSH Host") {
+                            SettingsValueRow(appText("版本"), dshHostVersion(host.dshVersion, host.version))
+                            SettingsDivider()
+                            SettingsValueRow(appText("已连接会话"), "${host.attachedSessions ?: 0}")
+                            host.cwd?.let { cwd ->
+                                SettingsDivider()
+                                SettingsValueRow("cwd", cwd)
+                            }
+                        }
+                    }
                     // ⑤ 关于
                     SettingsSection(title = appText("关于")) {
+                        // iOS SettingsView:356「当前版本」= 纯值行（无 chevron、不可点）；更新入口是下面的「检查更新」
                         SettingsValueRow(
                             title = appText("当前版本"),
                             value = updateModel.currentVersion,
-                            enabled = !updateState.busy,
-                            isLoading = updateState.busy,
-                            onClick = { openRelease("dsh-mobile", updateModel.currentVersion) }
+                            isLoading = updateState.busy
                         )
                         SettingsDivider()
                         SettingsValueRow(appText("本版本新功能"), appText("查看发布说明")) { showReleaseNotes = true }
@@ -262,15 +278,20 @@ internal fun SettingsScreen(
                     }
                     // ⑥ 更多
                     SettingsSection(title = appText("更多")) {
-                        SettingsValueRow(appText("要求网关版本"), releaseInfo?.minimumGatewayVersion?.let { "≥ $it" } ?: appText("未提供")) {
-                            openRelease("dsh-plugin-mobile-gateway", releaseInfo?.minimumGatewayVersion)
-                        }
+                        // iOS SettingsView:377-390：两行都是**纯值**（无 chevron、不可点）
+                        SettingsValueRow(
+                            appText("要求网关版本"),
+                            releaseInfo?.minimumGatewayVersion?.let { "≥ $it" } ?: appText("未提供")
+                        )
                         SettingsDivider()
                         SettingsValueRow(
                             appText("已连接网关版本"),
-                            if (!isConnected(stateHolder)) appText("未连接") else connectedGatewayVersion ?: appText("未提供"),
-                            isLoading = isConnected(stateHolder) && stateHolder.pluginsLoading
-                        ) { openRelease("dsh-plugin-mobile-gateway", connectedGatewayVersion) }
+                            when {
+                                !isConnected(stateHolder) -> appText("未连接")
+                                stateHolder.pluginsLoading -> appText("读取中…")
+                                else -> connectedGatewayVersion ?: appText("未提供")
+                            }
+                        )
                         SettingsDivider()
                         SettingsValueRow(
                             title = appText("存储空间"),
@@ -280,19 +301,6 @@ internal fun SettingsScreen(
                             modifier = Modifier.testTag("storage-space-settings-row"),
                             onClick = onOpenStorage
                         )
-                    }
-                    // **平台必需差异**（Chief 2026-11-01 裁定）：Android 特有的连接信息
-                    // （版本 / 已连接会话 / cwd），iOS 的对应信息在「连接」组内，语义等价，保留。
-                    stateHolder.snapshot.hostSnapshot?.let { host ->
-                        SettingsSection("DSH Host") {
-                            SettingsValueRow(appText("版本"), dshHostVersion(host.dshVersion, host.version))
-                            SettingsDivider()
-                            SettingsValueRow(appText("已连接会话"), "${host.attachedSessions ?: 0}")
-                            host.cwd?.let { cwd ->
-                                SettingsDivider()
-                                SettingsValueRow("cwd", cwd)
-                            }
-                        }
                     }
                     stateHolder.platformError?.let { error ->
                         Text(error, color = MaterialTheme.colorScheme.error, style = DshType.footnote)
@@ -348,6 +356,12 @@ internal fun SettingsScreen(
                         DefaultModelSelectionScreen(stateHolder, onBack = { activeSelectionSheet = null }, embedded = true)
                     SettingsSelectionSheet.FONT_SIZE ->
                         FontSizeSettingsScreen(onBack = { activeSelectionSheet = null }, embedded = true)
+                    SettingsSelectionSheet.EXTENSIONS -> ExtensionsSheet(
+                        pluginCount = stateHolder.pluginCatalog?.bundles?.size ?: 0,
+                        taskCount = stateHolder.scheduledTasks.size,
+                        onOpenPlugins = { activeSelectionSheet = null; onOpenPlugins() },
+                        onOpenScheduledTasks = { activeSelectionSheet = null; onOpenScheduledTasks() }
+                    )
                 }
             }
         }
@@ -355,7 +369,45 @@ internal fun SettingsScreen(
 }
 
 /** B4 §4：设置内的选择弹层种类（语言/主题/权限已有各自弹层）。 */
-private enum class SettingsSelectionSheet { AGENT_PRESETS, DEFAULT_MODEL, FONT_SIZE }
+private enum class SettingsSelectionSheet { AGENT_PRESETS, DEFAULT_MODEL, FONT_SIZE, EXTENSIONS }
+
+/** 对齐 iOS `ExtensionsView`（S14）：聚合入口页 —— 插件 / 定时任务两行 + 一句说明，
+ *  不在这里重做两个列表（iOS 注释：Chief 2026-10-29 明确要求）。 */
+@Composable
+private fun ExtensionsSheet(
+    pluginCount: Int,
+    taskCount: Int,
+    onOpenPlugins: () -> Unit,
+    onOpenScheduledTasks: () -> Unit
+) {
+    Column(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Column(
+            Modifier.fillMaxWidth()
+                .then(
+                    if (LocalDshIsDark.current) Modifier.background(Color.White.copy(alpha = 0.06f), RoundedCornerShape(16.dp))
+                    else Modifier.background(Color.White.copy(alpha = 0.55f), RoundedCornerShape(16.dp))
+                )
+                .border(
+                    width = 1.dp,
+                    color = homeStroke(if (LocalDshIsDark.current) 0.12f else 0.17f),
+                    shape = RoundedCornerShape(16.dp)
+                )
+        ) {
+            SettingsValueRow(appText("插件"), appText("%1\$s 个", pluginCount), onClick = onOpenPlugins)
+            SettingsDivider()
+            SettingsValueRow(appText("定时任务"), appText("%1\$s 个", taskCount), onClick = onOpenScheduledTasks)
+        }
+        Text(
+            appText("插件需在桌面端安装，手机端只能启停和查看运行记录。"),
+            color = homeInk(0.4f),
+            fontSize = 11.sp,
+            modifier = Modifier.padding(start = 4.dp)
+        )
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1015,15 +1067,18 @@ private fun GatewayStatusRow(stateHolder: AndroidSharedStateHolder) {
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         Box(Modifier.size(9.dp).background(statusColor(stateHolder), CircleShape))
-        Text(connectionLabel(stateHolder), color = homeInk(0.92f), fontSize = 15.sp)
+        // iOS SettingsView:304-321：状态行 = dot + label(ink 0.5) + Port(ink 0.4) + chevron.forward
+        Text(connectionLabel(stateHolder), color = homeInk(0.5f), fontSize = 13.sp)
         Spacer(Modifier.weight(1f))
         stateHolder.gatewayState.serverPort?.let { port ->
-            Text(
-                "Port $port",
-                color = homeInk(0.5f),
-                fontSize = 13.sp
-            )
+            Text("Port $port", color = homeInk(0.4f), fontSize = 11.sp)
         }
+        Image(
+            painter = painterResource(R.drawable.ic_chevron_right),
+            contentDescription = null,
+            colorFilter = ColorFilter.tint(homeInk(0.3f)),
+            modifier = Modifier.padding(start = 6.dp).size(11.dp)
+        )
     }
 }
 

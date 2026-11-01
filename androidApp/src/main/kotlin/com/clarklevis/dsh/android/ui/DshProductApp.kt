@@ -518,6 +518,8 @@ internal fun WorkspaceScreen(
                 stateHolder = stateHolder,
                 onBack = { homeTab = DshHomeTab.WORKSPACE },
                 onOpenStorage = onOpenStorage,
+                onOpenPlugins = onPlugins,
+                onOpenScheduledTasks = onScheduledTasks,
                 bottomInset = tabClearance,
                 embedded = true // iOSDev 裁定：设置 tab 撤顶栏 + 页顶自绘「设置」大标题（对齐 iOS embedded:）
             )
