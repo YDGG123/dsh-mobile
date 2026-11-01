@@ -80,17 +80,49 @@ internal object DshSemantic {
 
 
 /**
- * 压在 HarnessAnimatedBackground 上的前景墨色（首页专用）。
- * 深色档 = 白×alpha（原样）；浅色档 = Ink×（×0.9 压暗，夹取 [0.06,0.92]）。
- * 对应 Chief 2026-11-01 映射表：1.0→0.92 / 0.70→0.65 / 0.65→0.60 / 0.58→0.50 / 0.55→0.50 / 0.50→0.45 / 0.10→0.08
- * （统一公式 ×0.9 与表内采样误差 ≤0.02；对照浅底 #E4EAF4~#F9FAFC，Ink@0.9 对比度 ≈ 13:1 ≥ 4.5）。
+ * 首页前景/容器/描边/填充色 —— **逐值对齐 iOS `Theme.swift:181-220` 的 DSHPalette**。
+ *
+ * iOS 原注释（Theme.swift:174-190）：浅色下 ink 按 `0.35 + o*0.65` 重算 —— 起点 0.55→0.35
+ * 让次要文字与元信息重新拉开层次；正文（0.92 档）几乎不变（15.44→14.82 对比度）；
+ * 最淡档仍有 3.88:1（WCAG 大字标准），0.40 往上全部过 AA。**0.35 地板不是随手写的，别省。**
+ *
+ * 对照（iOS/Android 同公式 → 对比度应逐档一致）：正文 ~14.8:1 / 次要 ~7:1 / 最淡 3.88:1。
  */
 @Composable
 internal fun homeInk(alpha: Float = 1f): Color =
     if (LocalDshIsDark.current) {
         Color.White.copy(alpha = alpha)
     } else {
-        DshColors.Ink.copy(alpha = (alpha * 0.92f).coerceIn(0.06f, 0.92f))
+        DshColors.Ink.copy(alpha = (0.35f + alpha * 0.65f).coerceAtMost(1f))
+    }
+
+/** 容器填充（iOS surface）：浅色不用低透明白（白底上等于没有），用高不透明白衬底。 */
+@Composable
+internal fun homeSurface(alpha: Float): Color =
+    if (LocalDshIsDark.current) {
+        Color.White.copy(alpha = alpha)
+    } else {
+        Color.White.copy(alpha = (0.72f + alpha * 1.6f).coerceAtMost(1f))
+    }
+
+/** 描边/分隔线（iOS stroke）：浅色需要真正可见的细线（≥0.06），否则边界在浅底上消失。 */
+@Composable
+internal fun homeStroke(alpha: Float): Color =
+    if (LocalDshIsDark.current) {
+        Color.White.copy(alpha = alpha)
+    } else {
+        DshColors.Ink.copy(alpha = (0.06f + alpha * 0.6f).coerceAtMost(0.3f))
+    }
+
+/** 填充/描边专用档（iOS veil）：**不要拿 ink 当底色** —— 浅色 ink 有 0.35 地板，
+ *  `ink(0.07)` 当填充会变成 58% 近黑（iOS 注释记录的「分段控件灰底比白卡片重」就是这个坑）。
+ *  veil 浅色最多 0.16；深色沿用白色叠加。 */
+@Composable
+internal fun homeVeil(alpha: Float): Color =
+    if (LocalDshIsDark.current) {
+        Color.White.copy(alpha = alpha)
+    } else {
+        DshColors.Ink.copy(alpha = (alpha * 0.9f).coerceAtMost(0.16f))
     }
 
 @Composable

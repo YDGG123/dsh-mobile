@@ -94,7 +94,7 @@ internal fun GatewaySwitcherBar() {
     var editing by remember { mutableStateOf<GatewayProfile?>(null) }
     Row(
         Modifier
-            .background(homeInk(0.09f), RoundedCornerShape(30.dp))
+            .background(homeVeil(0.09f), RoundedCornerShape(30.dp))
             .clickable { expanded = true }
             .padding(horizontal = 11.dp, vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically,

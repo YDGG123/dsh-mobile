@@ -697,7 +697,7 @@ private fun GlassActionButton(icon: String, title: String, onClick: () -> Unit) 
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(Modifier.size(26.dp).clip(CircleShape).background(homeInk(0.10f)), contentAlignment = Alignment.Center) {
+        Box(Modifier.size(26.dp).clip(CircleShape).background(homeVeil(0.10f)), contentAlignment = Alignment.Center) {
             Text(icon, color = homeInk(), fontWeight = FontWeight.SemiBold)
         }
         Spacer(Modifier.width(8.dp))
@@ -864,7 +864,7 @@ private fun SessionList(
             HorizontalDivider(
                 modifier = Modifier.padding(start = 18.dp),
                 thickness = 0.5.dp,
-                color = homeInk(0.10f)
+                color = homeStroke(0.10f)
             )
         }
     }
