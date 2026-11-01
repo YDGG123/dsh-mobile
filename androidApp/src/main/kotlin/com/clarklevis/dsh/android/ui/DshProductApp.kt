@@ -780,8 +780,10 @@ internal fun LocalChatSearchContent(
 @Composable
 private fun SessionSearch(query: String, onChange: (String) -> Unit) {
     Row(
+        // A1 §1.6 搜索框：高 42、圆角 12、cardFill + 1pt cardStroke、左右 padding 12（iOS sessionSearch :1293）
         modifier = Modifier.fillMaxWidth().height(42.dp)
-            .dshLiquidGlass(RoundedCornerShape(13.dp), DshGlassStyle.FIELD)
+            .dshLiquidGlass(RoundedCornerShape(12.dp), DshGlassStyle.FIELD)
+            .border(1.dp, homeStroke(if (LocalDshIsDark.current) 0.12f else 0.17f), RoundedCornerShape(12.dp))
             .padding(horizontal = 12.dp)
             .testTag("workspace-session-search"),
         verticalAlignment = Alignment.CenterVertically,
@@ -805,7 +807,7 @@ private fun SessionSearch(query: String, onChange: (String) -> Unit) {
             decorationBox = { innerTextField ->
                 Box(contentAlignment = Alignment.CenterStart) {
                     if (query.isEmpty()) {
-                        Text(appText("搜索会话内容"), color = homeInk(0.58f), fontSize = 16.sp)
+                        Text(appText("搜索会话内容"), color = homeInk(0.58f), fontSize = 15.sp) // iOS placeholder 11~15pt
                     }
                     innerTextField()
                 }
