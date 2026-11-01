@@ -321,6 +321,9 @@ internal fun WorkspaceScreen(
     // ② tabClearance = 101 + navBarInset，给**自身零 inset 来源**的独立页（BotTeamScreen / SettingsScreen，
     //    两文件里 WindowInsets|navigationBars|safeDrawing 零命中）。
     // 顺带：**别再额外 +8** —— 那 8 已在 39 里（8 + 62/2），重复会早停 8dp（iOSTester 21:45 核出）。
+    // Bot 页状态点橙档（iOS statusTint：有待审批/待回答 ⇒ caution）——数据在 shared 快照里现成。
+    val pendingSessionIds = (stateHolder.snapshot.pendingApprovals.map { it.sessionId } +
+        stateHolder.snapshot.pendingQuestions.map { it.sessionId }).toSet()
     val tabBarInset = DshTabBarTotalHeight + DshTabBarBottomRise
     val tabClearance = tabBarInset + navBarInset
     var showDirectoryBrowser by rememberSaveable { mutableStateOf(false) }
@@ -515,6 +518,7 @@ internal fun WorkspaceScreen(
                 onBack = { homeTab = DshHomeTab.WORKSPACE },
                 bottomInset = tabClearance,
                 embedded = true, // tab 根分段：不自绘顶栏，页头由下方 header 注入
+                pendingSessionIds = pendingSessionIds,
                 // iOS 三个 tab 共用同一条页头（WorkspaceView:936 字标 + :950 认证圆钮 + :955 ＋新建）。
                 // vc39 之前 Bot tab 只有一条居中「团队」标题，是 Android 自造的（用户 11-02 指出）。
                 header = {

@@ -2,6 +2,7 @@ package com.clarklevis.dsh.android.ui
 
 import androidx.annotation.DrawableRes
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,6 +12,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -35,6 +38,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -87,7 +91,9 @@ internal fun BotTeamScreen(
     embedded: Boolean = false,
     /** tab 根分段注入的共享页头（字标 + 认证圆钮 + ＋）：iOS 三个 tab 共用同一条页头，
      *  Android 侧由 `DshProductApp.WorkspaceHeader` 提供，避免 Bot tab 自绘第二条。 */
-    header: (@Composable () -> Unit)? = null
+    header: (@Composable () -> Unit)? = null,
+    /** 有待审批/待回答的会话 id：用于状态点橙档（iOS `!approvals.isEmpty || !pending.isEmpty` ⇒ caution）。 */
+    pendingSessionIds: Set<String> = emptySet()
 ) {
     // 走主题（与 ScheduledTasksScreen/PluginsScreen 一致）：A1 换品牌海军蓝底时本页自动跟随，不许硬编码。
     val background = MaterialTheme.colorScheme.background
@@ -175,7 +181,12 @@ internal fun BotTeamScreen(
                 item { EmptyRosterRow(appText("暂无 Bot")) }
             } else {
                 items(filteredBots, key = { it.id }) { row ->
-                    BotRow(row, isMain = mainBotIds.contains(row.id))
+                    BotRow(
+                        row = row,
+                        isMain = mainBotIds.contains(row.id),
+                        pending = row.sessionId in pendingSessionIds ||
+                            cards.any { it.owner == row.id }
+                    )
                 }
             }
             // 群聊节：标题常显，空时「暂无群聊」。
@@ -183,7 +194,7 @@ internal fun BotTeamScreen(
             if (filteredRooms.isEmpty()) {
                 item { EmptyRosterRow(appText("暂无群聊")) }
             } else {
-                items(filteredRooms, key = { it.id }) { row -> RoomRow(row) }
+                items(filteredRooms, key = { it.id }) { row -> RoomRow(row, bots) }
             }
             // ⑤「卡片（N）」节**保留**：BridgeCardRow 全仓唯一渲染点，承载 A4 密钥卡 / E1 view 卡
             // 的可见入口（iOS 走 Bot 行状态文案，D 组 feed 未接）。删它 = 删掉卡片显示，不许顺手删。
@@ -309,7 +320,7 @@ private fun PrimaryBotCard(row: BridgeConversationRow, modifier: Modifier = Modi
  * `row.activity`，bridge 名册只有 `busy`，所以这里只渲染「正在干活」/「空闲」，**不编造动作**。
  */
 @Composable
-private fun BotRow(row: BridgeConversationRow, isMain: Boolean) {
+private fun BotRow(row: BridgeConversationRow, isMain: Boolean, pending: Boolean = false) {
     val busy = row.busy == true
     Row(
         Modifier.fillMaxWidth()
@@ -321,7 +332,7 @@ private fun BotRow(row: BridgeConversationRow, isMain: Boolean) {
     ) {
         Box {
             RosterAvatar(row.name, row.color, row.avatar, size = 38)
-            RosterStatusDot(busy = busy, modifier = Modifier.align(Alignment.BottomEnd))
+            RosterStatusDot(busy = busy, caution = pending, modifier = Modifier.align(Alignment.BottomEnd))
         }
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -342,18 +353,24 @@ private fun BotRow(row: BridgeConversationRow, isMain: Boolean) {
     }
 }
 
-/** 头像右下 9×9 状态点（iOS WorkspaceView:705-712）：干活 = success 绿，空闲 = veil 灰。 */
+/**
+ * 头像右下 9×9 状态点（iOS WorkspaceView:788-792 + GatewayTeamFeed:1417 statusTint）：
+ * **有待办/占位卡/审批 → caution 橙** ｜ activity∈{working,thinking} → success 绿 ｜ 其余 veil 灰。
+ * Android 的绿档是降级（bridge 只有 `busy`，正式判据要 feed 的 `activity`）；橙档数据 bridge 已有。
+ */
 @Composable
-private fun RosterStatusDot(busy: Boolean, modifier: Modifier = Modifier) {
-    Box(
-        modifier.size(9.dp)
-            .background(if (busy) DshSemantic.success else homeVeil(0.35f), CircleShape)
-    )
+private fun RosterStatusDot(busy: Boolean, caution: Boolean, modifier: Modifier = Modifier) {
+    val tint = when {
+        caution -> DshSemantic.caution
+        busy -> DshSemantic.success
+        else -> homeVeil(0.35f)
+    }
+    Box(modifier.size(9.dp).background(tint, CircleShape).testTag("roster-status-dot"))
 }
 
 /** iOS roomCell（TeamView :482）：名字 + 成员串（、分隔，单行截断）。 */
 @Composable
-private fun RoomRow(row: BridgeConversationRow) {
+private fun RoomRow(row: BridgeConversationRow, bots: List<BridgeConversationRow>) {
     Row(
         Modifier.fillMaxWidth()
             .heightIn(min = 64.dp)
@@ -362,7 +379,32 @@ private fun RoomRow(row: BridgeConversationRow) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        RoomGroupGlyph()
+        // iOS roomCell 成员头像堆叠（WorkspaceView:746-768，AndroidTester 2026-11-02 逐行核对）：
+        // room 没有 avatar 字段，用 members 的 id 去 join 各 bot 现拼。
+        //   成员头像块 = size × 0.72 = 27.4 ｜ 步进 = index × size × 0.42 = 16
+        //   描边 = surface@0.9 1.5dp ｜ 绘制序 zIndex(3−index) ⇒ index 0 在最上 ｜ 向右 +x 展开
+        //   （0.42 是**步进系数**，不是"重叠量"——之前按 (1−0.42)×38=22 算反了）
+        val stack = remember(row.members, bots) {
+            row.members.mapNotNull { id -> bots.firstOrNull { it.id == id } }.take(3)
+        }
+        if (stack.isEmpty()) {
+            RoomGroupGlyph()
+        } else {
+            Row(Modifier.width(38.dp + (stack.size - 1).dp * 16f).testTag("bot-member-stack")) {
+                stack.forEachIndexed { index, member ->
+                    RosterAvatar(
+                        name = member.name,
+                        rowColor = member.color,
+                        avatar = member.avatar,
+                        size = 27, // 38 × 0.72
+                        stroke = 1.5.dp,
+                        modifier = Modifier
+                            .offset(x = (16 * index).dp)
+                            .zIndex((3 - index).toFloat())
+                    )
+                }
+            }
+        }
         Column(Modifier.weight(1f)) {
             Text(row.name, color = MaterialTheme.colorScheme.onBackground, fontSize = 17.sp) // iOS .body（:492）
             if (!row.members.isNullOrEmpty()) {
@@ -473,7 +515,10 @@ private fun RosterAvatar(
     name: String,
     rowColor: String?,
     avatar: kotlinx.serialization.json.JsonObject?,
-    size: Int
+    size: Int,
+    modifier: Modifier = Modifier,
+    /** 成员堆叠的分离环（iOS surface@0.9 1.5pt）；普通行传 0。 */
+    stroke: androidx.compose.ui.unit.Dp = androidx.compose.ui.unit.Dp(0f)
 ) {
     // fallback 色：规格 §14 裁决值（iOS TeamView:539 Color.secondary.opacity(0.55)
     // → secondaryLabel 两档 × 0.55 = 组合 alpha 0.33）：
@@ -486,8 +531,9 @@ private fun RosterAvatar(
         rosterAvatarColor(rowColor, avatarHex, dark, fallback)
     }
     Box(
-        Modifier.size(size.dp)
-            .background(color, CircleShape),
+        modifier.size(size.dp)
+            .background(color, CircleShape)
+            .then(if (stroke > androidx.compose.ui.unit.Dp(0f)) Modifier.border(stroke, homeSurface(0.9f), CircleShape) else Modifier),
         contentAlignment = Alignment.Center
     ) {
         Text(
