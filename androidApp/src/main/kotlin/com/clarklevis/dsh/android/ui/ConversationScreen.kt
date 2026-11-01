@@ -2528,7 +2528,7 @@ internal fun ReasoningEffortTag(title: String) {
                 RoundedCornerShape(7.dp)
             )
             .padding(horizontal = 6.dp, vertical = 2.dp),
-        color = MaterialTheme.colorScheme.onSurface,
+        color = semanticLabel(1f),
         fontSize = 10.sp,
         lineHeight = 11.sp,
         fontWeight = FontWeight.SemiBold,

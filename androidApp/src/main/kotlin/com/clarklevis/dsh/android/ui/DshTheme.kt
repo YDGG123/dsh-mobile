@@ -110,7 +110,16 @@ internal fun homeInk(alpha: Float = 1f): Color =
  */
 @Composable
 internal fun semanticLabel(alpha: Float = 1f): Color =
-    if (LocalDshIsDark.current) Color.White.copy(alpha = alpha) else Color.Black.copy(alpha = alpha)
+    if (LocalDshIsDark.current) {
+        // iOS 深色 `secondaryLabel` = (235,235,245)，不是纯白；tertiary 同基底 @0.30
+        Color(0xFFEBEBF5).copy(alpha = alpha)
+    } else {
+        // iOS 浅色：`label` = 纯黑 @1.00（21.00）；
+        // `secondaryLabel`/`tertiaryLabel` = **#3C3C43 (60,60,67)** 基底 @0.60/@0.30 → 3.44/1.73。
+        // **不要用纯黑@0.60（5.74）或品牌墨@0.60（4.87）**：两者都比真机实测（次要簇 3.3）偏深一档 ——
+        // Chief 2026-11-01 按系统语义色实算 + iOSTester 真机簇双向对账后的裁定。
+        if (alpha >= 1f) Color.Black else Color(0xFF3C3C43).copy(alpha = alpha)
+    }
 
 @Composable
 internal fun homeSurface(alpha: Float): Color =
