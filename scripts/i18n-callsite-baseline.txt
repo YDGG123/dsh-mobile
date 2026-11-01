@@ -1,0 +1,48 @@
+# 本地化调用点基线（--update-baseline 生成）：只拦新增，存量债冻结。
+# 格式：<相对路径>|<中文串> 或 <相对路径>|String(localized:)|<键>
+AgentLiveActivityWidget/AgentLiveActivityWidget.swift|查看详情
+AgentLiveActivityWidget/AgentLiveActivityWidget.swift|检查结果
+DeepSeekHarnessMobile/Core/Theme.swift|String(localized:)|会话操作
+DeepSeekHarnessMobile/Core/Theme.swift|String(localized:)|等你回答
+DeepSeekHarnessMobile/Core/Theme.swift|String(localized:)|等你审批
+DeepSeekHarnessMobile/Core/Theme.swift|String(localized:)|返回
+DeepSeekHarnessMobile/Core/Theme.swift|工具调用
+DeepSeekHarnessMobile/Core/Theme.swift|步骤
+DeepSeekHarnessMobile/Core/Theme.swift|轮次
+DeepSeekHarnessMobile/Views/AllSessionsView.swift|String(localized:)|归档不会删除历史；之后可以从归档里找回。
+DeepSeekHarnessMobile/Views/AllSessionsView.swift|String(localized:)|换个关键词试试。
+DeepSeekHarnessMobile/Views/AllSessionsView.swift|String(localized:)|暂无已知会话
+DeepSeekHarnessMobile/Views/AllSessionsView.swift|String(localized:)|没有匹配的会话
+DeepSeekHarnessMobile/Views/AllSessionsView.swift|String(localized:)|点这里连接桌面端后创建第一个任务。
+DeepSeekHarnessMobile/Views/BridgeConversationView.swift|正在连接…
+DeepSeekHarnessMobile/Views/BridgeConversationView.swift|连接异常：\(message)
+DeepSeekHarnessMobile/Views/BridgeConversationView.swift|连接断开，正在重连（第 \(attempt) 次）
+DeepSeekHarnessMobile/Views/ConversationSidebar.swift|String(localized:)|等你回答
+DeepSeekHarnessMobile/Views/ConversationSidebar.swift|String(localized:)|等你审批
+DeepSeekHarnessMobile/Views/ConversationView.swift|String(localized:)|平均每轮
+DeepSeekHarnessMobile/Views/ConversationView.swift|String(localized:)|开始
+DeepSeekHarnessMobile/Views/ConversationView.swift|String(localized:)|思考
+DeepSeekHarnessMobile/Views/ConversationView.swift|String(localized:)|时间分布
+DeepSeekHarnessMobile/Views/ConversationView.swift|String(localized:)|暂无数据
+DeepSeekHarnessMobile/Views/ConversationView.swift|String(localized:)|最长单轮
+DeepSeekHarnessMobile/Views/ConversationView.swift|String(localized:)|等你回答
+DeepSeekHarnessMobile/Views/ConversationView.swift|String(localized:)|等你审批
+DeepSeekHarnessMobile/Views/ConversationView.swift|String(localized:)|等待你操作
+DeepSeekHarnessMobile/Views/ConversationView.swift|String(localized:)|结束
+DeepSeekHarnessMobile/Views/ConversationView.swift|删除目标
+DeepSeekHarnessMobile/Views/ConversationView.swift|编辑目标
+DeepSeekHarnessMobile/Views/GatewaySwitcherView.swift|String(localized:)|重连中
+DeepSeekHarnessMobile/Views/ModelPickerPanel.swift|String(localized:)|切换后从下一条消息开始生效；推理档位在输入框的「思考」里单独调。
+DeepSeekHarnessMobile/Views/ModelPickerPanel.swift|String(localized:)|换个关键词试试
+DeepSeekHarnessMobile/Views/ModelPickerPanel.swift|String(localized:)|搜索模型
+DeepSeekHarnessMobile/Views/ModelPickerPanel.swift|String(localized:)|没有匹配的模型
+DeepSeekHarnessMobile/Views/PluginsView.swift|不可修改原因
+DeepSeekHarnessMobile/Views/PluginsView.swift|模块
+DeepSeekHarnessMobile/Views/PluginsView.swift|组件 ID
+DeepSeekHarnessMobile/Views/PluginsView.swift|运行条目 ID
+DeepSeekHarnessMobile/Views/SettingsView.swift|String(localized:)|读取中…
+DeepSeekHarnessMobile/Views/WorkspaceView.swift|String(localized:)|全部会话
+DeepSeekHarnessMobile/Views/WorkspaceView.swift|String(localized:)|等待重连
+DeepSeekHarnessMobile/Views/WorkspaceView.swift|步骤
+DeepSeekHarnessMobile/Views/WorkspaceView.swift|群聊
+DeepSeekHarnessMobile/Views/WorkspaceView.swift|轮次

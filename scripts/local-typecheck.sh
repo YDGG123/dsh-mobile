@@ -551,6 +551,19 @@ print("✅ xcstrings 顶层结构齐备：sourceLanguage=%s version=%s strings=%
       % (data['sourceLanguage'], data['version'], len(data['strings'])))
 PYCHECK
 
+# ---- 本地化调用点闸门（2026-11-01 教训：**注册了 ≠ 生效**）----
+# `emptyRow(_ text: String)` / `badge(_ text: String)` / `labeledRow(_ label: String, …)`
+# 这类 helper 的形参是 `String`，调用点传中文裸串时**不做查表** —— 键早就注册进
+# xcstrings 了，界面照样显示中文（当天 8 条属于这一类：主 / 运行中 / 成员 / 会话 …）。
+# 既有盘点器只查「目录里注册没注册」，抓不到。这里扫两条：
+#   ① 返回 View 的 helper 上、String 形参位置的中文裸串；
+#   ② `String(localized: "X")` 的键不在目录（非插值）。
+# 存量债冻在 scripts/i18n-callsite-baseline.txt，**只拦新增**。
+if ! "$PYTHON3" "$(dirname "${BASH_SOURCE[0]}")/check-i18n-callsites.py"; then
+  echo "   修法：形参改 LocalizedStringKey；或调用点包 String(localized:)；键补进 Localizable.xcstrings。"
+  exit 1
+fi
+
 # ---- 退役路径守卫（B3）----
 # bridge「粘贴配对资料 JSON」这条配对路径已退役：bridge 凭证改由网关配对成功后的
 # `paired` 帧 bridgeSession 字段下发。BridgeTeamAdapter.pairPastedPayload 只留作应急排查，
