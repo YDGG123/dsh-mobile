@@ -1,6 +1,7 @@
 package com.clarklevis.dsh.android.ui
 
 import androidx.annotation.DrawableRes
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
@@ -38,9 +39,15 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalDensity
@@ -52,6 +59,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.clarklevis.dsh.android.AndroidBridgeTeamAdapter
 import com.clarklevis.dsh.android.R
+import com.clarklevis.dsh.android.platform.BotAvatarFileCache
 import android.widget.Toast
 import com.clarklevis.dsh.android.localization.appText
 import com.clarklevis.dsh.shared.domain.TeamPhase
@@ -100,8 +108,9 @@ internal fun BotTeamScreen(
     header: (@Composable () -> Unit)? = null,
     /** 有待审批/待回答的会话 id：用于状态点橙档（iOS `!approvals.isEmpty || !pending.isEmpty` ⇒ caution）。 */
     pendingSessionIds: Set<String> = emptySet(),
-    /** 点行进会话（iOS WorkspaceView:801-813 三级回落；Android 先做 bridge sessionId → 开会话）。 */
-    onOpenSession: (String) -> Unit = {}
+    /** 点行进会话（iOS WorkspaceView:801-813 三级回落；Android 先做 bridge sessionId → 开会话）。
+     *  **必填**（AndroidTester 2026-11-02）：默认空实现会让「点了没反应」在编译期静默通过。 */
+    onOpenSession: (String) -> Unit
 ) {
     // 走主题（与 ScheduledTasksScreen/PluginsScreen 一致）：A1 换品牌海军蓝底时本页自动跟随，不许硬编码。
     val background = MaterialTheme.colorScheme.background
@@ -118,6 +127,9 @@ internal fun BotTeamScreen(
     LaunchedEffect(adapter) {
         adapter?.start()
         adapter?.refreshNow()
+    }
+    LaunchedEffect(bots) {
+        com.clarklevis.dsh.android.platform.BotAvatarFileCache.prune()
     }
     Scaffold(
         modifier = Modifier.testTag("bot-team-page"),
@@ -334,7 +346,7 @@ private fun PrimaryBotCard(row: BridgeConversationRow, modifier: Modifier = Modi
  * `row.activity`，bridge 名册只有 `busy`，所以这里只渲染「正在干活」/「空闲」，**不编造动作**。
  */
 @Composable
-private fun BotRow(row: BridgeConversationRow, isMain: Boolean, pending: Boolean = false, onOpenSession: (String) -> Unit = {}) {
+private fun BotRow(row: BridgeConversationRow, isMain: Boolean, pending: Boolean, onOpenSession: (String) -> Unit) {
     val busy = row.busy == true
     val context = LocalContext.current
     Row(
@@ -395,7 +407,7 @@ private fun RosterStatusDot(busy: Boolean, caution: Boolean, modifier: Modifier 
 
 /** iOS roomCell（TeamView :482）：名字 + 成员串（、分隔，单行截断）。 */
 @Composable
-private fun RoomRow(row: BridgeConversationRow, bots: List<BridgeConversationRow>, onOpenSession: (String) -> Unit = {}) {
+private fun RoomRow(row: BridgeConversationRow, bots: List<BridgeConversationRow>, onOpenSession: (String) -> Unit) {
     val context = LocalContext.current
     Row(
         Modifier.fillMaxWidth()
@@ -560,6 +572,21 @@ private fun RosterAvatar(
     // （Chief 2026-11-01 #10：原 onBackground×0.33 单式在浅色与规格差 15 个色阶；13/14 行走此路径）
     val dark = androidx.compose.foundation.isSystemInDarkTheme()
     val fallback = (if (dark) Color(0xEBEBF5) else Color(0x3C3C43)).copy(alpha = 0.33f)
+    // 第一层：照片头像（avatar.image data URL）→ 文件缓存（键=内容 sha256 前 16 位），
+    // 命中直接读文件、不重解码（用户 2026-11-02：「保存到本地、只渲染一次，电脑端变了才更新」）。
+    // bridge 名册线上暂只有 shape（image 随 D 组 feed 落地后生效），此层现在处于休眠、不报错。
+    val imageDataUrl = (avatar?.get("image") as? JsonPrimitive)?.takeIf { it.isString }?.content
+    var imageHash by remember(imageDataUrl) { mutableStateOf<String?>(null) }
+    LaunchedEffect(imageDataUrl) {
+        imageHash = imageDataUrl?.let { BotAvatarFileCache.store(it) }
+    }
+    val cachedBitmap = remember(imageHash) {
+        imageHash?.let { hash ->
+            BotAvatarFileCache.remember(hash)
+            BotAvatarFileCache.fileFor(hash)?.path
+                ?.let { path -> android.graphics.BitmapFactory.decodeFile(path)?.asImageBitmap() }
+        }
+    }
     val avatarHex = (avatar?.get("color") as? JsonPrimitive)?.takeIf { it.isString }?.content
     val color = remember(rowColor, avatarHex, dark, fallback) {
         rosterAvatarColor(rowColor, avatarHex, dark, fallback)
@@ -570,7 +597,14 @@ private fun RosterAvatar(
             .then(if (stroke > androidx.compose.ui.unit.Dp(0f)) Modifier.border(stroke, homeSurface(0.9f), CircleShape) else Modifier),
         contentAlignment = Alignment.Center
     ) {
-        Text(
+        if (cachedBitmap != null) {
+            Image(
+                bitmap = cachedBitmap,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize().clip(CircleShape),
+                contentScale = ContentScale.Crop
+            )
+        } else Text(
             name.take(1),
             color = Color.White,
             fontSize = (size * 0.42f).sp,
