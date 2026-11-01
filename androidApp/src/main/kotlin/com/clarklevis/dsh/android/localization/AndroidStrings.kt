@@ -462,6 +462,8 @@ internal object AndroidStrings {
         "工具" to "Tools",
         "工具调用" to "Tool calls",
         "已从断线前恢复" to "Recovered from the disconnect",
+        "网关凭证已失效（系统密钥不可用），请重新扫码配对" to "Gateway credentials are no longer readable. Please pair again.",
+        "读取已保存的连接失败，请重新扫码配对或手动连接" to "Could not restore the saved connection. Please pair again or connect manually.",
         "已停用" to "Disabled",
         "已复制" to "Copied",
         "已安装" to "Installed",

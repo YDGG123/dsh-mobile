@@ -91,6 +91,11 @@ class AndroidSharedStateHolder(
         chatPrefetcher?.resume("foreground")
     }
 
+    /** true = token 密文解不开：与「从没配对」区分开（Chief 2026-11-02）。 */
+    val tokenUnreadable: Boolean
+        get() = (graph?.credentialStore as? com.clarklevis.dsh.android.platform.AndroidGatewayCredentialStore)
+            ?.tokenUnreadable == true
+
     /** true = 设备身份密文解不开（Keystore 失效）：Bot 页据此提示「可能为临时故障」。 */
     val deviceIdentityUnreadable: Boolean
         get() = (graph?.credentialStore as? com.clarklevis.dsh.android.platform.AndroidGatewayCredentialStore)
@@ -3377,12 +3382,21 @@ class AndroidSharedStateHolder(
                     }
                 }
                 launch {
-                    runCatching { appGraph.gatewayRuntime.connectStoredIfPaired() }
-                        .onFailure {
+                    // 失败**不许静默**（Chief 2026-11-02 / AndroidTester :230 读数）：
+                    // connectStoredIfPaired 在 token 为空时只 return false，界面拿不到任何原因——
+                    // 「从没配对」与「密文解不开」于是对用户完全同形（都是空白 + 不自动连）。
+                    val connected = runCatching { appGraph.gatewayRuntime.connectStoredIfPaired() }
+                        .getOrElse {
                             withContext(Dispatchers.Main.immediate) {
-                                platformError = "stored-connect-failed"
+                                platformError = "读取已保存的连接失败，请重新扫码配对或手动连接"
                             }
+                            false
                         }
+                    if (!connected && tokenUnreadable) {
+                        withContext(Dispatchers.Main.immediate) {
+                            platformError = "网关凭证已失效（系统密钥不可用），请重新扫码配对"
+                        }
+                    }
                 }
             }
         }

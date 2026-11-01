@@ -61,8 +61,17 @@ class AndroidGatewayCredentialStore(context: Context) : GatewayCredentialStore {
 
     override suspend fun loadToken(endpoint: String): String? = mutex.withLock {
         val logicalKey = tokenLogicalKey(endpoint)
-        readEncrypted(stringPreferencesKey(logicalKey), logicalKey)
+        val key = stringPreferencesKey(logicalKey)
+        val value = readEncrypted(key, logicalKey)
+        // 三种情形必须可区分（Chief 2026-11-02）：「从没配对」vs「密文解不开」现在对上层同形，
+        // 结果就是 Bot 页空白、无提示、用户只能重新扫码。这里给 token 侧补一个标记。
+        tokenUnreadable = value == null && dataStore.data.first()[key] != null
+        value
     }
+
+    /** true = 磁盘上有 token 密文但解不开（Keystore 失效）：UI 应提示「凭证失效，请重新配对」。 */
+    @Volatile var tokenUnreadable: Boolean = false
+        private set
 
     override suspend fun saveToken(endpoint: String, token: String) {
         require(token.isNotBlank()) { "token must not be blank" }

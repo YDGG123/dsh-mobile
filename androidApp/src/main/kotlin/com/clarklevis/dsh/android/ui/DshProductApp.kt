@@ -537,6 +537,7 @@ internal fun WorkspaceScreen(
                     showQrScanner = true
                 },
                 deviceIdentityUnreadable = stateHolder.deviceIdentityUnreadable,
+                tokenUnreadable = stateHolder.tokenUnreadable,
                 // iOS 三个 tab 共用同一条页头（WorkspaceView:936 字标 + :950 认证圆钮 + :955 ＋新建）。
                 // vc39 之前 Bot tab 只有一条居中「团队」标题，是 Android 自造的（用户 11-02 指出）。
                 header = {

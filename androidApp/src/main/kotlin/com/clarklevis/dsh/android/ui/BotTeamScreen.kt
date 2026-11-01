@@ -112,7 +112,9 @@ internal fun BotTeamScreen(
     /** 凭证不可读时打开扫码配对（必填：没有它，用户面对的是一片空白，iOSCoder 2026-11-02 的根因链）。 */
     onRequestPairing: () -> Unit,
     /** true = 设备身份密文解不开：文案要区别于「会话凭证不可读」（临时故障 vs 需重配，iOSTester 2026-11-02）。 */
-    deviceIdentityUnreadable: Boolean = false
+    deviceIdentityUnreadable: Boolean = false,
+    /** true = 网关 token 密文解不开（≠ 从未配对）：显示「凭证失效，请重新配对」。 */
+    tokenUnreadable: Boolean = false
 ) {
     // 走主题（与 ScheduledTasksScreen/PluginsScreen 一致）：A1 换品牌海军蓝底时本页自动跟随，不许硬编码。
     val background = MaterialTheme.colorScheme.background
@@ -193,7 +195,7 @@ internal fun BotTeamScreen(
             header?.let { item { it() } }
             // ①′ 凭证不可读（Keystore 失效）：显式「需要重新配对」+ 入口——
             // 不再一片空白（用户 2026-11-02「明明连接了 Bot 页却是空的」），也不冒充「未配对」。
-            if (adapter?.restoreFailed == true || deviceIdentityUnreadable) {
+            if (adapter?.restoreFailed == true || deviceIdentityUnreadable || tokenUnreadable) {
                 item {
                     Column(
                         Modifier.fillMaxWidth()
@@ -203,8 +205,11 @@ internal fun BotTeamScreen(
                     ) {
                         Text(
                             appText(
-                                if (adapter?.restoreFailed == true) "设备凭证无法读取，需要重新配对"
-                                else "设备身份读取失败（可能为临时故障）"
+                                when {
+                                    adapter?.restoreFailed == true -> "设备凭证无法读取，需要重新配对"
+                                    tokenUnreadable -> "网关凭证已失效，请重新配对"
+                                    else -> "设备身份读取失败（可能为临时故障）"
+                                }
                             ),
                             color = homeInk(0.92f), fontSize = 15.sp, fontWeight = FontWeight.SemiBold
                         )
