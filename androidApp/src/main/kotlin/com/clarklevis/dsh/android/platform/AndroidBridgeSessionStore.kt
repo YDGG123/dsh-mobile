@@ -1,6 +1,7 @@
 package com.clarklevis.dsh.android.platform
 
 import android.content.Context
+import android.util.Log
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
@@ -21,6 +22,7 @@ import javax.crypto.spec.GCMParameterSpec
  */
 internal class AndroidBridgeSessionStore(context: Context) : BridgeSessionStore {
     private val appContext = context.applicationContext
+    private val TAG = "BridgeSessionStore"
     private val lock = Any()
 
     private fun preferences() = appContext.getSharedPreferences(FILE_NAME, Context.MODE_PRIVATE)
@@ -28,10 +30,17 @@ internal class AndroidBridgeSessionStore(context: Context) : BridgeSessionStore 
     override fun loadJson(): String? = synchronized(lock) {
         val encoded = preferences().getString(KEY_SESSION, null) ?: return null
         runCatching { decrypt(encoded) }.getOrElse {
-            preferences().edit().remove(KEY_SESSION).commit()
+            // **非销毁式失败**（iOSCoder 2026-11-02）：一次 Keystore 不可用就把会话密文删掉，
+            // 等于把瞬时故障变成"必须重新扫码"。改为保留密文 + 标记，由上层提示重新配对。
+            restoreFailed = true
+            Log.w(TAG, "bridge session decrypt failed; keep ciphertext")
             null
         }
     }
+
+    /** true = 磁盘上有 bridge 会话密文但解不开：上层应提示「需要重新配对」。 */
+    @Volatile var restoreFailed: Boolean = false
+        private set
 
     override fun saveJson(json: String) {
         if (json.isBlank()) return

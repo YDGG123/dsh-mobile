@@ -4,6 +4,7 @@ import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
+import android.util.Log
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
@@ -31,12 +32,31 @@ class AndroidGatewayCredentialStore(context: Context) : GatewayCredentialStore {
         produceFile = { context.noBackupFilesDir.resolve(CREDENTIAL_FILE_NAME) }
     )
     private val mutex = Mutex()
+    private val TAG = "GatewayCredentials"
 
     override suspend fun loadOrCreateDeviceId(): String = mutex.withLock {
         readEncrypted(DEVICE_ID_KEY, DEVICE_ID_AAD)?.takeIf(String::isNotBlank)?.let { return it }
+        // 解密失败 ≠ 没有设备身份：密文还在时**绝不覆盖**，也**绝不静默换成新 UUID**——
+        // 换 UUID 会让宿主看到一台"新设备"，旧配对无声作废（iOSCoder 2026-11-02 指出）。
+        // 这里只在**确实没有密文**时新建；有密文但读不出 → 交出临时 id 供本次会话使用，
+        // 原密文保留（Keystore 恢复后还能读回旧身份），并置标记让上层提示「需要重新配对」。
+        val storedCiphertext = dataStore.data.first()[DEVICE_ID_KEY] != null
         val value = UUID.randomUUID().toString().lowercase()
+        if (storedCiphertext) {
+            deviceIdentityUnreadable = true
+            Log.w(TAG, "device-id ciphertext unreadable; keep it, session uses ephemeral id")
+            return value
+        }
         writeEncrypted(DEVICE_ID_KEY, DEVICE_ID_AAD, value)
         value
+    }
+
+    /** true = 磁盘上有设备身份密文但解不开（Keystore 失效）：上层应提示「需要重新配对」，别当新设备。 */
+    @Volatile var deviceIdentityUnreadable: Boolean = false
+        private set
+
+    fun clearDeviceIdentityUnreadable() {
+        deviceIdentityUnreadable = false
     }
 
     override suspend fun loadToken(endpoint: String): String? = mutex.withLock {
@@ -61,8 +81,10 @@ class AndroidGatewayCredentialStore(context: Context) : GatewayCredentialStore {
     private suspend fun readEncrypted(key: Preferences.Key<String>, aad: String): String? {
         val encoded = dataStore.data.first()[key] ?: return null
         return runCatching { decrypt(encoded, aad) }.getOrElse {
-            // Keystore 失效或密文损坏时 fail closed，并只删除对应密文。
-            dataStore.edit { preferences -> preferences.remove(key) }
+            // **非销毁式失败**（iOSCoder 2026-11-02）：Keystore 偶发不可用（ROM 更新回收、锁屏凭据变更、
+            // OEM 行为）会造成一次解密失败；旧实现当场删密文 = 把可恢复的瞬时故障变成永久丢配对。
+            // 现在只记日志、保留密文，等用户真去「重新配对」时由写入路径覆盖。
+            Log.w(TAG, "decrypt failed for ${key.name}; keep ciphertext (non-destructive)")
             null
         }
     }
