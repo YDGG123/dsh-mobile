@@ -22,7 +22,7 @@ android {
         applicationId = "com.clarklevis.dsh.android"
         minSdk = 24
         targetSdk = 36
-        versionCode = 35
+        versionCode = 36 // 本批（B1/B2/B3 + A1 首页重排 + 导航统一 + 字标单源）；68 版为 35
         versionName = "1.7.13"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
