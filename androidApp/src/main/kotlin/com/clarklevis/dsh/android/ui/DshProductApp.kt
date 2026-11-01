@@ -6,6 +6,7 @@ import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -391,7 +392,10 @@ internal fun WorkspaceScreen(
     WorkspaceDrawer(
         onPlugins = onPlugins,
         onScheduledTasks = onScheduledTasks,
-        onBotTeam = onBotTeam
+        // iOSTester 21:55：原来这里走 `navigate(ROUTE_BOT_TEAM)` 推入整页，而 `homeTab` 仍是 WORKSPACE
+        // → 底栏 pill 停在工作区、内容却是团队页（两套导航各管一半，不变量被破坏）。
+        // iOS 的团队页是 **tab 内容分段**（WorkspaceView 注释：不再 push 盖住本页），所以侧栏入口改为切 tab。
+        onBotTeam = { homeTab = DshHomeTab.BOTS }
     ) { openDrawer, canScrollVertically ->
         val backgroundAnimationEnabled by remember(canScrollVertically, workspaceListState) {
             derivedStateOf { canScrollVertically && !workspaceListState.isScrollInProgress }
@@ -419,33 +423,24 @@ internal fun WorkspaceScreen(
                     AdaptiveWorkspaceContent(
                         window = window,
                         header = {
-                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                WorkspaceHeader(
-                                    state = stateHolder.gatewayState,
-                                    onScan = {
-                                        stateHolder.clearPlatformError()
-                                        showQrScanner = true
-                                    },
-                                    onManualEntry = {
-                                        stateHolder.clearPlatformError()
-                                        showManualPairing = true
-                                    },
-                                    onOpenDrawer = openDrawer
-                                )
-                                GatewaySwitcherBar()
-                            }
+                            // A1 §1.2：页头只有 字标 + 认证菜单 + 新建会话圆钮（iOS 无 hero、网关行不在页头）
+                            WorkspaceHeader(
+                                state = stateHolder.gatewayState,
+                                onScan = {
+                                    stateHolder.clearPlatformError()
+                                    showQrScanner = true
+                                },
+                                onManualEntry = {
+                                    stateHolder.clearPlatformError()
+                                    showManualPairing = true
+                                },
+                                onOpenDrawer = openDrawer,
+                                onNewSession = onNewSession
+                            )
                         },
                         actions = {
-                            Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                                Text(
-                                    stringResource(R.string.workspace_hero_title),
-                                    color = homeInk(),
-                                    fontSize = 32.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.semantics { heading() }.testTag("workspace-hero-title")
-                                )
-                                Text(appText("Deepseek Harness 预览版"), color = homeInk(0.65f), fontSize = 14.sp)
-                            }
+                            // A1 §1.3/§1.4：工作区卡 → 网关行（独立一行）；hero 与整行「新建会话」按钮已删
+                            // （iOS 首页没有「探索未至之境」文案，新建会话是页头右侧 34×34 圆钮）。
                             Box(Modifier.fillMaxWidth()) {
                                 WorkspaceCard(
                                     workspace = selectedWorkspace,
@@ -474,11 +469,12 @@ internal fun WorkspaceScreen(
                                     onDismiss = { showWorkspaceMenu = false }
                                 )
                             }
-                            GlassActionButton("＋", appText("新建会话"), onNewSession)
+                            GatewaySwitcherBar()
                         },
                         recentSessions = {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(appText("最近会话"), color = homeInk(), fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
+                                // A1 §1.6 段头：「最近会话」11pt semibold ink(0.55)（iOS sessionsHeader :1254）
+                                Text(appText("最近会话"), color = homeInk(0.55f), fontWeight = FontWeight.SemiBold, fontSize = 11.sp)
                                 Spacer(Modifier.weight(1f))
                                 ConnectionStatusText(stateHolder.gatewayState)
                             }
@@ -561,7 +557,8 @@ private fun WorkspaceHeader(
     state: GatewayRuntimeState,
     onScan: () -> Unit,
     onManualEntry: () -> Unit,
-    onOpenDrawer: () -> Unit
+    onOpenDrawer: () -> Unit,
+    onNewSession: () -> Unit
 ) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         // Row 先测量无权重的操作按钮，品牌只使用剩余宽度，避免窄屏压缩按钮。
@@ -572,8 +569,34 @@ private fun WorkspaceHeader(
             onScan = onScan,
             onManualEntry = onManualEntry
         )
-        // B1：顶栏的设置齿轮已删 —— iOS 把「设置」收进底部 tab 后就不再留重复入口
-        // （WorkspaceView header 只有 认证菜单 + 新建会话圆钮）。
+        // B1：顶栏的设置齿轮已删 —— iOS 把「设置」收进底部 tab 后就不再留重复入口。
+        // A1 §1.2：右侧是 **34×34 品牌色实心圆 + plus 15pt bold 白**，未配对时不渲染
+        // （iOS WorkspaceView:931 header；这里用 endpoint 是否配置当「已配对」代理）。
+        if (state.endpoint != null) {
+            Spacer(Modifier.width(12.dp))
+            NewSessionButton(onNewSession)
+        }
+    }
+}
+
+@Composable
+private fun NewSessionButton(onClick: () -> Unit) {
+    val dark = LocalDshIsDark.current
+    Box(
+        Modifier.size(34.dp)
+            .clip(CircleShape)
+            .background(if (dark) DshColors.OceanDark else DshColors.Ocean)
+            .clickable(role = Role.Button, onClick = onClick)
+            .semantics { contentDescription = appText("新建会话") }
+            .testTag("new-session-button"),
+        contentAlignment = Alignment.Center
+    ) {
+        Image(
+            painter = painterResource(R.drawable.ic_add),
+            contentDescription = null,
+            modifier = Modifier.size(15.dp),
+            colorFilter = ColorFilter.tint(Color.White)
+        )
     }
 }
 
@@ -660,10 +683,12 @@ private fun WorkspaceCard(
     onClick: () -> Unit
 ) {
     Row(
+        // A1 §1.3：壳 padding 12 全边、圆角 16、cardFill + 1pt cardStroke（iOS workspaceCard :1186/:1226）
         Modifier.fillMaxWidth()
-            .dshLiquidGlass(RoundedCornerShape(15.dp), DshGlassStyle.CARD)
+            .dshLiquidGlass(RoundedCornerShape(16.dp), DshGlassStyle.CARD)
+            .border(1.dp, homeStroke(if (LocalDshIsDark.current) 0.12f else 0.17f), RoundedCornerShape(16.dp))
             .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 15.dp)
+            .padding(12.dp)
             .testTag("workspace-card"),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -679,16 +704,17 @@ private fun WorkspaceCard(
                 if (allWorkspaces) appText("全部会话")
                 else if (ungrouped) appText("未分组")
                 else workspace?.title ?: "DeepseekHarnessProject",
-                color = homeInk(),
-                fontSize = 14.sp,
-                lineHeight = 16.sp,
+                color = homeInk(0.92f), // iOS 标题 15pt semibold ink(0.92)
+                fontSize = 15.sp,
+                lineHeight = 18.sp,
                 fontWeight = FontWeight.SemiBold
             )
             Text(
                 if (allWorkspaces) appText("%1\$s 个会话（跨全部工作区）", sessionCount)
                 else if (ungrouped) appText("%1\$s 个未归属会话", ungroupedCount)
                 else workspace?.path ?: appText("通过 Mobile Gateway 连接"),
-                color = homeInk(0.55f),
+                color = homeInk(0.5f), // iOS 路径 mono 12pt ink(0.5)
+                fontFamily = FontFamily.Monospace,
                 fontSize = 12.sp,
                 lineHeight = 14.sp,
                 maxLines = 1,
@@ -696,29 +722,13 @@ private fun WorkspaceCard(
             )
         }
         ConnectionDot(state)
+        // iOS 右侧是 chevron.right 11pt semibold ink(0.35)（不是下拉三角）
         Image(
-            painter = painterResource(R.drawable.ic_question_chevron_down),
+            painter = painterResource(R.drawable.ic_chevron_right),
             contentDescription = null,
-            colorFilter = ColorFilter.tint(homeInk(0.55f)),
-            modifier = Modifier.size(16.dp)
+            colorFilter = ColorFilter.tint(homeInk(0.35f)),
+            modifier = Modifier.size(11.dp)
         )
-    }
-}
-
-@Composable
-private fun GlassActionButton(icon: String, title: String, onClick: () -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().height(52.dp)
-            .dshLiquidGlass(RoundedCornerShape(18.dp), DshGlassStyle.ACTION)
-            .clickable(role = Role.Button, onClick = onClick),
-        horizontalArrangement = Arrangement.Center,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(Modifier.size(26.dp).clip(CircleShape).background(homeVeil(0.10f)), contentAlignment = Alignment.Center) {
-            Text(icon, color = homeInk(), fontWeight = FontWeight.SemiBold)
-        }
-        Spacer(Modifier.width(8.dp))
-        Text(title, color = homeInk(), fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
     }
 }
 

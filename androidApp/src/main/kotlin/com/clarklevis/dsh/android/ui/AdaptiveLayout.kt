@@ -161,7 +161,7 @@ internal fun AdaptiveWorkspaceContent(
                     verticalArrangement = Arrangement.spacedBy(18.dp)) { recentSessions() }
             }
         } else {
-            Spacer(Modifier.height(44.dp))
+            // A1 §1.1：iOS 首页块间距统一 18（原上游布局在页头与内容间多留 44dp）
             Column(Modifier.testTag("workspace-actions"), verticalArrangement = Arrangement.spacedBy(18.dp)) { actions() }
             Column(Modifier.testTag("workspace-recents"), verticalArrangement = Arrangement.spacedBy(18.dp)) { recentSessions() }
         }
