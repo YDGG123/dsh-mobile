@@ -66,7 +66,8 @@ class ConversationChromeUiDeviceTest {
         compose.setContent {
             DshTheme {
                 Column {
-                    ReasoningEffortTag("Low")
+                    // iOS ConversationEffortMenuLabel：chipFill 胶囊 minHeight 28（旧紫标 ≤22 口径作废）
+                    ComposerEffortChipLabel("思考 Low")
                     ScrollToBottomButton(isGenerating = false, onClick = {})
                 }
             }
@@ -74,7 +75,7 @@ class ConversationChromeUiDeviceTest {
 
         val effortTagHeightDp = compose.onNode(hasTestTag("reasoning-effort-tag"))
             .fetchSemanticsNode().boundsInRoot.height / compose.density.density
-        assertTrue("Reasoning tag should stay compact", effortTagHeightDp <= 22f)
+        assertTrue("Effort chip should match iOS minHeight 28", effortTagHeightDp >= 28f)
         compose.onNode(hasTestTag("scroll-to-bottom"))
             .assertHeightIsAtLeast(48.dp)
     }

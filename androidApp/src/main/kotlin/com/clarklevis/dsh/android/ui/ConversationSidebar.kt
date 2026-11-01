@@ -81,7 +81,8 @@ internal fun ConversationSidebarButton(
     onSelectSession: (String) -> Unit,
     onPlugins: () -> Unit,
     onScheduledTasks: () -> Unit,
-    onSettings: () -> Unit
+    onSettings: () -> Unit,
+    plain: Boolean = false
 ) {
     var expanded by remember { mutableStateOf(false) }
     var expandedGroups by rememberSaveable { mutableStateOf(emptyList<String>()) }
@@ -116,6 +117,7 @@ internal fun ConversationSidebarButton(
             iconRes = R.drawable.ic_conversation_sidebar,
             description = appText("展开侧边栏"),
             onClick = toggle,
+            plain = plain,
             modifier = Modifier.testTag("conversation-sidebar-toggle")
         )
         DshMenuPopup(

@@ -1,14 +1,12 @@
 package com.clarklevis.dsh.android.ui
 
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
@@ -18,7 +16,6 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.pager.HorizontalPager
@@ -30,7 +27,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -38,8 +34,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.dropShadow
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.shadow.Shadow
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
@@ -52,15 +49,29 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.clarklevis.dsh.android.localization.appText
-import com.kyant.backdrop.backdrops.layerBackdrop
-import com.kyant.backdrop.backdrops.rememberLayerBackdrop
-import kotlinx.coroutines.delay
 
-/** 两页始终常驻，顶部玻璃、提示和导航按钮都覆盖在内容上，不占分页高度。 */
+/**
+ * 会话页骨架，**逐层对齐 iOS `ConversationView.swift:416-457`**：
+ *
+ * ```
+ * 导航栏（透明、标题进 principal）        ← topBar 覆盖层，占位 spacer 与页面同底色
+ * 副行（模式 · 状态 · 轮次）              ← 由调用方经 subtitle 注入
+ * 分段「对话 | 轨迹」                     ← 整宽胶囊 DSHSegmented（Theme.swift:1276-1312）
+ * 正文 / 轨迹（分页）
+ * ```
+ *
+ * **与 vc38 之前的差别（用户 2026-11-02 指出）**：
+ * ① 分段原本是 `align(TopCenter)` 的**浮动蓝胶囊**，压在正文第一行上；iOS 的它在**流内**，
+ *    正文从它下方开始（`ConversationView.swift:440` 是 VStack 里的第三个元素，不是 overlay）。
+ * ② 顶栏原本靠 `conversationTopGlass` 半透明渐隐盖住穿透的正文，整条栏看起来"是透明的"；
+ *    改成**顶部占位与页面同底色（不透明）**，正文不再钻到状态栏下面。
+ * ③ 原瞬态圆点指示器（`conversation-page-indicator`）是上游自造件，iOS 无此物，随本次删除。
+ */
 @Suppress("LongParameterList") // Compose 容器显式接收状态、修饰符及两个内容插槽。
 @Composable
 internal fun ConversationPagerChrome(
@@ -69,12 +80,12 @@ internal fun ConversationPagerChrome(
     onSelectPage: (Int) -> Unit,
     modifier: Modifier = Modifier,
     topBar: @Composable () -> Unit,
+    subtitle: (@Composable () -> Unit)? = null,
     page: @Composable (Int, Dp) -> Unit
 ) {
     val density = LocalDensity.current
     val initialTopInset = with(density) { WindowInsets.statusBars.getTop(this).toDp() } + 64.dp
     var topInset by remember(density) { mutableStateOf(initialTopInset) }
-    val backdrop = rememberLayerBackdrop()
     val currentPage = pagerState.currentPage
     val pageName = appText(if (currentPage == 0) "对话" else "轨迹")
     val switchLabel = appText(if (currentPage == 0) "切换到轨迹" else "切换到对话")
@@ -85,51 +96,46 @@ internal fun ConversationPagerChrome(
                 .background(MaterialTheme.colorScheme.surface)
                 .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
         ) {
-            HorizontalPager(
-                state = pagerState,
-                beyondViewportPageCount = 1,
-                modifier = Modifier.fillMaxSize().layerBackdrop(backdrop)
-                    .testTag("conversation-pager")
-                    .semantics {
-                        contentDescription = pagerLabel
-                        stateDescription = pageName
-                        customActions = listOf(
-                            CustomAccessibilityAction(switchLabel) {
-                                onSelectPage(1 - currentPage)
-                                true
-                            }
-                        )
+            Column(Modifier.fillMaxSize()) {
+                // 顶栏占位：与页面同底色，正文从分段下方开始，不再穿到栏下。
+                Spacer(Modifier.fillMaxWidth().height(topInset))
+                subtitle?.invoke()
+                ConversationPageSwitch(
+                    selectedPage = currentPage,
+                    onSelectPage = onSelectPage,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                )
+                HorizontalPager(
+                    state = pagerState,
+                    beyondViewportPageCount = 1,
+                    modifier = Modifier.fillMaxSize().weight(1f)
+                        .testTag("conversation-pager")
+                        .semantics {
+                            contentDescription = pagerLabel
+                            stateDescription = pageName
+                            customActions = listOf(
+                                CustomAccessibilityAction(switchLabel) {
+                                    onSelectPage(1 - currentPage)
+                                    true
+                                }
+                            )
+                        }
+                ) { index ->
+                    Box(
+                        Modifier.fillMaxSize().semantics {
+                            if (index != currentPage) hideFromAccessibility()
+                        }
+                    ) {
+                        // 正文不再为顶栏让位：分段已在流内。
+                        page(index, 0.dp)
                     }
-            ) { index ->
-                Box(
-                    Modifier.fillMaxSize().semantics {
-                        if (index != currentPage) hideFromAccessibility()
-                    }
-                ) {
-                    page(index, topInset)
                 }
             }
-            Box(
-                Modifier.fillMaxWidth().height(topInset + 32.dp)
-                    .conversationTopGlass(backdrop)
-                    .semantics { hideFromAccessibility() }
-                    .testTag("conversation-top-glass")
-            )
             Box(Modifier.fillMaxWidth().onSizeChanged { topInset = with(density) { it.height.toDp() } }) {
                 topBar()
             }
-            // 可见的「对话 | 轨迹」切换（iOS ConversationView :440 DSHSegmented 等价物）。
-            // 原来只有滑动 + 2s 瞬态圆点，界面上没有持久入口（Tester 返工 2）。
-            ConversationPageSwitch(
-                currentPage,
-                onSelectPage,
-                Modifier.align(Alignment.TopCenter).padding(top = topInset + 4.dp)
-            )
-            ConversationPageIndicator(
-                sessionId,
-                currentPage,
-                Modifier.align(Alignment.TopCenter).padding(top = topInset + 40.dp)
-            )
         }
     }
 }
@@ -156,63 +162,64 @@ internal fun ConversationPageTitle(title: String, selectedPage: Int, status: (@C
     }
 }
 
+/** iOS `DSHPalette.cardFill`（Theme.swift:425）：浅色白 0.55 / 深色白 0.06。 */
+@Composable
+private fun segmentedSelectedFill(): Color =
+    if (LocalDshIsDark.current) Color.White.copy(alpha = 0.06f) else Color.White.copy(alpha = 0.55f)
+
 /**
- * 会话页可见分段切换「对话 | 轨迹」（iOS ConversationView :440 DSHSegmented 等价物）。
- * 点击走 onSelectPage（与左右滑动共用 selectPage 的 280ms 动画），选中 = 品牌 Ocean 胶囊白字。
- * 保留原瞬态圆点指示器（device test 依赖其存在性），本控件提供持久可见入口。
+ * 会话页分段「对话 | 轨迹」——**逐值对齐 iOS `DSHSegmented`（Theme.swift:1276-1312）**：
+ *
+ * ```
+ * 外层 Capsule 底 = veil(0.06) + padding 3 ｜ 项间距 xxs = 2 ｜ 每项 minHeight 30
+ * 文字 footnote 13：选中 semibold + ink(0.92) ｜ 未选 regular + ink(0.55)
+ * 选中底 = RoundedRectangle(12) 填 cardFill + 阴影（浅色 0.08 / 半径 3 / y 1）
+ * ```
+ *
+ * vc38 之前是「surface@0.85 + 品牌蓝选中 + 白字」，且浮动在正文之上（用户与 iOSTester 均判为形态不同）。
  */
 @Composable
-private fun ConversationPageSwitch(selectedPage: Int, onSelectPage: (Int) -> Unit, modifier: Modifier) {
+private fun ConversationPageSwitch(selectedPage: Int, onSelectPage: (Int) -> Unit, modifier: Modifier = Modifier) {
+    val isDark = LocalDshIsDark.current
+    val shape = RoundedCornerShape(12.dp)
     Row(
         modifier
             .testTag("conversation-page-switch")
-            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f), RoundedCornerShape(50))
-            .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f), RoundedCornerShape(50))
-            .padding(2.dp),
+            .background(homeVeil(0.06f), CircleShape)
+            .padding(3.dp),
         horizontalArrangement = Arrangement.spacedBy(2.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         listOf(0 to appText("对话"), 1 to appText("轨迹")).forEach { (index, label) ->
             val selected = index == selectedPage
-            Text(
-                label,
-                color = if (selected) Color.White else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f),
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Medium,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(50))
-                    .background(if (selected) DshColors.Ocean else Color.Transparent)
-                    .clickable { onSelectPage(index) }
-                    .padding(horizontal = 12.dp, vertical = 5.dp)
-                    .testTag("conversation-page-switch-$index")
-            )
-        }
-    }
-}
-
-@Composable
-private fun ConversationPageIndicator(sessionId: String?, selectedPage: Int, modifier: Modifier) {
-    val alpha = remember { Animatable(0f) }
-    LaunchedEffect(sessionId, selectedPage) {
-        alpha.snapTo(1f)
-        delay(2_000)
-        alpha.animateTo(0f, tween(300))
-    }
-    if (alpha.value > 0f) {
-        Row(
-            modifier.graphicsLayer { this.alpha = alpha.value }
-                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f), RoundedCornerShape(50))
-                .padding(horizontal = 8.dp, vertical = 6.dp)
-                .testTag("conversation-page-indicator")
-                .semantics { hideFromAccessibility() },
-            horizontalArrangement = Arrangement.spacedBy(5.dp)
-        ) {
-            repeat(2) { index ->
-                Box(
-                    Modifier.size(5.dp).background(
-                        MaterialTheme.colorScheme.onSurface.copy(alpha = if (index == selectedPage) 0.65f else 0.2f),
-                        CircleShape
+            Box(
+                Modifier.weight(1f).heightIn(min = 30.dp)
+                    .then(
+                        if (selected) {
+                            Modifier.dropShadow(
+                                shape = shape,
+                                shadow = Shadow(
+                                    radius = 3.dp,
+                                    color = Color.Black.copy(alpha = if (isDark) 0f else 0.08f),
+                                    offset = DpOffset(x = 0.dp, y = 1.dp)
+                                )
+                            )
+                        } else {
+                            Modifier
+                        }
                     )
+                    .clip(shape)
+                    .background(if (selected) segmentedSelectedFill() else Color.Transparent)
+                    .clickable { onSelectPage(index) }
+                    .testTag("conversation-page-switch-$index"),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    label,
+                    color = homeInk(if (selected) 0.92f else 0.55f),
+                    fontSize = 13.sp,
+                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                    maxLines = 1
                 )
             }
         }

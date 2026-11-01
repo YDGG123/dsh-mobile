@@ -284,7 +284,8 @@ internal fun ConversationScreen(
             },
             onPlugins = onPlugins,
             onScheduledTasks = onScheduledTasks,
-            onSettings = onSettings
+            onSettings = onSettings,
+            plain = true
         )
     }
 
@@ -308,6 +309,7 @@ internal fun ConversationScreen(
                                     dismissInput()
                                     onBack()
                                 },
+                                plain = true,
                                 modifier = Modifier.padding(start = 8.dp, end = 8.dp)
                             )
                             if (!compactHeader) {
@@ -321,7 +323,7 @@ internal fun ConversationScreen(
                             Box(Modifier.padding(start = 4.dp, end = 8.dp)) { headerMode() }
                         }
                         if (stateHolder.teamSnapshot.visible) {
-                            TeamEntryButton(stateHolder)
+                            TeamEntryButton(stateHolder, plain = true)
                             Spacer(Modifier.width(16.dp))
                         }
                         if (compactHeader) {
@@ -335,7 +337,8 @@ internal fun ConversationScreen(
                             onBrowseFiles = {
                                 workspaceInitialPath = null
                                 showWorkspaceFiles = true
-                            }
+                            },
+                            plain = true
                         )
                         Spacer(Modifier.width(8.dp))
                     }
@@ -410,9 +413,10 @@ internal fun TopBarCircleButton(
     iconRes: Int,
     description: String,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    plain: Boolean = false
 ) {
-    TopBarCircleButton(description = description, onClick = onClick, modifier = modifier) {
+    TopBarCircleButton(description = description, onClick = onClick, modifier = modifier, plain = plain) {
         Icon(
             painter = painterResource(iconRes),
             contentDescription = null,
@@ -427,8 +431,22 @@ internal fun TopBarCircleButton(
     description: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    plain: Boolean = false,
     content: @Composable () -> Unit
 ) {
+    // plain = iOS 工具栏项形态（无圆底/无阴影/无描边；RootView.swift:1002-1034 直接摆图标）。
+    // 仅会话页顶栏用（用户 2026-11-02 点的是会话页顶栏）；其余页面维持上游圆钮不动。
+    if (plain) {
+        Box(
+            modifier.size(44.dp)
+                .clickable(onClick = onClick)
+                .semantics { contentDescription = description },
+            contentAlignment = Alignment.Center
+        ) {
+            content()
+        }
+        return
+    }
     val isDark = isSystemInDarkTheme()
     val shadowColor = Color.Black.copy(alpha = if (isDark) 0.24f else 0.075f)
     Box(
@@ -460,14 +478,16 @@ internal fun TopBarCircleButton(
 @Composable
 internal fun ConversationMoreMenu(
     canBrowseFiles: Boolean,
-    onBrowseFiles: () -> Unit
+    onBrowseFiles: () -> Unit,
+    plain: Boolean = false
 ) {
     var expanded by remember { mutableStateOf(false) }
     Box {
         TopBarCircleButton(
             iconRes = R.drawable.ic_more_horizontal,
             description = appText("更多"),
-            onClick = { expanded = true }
+            onClick = { expanded = true },
+            plain = plain
         )
         DshMenu(
             expanded = expanded,
@@ -1621,10 +1641,14 @@ private fun Composer(
     LaunchedEffect(stateHolder.snapshot.selectedSessionId) {
         voice.open(stateHolder.snapshot.selectedSessionId ?: "new-session", stateHolder.messageDraft)
     }
-    val shape = RoundedCornerShape(24.dp)
+    val shape = RoundedCornerShape(20.dp)
     val isDark = isSystemInDarkTheme()
     val shadowColor = dshFloatingSurfaceShadow(isDark)
-    val glassEdge = dshGlassEdge(isDark)
+    // composer 外壳三件套（iOS ConversationView.swift:1395-1406 + Theme.swift:435-444）：
+    // ① 底 = composerFill（浅色纯白 / 深色 navyRaised，**不透明**）——绝不能用 cardFill（0.55 半透），
+    //   iOS 2026-10-29 真机回归注释写明两者不能互替；② 描边 = cardStroke 1pt；③ 圆角 = DSHRadius.lg 20。
+    val composerFill = if (isDark) DshColors.NavyRaised else Color.White
+    val composerStroke = if (isDark) homeStroke(0.12f) else homeStroke(0.17f)
     val composerHasContent = stateHolder.messageDraft.trim().isNotEmpty() || stateHolder.preparedImages.isNotEmpty() || stateHolder.fileUploads.drafts.isNotEmpty() || stateHolder.fileUploads.preparing
     val voiceDividerColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)
     LaunchedEffect(stateHolder.preparedImages.isNotEmpty()) {
@@ -1668,7 +1692,7 @@ private fun Composer(
         }
     }
     Column(
-        Modifier.fillMaxWidth().padding(horizontal = 14.dp).padding(bottom = 10.dp),
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 10.dp),
         verticalArrangement = Arrangement.spacedBy(if (stateHolder.selectedQueueItems.isEmpty()) 0.dp else (-24).dp)
     ) {
         AnimatedVisibility(
@@ -1691,11 +1715,11 @@ private fun Composer(
                     )
             ),
             shape = shape,
-            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
-            border = androidx.compose.foundation.BorderStroke(0.8.dp, glassEdge)
+            color = composerFill,
+            border = androidx.compose.foundation.BorderStroke(1.dp, composerStroke)
         ) {
             Column(
-                Modifier.padding(horizontal = 14.dp).padding(top = 14.dp, bottom = 12.dp),
+                Modifier.padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 if (stateHolder.preparedImages.isNotEmpty()) {
@@ -1819,13 +1843,12 @@ private fun Composer(
                                 })
                         }
                     }
-                    if (!stateHolder.isViewingTeamMember) PermissionControl(stateHolder, Modifier.width(82.dp))
-                    Spacer(Modifier.width(2.dp))
+                    if (!stateHolder.isViewingTeamMember) PermissionControl(stateHolder)
                     if (!stateHolder.isViewingTeamMember) {
-                        ModelControl(
-                            stateHolder = stateHolder,
-                            modifier = Modifier.weight(1f)
-                        )
+                        // iOS :1288-1294：权限位之后 Spacer(minLength: 2)，模型/思考 chip 靠右。
+                        Spacer(Modifier.weight(1f))
+                        ModelControl(stateHolder)
+                        EffortControl(stateHolder)
                     } else if (stateHolder.selectedMemberCanSend) {
                         Spacer(Modifier.weight(1f))
                     } else {
@@ -1838,7 +1861,7 @@ private fun Composer(
                     }
                     ContextUsageRing(stateHolder)
                     Box(
-                        Modifier.size(42.dp)
+                        Modifier.size(34.dp)
                             .alpha(
                                 if (stateHolder.showsSessionStopButton) {
                                     if (stateHolder.canCancelSelectedSession) 1f else 0.66f
@@ -1846,6 +1869,8 @@ private fun Composer(
                             )
                             .clip(CircleShape)
                             // 背景直接绘制圆形，避免半透明状态依赖图层裁剪后露出方形底色。
+                            // iOS :1356-1370：34×34 品牌蓝圆钮，白 17pt bold 图标三态
+                            // （空态 mic / 有内容 arrow.up / 语音模式 keyboard），停止态 14×14 白方块。
                             .background(DshColors.Ocean, CircleShape)
                             .clickable(
                                 enabled = if (stateHolder.showsSessionStopButton) {
@@ -1895,10 +1920,10 @@ private fun Composer(
                                 painter = painterResource(
                                     if (composerHasContent) R.drawable.ic_arrow_up
                                     else if (voice.state.voiceMode) R.drawable.ic_composer_keyboard
-                                    else R.drawable.ic_voice_waveform
+                                    else R.drawable.ic_mic
                                 ),
                                 contentDescription = null,
-                                modifier = Modifier.size(24.dp),
+                                modifier = Modifier.size(20.dp),
                                 tint = Color.White
                             )
                         }
@@ -2327,26 +2352,21 @@ private fun PermissionControl(
     val options = stateHolder.snapshot.permissions?.options.orEmpty()
     val enabled = stateHolder.snapshot.selectedSessionId != null && options.isNotEmpty()
     Box(modifier) {
-        Row(
-            modifier = Modifier.fillMaxWidth().clickable(enabled = enabled) { expanded = true },
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(5.dp)
+        // iOS ConversationView.swift:1944-1963：30×28 chipFill 圆钮（DSHRadius.sm），**零文字**——
+        // 原注释「7 个位在 390pt 上要留宽度给模型 chip」。vc38 之前是图标+文字。
+        Box(
+            Modifier.size(width = 30.dp, height = 28.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(composerChipFill())
+                .clickable(enabled = enabled) { expanded = true }
+                .semantics { contentDescription = permissionTitle(selected) },
+            contentAlignment = Alignment.Center
         ) {
             Icon(
                 painter = painterResource(permissionIcon(selected)),
                 contentDescription = null,
-                modifier = Modifier.size(14.dp),
-                tint = semanticLabel(0.60f)
-            )
-            Text(
-                options.firstOrNull { it.value == selected }?.name
-                    ?: stateHolder.snapshot.permissionDefaultOptions.firstOrNull { it.value == selected }?.name
-                    ?: permissionTitle(selected),
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Medium,
-                color = semanticLabel(0.60f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                modifier = Modifier.size(15.dp),
+                tint = homeInk(0.60f)
             )
         }
         ComposerPopupMenu(
@@ -2434,35 +2454,40 @@ private fun ModelControl(
     modifier: Modifier = Modifier
 ) {
     var expanded by remember { mutableStateOf(false) }
-    val effort = currentModelEffortTitle(stateHolder)
     val selection = currentModelSelection(stateHolder)
     val groups = stateHolder.snapshot.modelCatalog?.groups.orEmpty()
     val enabled = stateHolder.snapshot.selectedSessionId != null &&
         groups.isNotEmpty() && stateHolder.snapshot.modelCatalog?.routable != false
     Box(modifier) {
+        // iOS ConversationModelMenuLabel（ConversationView.swift:2879-2906）：
+        // chipFill 胶囊 + meta 11pt ink(0.6) + chevron.down 8pt ink(0.4)，minHeight 28。
+        // 紫色 effort 标已拆成独立 EffortControl（用户 2026-11-02 指出缺思考档位）。
         Row(
-            modifier = Modifier.fillMaxWidth().clickable(enabled = enabled) { expanded = true },
+            modifier = Modifier
+                .testTag("model-chip")
+                .clip(RoundedCornerShape(12.dp))
+                .background(composerChipFill())
+                .clickable(enabled = enabled) { expanded = true }
+                .heightIn(min = 28.dp)
+                .padding(horizontal = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(5.dp)
+            horizontalArrangement = Arrangement.spacedBy(2.dp)
         ) {
             Text(
                 modelTitle(stateHolder),
-                modifier = Modifier.weight(1f),
-                textAlign = TextAlign.End,
-                fontSize = 12.sp,
+                fontSize = 11.sp,
+                lineHeight = 13.sp,
                 fontWeight = FontWeight.Medium,
-                color = semanticLabel(0.60f),
+                color = homeInk(0.60f),
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.widthIn(max = 148.dp)
             )
-            effort?.let {
-                ReasoningEffortTag(it)
-            }
             Icon(
-                painter = painterResource(R.drawable.ic_chevrons_vertical),
+                painter = painterResource(R.drawable.ic_chevron_down),
                 contentDescription = null,
-                modifier = Modifier.size(9.dp),
-                tint = semanticLabel(0.30f)
+                modifier = Modifier.size(8.dp),
+                tint = homeInk(0.40f)
             )
         }
         ComposerPopupMenu(
@@ -2472,24 +2497,7 @@ private fun ModelControl(
             alignment = Alignment.BottomEnd,
             horizontalCompensation = 28.dp
         ) {
-            val efforts = currentModelEfforts(stateHolder)
-            if (efforts.isNotEmpty()) {
-                ComposerMenuSectionTitle(appText("推理等级"))
-                efforts.forEach { option ->
-                    ComposerMenuItem(
-                        title = option.name,
-                        selected = option.id == selection?.reasoningEffort
-                    ) {
-                        selection ?: return@ComposerMenuItem
-                        stateHolder.selectModel(selection.provider, selection.model, option.id)
-                        expanded = false
-                    }
-                }
-                HorizontalDivider(
-                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 4.dp),
-                    color = semanticLabel(0.30f)
-                )
-            }
+            // 推理等级菜单已移到独立的 EffortControl（iOS S26：思考档位独立 chip + 独立菜单）。
             groups.forEachIndexed { index, group ->
                 if (index > 0) HorizontalDivider(
                     modifier = Modifier.padding(horizontal = 18.dp, vertical = 4.dp),
@@ -2517,23 +2525,81 @@ private fun ModelControl(
     }
 }
 
+/** composer chip 公共底：iOS `chipFill`（Theme.swift:452-454）= veil(0.12) 浅色 / veil(0.08) 深色。 */
 @Composable
-internal fun ReasoningEffortTag(title: String) {
-    Text(
-        title,
-        modifier = Modifier
+internal fun composerChipFill(): Color =
+    if (LocalDshIsDark.current) homeVeil(0.08f) else homeVeil(0.12f)
+
+/**
+ * 思考档位 chip 的可见本体（iOS ConversationEffortMenuLabel :2909-2933）：
+ * chipFill + meta 11pt ink(0.6) + chevron.down 8pt ink(0.4)，minHeight 28。
+ * 独立 composable 以便 device test 直接量几何（iOS minHeight 28，旧紫标 ≤22 的口径作废）。
+ */
+@Composable
+internal fun ComposerEffortChipLabel(title: String, modifier: Modifier = Modifier) {
+    Row(
+        modifier
             .testTag("reasoning-effort-tag")
-            .background(
-                DshColors.Purple.copy(alpha = 0.16f),
-                RoundedCornerShape(7.dp)
-            )
-            .padding(horizontal = 6.dp, vertical = 2.dp),
-        color = semanticLabel(1f),
-        fontSize = 10.sp,
-        lineHeight = 11.sp,
-        fontWeight = FontWeight.SemiBold,
-        maxLines = 1
-    )
+            .clip(RoundedCornerShape(12.dp))
+            .background(composerChipFill())
+            .heightIn(min = 28.dp)
+            .padding(horizontal = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        Text(
+            title,
+            fontSize = 11.sp,
+            lineHeight = 13.sp,
+            fontWeight = FontWeight.Medium,
+            color = homeInk(0.60f),
+            maxLines = 1
+        )
+        Icon(
+            painter = painterResource(R.drawable.ic_chevron_down),
+            contentDescription = null,
+            modifier = Modifier.size(8.dp),
+            tint = homeInk(0.40f)
+        )
+    }
+}
+
+/**
+ * 思考档位独立 chip（iOS ConversationEffortMenuLabel :2909-2933 + effortControl :2024-2050）：
+ * 文案「思考 <档位名>」、meta 11pt ink(0.6)、chevron.down 8pt ink(0.4)、minHeight 28、chipFill。
+ * 模型不支持推理时整颗不出现（iOS `if !currentEfforts.isEmpty`）。
+ * vc38 之前档位是塞在模型行里的紫色小标（ReasoningEffortTag），形态与 iOS 完全不同（用户 11-02 指出）。
+ */
+@Composable
+private fun EffortControl(stateHolder: AndroidSharedStateHolder, modifier: Modifier = Modifier) {
+    val efforts = currentModelEfforts(stateHolder)
+    if (efforts.isEmpty()) return
+    var expanded by remember { mutableStateOf(false) }
+    val selection = currentModelSelection(stateHolder)
+    Box(modifier) {
+        ComposerEffortChipLabel(
+            title = appText("思考") + " " + (currentModelEffortTitle(stateHolder) ?: efforts.first().name),
+            modifier = Modifier
+        )
+        ComposerPopupMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            width = 224.dp,
+            alignment = Alignment.BottomEnd,
+            horizontalCompensation = (-28).dp
+        ) {
+            efforts.forEach { option ->
+                ComposerMenuItem(
+                    title = option.name,
+                    selected = option.id == (selection?.reasoningEffort ?: efforts.first().id)
+                ) {
+                    selection ?: return@ComposerMenuItem
+                    stateHolder.selectModel(selection.provider, selection.model, option.id)
+                    expanded = false
+                }
+            }
+        }
+    }
 }
 
 @Composable

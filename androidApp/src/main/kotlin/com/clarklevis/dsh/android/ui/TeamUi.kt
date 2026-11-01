@@ -87,7 +87,7 @@ import com.clarklevis.dsh.shared.facade.TeamTaskView
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun TeamEntryButton(holder: AndroidSharedStateHolder) {
+internal fun TeamEntryButton(holder: AndroidSharedStateHolder, plain: Boolean = false) {
     var menu by remember { mutableStateOf(false) }
     var sheet by remember { mutableStateOf(false) }
     val selected = holder.snapshot.selectedSessionId
@@ -96,6 +96,7 @@ internal fun TeamEntryButton(holder: AndroidSharedStateHolder) {
         TopBarCircleButton(
             description = appText("查看智能体团队"),
             onClick = { menu = !menu },
+            plain = plain,
             modifier = Modifier.testTag("team-entry").semantics { role = Role.Button },
         ) {
             val color = MaterialTheme.colorScheme.onSurface

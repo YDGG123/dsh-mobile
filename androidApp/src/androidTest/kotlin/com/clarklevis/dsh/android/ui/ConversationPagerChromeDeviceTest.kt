@@ -65,8 +65,12 @@ class ConversationPagerChromeDeviceTest {
             val title = compose.onNodeWithTag("conversation-page-title")
             val pager = compose.onNodeWithTag("conversation-pager")
             compose.onNodeWithTag("conversation-tabs").assertDoesNotExist()
+            // 结构判据（AndroidTester 2026-11-02 定）：页头块内不得出现正文——
+            // 分段在流内、正文从它下方开始（iOS ConversationView:440 是 VStack 第三个元素，不是 overlay）。
+            // 旧断言「正文延伸到顶部玻璃后方」对应已废弃的浮层结构，随本次一起作废。
+            val switchBounds = compose.onNodeWithTag("conversation-page-switch").fetchSemanticsNode().boundsInRoot
             val listBounds = compose.onNodeWithTag("conversation-message-list").fetchSemanticsNode().boundsInRoot
-            assertTrue("正文应延伸到顶部玻璃后方", listBounds.top < title.fetchSemanticsNode().boundsInRoot.top)
+            assertTrue("正文首行应从分段下方开始", listBounds.top >= switchBounds.bottom)
             val preview = compose.onNodeWithTag("conversation-screen").captureToImage()
             InstrumentationRegistry.getInstrumentation().targetContext.cacheDir
                 .resolve("conversation-pager-aligned.png").outputStream().use {
@@ -104,7 +108,7 @@ class ConversationPagerChromeDeviceTest {
     }
 
     @Test
-    fun indicatorFadesAndRestartsForPageAndSessionChanges() {
+    fun inFlowSwitchSelectsPagesAndReplacesTransientDots() {
         var sessionId by mutableStateOf("first")
         compose.setContent {
             DshTheme {
@@ -119,19 +123,21 @@ class ConversationPagerChromeDeviceTest {
                 ) { _, _ -> }
             }
         }
-        compose.onNodeWithTag("conversation-page-indicator").assertIsDisplayed()
-        fun waitForFade() {
-            compose.mainClock.advanceTimeBy(2_400)
-            compose.waitForIdle()
-            compose.onNodeWithTag("conversation-page-indicator").assertDoesNotExist()
-        }
-        waitForFade()
+        // iOS 无瞬态圆点指示器（DSHSegmented 之外没有第二指示物），vc38 的
+        // conversation-page-indicator 已随结构对齐删除；分段在流内、点击可切页。
+        compose.onNodeWithTag("conversation-page-indicator").assertDoesNotExist()
+        compose.onNodeWithTag("conversation-page-switch").assertIsDisplayed()
+        compose.onNodeWithTag("conversation-page-switch-0").assertIsDisplayed()
+        compose.onNodeWithTag("conversation-page-switch-1").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithTag("conversation-page-title")
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "轨迹"))
         val switchPage = compose.onNodeWithTag("conversation-pager").fetchSemanticsNode().config[SemanticsActions.CustomActions].single()
         compose.runOnIdle { assertTrue(switchPage.action()) }
-        compose.onNodeWithTag("conversation-page-indicator").assertIsDisplayed()
-        waitForFade()
+        compose.onNodeWithTag("conversation-page-title")
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "对话"))
         compose.runOnIdle { sessionId = "second" }
-        compose.onNodeWithTag("conversation-page-indicator").assertIsDisplayed()
+        compose.onNodeWithTag("conversation-page-switch").assertIsDisplayed()
     }
 
     @Test
