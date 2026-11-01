@@ -446,8 +446,18 @@ class AndroidSharedStateHolder(
      * 错误弹窗的主行动（AndroidTester 2026-11-02 指出：文案说「请重新扫码配对」，
      * 但弹窗只有一个固定的「重新连接」按钮 ⇒ 指向的动作不可达）。
      */
-    var platformErrorAction: PlatformErrorAction by mutableStateOf(PlatformErrorAction.RECONNECT)
-        private set
+    /** 凭证失效的两条固定文案（只有它们需要「重新扫码配对」动作）。 */
+    private val credentialErrorMessages = setOf(
+        "网关凭证已失效（系统密钥不可用），请重新扫码配对",
+        "读取已保存的连接失败，请重新扫码配对或手动连接"
+    )
+
+    /**
+     * **派生**，不是第二个可变状态（Chief 2026-11-02 要的"两者不可能不同步"）：
+     * 动作由文案唯一决定，新增 59 处 `platformError =` 的任何一处都不会造成不一致。
+     */
+    val platformErrorAction: PlatformErrorAction
+        get() = if (platformError in credentialErrorMessages) PlatformErrorAction.PAIR else PlatformErrorAction.RECONNECT
 
     /** 请求打开扫码配对（app 级弹窗 → 工作区页的配对 UI 之间的事件计数）。 */
     var pairingRequestTick: Int by mutableStateOf(0)
@@ -2003,7 +2013,6 @@ class AndroidSharedStateHolder(
 
     fun clearPlatformError() {
         platformError = null
-        platformErrorAction = PlatformErrorAction.RECONNECT
     }
 
     fun showPlatformError(message: String) {
@@ -3407,14 +3416,12 @@ class AndroidSharedStateHolder(
                     val connected = runCatching { appGraph.gatewayRuntime.connectStoredIfPaired() }
                         .getOrElse {
                             withContext(Dispatchers.Main.immediate) {
-                                platformErrorAction = PlatformErrorAction.PAIR
-                        platformError = "读取已保存的连接失败，请重新扫码配对或手动连接"
+                                platformError = "读取已保存的连接失败，请重新扫码配对或手动连接"
                             }
                             false
                         }
                     if (!connected && tokenUnreadable) {
                         withContext(Dispatchers.Main.immediate) {
-                            platformErrorAction = PlatformErrorAction.PAIR
                             platformError = "网关凭证已失效（系统密钥不可用），请重新扫码配对"
                         }
                     }

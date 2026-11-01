@@ -261,11 +261,7 @@ internal fun DshProductApp(
             onConfirm = {
                 val pair = stateHolder.platformErrorAction == com.clarklevis.dsh.android.PlatformErrorAction.PAIR
                 stateHolder.clearPlatformError()
-                if (pair) {
-                    stateHolder.requestPairing()
-                } else {
-                    stateHolder.connect()
-                }
+                if (pair) stateHolder.requestPairing() else stateHolder.connect()
             }
         )
     }
