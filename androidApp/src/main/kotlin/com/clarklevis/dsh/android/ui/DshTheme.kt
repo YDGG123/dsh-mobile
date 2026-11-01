@@ -111,8 +111,13 @@ internal fun homeInk(alpha: Float = 1f): Color =
 @Composable
 internal fun semanticLabel(alpha: Float = 1f): Color =
     if (LocalDshIsDark.current) {
-        // iOS 深色 `secondaryLabel` = (235,235,245)，不是纯白；tertiary 同基底 @0.30
-        Color(0xFFEBEBF5).copy(alpha = alpha)
+        // **1f 档必须是纯白**（Navy 底 18.02）——若把 #EBEBF5 全不透明用在 1f 上只有 15.22（AndroidTester 实算）。
+        // 深色 sub 档基底 = iOS `secondaryLabel` 深色 (235,235,245)，不是纯白。
+        // 真机实测（`03-conversation--dark`）与表值的三处已知偏差，装机后同元素配对复核：
+        //   次要 实测模态 (141,141,146)（中性灰 R=G，表值带蓝 B−R=21）→ navy 底 5.46 vs 表 6.08（差 0.62）
+        //   最淡 真机 55–85 灰阶带（1.77–2.07，细笔画占 8.8%）→ 表 2.44（差 0.4–0.7，可能被细笔画拉偏）
+        //   正文 250–260 大簇 → 18.02 逐值命中 ✓
+        if (alpha >= 1f) Color.White else Color(0xFFEBEBF5).copy(alpha = alpha)
     } else {
         // iOS 浅色：`label` = 纯黑 @1.00（21.00）；
         // `secondaryLabel`/`tertiaryLabel` = **#3C3C43 (60,60,67)** 基底 @0.60/@0.30 → 3.44/1.73。
