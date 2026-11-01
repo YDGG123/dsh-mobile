@@ -1871,7 +1871,8 @@ private fun Composer(
                             // 背景直接绘制圆形，避免半透明状态依赖图层裁剪后露出方形底色。
                             // iOS :1356-1370：34×34 品牌蓝圆钮，白 17pt bold 图标三态
                             // （空态 mic / 有内容 arrow.up / 语音模式 keyboard），停止态 14×14 白方块。
-                            .background(DshColors.Ocean, CircleShape)
+                            // brand 有主题分支（iOS Theme.swift:462-464）：深色 = #4D8CFF（OceanDark）。
+                            .background(if (LocalDshIsDark.current) DshColors.OceanDark else DshColors.Ocean, CircleShape)
                             .clickable(
                                 enabled = if (stateHolder.showsSessionStopButton) {
                                     stateHolder.canCancelSelectedSession
