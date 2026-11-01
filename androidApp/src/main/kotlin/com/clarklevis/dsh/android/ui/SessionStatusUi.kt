@@ -236,7 +236,7 @@ private fun SessionStatsPopover(
 @Composable
 private fun AgentStatusRow(title: String, value: String) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(title, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp)
+        Text(title, color = homeInk(0.60f), fontSize = 14.sp)
         Spacer(Modifier.weight(1f))
         Text(
             value,
@@ -323,7 +323,7 @@ internal fun SessionStatsSheet(
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Text(appText("正在读取会话统计"), fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
                                 Spacer(Modifier.height(8.dp))
-                                Text(appText("统计会在本轮结束后自动更新。"), color = colors.onSurfaceVariant, fontSize = 14.sp)
+                                Text(appText("统计会在本轮结束后自动更新。"), color = homeInk(0.40f), fontSize = 14.sp)
                             }
                         }
                     } else {
@@ -367,7 +367,7 @@ internal fun SessionStatsSheet(
                         snapshot.asOfSeq?.let {
                             Text(
                                 appText("数据截至事件 #%1\$s", it),
-                                color = colors.onSurfaceVariant,
+                                color = homeInk(0.40f),
                                 fontSize = 12.sp,
                                 fontFamily = FontFamily.Monospace
                             )
@@ -412,7 +412,7 @@ private fun StatsMetricsSection(
                     modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 16.sp)
+                    Text(label, color = homeInk(0.60f), fontSize = 16.sp)
                     Spacer(Modifier.weight(1f))
                     Text(
                         value,
