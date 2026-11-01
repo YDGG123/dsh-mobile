@@ -62,14 +62,23 @@ data class ConversationItem(
      *
      * ⚠️ **已知边界（Chief 2026-11-02 裁定不做）**：**helper 产物本条为 `null`**——
      * `appendStream` / `upsertStatus` / `insert` 等 helper 里构造的条目（工具/流式/状态类，共 9 处）
-     * 作用域里没有 `record`，填 seq 需要改函数签名并一路透传，收益有限（这些条目 id 本就是
-     * `sessionId-seq`）。**消费方（合并层）的取值优先级因此写死**：
+     * 作用域里没有 `record`，填 seq 需要改函数签名并一路透传。
+     *
+     * ⚠️ **修正（AndroidTester 2026-11-02 量化）**：原先注释说「这些条目 id 本就是 `sessionId-seq`，
+     * 拆比透传免费」——**对不上代码**。`appendStream` 的 4 个调用点 id 全是**合成 key**
+     * （`stream-text-$key` / `stream-reason-$key` / `stream-tool-$toolKey` / `appendStream(key, key, …)`），
+     * **末段不是 seq**；steering 的 id 末段是 rawId，也不是 seq（但那条已填 seq，不受影响）。
+     * 所以这些条目**两样都拿不到 ⇒ 必然落到第三档**。**消费方（合并层）的取值优先级因此写死**：
      *
      * ```
      * item.seq          → 有则用（用户消息等已填）
-     * 否则从 id 末段拆   → "sessionId-seq" 形态
+     * 否则从 id 末段拆   → 仅当末段是纯数字（"sessionId-seq" 形态）；**非数字一律视为拿不到**
+     *                      （不得抛异常、不得默认 0 —— 那会变成另一个静默错值）
      * 两样都拿不到      → **该条目不参与去重，但必须留日志**（不许静默跳过）
      * ```
+     *
+     * ⇒ **第三档是常态，不是异常路径**：装机 logcat 里应能看到**多条**该类日志；一条都没有才判红
+     * （说明第三档压根没实现，而页面上看不出任何异常）。
      *
      * 用户消息两条路径（steering / user-message）**已填 seq**，③「自己发的只出现一次」不缺字段。
      */
