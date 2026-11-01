@@ -108,6 +108,9 @@ internal fun DshTabBar(
             // iOS 16–25 分支补的是 ink 系描边：`Capsule().strokeBorder(palette.cardStroke, 1)`
             // （Theme.swift:1070-1074），浅色 = stroke(0.17) ≈ #0E131A 16.2%，深色 = stroke(0.12)。
             // 用户实机 iPhone 走的就是这条分支，所以 Android 一律补（含 S+ 玻璃路径），与所见一致。
+            // **分支已定档（2026-11-01）**：用户手机是 **iOS 16.4**（≤25）→ 永远渲染这一支，
+            // 所以这里的 1pt 墨描边是「对齐基准」，不是偏离；团队 iOS 26.3 模拟器拍的图**只能当 26 支参考**，
+            // 不可作本轮 B3 的对侧（26 支走 glassEffect、无描边）。
             .border(
                 width = 1.dp,
                 color = homeStroke(if (dark) 0.12f else 0.17f),
