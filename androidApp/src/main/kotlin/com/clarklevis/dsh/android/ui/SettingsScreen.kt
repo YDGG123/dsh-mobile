@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -57,6 +58,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -116,7 +118,10 @@ internal fun SettingsScreen(
     LaunchedEffect(stateHolder.gatewayState.connection) {
         stateHolder.refreshProductState()
         stateHolder.refreshCacheStorage()
-        if (isConnected(stateHolder)) stateHolder.refreshPlugins()
+        if (isConnected(stateHolder)) {
+            stateHolder.refreshPlugins()
+            if (stateHolder.scheduledTasks.isEmpty()) stateHolder.refreshScheduledTasks()
+        }
     }
     Scaffold(
         topBar = {
@@ -167,7 +172,7 @@ internal fun SettingsScreen(
                         title = appText("外观"),
                         footer = appText("语言设置将在重新启动应用后生效。支持简体中文和英文。")
                     ) {
-                        InterfaceStyleSettingsRow()
+                        ThemeSegmentedRow()
                         SettingsDivider()
                         LanguageSettingsRow()
                         SettingsDivider()
@@ -217,8 +222,12 @@ internal fun SettingsScreen(
                     SettingsSection(title = appText("扩展")) {
                         SettingsValueRow(
                             title = appText("全部扩展"),
-                            value = stateHolder.pluginCatalog?.bundles?.size?.let { appText("%1\$s 个", it) }
-                                ?: appText("未提供"),
+                            // iOS 该行值形态：「0 插件 · 0 任务」（06-settings 实测）
+                            value = appText(
+                                "%1\$s 插件 · %2\$s 任务",
+                                stateHolder.pluginCatalog?.bundles?.size ?: 0,
+                                stateHolder.scheduledTasks.size
+                            ),
                             onClick = onOpenPlugins
                         )
                     }
@@ -226,11 +235,8 @@ internal fun SettingsScreen(
                     SettingsSection(title = appText("连接")) {
                         GatewayEndpointRow(stateHolder)
                         SettingsDivider()
+                        // iOS 该组只有 3 行：网关地址 / 连接状态 / Ping 网关 —— 「连接|断开」是状态行本身的动作
                         GatewayStatusRow(stateHolder)
-                        SettingsDivider()
-                        SettingsActionRow(if (isConnected(stateHolder)) appText("断开连接") else appText("连接")) {
-                            if (isConnected(stateHolder)) stateHolder.disconnect() else stateHolder.connect()
-                        }
                         SettingsDivider()
                         SettingsActionRow(appText("Ping 网关"), enabled = isConnected(stateHolder), onClick = stateHolder::pingGateway)
                     }
@@ -859,22 +865,46 @@ internal fun FontSizeSettingsRow(onClick: () -> Unit) {
     )
 }
 
+/** B4 §2：主题 = **三档分段控件**（跟随系统 / 浅色 / 深色），宽 232（iOS 06-settings 实测形态）。
+ *  原先做成「值 + 弹层」，与 iOS 不符 —— 分段控件是 iOS 这一行的原生形态。 */
 @Composable
-internal fun InterfaceStyleSettingsRow() {
+internal fun ThemeSegmentedRow() {
     val appearance = LocalAppearanceSettings.current
-    var expanded by remember { mutableStateOf(false) }
-    Box {
-        SettingsValueRow(appText("界面"), appearance.interfaceStyle.title) { expanded = true }
-        DshSelectionPopup(
-            expanded = expanded,
-            options = InterfaceStyle.entries.map { DshSelectionOption(it.name, it.title) },
-            selectedKey = appearance.interfaceStyle.name,
-            onDismissRequest = { expanded = false },
-            onSelect = { key ->
-                appearance.selectInterfaceStyle(InterfaceStyle.valueOf(key))
-                expanded = false
+    val dark = LocalDshIsDark.current
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 50.dp).padding(horizontal = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(appText("主题"), color = homeInk(0.92f), fontSize = 15.sp)
+        Spacer(Modifier.weight(1f))
+        Row(
+            Modifier.width(232.dp).height(32.dp)
+                .background(if (dark) Color.White.copy(alpha = 0.08f) else homeVeil(0.07f), RoundedCornerShape(9.dp))
+                .padding(2.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            InterfaceStyle.entries.forEach { style ->
+                val selected = style == appearance.interfaceStyle
+                Box(
+                    Modifier.weight(1f).fillMaxHeight()
+                        .background(
+                            if (selected) (if (dark) Color.White.copy(alpha = 0.16f) else Color.White)
+                            else Color.Transparent,
+                            RoundedCornerShape(7.dp)
+                        )
+                        .clickable(role = Role.Button) { appearance.selectInterfaceStyle(style) }
+                        .testTag("settings-theme-${style.name.lowercase()}"),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        style.title,
+                        color = homeInk(if (selected) 0.92f else 0.5f),
+                        fontSize = 13.sp,
+                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
+                    )
+                }
             }
-        )
+        }
     }
 }
 
@@ -975,7 +1005,12 @@ private fun GatewayEndpointRow(stateHolder: AndroidSharedStateHolder) {
 @Composable
 private fun GatewayStatusRow(stateHolder: AndroidSharedStateHolder) {
     Row(
-        Modifier.fillMaxWidth().heightIn(min = 50.dp).padding(horizontal = 14.dp),
+        // 状态行本身可点：未连接点=连接、已连接点=断开（对齐 iOS 连接组只有 3 行的形态）
+        Modifier.fillMaxWidth().heightIn(min = 50.dp).padding(horizontal = 14.dp)
+            .clickable(role = Role.Button) {
+                if (isConnected(stateHolder)) stateHolder.disconnect() else stateHolder.connect()
+            }
+            .testTag("settings-gateway-status"),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
