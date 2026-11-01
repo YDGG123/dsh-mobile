@@ -2,11 +2,14 @@ package com.clarklevis.dsh.android.ui
 
 import androidx.annotation.DrawableRes
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -40,6 +43,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -47,6 +52,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.clarklevis.dsh.android.AndroidBridgeTeamAdapter
 import com.clarklevis.dsh.android.R
+import android.widget.Toast
 import com.clarklevis.dsh.android.localization.appText
 import com.clarklevis.dsh.shared.domain.TeamPhase
 import com.clarklevis.dsh.shared.protocol.BridgeInks
@@ -93,7 +99,9 @@ internal fun BotTeamScreen(
      *  Android 侧由 `DshProductApp.WorkspaceHeader` 提供，避免 Bot tab 自绘第二条。 */
     header: (@Composable () -> Unit)? = null,
     /** 有待审批/待回答的会话 id：用于状态点橙档（iOS `!approvals.isEmpty || !pending.isEmpty` ⇒ caution）。 */
-    pendingSessionIds: Set<String> = emptySet()
+    pendingSessionIds: Set<String> = emptySet(),
+    /** 点行进会话（iOS WorkspaceView:801-813 三级回落；Android 先做 bridge sessionId → 开会话）。 */
+    onOpenSession: (String) -> Unit = {}
 ) {
     // 走主题（与 ScheduledTasksScreen/PluginsScreen 一致）：A1 换品牌海军蓝底时本页自动跟随，不许硬编码。
     val background = MaterialTheme.colorScheme.background
@@ -154,9 +162,14 @@ internal fun BotTeamScreen(
         val filteredRooms = remember(rooms, query) {
             if (query.isBlank()) rooms else rooms.filter { it.name.contains(query, ignoreCase = true) }
         }
+        // 顶栏净空：共享页头直接铺在 LazyColumn 顶上，必须自己吃状态栏 inset——
+        // 工作区 tab 的 contentPadding 是 WindowInsets.safeDrawing（DshProductApp:405），
+        // vc40 的 Bot tab 只给了 top=8dp，字标大（52dp 盒）还看得见，
+        // 右侧两枚 34dp 圆钮整个被压在状态栏下 ⇒ 用户看到「＋没了」（11-02 截图）。
+        val topInset = with(LocalDensity.current) { WindowInsets.statusBars.getTop(this).toDp() }
         LazyColumn(
             Modifier.fillMaxSize().padding(padding).testTag("bot-team-list"),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 16.dp + bottomInset),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = topInset + 8.dp, bottom = 16.dp + bottomInset),
             verticalArrangement = Arrangement.spacedBy(2.dp)
         ) {
             // ① 共享页头（字标 + 认证圆钮 + 品牌蓝＋）：由 host 注入，Bot tab 与工作区 tab 同一份。
@@ -185,7 +198,8 @@ internal fun BotTeamScreen(
                         row = row,
                         isMain = mainBotIds.contains(row.id),
                         pending = row.sessionId in pendingSessionIds ||
-                            cards.any { it.owner == row.id }
+                            cards.any { it.owner == row.id },
+                        onOpenSession = onOpenSession
                     )
                 }
             }
@@ -194,7 +208,7 @@ internal fun BotTeamScreen(
             if (filteredRooms.isEmpty()) {
                 item { EmptyRosterRow(appText("暂无群聊")) }
             } else {
-                items(filteredRooms, key = { it.id }) { row -> RoomRow(row, bots) }
+                items(filteredRooms, key = { it.id }) { row -> RoomRow(row, bots, onOpenSession) }
             }
             // ⑤「卡片（N）」节**保留**：BridgeCardRow 全仓唯一渲染点，承载 A4 密钥卡 / E1 view 卡
             // 的可见入口（iOS 走 Bot 行状态文案，D 组 feed 未接）。删它 = 删掉卡片显示，不许顺手删。
@@ -320,11 +334,22 @@ private fun PrimaryBotCard(row: BridgeConversationRow, modifier: Modifier = Modi
  * `row.activity`，bridge 名册只有 `busy`，所以这里只渲染「正在干活」/「空闲」，**不编造动作**。
  */
 @Composable
-private fun BotRow(row: BridgeConversationRow, isMain: Boolean, pending: Boolean = false) {
+private fun BotRow(row: BridgeConversationRow, isMain: Boolean, pending: Boolean = false, onOpenSession: (String) -> Unit = {}) {
     val busy = row.busy == true
+    val context = LocalContext.current
     Row(
         Modifier.fillMaxWidth()
             .heightIn(min = 64.dp)
+            .clickable {
+                // iOS WorkspaceView:801-813：命中就开会话，**落空必须报错**，不许静默没反应
+                //（用户 2026-11-02：「bot 列表的对话点不进去」= vc40 从未实现行点击）。
+                if (row.sessionId.isNotBlank()) onOpenSession(row.sessionId)
+                else Toast.makeText(
+                    context,
+                    appText("这条对话还没同步到会话列表，稍后重试。"),
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
             .padding(horizontal = 4.dp, vertical = 8.dp)
             .testTag("bot-row-${row.name}"),
         verticalAlignment = Alignment.CenterVertically,
@@ -370,10 +395,19 @@ private fun RosterStatusDot(busy: Boolean, caution: Boolean, modifier: Modifier 
 
 /** iOS roomCell（TeamView :482）：名字 + 成员串（、分隔，单行截断）。 */
 @Composable
-private fun RoomRow(row: BridgeConversationRow, bots: List<BridgeConversationRow>) {
+private fun RoomRow(row: BridgeConversationRow, bots: List<BridgeConversationRow>, onOpenSession: (String) -> Unit = {}) {
+    val context = LocalContext.current
     Row(
         Modifier.fillMaxWidth()
             .heightIn(min = 64.dp)
+            .clickable {
+                if (row.sessionId.isNotBlank()) onOpenSession(row.sessionId)
+                else Toast.makeText(
+                    context,
+                    appText("这条对话还没同步到会话列表，稍后重试。"),
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
             .padding(horizontal = 4.dp, vertical = 8.dp)
             .testTag("room-row-${row.name}"), // 独立 tag：原与 BotRow 同 tag，验收脚本无法区分（AndroidTester 指出）
         verticalAlignment = Alignment.CenterVertically,

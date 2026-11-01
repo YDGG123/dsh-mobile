@@ -519,6 +519,7 @@ internal fun WorkspaceScreen(
                 bottomInset = tabClearance,
                 embedded = true, // tab 根分段：不自绘顶栏，页头由下方 header 注入
                 pendingSessionIds = pendingSessionIds,
+                onOpenSession = onOpenSession,
                 // iOS 三个 tab 共用同一条页头（WorkspaceView:936 字标 + :950 认证圆钮 + :955 ＋新建）。
                 // vc39 之前 Bot tab 只有一条居中「团队」标题，是 Android 自造的（用户 11-02 指出）。
                 header = {
