@@ -34,7 +34,10 @@ data class BridgeChatMessage(
     val systemEvent: JsonObject? = null,
     val turn: Int? = null,
     val step: Int? = null,
-    val interrupted: Boolean? = null
+    val interrupted: Boolean? = null,
+    /** 发送者（群聊成员名；用户自己发的没有 author）。 */
+    val author: com.clarklevis.dsh.shared.protocol.BridgeAuthor? = null,
+    val groupReplyId: String? = null
 ) {
     val createdAtMillis: Long? get() = createdAt?.content?.toLongOrNull()
 }
@@ -248,7 +251,9 @@ private fun com.clarklevis.dsh.shared.protocol.BridgeStreamMessage.toChatMessage
         reasoning = reasoning,
         tool = tool,
         attachments = attachments,
-        systemEvent = systemEvent
+        systemEvent = systemEvent,
+        author = author,
+        groupReplyId = groupReplyId
     )
 
 // ---- 平台边界：JSON 进出的聊天状态机（Swift 只持有字符串，归并全部留在 KMP）----

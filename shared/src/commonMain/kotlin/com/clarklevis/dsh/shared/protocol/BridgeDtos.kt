@@ -183,6 +183,16 @@ data class BridgeToolActivity(
     val durationMs: Long? = null
 )
 
+/**
+ * 群聊消息的发送者（服务端只在 room 分支下发，`group-projection.mjs:22/:34`）。
+ * 之前 KMP 没声明 → `ignoreUnknownKeys` 静默丢弃，两端都拿不到「谁说的」。
+ */
+@Serializable
+data class BridgeAuthor(
+    val id: String? = null,
+    val name: String? = null
+)
+
 @Serializable
 data class BridgeStreamMessage(
     val id: String,
@@ -194,7 +204,11 @@ data class BridgeStreamMessage(
     val reasoning: String? = null,
     val tool: BridgeToolActivity? = null,
     val attachments: List<JsonObject> = emptyList(),
-    val systemEvent: JsonObject? = null
+    val systemEvent: JsonObject? = null,
+    /** 发送者（room 消息才有；脱敏场景下 name 可能是占位值）。 */
+    val author: BridgeAuthor? = null,
+    /** 群回复关联 id（`groupReplyId`），用于回复关系。 */
+    val groupReplyId: String? = null
 )
 
 @Serializable
