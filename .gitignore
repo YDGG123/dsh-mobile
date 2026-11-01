@@ -47,3 +47,9 @@ captures/
 
 # 本地打包产物（源码包/设计评审包，不入仓库）
 /AppRelease/
+
+# 构建产物与包（2026-11-01 补：此前 *.ipa 已忽略，但目录名与 *.apk/*.broken/*.unpublished 未覆盖）
+build-output/
+*.apk
+*.ipa.broken
+*.ipa.unpublished
