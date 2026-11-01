@@ -23,6 +23,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.dropShadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.shadow.Shadow
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.DpOffset
@@ -33,6 +34,9 @@ import com.clarklevis.dsh.android.localization.appText
 
 /**
  * B1 只读原型：首页底部 tab bar（Android 原本整条缺失，对齐清单 1.1）。
+ * Bot tab 的指向：**对应 iOS 的 sheet 内容（bridge 名册），而非 iOS tab 内容** ——
+ * iOS 的 Bot 有两个入口（WorkspaceView:321/326 tab 是 feed 驱动；:189/660 sheet 才是
+ * bridge 名册），本条 bar 的 Bot tab 打开的是 sheet 那一份（即本仓 BotTeamScreen）。
  * 数值全量来自 iOS `DSHTabBar`（Core/Theme.swift:1003-1091），验收表 =
  * android-visual-spec.md §4 + AndroidTester 逐值核对：
  * 总高 62 = 54 + 2×4（xs）、圆角 31 = totalHeight/2、水平外边距 16（lg）、
@@ -65,6 +69,8 @@ internal fun DshTabBar(
     Row(
         modifier
             .testTag("home-tab-bar")
+            // 水平外边距 16（iOS :1077 .padding(.horizontal, DSHSpacing.lg)）——玻璃面外侧，整条不贴边。
+            .padding(horizontal = 16.dp)
             // 阴影：iOS glassSurface shadowOpacity 深 0.24 / 浅 0.10（:1075）。半径验收清单未给值，取 16dp 待真机校准。
             .dropShadow(
                 shape = RoundedCornerShape(percent = 50),
@@ -77,7 +83,8 @@ internal fun DshTabBar(
             .dshLiquidGlass(RoundedCornerShape(percent = 50))
             // 内层 padding(xs)=4：总高 62 = 4 + 54 + 4（iOS :1073/:1015）
             .padding(4.dp)
-            .fillMaxWidth()
+            .fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(4.dp) // 项间距 4 = DSHSpacing.xs（iOS :1029）
     ) {
         DshHomeTab.entries.forEach { tab ->
             DshTabItem(
@@ -100,7 +107,12 @@ private fun DshTabItem(
     modifier: Modifier = Modifier
 ) {
     val dark = LocalDshIsDark.current
-    val tint = if (active) Color.White else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.55f) // 未选中 ink(0.55)（:1048）
+    // 未选中色分档（iOS :181-184）：深 Color.white.opacity(0.55)；浅 ink×0.7075（=0.35+0.55×0.65）。
+    val tint = when {
+        active -> Color.White
+        dark -> Color.White.copy(alpha = 0.55f)
+        else -> MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7075f)
+    }
     Column(
         modifier
             .testTag("home-tab-${tab.name.lowercase()}")
@@ -114,10 +126,16 @@ private fun DshTabItem(
         verticalArrangement = Arrangement.spacedBy(3.dp, Alignment.CenterVertically) // 图标↔文字竖距 3（iOS :1034）
     ) {
         Box {
+            // 图标两维度（iOS :1036 .appFont(DSHType.body.weight(.medium))）：
+            // ① 字重 —— iOS 由 SF Symbol（字体符号）承担 medium；Android 矢量 drawable 无字重维度，
+            //    接受差异（追平需整套图标按 medium 重导，成本不成比例）——已知平台差异。
+            // ② 缩放 —— iOS appFont 让图标随用户字号档 0.8–1.5 缩放（Theme.swift:85-87）；
+            //    Android dp 不随 AppFontDensity 缩放，此处按 fontScale 乘出尺寸跟随（否则调字号后图文比例失配）。
+            val fontScale = LocalDensity.current.fontScale
             Icon(
                 painterResource(tab.iconRes),
                 contentDescription = appText(tab.label),
-                modifier = Modifier.size(15.dp), // 图标 15 = DSHType.body 字号（:1036）；SF symbol 随字号，Android 取 15dp
+                modifier = Modifier.size((15 * fontScale).dp), // 基准 15 = DSHType.body 字号位（:1036）
                 tint = tint
             )
             if (badge > 0 && !active) {
@@ -130,7 +148,9 @@ private fun DshTabItem(
                     fontSize = 9.sp,
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .offset(x = 2.dp, y = (-2).dp)
+                        // 固定 7pt 间隙（iOS :1085+ 定稿 iconGap=7：按宽度算会让两位数顶进胶囊圆角被裁）。
+                        // 轴向假设：徽标整体移出图标右上角各 7dp，两位数再往右自然延伸，待真机校准。
+                        .offset(x = 7.dp, y = (-7).dp)
                         .background(DshSemantic.danger, RoundedCornerShape(percent = 50))
                         .padding(horizontal = 3.dp)
                 )
