@@ -416,10 +416,12 @@ private fun RosterAvatar(
     avatar: kotlinx.serialization.json.JsonObject?,
     size: Int
 ) {
-    // fallback 等价值（iOSDev 裁决落规格 §14）：iOS TeamView :539 `Color.secondary.opacity(0.55)`，
-    // secondary=标签色 60% ⇒ 等效 onBackground×0.33，深浅同式。
-    val fallback = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.33f)
+    // fallback 色：规格 §14 裁决值（iOS TeamView:539 Color.secondary.opacity(0.55)
+    // → secondaryLabel 两档 × 0.55 = 组合 alpha 0.33）：
+    //   浅 #3C3C43@0.33 / 深 #EBEBF5@0.33
+    // （Chief 2026-11-01 #10：原 onBackground×0.33 单式在浅色与规格差 15 个色阶；13/14 行走此路径）
     val dark = androidx.compose.foundation.isSystemInDarkTheme()
+    val fallback = (if (dark) Color(0xEBEBF5) else Color(0x3C3C43)).copy(alpha = 0.33f)
     val avatarHex = (avatar?.get("color") as? JsonPrimitive)?.takeIf { it.isString }?.content
     val color = remember(rowColor, avatarHex, dark, fallback) {
         rosterAvatarColor(rowColor, avatarHex, dark, fallback)
