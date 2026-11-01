@@ -446,11 +446,12 @@ class AndroidSharedStateHolder(
      * 错误弹窗的主行动（AndroidTester 2026-11-02 指出：文案说「请重新扫码配对」，
      * 但弹窗只有一个固定的「重新连接」按钮 ⇒ 指向的动作不可达）。
      */
-    /** 凭证失效的两条固定文案（只有它们需要「重新扫码配对」动作）。 */
-    private val credentialErrorMessages = setOf(
-        "网关凭证已失效（系统密钥不可用），请重新扫码配对",
-        "读取已保存的连接失败，请重新扫码配对或手动连接"
-    )
+    /**
+     * 凭证失效的两条文案——**单一来源常量**（AndroidTester B8：原先文案在集合与赋值处各写一遍、
+     * 共三份拷贝，任一处改字就会让 PAIR 静默派生不出来 ⇒ B6 缺陷回归，且无编译错误）。
+     * 现在集合与赋值点都引用同一个常量，想改必须改一处。
+     */
+    private val credentialErrorMessages = setOf(CREDENTIAL_ERROR_GATEWAY, CREDENTIAL_ERROR_RESTORE)
 
     /**
      * **派生**，不是第二个可变状态（Chief 2026-11-02 要的"两者不可能不同步"）：
@@ -3416,13 +3417,13 @@ class AndroidSharedStateHolder(
                     val connected = runCatching { appGraph.gatewayRuntime.connectStoredIfPaired() }
                         .getOrElse {
                             withContext(Dispatchers.Main.immediate) {
-                                platformError = "读取已保存的连接失败，请重新扫码配对或手动连接"
+                                platformError = CREDENTIAL_ERROR_RESTORE
                             }
                             false
                         }
                     if (!connected && tokenUnreadable) {
                         withContext(Dispatchers.Main.immediate) {
-                            platformError = "网关凭证已失效（系统密钥不可用），请重新扫码配对"
+                            platformError = CREDENTIAL_ERROR_GATEWAY
                         }
                     }
                 }
@@ -3431,6 +3432,10 @@ class AndroidSharedStateHolder(
     }
 
     companion object {
+        /** 凭证失效文案（唯一来源；UI 动作由它派生，见 platformErrorAction）。 */
+        const val CREDENTIAL_ERROR_GATEWAY = "网关凭证已失效（系统密钥不可用），请重新扫码配对"
+        const val CREDENTIAL_ERROR_RESTORE = "读取已保存的连接失败，请重新扫码配对或手动连接"
+
         private const val STREAMING_SNAPSHOT_INTERVAL_MILLISECONDS = 32L
         private const val TRAJECTORY_STREAM_INTERVAL_MILLISECONDS = 100L
         private val TRAJECTORY_FRAME_KINDS = setOf(
