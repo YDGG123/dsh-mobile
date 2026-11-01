@@ -81,6 +81,7 @@ internal fun SettingsScreen(
     onOpenDefaultModel: () -> Unit,
     onOpenFontSize: () -> Unit,
     onOpenStorage: () -> Unit = {},
+    onOpenPlugins: () -> Unit = {},
     updateModel: com.clarklevis.dsh.android.update.AppUpdateViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
     bottomInset: androidx.compose.ui.unit.Dp = androidx.compose.ui.unit.Dp(0f),
     /** tab 内嵌形态（iOSDev 裁定 2026-11-01，对齐 iOS SettingsView embedded:）：
@@ -153,11 +154,25 @@ internal fun SettingsScreen(
             item {
                 Column(
                     Modifier.adaptiveContentWidth().testTag("settings-content")
-                        .padding(horizontal = 20.dp, vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(22.dp)
+                        // B4 §1：水平边距 16、顶部 4（iOS SettingsView:223-400）
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                    // B4 §3：组间距 20（iOS DSHSpacing）
+                    verticalArrangement = Arrangement.spacedBy(20.dp)
                 ) {
+                    // ① 外观（iOS 顺序第一组）
                     SettingsSection(
-                        title = appText("新会话默认配置"),
+                        title = appText("外观"),
+                        footer = appText("语言设置将在重新启动应用后生效。支持简体中文和英文。")
+                    ) {
+                        InterfaceStyleSettingsRow()
+                        SettingsDivider()
+                        LanguageSettingsRow()
+                        SettingsDivider()
+                        FontSizeSettingsRow(onOpenFontSize)
+                    }
+                    // ② 新会话
+                    SettingsSection(
+                        title = appText("新会话"),
                         footer = appText("与 WebUI 使用同一份部署级设置。修改只影响之后新建的会话，运行中的会话保持启动时的配置。")
                     ) {
                         SettingsValueRow(
@@ -195,7 +210,17 @@ internal fun SettingsScreen(
                             onPermissionSelected = { pendingPermission = it }
                         )
                     }
-                    SettingsSection("Mobile Gateway") {
+                    // ③ 扩展
+                    SettingsSection(title = appText("扩展")) {
+                        SettingsValueRow(
+                            title = appText("全部扩展"),
+                            value = stateHolder.pluginCatalog?.bundles?.size?.let { appText("%1\$s 个", it) }
+                                ?: appText("未提供"),
+                            onClick = onOpenPlugins
+                        )
+                    }
+                    // ④ 连接
+                    SettingsSection(title = appText("连接")) {
                         GatewayEndpointRow(stateHolder)
                         SettingsDivider()
                         GatewayStatusRow(stateHolder)
@@ -206,38 +231,8 @@ internal fun SettingsScreen(
                         SettingsDivider()
                         SettingsActionRow(appText("Ping 网关"), enabled = isConnected(stateHolder), onClick = stateHolder::pingGateway)
                     }
-                    stateHolder.snapshot.hostSnapshot?.let { host ->
-                        SettingsSection("DSH Host") {
-                            SettingsValueRow(appText("版本"), dshHostVersion(host.dshVersion, host.version))
-                            SettingsDivider()
-                            SettingsValueRow(appText("已连接会话"), "${host.attachedSessions ?: 0}")
-                            host.cwd?.let { cwd ->
-                                SettingsDivider()
-                                SettingsValueRow("cwd", cwd)
-                            }
-                        }
-                    }
-                    SettingsSection(
-                        title = appText("外观"),
-                        footer = appText("语言设置将在重新启动应用后生效。支持简体中文和英文。")
-                    ) {
-                        InterfaceStyleSettingsRow()
-                        SettingsDivider()
-                        LanguageSettingsRow()
-                        SettingsDivider()
-                        FontSizeSettingsRow(onOpenFontSize)
-                    }
-                    SettingsSection(appText("本地存储")) {
-                        SettingsValueRow(
-                            title = appText("存储空间"),
-                            value = stateHolder.storageUsage?.let {
-                                android.text.format.Formatter.formatFileSize(context, it.totalBytes)
-                            }.orEmpty(),
-                            modifier = Modifier.testTag("storage-space-settings-row"),
-                            onClick = onOpenStorage
-                        )
-                    }
-                    SettingsSection(appText("关于")) {
+                    // ⑤ 关于
+                    SettingsSection(title = appText("关于")) {
                         SettingsValueRow(
                             title = appText("当前版本"),
                             value = updateModel.currentVersion,
@@ -246,6 +241,17 @@ internal fun SettingsScreen(
                             onClick = { openRelease("dsh-mobile", updateModel.currentVersion) }
                         )
                         SettingsDivider()
+                        SettingsValueRow(appText("本版本新功能"), appText("查看发布说明")) { showReleaseNotes = true }
+                        SettingsDivider()
+                        SettingsActionRow(appText("隐私政策")) {
+                            showPrivacyPolicy = true
+                        }
+                        SettingsDivider()
+                        // Android 专有（iOS 走 App Store；此处保留更新入口，登记为有意差异）
+                        SettingsActionRow(appText("检查更新"), enabled = !updateState.busy, onClick = updateModel::check)
+                    }
+                    // ⑥ 更多
+                    SettingsSection(title = appText("更多")) {
                         SettingsValueRow(appText("要求网关版本"), releaseInfo?.minimumGatewayVersion?.let { "≥ $it" } ?: appText("未提供")) {
                             openRelease("dsh-plugin-mobile-gateway", releaseInfo?.minimumGatewayVersion)
                         }
@@ -256,12 +262,25 @@ internal fun SettingsScreen(
                             isLoading = isConnected(stateHolder) && stateHolder.pluginsLoading
                         ) { openRelease("dsh-plugin-mobile-gateway", connectedGatewayVersion) }
                         SettingsDivider()
-                        SettingsValueRow(appText("本版本新功能"), appText("查看发布说明")) { showReleaseNotes = true }
-                        SettingsDivider()
-                        SettingsActionRow(appText("检查更新"), enabled = !updateState.busy, onClick = updateModel::check)
-                        SettingsDivider()
-                        SettingsActionRow(appText("隐私政策")) {
-                            showPrivacyPolicy = true
+                        SettingsValueRow(
+                            title = appText("存储空间"),
+                            value = stateHolder.storageUsage?.let {
+                                android.text.format.Formatter.formatFileSize(context, it.totalBytes)
+                            }.orEmpty(),
+                            modifier = Modifier.testTag("storage-space-settings-row"),
+                            onClick = onOpenStorage
+                        )
+                    }
+                    // Android 专有诊断组（iOS 无此屏）：登记为有意差异，不擅自删
+                    stateHolder.snapshot.hostSnapshot?.let { host ->
+                        SettingsSection("DSH Host") {
+                            SettingsValueRow(appText("版本"), dshHostVersion(host.dshVersion, host.version))
+                            SettingsDivider()
+                            SettingsValueRow(appText("已连接会话"), "${host.attachedSessions ?: 0}")
+                            host.cwd?.let { cwd ->
+                                SettingsDivider()
+                                SettingsValueRow("cwd", cwd)
+                            }
                         }
                     }
                     stateHolder.platformError?.let { error ->
@@ -718,17 +737,26 @@ private fun SettingsSection(
     content: @Composable ColumnScope.() -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        // B4 §3：组标题 11pt ink(0.45)、左缩进 4
         Text(
             title,
-            modifier = Modifier.padding(start = 20.dp),
-            fontSize = 16.sp,
+            modifier = Modifier.padding(start = 4.dp),
+            fontSize = 11.sp,
             fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.48f)
+            color = homeInk(0.45f)
         )
         Column(
             Modifier.fillMaxWidth()
-                .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(22.dp))
-                .padding(horizontal = 16.dp),
+                // B4 §3：组卡圆角 16；底 = cardFill（浅色半透明白 0.55 / 深 white 6%）+ 1pt cardStroke
+                .then(
+                    if (LocalDshIsDark.current) Modifier.background(Color.White.copy(alpha = 0.06f), RoundedCornerShape(16.dp))
+                    else Modifier.background(Color.White.copy(alpha = 0.55f), RoundedCornerShape(16.dp))
+                )
+                .border(
+                    width = 1.dp,
+                    color = homeStroke(if (LocalDshIsDark.current) 0.12f else 0.17f),
+                    shape = RoundedCornerShape(16.dp)
+                ),
             verticalArrangement = Arrangement.spacedBy(0.dp)
         ) { content() }
         footer?.let {
@@ -752,25 +780,27 @@ private fun SettingsValueRow(
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null
 ) {
+    // B4 §3 行：水平 padding 14、minHeight 50；标题 15pt ink(0.92)；值 13pt ink(0.5)；chevron 11pt ink(0.3)
     val rowAlpha = if (enabled) 1f else 0.4f
     Row(
-        modifier.fillMaxWidth().heightIn(min = 54.dp)
+        modifier.fillMaxWidth().heightIn(min = 50.dp)
+            .padding(horizontal = 14.dp)
             .clickable(enabled = enabled && onClick != null) { onClick?.invoke() },
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(title, color = MaterialTheme.colorScheme.onSurface.copy(alpha = rowAlpha), fontSize = 16.sp)
+        Text(title, color = homeInk(0.92f).copy(alpha = rowAlpha), fontSize = 15.sp)
         Spacer(Modifier.weight(1f).padding(horizontal = 6.dp))
         if (isLoading) {
             CircularProgressIndicator(
                 modifier = Modifier.size(16.dp),
                 strokeWidth = 2.dp,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.42f)
+                color = homeInk(0.42f)
             )
         } else {
             Text(
                 value,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 0.52f else 0.3f),
-                fontSize = 14.sp,
+                color = homeInk(if (enabled) 0.5f else 0.3f),
+                fontSize = 13.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -779,8 +809,8 @@ private fun SettingsValueRow(
             Icon(
                 painterResource(R.drawable.ic_chevron_right),
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 0.30f else 0.15f),
-                modifier = Modifier.padding(start = 8.dp).size(12.dp)
+                tint = homeInk(if (enabled) 0.3f else 0.15f),
+                modifier = Modifier.padding(start = 8.dp).size(11.dp)
             )
         }
     }
@@ -876,9 +906,11 @@ private fun PermissionSettingsRow(
 
 @Composable
 private fun SettingsDivider() {
+    // B4 §3：1pt、左缩进 14、末行不画（调用方控制）
     HorizontalDivider(
-        thickness = 0.5.dp,
-        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
+        modifier = Modifier.padding(start = 14.dp),
+        thickness = 1.dp,
+        color = homeStroke(if (LocalDshIsDark.current) 0.12f else 0.17f)
     )
 }
 
@@ -887,8 +919,8 @@ private fun GatewayEndpointRow(stateHolder: AndroidSharedStateHolder) {
     BasicTextField(
         value = stateHolder.endpoint,
         onValueChange = { stateHolder.endpoint = it },
-        modifier = Modifier.fillMaxWidth().heightIn(min = 54.dp),
-        textStyle = TextStyle(color = MaterialTheme.colorScheme.onSurface, fontSize = 16.sp),
+        modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp).padding(horizontal = 14.dp),
+        textStyle = TextStyle(color = homeInk(0.92f), fontSize = 15.sp),
         cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
         singleLine = true,
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
@@ -897,8 +929,8 @@ private fun GatewayEndpointRow(stateHolder: AndroidSharedStateHolder) {
                 if (stateHolder.endpoint.isBlank()) {
                     Text(
                         "ws://host:3080/ws/mobile",
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.42f),
-                        fontSize = 16.sp
+                        color = homeInk(0.42f),
+                        fontSize = 15.sp
                     )
                 }
                 innerTextField()
@@ -910,18 +942,18 @@ private fun GatewayEndpointRow(stateHolder: AndroidSharedStateHolder) {
 @Composable
 private fun GatewayStatusRow(stateHolder: AndroidSharedStateHolder) {
     Row(
-        Modifier.fillMaxWidth().heightIn(min = 54.dp),
+        Modifier.fillMaxWidth().heightIn(min = 50.dp).padding(horizontal = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         Box(Modifier.size(9.dp).background(statusColor(stateHolder), CircleShape))
-        Text(connectionLabel(stateHolder), fontSize = 16.sp)
+        Text(connectionLabel(stateHolder), color = homeInk(0.92f), fontSize = 15.sp)
         Spacer(Modifier.weight(1f))
         stateHolder.gatewayState.serverPort?.let { port ->
             Text(
                 "Port $port",
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
-                fontSize = 14.sp
+                color = homeInk(0.5f),
+                fontSize = 13.sp
             )
         }
     }
@@ -930,13 +962,14 @@ private fun GatewayStatusRow(stateHolder: AndroidSharedStateHolder) {
 @Composable
 private fun SettingsActionRow(title: String, enabled: Boolean = true, onClick: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().heightIn(min = 54.dp).clickable(enabled = enabled, onClick = onClick),
+        Modifier.fillMaxWidth().heightIn(min = 50.dp).padding(horizontal = 14.dp)
+            .clickable(enabled = enabled, onClick = onClick),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
             title,
             color = MaterialTheme.colorScheme.primary.copy(alpha = if (enabled) 1f else 0.35f),
-            fontSize = 16.sp
+            fontSize = 15.sp
         )
     }
 }
