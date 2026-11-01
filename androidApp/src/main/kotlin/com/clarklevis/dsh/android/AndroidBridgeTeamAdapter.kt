@@ -136,8 +136,13 @@ internal class AndroidBridgeTeamAdapter(
     }
 
     /** 幂等启动：恢复落盘会话 → 立刻刷新一次 → 8s 轮询。 */
+    /** true = 本地有 bridge 会话密文但解不开（Keystore 失效）：UI 应显示「需要重新配对」，不是空列表。 */
+    @Volatile var restoreFailed: Boolean = false
+        private set
+
     fun start() {
         val restore = store.restoreSession()
+        restoreFailed = sessionStore.restoreFailed
         if (!restore.isSuccess) {
             Log.w(TAG, "restore bridge session failed: ${restore.errorCode} ${restore.errorMessage}")
         }

@@ -110,7 +110,9 @@ internal fun BotTeamScreen(
     pendingSessionIds: Set<String> = emptySet(),
     /** 点行进会话（iOS WorkspaceView:801-813 三级回落；Android 先做 bridge sessionId → 开会话）。
      *  **必填**（AndroidTester 2026-11-02）：默认空实现会让「点了没反应」在编译期静默通过。 */
-    onOpenSession: (String) -> Unit
+    onOpenSession: (String) -> Unit,
+    /** 凭证不可读时打开扫码配对（必填：没有它，用户面对的是一片空白，iOSCoder 2026-11-02 的根因链）。 */
+    onRequestPairing: () -> Unit
 ) {
     // 走主题（与 ScheduledTasksScreen/PluginsScreen 一致）：A1 换品牌海军蓝底时本页自动跟随，不许硬编码。
     val background = MaterialTheme.colorScheme.background
@@ -186,6 +188,24 @@ internal fun BotTeamScreen(
         ) {
             // ① 共享页头（字标 + 认证圆钮 + 品牌蓝＋）：由 host 注入，Bot tab 与工作区 tab 同一份。
             header?.let { item { it() } }
+            // ①′ 凭证不可读（Keystore 失效）：显式「需要重新配对」+ 入口——
+            // 不再一片空白（用户 2026-11-02「明明连接了 Bot 页却是空的」），也不冒充「未配对」。
+            if (adapter?.restoreFailed == true) {
+                item {
+                    Column(
+                        Modifier.fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f), RoundedCornerShape(14.dp))
+                            .padding(14.dp)
+                            .testTag("bot-needs-pairing")
+                    ) {
+                        Text(appText("设备凭证无法读取，需要重新配对"), color = homeInk(0.92f), fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                        Text(appText("手机上的配对信息读不出来了，扫一次码即可恢复，不影响电脑端。"), color = homeInk(0.6f), fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp))
+                        androidx.compose.material3.TextButton(onClick = onRequestPairing) {
+                            Text(appText("重新扫码配对"), color = MaterialTheme.colorScheme.primary)
+                        }
+                    }
+                }
+            }
             // ② 区标题「Bot」：iOS WorkspaceView:653-655，左对齐 18 semibold（不是居中大标题）。
             item {
                 Text(
