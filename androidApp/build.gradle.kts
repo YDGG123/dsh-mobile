@@ -22,7 +22,7 @@ android {
         applicationId = "com.clarklevis.dsh.android"
         minSdk = 24
         targetSdk = 36
-        versionCode = 44 // 本批（严格版 id 拆解防假 seq、网关侧第三档留痕、群聊翻页+停留增量合并、senderName 承载、20 个矢量头像 shape、5 处 Long 窄化消除）；43 为上一批
+        versionCode = 45 // 本批（修「覆盖安装后 Bot 页每次都要重配」：不再按 phase 销毁会话；凭证主动刷新 + 401 重试；配对链诊断日志）；44 为上一批
         versionName = "1.7.13"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

@@ -23,6 +23,13 @@ import com.clarklevis.dsh.shared.protocol.encodeBridgeSession
 import com.clarklevis.dsh.shared.protocol.parseBridgeCardsFrame
 import com.clarklevis.dsh.shared.protocol.parseBridgeInfo
 import java.io.IOException
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -35,8 +42,10 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 
 /**
  * Mobile Bridge（`/mobile/v1`）平台适配层 —— Android 侧等价物。
@@ -115,6 +124,15 @@ internal class AndroidBridgeTeamAdapter(
 
     private var loopJob: Job? = null
     private var loopOrigin: String? = null
+
+    /**
+     * 主动换凭证（对齐 iOS `startTokenRefreshLoop`，`BridgeTeamAdapter.swift:852-875`）：
+     * 拿到 `/info` 公告的 TTL 就按 90% 排；老网关没有该字段则 14 分钟兜底。
+     * 单飞与永久失效判定在 KMP（`beginTokenRefresh` / `tokenRefreshRejected`），这里不另做并发控制。
+     */
+    private var proactiveRefreshIntervalMs: Long =
+        (BridgeTokenTtl.DEFAULT_INTERVAL_SECONDS * 1000).toLong()
+    private var lastTokenRefreshAtMs: Long = 0L
     private var endpoint: String? = null
 
     /** 串行化 refreshOnce：手动刷新与 8s 轮询不再交错进两次 refreshTeam。 */
@@ -144,12 +162,25 @@ internal class AndroidBridgeTeamAdapter(
     fun adoptSession(session: BridgeDeviceSession) {
         val json = encodeBridgeSession(session)
         val result = store.sessionPaired(json)
+        applyEffects(result)
+        // 诊断（用户报「每次重装都要重新配对」）：这条日志要能区分三种结局——
+        // ① 落盘成功 ② 解析/绑定失败（不落盘）③ 落盘了但读不出来。日志里带 deviceId/serverId 便于与网关侧比对。
+        Log.i(
+            TAG,
+            "adoptSession device=${session.deviceId.take(8)} server=${session.serverId.take(8)} " +
+                "ok=${result.isSuccess} code=${result.errorCode ?: "-"}"
+        )
         if (!result.isSuccess) {
             lastError = result.errorMessage ?: result.errorCode
             Log.w(TAG, "adopt bridge session failed: ${result.errorCode} ${result.errorMessage}")
             return
         }
-        Log.i(TAG, "bridge session adopted device=${session.deviceId} server=${session.serverId}")
+        // 立刻回读一次：写入"成功"但读不出来（加密失败被静默吞掉）是这条链上最隐蔽的形态。
+        val persisted = sessionStore.loadJson() != null
+        Log.i(TAG, "bridge session adopted; persisted-now=$persisted restoreFailed=${sessionStore.restoreFailed}")
+        if (!persisted) {
+            Log.w(TAG, "bridge session write did NOT persist (saveJson silently failed?)")
+        }
         start()
     }
 
@@ -183,6 +214,7 @@ internal class AndroidBridgeTeamAdapter(
             var failureAttempt = 0
             while (currentCoroutineContext().isActive) {
                 refreshOnce()
+                maybeRefreshTokenProactively()
                 val offline = lastError != null
                 val delayMillis = if (offline) {
                     (750L shl failureAttempt.coerceAtMost(5)).coerceAtMost(15_000L)
@@ -218,7 +250,7 @@ internal class AndroidBridgeTeamAdapter(
                 // cursor 是**不透明**的（含 conversationId，服务端会校验），一律原样回传，不自己拼。
                 if (!cursor.isNullOrBlank()) append("&cursor=").append(cursor)
             }
-            when (val result = fetch(url, token)) {
+            when (val result = authorizedFetch(url)) {
                 is BridgeFetch.Ok -> {
                     pages += result.body
                     // 拿到 cursor:null 就停止翻页（AndroidTester C9：不许空转重试）
@@ -274,15 +306,22 @@ internal class AndroidBridgeTeamAdapter(
                 else -> return@withLock fail("network_error", "/info 传输失败")
             }
             serverInfo = runCatching { parseBridgeInfo(infoJson) }.getOrNull()
+            BridgeTokenTtl.proactiveIntervalSecondsFromInfo(infoJson)?.let { seconds ->
+                val millis = (seconds * 1000).toLong()
+                if (millis != proactiveRefreshIntervalMs) {
+                    proactiveRefreshIntervalMs = millis
+                    Log.i(TAG, "token ttl from /info -> proactive interval ${seconds.toLong()}s")
+                }
+            }
             val token = store.currentAccessToken()
             if (token.isNullOrBlank()) return@withLock fail("no-device-session", "本地无移动设备会话")
-            val state = fetch("$base/mobile/v1/state", token)
+            val state = authorizedFetch("$base/mobile/v1/state")
             val stateJson = when (state) {
                 is BridgeFetch.Ok -> state.body
                 is BridgeFetch.HttpError -> return@withLock failWith(state)
                 else -> return@withLock fail("network_error", "/state 传输失败")
             }
-            val conversations = fetch("$base/mobile/v1/conversations", token)
+            val conversations = authorizedFetch("$base/mobile/v1/conversations")
             val conversationsJson = when (conversations) {
                 is BridgeFetch.Ok -> conversations.body
                 is BridgeFetch.HttpError -> return@withLock failWith(conversations)
@@ -295,6 +334,7 @@ internal class AndroidBridgeTeamAdapter(
             } else {
                 lastError = null
             }
+            applyEffects(result) // 只有显式 session-clear 才销毁凭证（不再按 phase 推断）
             publishState()
             refreshCards(base, token)
             // 停留在某个群聊里时顺带补拉最新一页（合并而非覆盖，老的几页不会丢）
@@ -321,7 +361,8 @@ internal class AndroidBridgeTeamAdapter(
      * 401 场景下 state/conversations 已先行判死，这里不会误吞判死信号。
      */
     private suspend fun refreshCards(base: String, token: String) {
-        val snapshot = fetch("$base/mobile/v1/cards", token)
+        // 卡片同理：凭证过期时先换一次再取，而不是把整块卡片静默留旧（iOS 走同一套 401 重试）。
+        val snapshot = authorizedFetch("$base/mobile/v1/cards")
         when (snapshot) {
             is BridgeFetch.Ok -> {
                 pendingCards = parseBridgeCardsFrame(snapshot.body)
@@ -342,6 +383,140 @@ internal class AndroidBridgeTeamAdapter(
         lastError = if (message.isNullOrBlank()) code else "$code: $message"
         store.refreshFailed(code, message)
         publishState()
+    }
+
+    /**
+     * **带凭证的 GET**：401 时先换一次凭证、再重试**一次**（对齐 iOS 的 `refreshToken` 回调 + 401 重试）。
+     *
+     * 换证失败就**原样返回 401**，交给调用方既有的 `failWith` 判死路径——
+     * 不在这里吞掉错误，否则会出现"页面停在旧数据、错误也不报"的静默态。
+     */
+    private suspend fun authorizedFetch(url: String): BridgeFetch {
+        val first = fetch(url, store.currentAccessToken())
+        if (first !is BridgeFetch.HttpError || first.status != 401) return first
+        if (!refreshAccessTokenOnce()) return first
+        Log.i(TAG, "401 -> token refreshed, retry once: ${url.substringAfterLast('/')}")
+        return fetch(url, store.currentAccessToken())
+    }
+
+    /** 轮询循环里的主动换证：到点换一次；首次只记时点（从"连上"开始算窗口）。 */
+    private suspend fun maybeRefreshTokenProactively() {
+        if (store.currentAccessToken() == null) return
+        val now = System.currentTimeMillis()
+        if (lastTokenRefreshAtMs == 0L) {
+            lastTokenRefreshAtMs = now
+            return
+        }
+        if (now - lastTokenRefreshAtMs < proactiveRefreshIntervalMs) return
+        val ok = refreshAccessTokenOnce()
+        if (ok) {
+            Log.i(TAG, "proactive token refresh ok (interval ${proactiveRefreshIntervalMs}ms)")
+        } else {
+            // 主动刷新失败不自己重试：退化成"被踢再刷"，下一次 401 或下一轮成功都会重新排上。
+            Log.w(TAG, "proactive token refresh failed; falling back to 401-driven refresh")
+        }
+    }
+
+    /**
+     * 用存盘的 refreshToken 换一次访问凭证（单飞由 KMP 的 `beginTokenRefresh` 保证）。
+     *
+     * `serverUrl` / `tlsPin` 由**本地**补回：网关只答凭证，不回传我们的 origin 绑定信息。
+     */
+    private suspend fun refreshAccessTokenOnce(): Boolean {
+        val base = origin ?: return false
+        if (!store.beginTokenRefresh()) return false
+        val payload = sessionStore.loadJson()?.let { raw ->
+            runCatching { Json.parseToJsonElement(raw).jsonObject }.getOrNull()
+        }
+        val refreshToken = payload?.get("refreshToken")?.jsonPrimitive?.contentOrNull
+        if (refreshToken.isNullOrBlank() || payload == null) {
+            applyTokenResult(store.tokenRefreshRejected("unauthorized"))
+            return false
+        }
+        val url = "$base/auth/refresh"
+        if (!isBoundUrl(url)) {
+            applyTokenResult(store.tokenRefreshRejected("blocked_url"))
+            return false
+        }
+        val body = buildJsonObject { put("refreshToken", refreshToken) }.toString()
+        return when (val result = postJson(url, body)) {
+            is BridgeFetch.Ok -> {
+                val next = runCatching { Json.parseToJsonElement(result.body).jsonObject }.getOrNull()
+                if (next == null) {
+                    applyTokenResult(store.tokenRefreshRejected("invalid_response"))
+                    false
+                } else {
+                    val merged = buildJsonObject {
+                        next.forEach { (key, value) -> put(key, value) }
+                        payload.get("serverUrl")?.let { put("serverUrl", it) }
+                        payload.get("tlsPin")?.let { put("tlsPin", it) }
+                    }.toString()
+                    applyTokenResult(store.tokenRefreshSucceeded(merged))
+                    lastTokenRefreshAtMs = System.currentTimeMillis()
+                    publishState()
+                    true
+                }
+            }
+            is BridgeFetch.HttpError -> {
+                val envelope = decodeBridgeErrorEnvelope(result.status, result.body)
+                Log.w(TAG, "token refresh rejected: ${result.status} ${envelope.code}")
+                applyTokenResult(store.tokenRefreshRejected(envelope.code))
+                false
+            }
+            else -> {
+                applyTokenResult(store.tokenRefreshRejected("network_error"))
+                false
+            }
+        }
+    }
+
+    /**
+     * 应用 store 返回的 effect：**只有 `session-clear` 需要平台动手**（清掉存盘凭证）。
+     * 不处理它 = 令牌已死但密文还在，下一次冷启动会带着死凭证再来一遍（iOS 那边由 store 效果驱动）。
+     */
+    private fun applyTokenResult(result: com.clarklevis.dsh.shared.facade.SharedTeamResult) {
+        applyEffects(result)
+        publishState()
+    }
+
+    /**
+     * 按 KMP 返回的 effects 行事。
+     *
+     * ⚠️ `effectJson` 是**数组**（`wireJson.encodeToString(List<SharedTeamEffect>)`），
+     * 不是单个对象——按对象解析会永远拿不到 kind，属于"看着跑了其实没生效"的那类。
+     * 目前只有 `session-clear` 需要平台动手：清掉存盘凭证（**唯一**允许销毁凭证的地方）。
+     */
+    private fun applyEffects(result: com.clarklevis.dsh.shared.facade.SharedTeamResult) {
+        val effectJson = result.effectJson ?: return
+        val kinds = runCatching {
+            Json.parseToJsonElement(effectJson).jsonArray.mapNotNull { element ->
+                element.jsonObject["kind"]?.jsonPrimitive?.contentOrNull
+            }
+        }.getOrNull().orEmpty()
+        if (com.clarklevis.dsh.shared.facade.SharedTeamEffect.KIND_SESSION_CLEAR in kinds) {
+            Log.w(TAG, "store says session permanently invalid -> clearing stored bridge session")
+            sessionStore.clear()
+        }
+    }
+
+    /** POST JSON（凭证刷新是唯一需要 POST 的调用；无鉴权头，凭 refreshToken 自证）。 */
+    private suspend fun postJson(url: String, body: String): BridgeFetch = withContext(Dispatchers.IO) {
+        if (!isBoundUrl(url)) return@withContext BridgeFetch.Blocked
+        val request = Request.Builder()
+            .url(url)
+            .post(body.toRequestBody(JSON_MEDIA_TYPE))
+            .build()
+        try {
+            httpClient.newCall(request).execute().use { response ->
+                val text = response.body?.string().orEmpty()
+                Log.i(TAG, "POST ${request.url.encodedPath} -> ${response.code} (${text.length}B)")
+                if (response.isSuccessful) BridgeFetch.Ok(text)
+                else BridgeFetch.HttpError(response.code, text)
+            }
+        } catch (io: IOException) {
+            Log.w(TAG, "POST ${request.url.encodedPath} failed: ${io.javaClass.simpleName}")
+            BridgeFetch.TransportFailed
+        }
     }
 
     private suspend fun fetch(url: String, token: String?): BridgeFetch = withContext(Dispatchers.IO) {
@@ -383,8 +558,12 @@ internal class AndroidBridgeTeamAdapter(
                 "names=${decoded.bots.take(5).joinToString(",") { it.name }}"
         )
         if (decoded.phase == TeamPhase.NEEDS_PAIRING) {
-            Log.i(TAG, "team phase NEEDS_PAIRING: 需要重新配对桥接设备")
-            sessionStore.clear()
+            // ⚠️ **绝不在这里删会话**（2026-11-02 用户报障「覆盖安装后 Bot 页每次都要重配」的根因）：
+            // NEEDS_PAIRING 只是**当前状态**，可能是瞬时的（首轮 /state 还没回来、一次 401、网关刚重启）。
+            // 在这里 clear() 会把「瞬时失败」变成「永久丢配对」——与本项目已定的
+            // 「非销毁式失败（保留密文 + restoreFailed 标记）」原则直接冲突。
+            // 真正的永久失效由 KMP 返回 `session-clear` effect 显式通知，见 applyEffects()。
+            Log.i(TAG, "team phase NEEDS_PAIRING (kept stored session; only explicit session-clear clears it)")
         }
     }
 
@@ -452,6 +631,8 @@ internal class AndroidBridgeTeamAdapter(
 }
 
 /** fetch 三态结果：HTTP 非 2xx 必须带出 status+body，错误信封解码（→ 判死重配链）才有着落。 */
+private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
+
 private sealed interface BridgeFetch {
     data class Ok(val body: String) : BridgeFetch
     data class HttpError(val status: Int, val body: String) : BridgeFetch

@@ -2963,6 +2963,13 @@ class AndroidSharedStateHolder(
                                 is GatewayRuntimeEvent.Frame -> {
                                     // C1：U5 对称配对 —— 网关在 paired 帧顺带下发团队会话，收到即接上桥接轮询。
                                     if (event.frame.kind == "paired") {
+                                        // 诊断：区分「网关没下发 bridgeSession」与「下发了但落盘失败」——
+                                        // 这两者在 UI 上都表现为"尚未配对"，没有日志就查不出来（2026-11-02 用户报障）。
+                                        android.util.Log.i(
+                                            "DshBridgeTeam",
+                                            "paired frame: bridgeSession=" +
+                                                (event.frame.bridgeSession?.let { "device=${it.deviceId.take(8)}" } ?: "null")
+                                        )
                                         event.frame.bridgeSession?.let { session ->
                                             withContext(Dispatchers.Main.immediate) {
                                                 bridgeTeam?.adoptSession(session)
