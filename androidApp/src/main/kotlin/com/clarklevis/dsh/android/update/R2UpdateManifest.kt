@@ -28,8 +28,15 @@ internal fun parseUpdateManifest(
     val hash = manifest.getValue("sha256").jsonPrimitive.content.lowercase()
     require(build > 0 && size > 0 && Regex("[0-9a-f]{64}").matches(hash)) { appText("无效的安装包校验信息") }
     val url = manifest.getValue("downloadUrl").jsonPrimitive.content.toHttpUrl()
-    require(url.scheme == "https" && url.host == "download.whaleness.cc" &&
-        url.username.isEmpty() && url.password.isEmpty() && url.encodedPath.endsWith(".apk")) { appText("不可信的 APK 下载地址") }
+    // 白名单放宽（68 批，Chief 裁定）：旧站兜底 manifest 允许旧域名，也允许 GitHub 资产域
+    // （github.com 仓库 releases 路径 / objects.githubusercontent.com / release-assets.githubusercontent.com）。
+    // 仍是显式白名单 + https + 无凭据 + .apk 结尾，未放宽到任意域。
+    require(url.scheme == "https" && url.username.isEmpty() && url.password.isEmpty() &&
+        url.encodedPath.endsWith(".apk") &&
+        (url.host == "download.whaleness.cc" ||
+            (url.host == "github.com" && url.encodedPath.startsWith("/Clarklevis1995/dsh-mobile/releases/download/")) ||
+            url.host == "objects.githubusercontent.com" ||
+            url.host == "release-assets.githubusercontent.com")) { appText("不可信的 APK 下载地址") }
     val fallback = manifest["githubDownloadUrl"]?.jsonPrimitive?.contentOrNull?.toHttpUrl()
     require(fallback == null || (fallback.scheme == "https" && fallback.host == "github.com" &&
         fallback.username.isEmpty() && fallback.password.isEmpty() &&

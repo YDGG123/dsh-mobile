@@ -140,8 +140,12 @@ internal class AppUpdateViewModel(application: Application) : AndroidViewModel(a
     fun check() = performCheck(automatic = false)
 
     private fun performCheck(automatic: Boolean) = runOperation(silent = automatic) {
+        // 用户拍板（2026-11-01）：更新必须从 GitHub Releases 读。原实现 primary=旧站
+        // download.whaleness.cc、GitHub 仅兜底 → 旧站活着（实测 200 且挂着新版本）时
+        // GitHub 永不生效。现对调：GitHub 主路，旧站仅作兜底（旧站退役后此分支可整体删除）。
         val release = withUpdateFallback(
-            primary = {
+            primary = { checkGitHubRelease() },
+            fallback = {
                 val json = metadataClient.newCall(Request.Builder().url(UPDATE_MANIFEST_URL)
                     .header("Cache-Control", "no-cache")
                     .header("User-Agent", "DSH-Mobile-Android").build()).execute().use { response ->
@@ -162,7 +166,6 @@ internal class AppUpdateViewModel(application: Application) : AndroidViewModel(a
                 parseUpdateManifest(json, context.packageName, currentVersion,
                     PackageInfoCompat.getLongVersionCode(installed))
             },
-            fallback = { checkGitHubRelease() }
         )
         val visibleRelease = release?.takeUnless {
             automatic && isSkippedVersion(it.version, preferences.getString("skipped_version", null))
