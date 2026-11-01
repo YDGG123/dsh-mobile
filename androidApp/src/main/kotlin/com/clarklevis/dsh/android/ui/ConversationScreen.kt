@@ -897,7 +897,19 @@ private fun ConversationTimeline(
             stateHolder.snapshot.selectedHistoryEarliestSequence))
     }
     val items = presentation.items
-    val timelineEntries = presentation.entries
+    // ③ 群聊合流（vc43）：当前会话若是 bridge 的 room，就拉它的消息流并合进时间线。
+    // 只读（不接 bridge 的 send）；规则在 shared/domain/RoomChatMergePlan，此处只做接线。
+    val room = stateHolder.bridgeTeam?.state?.rooms.orEmpty()
+        .firstOrNull { it.sessionId == selectedSessionId }
+    LaunchedEffect(room?.id) {
+        room?.id?.let { stateHolder.bridgeTeam?.loadChatMessages(it) }
+    }
+    val peerEntries = remember(room?.id, stateHolder.bridgeTeam?.chatMessagesByConversation) {
+        val bubbles = decodeRoomChatBubbles(stateHolder.bridgeTeam?.chatMessagesByConversation?.get(room?.id))
+        if (room == null) emptyList()
+        else mergeRoomChatEntries(items = presentation.items, sessionId = room.sessionId, bubbles = bubbles)
+    }
+    val timelineEntries = interleavePeerEntries(presentation.entries, peerEntries)
     val activeStreamingMessageId = presentation.streamingId
     val attachmentIdsByTimelineId = remember(timelineEntries) {
         timelineEntries.associate { entry ->
