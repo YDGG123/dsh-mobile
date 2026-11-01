@@ -74,7 +74,8 @@ import kotlinx.serialization.json.JsonPrimitive
 @Composable
 internal fun BotTeamScreen(
     adapter: AndroidBridgeTeamAdapter?,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    bottomInset: androidx.compose.ui.unit.Dp = androidx.compose.ui.unit.Dp(0f)
 ) {
     // 走主题（与 ScheduledTasksScreen/PluginsScreen 一致）：A1 换品牌海军蓝底时本页自动跟随，不许硬编码。
     val background = MaterialTheme.colorScheme.background
@@ -124,7 +125,7 @@ internal fun BotTeamScreen(
     ) { padding ->
         LazyColumn(
             Modifier.fillMaxSize().padding(padding).testTag("bot-team-list"),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 16.dp + bottomInset),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             item {

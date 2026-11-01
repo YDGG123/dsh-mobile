@@ -184,7 +184,12 @@ internal fun DshProductApp(
                 onSettings = { navController.navigate(ROUTE_SETTINGS) },
                 onPlugins = { navController.navigate(ROUTE_PLUGINS) },
                 onScheduledTasks = { navController.navigate(ROUTE_SCHEDULED_TASKS) },
-                onBotTeam = { navController.navigate(ROUTE_BOT_TEAM) { launchSingleTop = true } }
+                onBotTeam = { navController.navigate(ROUTE_BOT_TEAM) { launchSingleTop = true } },
+                updateModel = updateModel,
+                onOpenAgentPresets = { navController.navigate(ROUTE_SETTINGS_AGENT_PRESETS) },
+                onOpenDefaultModel = { navController.navigate(ROUTE_SETTINGS_DEFAULT_MODEL) },
+                onOpenFontSize = { navController.navigate(ROUTE_SETTINGS_FONT_SIZE) },
+                onOpenStorage = { navController.navigate(ROUTE_SETTINGS_STORAGE) }
             )
         }
         composable(ROUTE_CONVERSATION) {
@@ -309,7 +314,12 @@ internal fun WorkspaceScreen(
     onSettings: () -> Unit,
     onPlugins: () -> Unit,
     onScheduledTasks: () -> Unit,
-    onBotTeam: () -> Unit = {}
+    onBotTeam: () -> Unit = {},
+    updateModel: com.clarklevis.dsh.android.update.AppUpdateViewModel,
+    onOpenAgentPresets: () -> Unit = {},
+    onOpenDefaultModel: () -> Unit = {},
+    onOpenFontSize: () -> Unit = {},
+    onOpenStorage: () -> Unit = {}
 ) {
     val window = adaptiveWindowSize()
     val workspaceListState = rememberLazyListState()
@@ -372,7 +382,9 @@ internal fun WorkspaceScreen(
         val backgroundAnimationEnabled by remember(canScrollVertically, workspaceListState) {
             derivedStateOf { canScrollVertically && !workspaceListState.isScrollInProgress }
         }
-        DshLiquidGlassHost(
+        Box(Modifier.fillMaxSize()) {
+        when (homeTab) {
+            DshHomeTab.WORKSPACE -> DshLiquidGlassHost(
             modifier = Modifier.fillMaxSize().testTag("workspace-screen"),
             background = { backdropModifier ->
                 HarnessAnimatedBackground(backdropModifier, animationEnabled = backgroundAnimationEnabled)
@@ -468,16 +480,35 @@ internal fun WorkspaceScreen(
                 }
                 item { Spacer(Modifier.height(86.dp)) } // B1：浮动 tab bar（62 高 + 边距）的滚动净空
             }
-            DshTabBar(
-                selected = homeTab,
-                badges = emptyMap(), // 角标三来源（WorkspaceView :366-370）等 D 组；bridge 侧暂无 pending 数据
-                onSelect = { homeTab = it }, // 只读原型：仅选中态（Chief 定），内容切换随 C/D 组接线
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .navigationBarsPadding()
-                    .padding(start = 16.dp, end = 16.dp, bottom = 4.dp)
+            } // DshHomeTab.WORKSPACE
+            // P0-1（Chief 2026-11-01 改裁决）：tab 必须切内容 —— 「点了没反应」在用户眼里就是坏的。
+            // Bot/设置两页复用现成整页（自带顶栏），返回键 = 回工作区 tab；滚动尾部按 tab bar 高度留净空。
+            DshHomeTab.BOTS -> BotTeamScreen(
+                adapter = stateHolder.bridgeTeam,
+                onBack = { homeTab = DshHomeTab.WORKSPACE },
+                bottomInset = 86.dp
+            )
+            DshHomeTab.SETTINGS -> SettingsScreen(
+                updateModel = updateModel,
+                stateHolder = stateHolder,
+                onBack = { homeTab = DshHomeTab.WORKSPACE },
+                onOpenAgentPresets = onOpenAgentPresets,
+                onOpenDefaultModel = onOpenDefaultModel,
+                onOpenFontSize = onOpenFontSize,
+                onOpenStorage = onOpenStorage,
+                bottomInset = 86.dp
             )
         }
+        DshTabBar(
+            selected = homeTab,
+            badges = emptyMap(), // 角标三来源（WorkspaceView :366-370）等 D 组；bridge 侧暂无 pending 数据
+            onSelect = { homeTab = it },
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding()
+                .padding(start = 16.dp, end = 16.dp, bottom = 4.dp)
+        )
+        } // Box
     }
 
     if (showQrScanner) {

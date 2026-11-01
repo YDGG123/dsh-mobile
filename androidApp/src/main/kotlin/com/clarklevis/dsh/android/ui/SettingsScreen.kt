@@ -81,7 +81,8 @@ internal fun SettingsScreen(
     onOpenDefaultModel: () -> Unit,
     onOpenFontSize: () -> Unit,
     onOpenStorage: () -> Unit = {},
-    updateModel: com.clarklevis.dsh.android.update.AppUpdateViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+    updateModel: com.clarklevis.dsh.android.update.AppUpdateViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
+    bottomInset: androidx.compose.ui.unit.Dp = androidx.compose.ui.unit.Dp(0f)
 ) {
     val updateState by updateModel.state.collectAsStateWithLifecycle()
     var showPermissionPicker by remember { mutableStateOf(false) }
@@ -127,7 +128,8 @@ internal fun SettingsScreen(
     ) { padding ->
         LazyColumn(
             Modifier.fillMaxSize().padding(padding),
-            horizontalAlignment = Alignment.CenterHorizontally
+            horizontalAlignment = Alignment.CenterHorizontally,
+            contentPadding = PaddingValues(bottom = bottomInset)
         ) {
             item {
                 Column(
