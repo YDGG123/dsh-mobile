@@ -133,6 +133,9 @@ internal fun BotTeamScreen(
         adapter?.refreshNow()
     }
     LaunchedEffect(bots) {
+        // prune 的 keeping 集合先由**全部行**喂（hash-only 帧也要注册），再做差集删除——
+        // 只在渲染时喂的话，重启后第一次 prune 会删掉在用头像（iOSDev 2026-11-02 指出）。
+        bots.forEach { row -> row.avatarImageHash?.let(com.clarklevis.dsh.android.platform.BotAvatarFileCache::remember) }
         com.clarklevis.dsh.android.platform.BotAvatarFileCache.prune()
     }
     Scaffold(
@@ -403,7 +406,7 @@ private fun BotRow(row: BridgeConversationRow, isMain: Boolean, pending: Boolean
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Box {
-            RosterAvatar(row.name, row.color, row.avatar, size = 38)
+            RosterAvatar(row.name, row.color, row.avatar, size = 38, rowImageHash = row.avatarImageHash)
             RosterStatusDot(busy = busy, caution = pending, modifier = Modifier.align(Alignment.BottomEnd))
         }
         Column(Modifier.weight(1f)) {
@@ -477,7 +480,8 @@ private fun RoomRow(row: BridgeConversationRow, bots: List<BridgeConversationRow
                         name = member.name,
                         rowColor = member.color,
                         avatar = member.avatar,
-                        size = 27, // 38 × 0.72
+                        size = 27,
+                        rowImageHash = member.avatarImageHash, // 38 × 0.72
                         stroke = 1.5.dp,
                         modifier = Modifier
                             .offset(x = (16 * index).dp)
@@ -598,6 +602,8 @@ private fun RosterAvatar(
     avatar: kotlinx.serialization.json.JsonObject?,
     size: Int,
     modifier: Modifier = Modifier,
+    /** 帧里只带 hash 不带字节时，从这里读缓存渲染（iOS 水合行同形态）。 */
+    rowImageHash: String? = null,
     /** 成员堆叠的分离环（iOS surface@0.9 1.5pt）；普通行传 0。 */
     stroke: androidx.compose.ui.unit.Dp = androidx.compose.ui.unit.Dp(0f)
 ) {
@@ -611,12 +617,14 @@ private fun RosterAvatar(
     // 命中直接读文件、不重解码（用户 2026-11-02：「保存到本地、只渲染一次，电脑端变了才更新」）。
     // bridge 名册线上暂只有 shape（image 随 D 组 feed 落地后生效），此层现在处于休眠、不报错。
     val imageDataUrl = (avatar?.get("image") as? JsonPrimitive)?.takeIf { it.isString }?.content
-    var imageHash by remember(imageDataUrl) { mutableStateOf<String?>(null) }
+    var storedHash by remember(imageDataUrl) { mutableStateOf<String?>(null) }
     LaunchedEffect(imageDataUrl) {
-        imageHash = imageDataUrl?.let { BotAvatarFileCache.store(it) }
+        storedHash = imageDataUrl?.let { BotAvatarFileCache.store(it) }
     }
-    val cachedBitmap = remember(imageHash) {
-        imageHash?.let { hash ->
+    // hash 优先级：帧里带 image 就用存盘结果；只有 hash（无字节）→ 直接读缓存文件。
+    val resolvedHash = storedHash ?: rowImageHash
+    val cachedBitmap = remember(resolvedHash) {
+        resolvedHash?.let { hash ->
             BotAvatarFileCache.remember(hash)
             BotAvatarFileCache.fileFor(hash)?.path
                 ?.let { path -> android.graphics.BitmapFactory.decodeFile(path)?.asImageBitmap() }

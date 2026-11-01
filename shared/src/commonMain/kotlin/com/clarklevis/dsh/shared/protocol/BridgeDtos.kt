@@ -89,6 +89,12 @@ data class BridgeConversationRow(
     val color: String? = null,
     val avatar: JsonObject? = null,
     /** U4：普通会话行的最近活跃时间（ms），团队行不带。 */
+    /**
+     * 照片头像的内容 hash（iOS `avatarImageHash`，sha256 前 16 位）：帧里可以只带 hash 不带
+     * `avatar.image`（字节在客户端文件缓存）——缓存 keeping 集合必须由它喂，否则重启后
+     * 第一次 prune 会把在用头像删掉（iOS GatewayTeamFeed.swift:140-141 点名要避免）。
+     */
+    val avatarImageHash: String? = null,
     val lastActiveAt: Long? = null,
     /** U4：工作区名（服务端只下发末段，不下发完整路径）。 */
     val workspace: String? = null,
