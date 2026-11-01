@@ -3,6 +3,8 @@ package com.clarklevis.dsh.android.ui
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -35,6 +37,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -114,10 +118,17 @@ internal fun ConversationPagerChrome(
             Box(Modifier.fillMaxWidth().onSizeChanged { topInset = with(density) { it.height.toDp() } }) {
                 topBar()
             }
+            // 可见的「对话 | 轨迹」切换（iOS ConversationView :440 DSHSegmented 等价物）。
+            // 原来只有滑动 + 2s 瞬态圆点，界面上没有持久入口（Tester 返工 2）。
+            ConversationPageSwitch(
+                currentPage,
+                onSelectPage,
+                Modifier.align(Alignment.TopCenter).padding(top = topInset + 4.dp)
+            )
             ConversationPageIndicator(
                 sessionId,
                 currentPage,
-                Modifier.align(Alignment.TopCenter).padding(top = topInset + 4.dp)
+                Modifier.align(Alignment.TopCenter).padding(top = topInset + 40.dp)
             )
         }
     }
@@ -142,6 +153,40 @@ internal fun ConversationPageTitle(title: String, selectedPage: Int, status: (@C
             modifier = Modifier.testTag("conversation-title-text")
         )
         status?.invoke()
+    }
+}
+
+/**
+ * 会话页可见分段切换「对话 | 轨迹」（iOS ConversationView :440 DSHSegmented 等价物）。
+ * 点击走 onSelectPage（与左右滑动共用 selectPage 的 280ms 动画），选中 = 品牌 Ocean 胶囊白字。
+ * 保留原瞬态圆点指示器（device test 依赖其存在性），本控件提供持久可见入口。
+ */
+@Composable
+private fun ConversationPageSwitch(selectedPage: Int, onSelectPage: (Int) -> Unit, modifier: Modifier) {
+    Row(
+        modifier
+            .testTag("conversation-page-switch")
+            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f), RoundedCornerShape(50))
+            .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f), RoundedCornerShape(50))
+            .padding(2.dp),
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        listOf(0 to appText("对话"), 1 to appText("轨迹")).forEach { (index, label) ->
+            val selected = index == selectedPage
+            Text(
+                label,
+                color = if (selected) Color.White else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f),
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(50))
+                    .background(if (selected) DshColors.Ocean else Color.Transparent)
+                    .clickable { onSelectPage(index) }
+                    .padding(horizontal = 12.dp, vertical = 5.dp)
+                    .testTag("conversation-page-switch-$index")
+            )
+        }
     }
 }
 

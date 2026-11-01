@@ -51,7 +51,13 @@ import kotlin.math.sin
 
 /** SwiftUI HarnessAnimatedBackground 的 Android 对位实现。 */
 @Composable
-internal fun HarnessAnimatedBackground(modifier: Modifier = Modifier, animationEnabled: Boolean = true) {
+internal fun HarnessAnimatedBackground(
+    modifier: Modifier = Modifier,
+    animationEnabled: Boolean = true,
+    // 主题判定由调用方传（LocalDshIsDark）——本文件原来零主题感知、底色写死 Navy，
+    // 浅色主题下首页恒深、底栏却用浅色档 → 未选中 tab 深字叠深底（Tester 真机实测）。
+    isLight: Boolean = false
+) {
     val context = LocalContext.current
     val active = rememberBackgroundActive()
     val liquidGlassFrameSignal = LocalDshGlassFrameSignal.current
@@ -86,7 +92,7 @@ internal fun HarnessAnimatedBackground(modifier: Modifier = Modifier, animationE
         modifier = modifier
             .fillMaxSize()
             .clipToBounds()
-            .background(DshColors.Navy)
+            .background(if (isLight) DshColors.Paper else DshColors.Navy) // 深 Navy #06172B / 浅 Paper #F9FAFC（规格 §1）
             .semantics { hideFromAccessibility() }
     ) {
         val largeWindow = maxWidth >= 600.dp
@@ -95,14 +101,14 @@ internal fun HarnessAnimatedBackground(modifier: Modifier = Modifier, animationE
         } else {
             FluidFallback(currentTime, largeWindow)
         }
-        TechnicalGrid(largeWindow)
+        TechnicalGrid(largeWindow, isLight)
         WhaleParticleField(currentTime, !motionEnabled, largeWindow)
         Canvas(Modifier.fillMaxSize()) {
             drawRect(
                 Brush.verticalGradient(
                     0f to Color.Transparent,
-                    0.58f to DshColors.Navy.copy(alpha = 0.12f),
-                    1f to Color.Black.copy(alpha = 0.58f)
+                    0.58f to (if (isLight) DshColors.Ocean.copy(alpha = 0.06f) else DshColors.Navy.copy(alpha = 0.12f)),
+                    1f to (if (isLight) Color.White.copy(alpha = 0.42f) else Color.Black.copy(alpha = 0.58f))
                 )
             )
         }
@@ -183,7 +189,7 @@ private class HarnessFluidBrush(largeWindow: Boolean) : ShaderBrush() {
 }
 
 @Composable
-private fun TechnicalGrid(largeWindow: Boolean) {
+private fun TechnicalGrid(largeWindow: Boolean, isLight: Boolean) {
     Canvas(Modifier.fillMaxSize()) {
         val spacing = if (largeWindow) (size.minDimension / 16f).coerceIn(42.dp.toPx(), 64.dp.toPx()) else 42.dp.toPx()
         var x = -spacing
@@ -213,7 +219,7 @@ private fun TechnicalGrid(largeWindow: Boolean) {
             Brush.verticalGradient(
                 0f to Color.Transparent,
                 0.56f to Color.Transparent,
-                1f to DshColors.Navy
+                1f to (if (isLight) DshColors.Paper else DshColors.Navy)
             ),
             blendMode = BlendMode.SrcOver
         )

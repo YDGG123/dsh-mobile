@@ -76,8 +76,10 @@ internal fun BotTeamScreen(
     adapter: AndroidBridgeTeamAdapter?,
     onBack: () -> Unit,
     bottomInset: androidx.compose.ui.unit.Dp = androidx.compose.ui.unit.Dp(0f),
-    // iOS Bot tab 无返回键顶栏（WorkspaceView:321 primaryTab 内容分段）；抽屉/导航入口进来的保留顶栏。
-    showTopBar: Boolean = true
+    /** tab 根分段形态（iOSDev 裁定 2026-11-01，对齐 iOS TeamView:55-73）：
+     *  标题「团队」、**有顶栏但无返回箭头**、右侧刷新；抽屉/独立路由（非 embedded）标题
+     *  「Bot 团队」+ 返回箭头。左侧「完成」是 iOS sheet 场景残留，不复制。 */
+    embedded: Boolean = false
 ) {
     // 走主题（与 ScheduledTasksScreen/PluginsScreen 一致）：A1 换品牌海军蓝底时本页自动跟随，不许硬编码。
     val background = MaterialTheme.colorScheme.background
@@ -99,17 +101,23 @@ internal fun BotTeamScreen(
         modifier = Modifier.testTag("bot-team-page"),
         containerColor = background,
         topBar = {
-            if (showTopBar) CenterAlignedTopAppBar(
-                title = { Text(appText("Bot 团队"), fontSize = 17.sp, fontWeight = FontWeight.SemiBold) },
+            CenterAlignedTopAppBar(
+                title = { Text(appText(if (embedded) "团队" else "Bot 团队"), fontSize = 17.sp, fontWeight = FontWeight.SemiBold) },
                 navigationIcon = {
-                    TopBarCircleButton(
-                        R.drawable.ic_back_chevron,
-                        appText("返回"),
-                        onBack,
-                        modifier = Modifier.padding(start = 8.dp)
-                    )
+                    // tab 根分段不放返回箭头（iOSDev 裁定：返回逻辑可留、箭头不要）
+                    if (!embedded) {
+                        TopBarCircleButton(
+                            R.drawable.ic_back_chevron,
+                            appText("返回"),
+                            onBack,
+                            modifier = Modifier.padding(start = 8.dp)
+                        )
+                    }
                 },
                 actions = {
+                    // iOS TeamView:62-72 顶栏右侧有两个动作：设备管理(iphone.gen2) + 刷新(arrow.clockwise)。
+                    // 刷新已接（adapter.refreshNow + isRefreshing 禁用态）；**设备管理暂无 Android 数据通路**
+                    // （devices 效果执行器属 C3），按「不给点了没反应的按钮」纪律先不复制，C3 补齐。
                     if (adapter?.isRefreshing == true) {
                         CircularProgressIndicator(Modifier.padding(16.dp).size(20.dp), strokeWidth = 2.dp)
                     } else {

@@ -394,7 +394,11 @@ internal fun WorkspaceScreen(
             DshHomeTab.WORKSPACE -> DshLiquidGlassHost(
             modifier = Modifier.fillMaxSize().testTag("workspace-screen"),
             background = { backdropModifier ->
-                HarnessAnimatedBackground(backdropModifier, animationEnabled = backgroundAnimationEnabled)
+                HarnessAnimatedBackground(
+                    backdropModifier,
+                    animationEnabled = backgroundAnimationEnabled,
+                    isLight = !LocalDshIsDark.current // 背景跟主题（Tester 返工 1，方案 B 裁决）
+                )
             }
         ) {
             LazyColumn(
@@ -494,7 +498,7 @@ internal fun WorkspaceScreen(
                 adapter = stateHolder.bridgeTeam,
                 onBack = { homeTab = DshHomeTab.WORKSPACE },
                 bottomInset = tabClearance,
-                showTopBar = false // Bot tab = iOS primaryTab 内容分段，无返回键顶栏（Chief 2026-11-01 裁）
+                embedded = true // tab 根分段形态：标题「团队」+ 无返回箭头 + 刷新（iOSDev 裁定，对齐 iOS TeamView:55-73）
             )
             DshHomeTab.SETTINGS -> SettingsScreen(
                 updateModel = updateModel,
@@ -504,7 +508,8 @@ internal fun WorkspaceScreen(
                 onOpenDefaultModel = onOpenDefaultModel,
                 onOpenFontSize = onOpenFontSize,
                 onOpenStorage = onOpenStorage,
-                bottomInset = tabClearance // 设置 = 推入页形态，保留顶栏（同 iOS）
+                bottomInset = tabClearance,
+                embedded = true // iOSDev 裁定：设置 tab 撤顶栏 + 页顶自绘「设置」大标题（对齐 iOS embedded:）
             )
         }
         DshTabBar(
