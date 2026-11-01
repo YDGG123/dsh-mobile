@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  备份排除规则（API ≤ 30 / android:fullBackupContent）
+  对齐 iOS：凭证三处全 kSecAttrAccessible...ThisDeviceOnly（不进备份、不跨设备迁移）。
+  Android 侧 bridge 会话密文（SharedPreferences）+ 网关凭证（noBackupFilesDir 已天然排除）
+  都不该进 auto-backup —— Keystore 密钥不随备份迁移，恢复后只会得到解不开的密文。
+-->
+<full-backup-content>
+    <exclude domain="sharedpref" path="bridge_session.preferences_pb.xml" />
+</full-backup-content>

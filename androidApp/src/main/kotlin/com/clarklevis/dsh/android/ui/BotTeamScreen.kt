@@ -112,7 +112,9 @@ internal fun BotTeamScreen(
      *  **必填**（AndroidTester 2026-11-02）：默认空实现会让「点了没反应」在编译期静默通过。 */
     onOpenSession: (String) -> Unit,
     /** 凭证不可读时打开扫码配对（必填：没有它，用户面对的是一片空白，iOSCoder 2026-11-02 的根因链）。 */
-    onRequestPairing: () -> Unit
+    onRequestPairing: () -> Unit,
+    /** true = 设备身份密文解不开：文案要区别于「会话凭证不可读」（临时故障 vs 需重配，iOSTester 2026-11-02）。 */
+    deviceIdentityUnreadable: Boolean = false
 ) {
     // 走主题（与 ScheduledTasksScreen/PluginsScreen 一致）：A1 换品牌海军蓝底时本页自动跟随，不许硬编码。
     val background = MaterialTheme.colorScheme.background
@@ -180,17 +182,18 @@ internal fun BotTeamScreen(
         // 工作区 tab 的 contentPadding 是 WindowInsets.safeDrawing（DshProductApp:405），
         // vc40 的 Bot tab 只给了 top=8dp，字标大（52dp 盒）还看得见，
         // 右侧两枚 34dp 圆钮整个被压在状态栏下 ⇒ 用户看到「＋没了」（11-02 截图）。
-        val topInset = with(LocalDensity.current) { WindowInsets.statusBars.getTop(this).toDp() }
+        // 顶栏净空走共享来源（runbook §5.7 ⑨②：与工作区同偏移 +18，不再各自写死）。
+        val topInset = dshHomeListTopInset()
         LazyColumn(
             Modifier.fillMaxSize().padding(padding).testTag("bot-team-list"),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = topInset + 8.dp, bottom = 16.dp + bottomInset),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = topInset, bottom = 16.dp + bottomInset),
             verticalArrangement = Arrangement.spacedBy(2.dp)
         ) {
             // ① 共享页头（字标 + 认证圆钮 + 品牌蓝＋）：由 host 注入，Bot tab 与工作区 tab 同一份。
             header?.let { item { it() } }
             // ①′ 凭证不可读（Keystore 失效）：显式「需要重新配对」+ 入口——
             // 不再一片空白（用户 2026-11-02「明明连接了 Bot 页却是空的」），也不冒充「未配对」。
-            if (adapter?.restoreFailed == true) {
+            if (adapter?.restoreFailed == true || deviceIdentityUnreadable) {
                 item {
                     Column(
                         Modifier.fillMaxWidth()
@@ -198,8 +201,20 @@ internal fun BotTeamScreen(
                             .padding(14.dp)
                             .testTag("bot-needs-pairing")
                     ) {
-                        Text(appText("设备凭证无法读取，需要重新配对"), color = homeInk(0.92f), fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                        Text(appText("手机上的配对信息读不出来了，扫一次码即可恢复，不影响电脑端。"), color = homeInk(0.6f), fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp))
+                        Text(
+                            appText(
+                                if (adapter?.restoreFailed == true) "设备凭证无法读取，需要重新配对"
+                                else "设备身份读取失败（可能为临时故障）"
+                            ),
+                            color = homeInk(0.92f), fontSize = 15.sp, fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            appText(
+                                if (adapter?.restoreFailed == true) "手机上的配对信息读不出来了，扫一次码即可恢复，不影响电脑端。"
+                                else "系统密钥服务暂时不可用时可先稍后重试；一直失败再重新扫码配对。"
+                            ),
+                            color = homeInk(0.6f), fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp)
+                        )
                         androidx.compose.material3.TextButton(onClick = onRequestPairing) {
                             Text(appText("重新扫码配对"), color = MaterialTheme.colorScheme.primary)
                         }

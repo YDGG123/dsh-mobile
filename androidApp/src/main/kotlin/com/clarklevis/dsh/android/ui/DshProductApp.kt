@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -67,6 +68,7 @@ import androidx.compose.ui.graphics.Shadow as TextShadow
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -400,9 +402,19 @@ internal fun WorkspaceScreen(
         ) {
         when (homeTab) {
             DshHomeTab.WORKSPACE -> Box(Modifier.fillMaxSize().testTag("workspace-screen")) {
+            // ⑨①/⑨②：top 与 Bot 页同源（dshHomeListTopInset() = statusBars+18），
+            // 其它边保持 safeDrawing（左右/底部不变）。
+            val density = LocalDensity.current
+            val layoutDirection = LocalLayoutDirection.current
+            val workspaceListPadding = PaddingValues(
+                start = with(density) { WindowInsets.safeDrawing.getLeft(this, layoutDirection).toDp() },
+                top = dshHomeListTopInset(),
+                end = with(density) { WindowInsets.safeDrawing.getRight(this, layoutDirection).toDp() },
+                bottom = with(density) { WindowInsets.safeDrawing.getBottom(this).toDp() }
+            )
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = WindowInsets.safeDrawing.asPaddingValues(),
+                contentPadding = workspaceListPadding,
                 horizontalAlignment = Alignment.CenterHorizontally,
                 userScrollEnabled = canScrollVertically,
                 state = workspaceListState
@@ -524,6 +536,7 @@ internal fun WorkspaceScreen(
                     stateHolder.clearPlatformError()
                     showQrScanner = true
                 },
+                deviceIdentityUnreadable = stateHolder.deviceIdentityUnreadable,
                 // iOS 三个 tab 共用同一条页头（WorkspaceView:936 字标 + :950 认证圆钮 + :955 ＋新建）。
                 // vc39 之前 Bot tab 只有一条居中「团队」标题，是 Android 自造的（用户 11-02 指出）。
                 header = {

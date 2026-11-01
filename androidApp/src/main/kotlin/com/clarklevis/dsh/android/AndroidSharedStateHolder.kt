@@ -82,6 +82,11 @@ class AndroidSharedStateHolder(
      * C1：Mobile Bridge 团队适配层（HTTP 执行在平台层，状态合流在 shared 的
      * `SharedBridgeTeamStore`）。与会话级 `teamStore` 是两条链路，别混用。
      */
+    /** true = 设备身份密文解不开（Keystore 失效）：Bot 页据此提示「可能为临时故障」。 */
+    val deviceIdentityUnreadable: Boolean
+        get() = (graph?.credentialStore as? com.clarklevis.dsh.android.platform.AndroidGatewayCredentialStore)
+            ?.deviceIdentityUnreadable == true
+
     internal val bridgeTeam: AndroidBridgeTeamAdapter? =
         graph?.let {
             AndroidBridgeTeamAdapter(

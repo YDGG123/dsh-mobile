@@ -6,6 +6,8 @@ import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.SwitchColors
 import androidx.compose.material3.SwitchDefaults
@@ -88,6 +90,20 @@ internal object DshSemantic {
  *
  * 对照（iOS/Android 同公式 → 对比度应逐档一致）：正文 ~14.8:1 / 次要 ~7:1 / 最淡 3.88:1。
  */
+/**
+ * 三屏 top inset 的**唯一来源**（runbook §5.7 ⑨，iOSCoder 2026-11-02 提案）：
+ * iOS 列表层 = `safeArea.top + 18`（工作区与 Bot 同层同偏移）、设置层 = `safeArea.top + 0`。
+ * 任何一屏**单独写死数字**即违反 ⑨①；工作区/Bot 偏移不同即违反 ⑨②。
+ */
+internal val DshHomeListTopExtra = 18.dp
+
+/** 列表层 top inset：statusBars + 18，工作区与 Bot 共用同一表达式。 */
+@Composable
+internal fun dshHomeListTopInset(): androidx.compose.ui.unit.Dp =
+    with(LocalDensity.current) {
+        WindowInsets.statusBars.getTop(this).toDp() + DshHomeListTopExtra
+    }
+
 @Composable
 internal fun homeInk(alpha: Float = 1f): Color =
     if (LocalDshIsDark.current) {
