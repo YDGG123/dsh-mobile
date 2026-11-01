@@ -295,6 +295,22 @@ internal fun ConversationScreen(
             sessionId = stateHolder.snapshot.selectedSessionId,
             onSelectPage = selectPage,
             modifier = backdropModifier.testTag("conversation-screen"),
+            subtitle = {
+                // iOS 副行（ConversationView.swift:550-568）：预设名 · 场景状态 · 第 N 轮，
+                // 「 · 」连接、任一缺失跳过、全空则整行不出现（此时分段自己吃 inset）。
+                ConversationSubtitle(
+                    text = conversationSubtitleText(
+                        stateHolder = stateHolder,
+                        presetId = agentPresetId,
+                        presetName = agentPresetName,
+                        pendingApproval = pendingApproval != null,
+                        pendingQuestion = stateHolder.snapshot.pendingQuestions.any {
+                            stateHolder.snapshot.selectedSessionId == null ||
+                                it.sessionId == stateHolder.snapshot.selectedSessionId
+                        }
+                    )
+                )
+            },
             topBar = {
                 ConversationTopBar(
                     title = {
@@ -473,6 +489,58 @@ internal fun TopBarCircleButton(
     ) {
         content()
     }
+}
+
+/**
+ * 会话页副行（iOS `ConversationView.swift:550-568` / 渲染在 `:429-435`）：
+ * 视觉 = `DSHType.meta`（11pt）+ `ink(0.45)`、单行、leading、水平 16。
+ * **空串整行不出现**（iOS `if let conversationSubtitle`），此时分段自己吃 inset。
+ */
+@Composable
+private fun ConversationSubtitle(text: String) {
+    if (text.isEmpty()) return
+    Text(
+        text,
+        modifier = Modifier.fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .padding(top = 4.dp)
+            .testTag("conversation-subtitle"),
+        color = homeInk(0.45f),
+        fontSize = 11.sp,
+        lineHeight = 14.sp,
+        fontWeight = FontWeight.Medium,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis
+    )
+}
+
+/**
+ * 副行文案 = 「预设名 · 场景状态 · 第 N 轮」，用「 · 」连接、任一缺失跳过（iOS :550-568 同构）。
+ * 状态优先级（iOS 注释明写）：等你审批 > 等你回答 > 运行中 > 已完成。
+ */
+@Composable
+private fun conversationSubtitleText(
+    stateHolder: AndroidSharedStateHolder,
+    presetId: String?,
+    presetName: String?,
+    pendingApproval: Boolean,
+    pendingQuestion: Boolean
+): String {
+    val sessionId = stateHolder.snapshot.selectedSessionId
+    val preset = stateHolder.sessionAgentPreset
+    val turns = sessionId?.let { stateHolder.snapshot.statsBySessionSnapshot[it]?.stats?.turns }
+    val running = stateHolder.snapshot.sessions.firstOrNull { it.id == sessionId }?.isRunning == true
+    val parts = buildList {
+        if (preset.visible && presetId != null) add(agentPresetDisplayName(presetId, presetName))
+        when {
+            pendingApproval -> add(appText("等你审批"))
+            pendingQuestion -> add(appText("等你回答"))
+            running -> add(appText("运行中"))
+            (turns ?: 0) > 0 -> add(appText("已完成"))
+        }
+        turns?.takeIf { it > 0 }?.let { add(appText("第 $it 轮")) }
+    }
+    return parts.joinToString(" · ")
 }
 
 @Composable
