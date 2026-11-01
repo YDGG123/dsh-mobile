@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredSize
@@ -61,6 +62,7 @@ import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.Shadow as TextShadow
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -327,7 +329,12 @@ internal fun WorkspaceScreen(
     var showManualPairing by rememberSaveable { mutableStateOf(false) }
     var showQrScanner by rememberSaveable { mutableStateOf(false) }
     var showWorkspaceMenu by rememberSaveable { mutableStateOf(false) }
-    var homeTab by rememberSaveable { mutableStateOf(DshHomeTab.WORKSPACE) } // B1 只读原型 tab 状态
+    var homeTab by rememberSaveable { mutableStateOf(DshHomeTab.WORKSPACE) }
+    // tab bar 内容净空 = 动态导航安全区 + 栏 62 + 外距 4 + 8pt 呼吸位。
+    // iOS 同语义：safeAreaInset(edge:.bottom) 动态吃安全区 + 明文补 8pt（WorkspaceView:318 注释，真机贴底反馈）。
+    // 旧写死 86 = 66+20，只在导航 inset=20dp 的设备刚好够且零余量（三键导航 48dp 时末行被遮——AndroidTester 判缺陷）。
+    val navBarInset = with(LocalDensity.current) { WindowInsets.navigationBars.getBottom(this).toDp() }
+    val tabClearance = 62.dp + 4.dp + navBarInset + 8.dp
     var showDirectoryBrowser by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(stateHolder.gatewayState.connection) { stateHolder.refreshProductState() }
     LaunchedEffect(searchQuery) {
@@ -478,7 +485,7 @@ internal fun WorkspaceScreen(
                         }
                     )
                 }
-                item { Spacer(Modifier.height(86.dp)) } // B1：浮动 tab bar（62 高 + 边距）的滚动净空
+                item { Spacer(Modifier.height(tabClearance)) } // 浮动 tab bar 净空：动态安全区 + 62 + 4 + 8（iOS safeAreaInset 同语义）
             }
             } // DshHomeTab.WORKSPACE
             // P0-1（Chief 2026-11-01 改裁决）：tab 必须切内容 —— 「点了没反应」在用户眼里就是坏的。
@@ -486,7 +493,8 @@ internal fun WorkspaceScreen(
             DshHomeTab.BOTS -> BotTeamScreen(
                 adapter = stateHolder.bridgeTeam,
                 onBack = { homeTab = DshHomeTab.WORKSPACE },
-                bottomInset = 86.dp
+                bottomInset = tabClearance,
+                showTopBar = false // Bot tab = iOS primaryTab 内容分段，无返回键顶栏（Chief 2026-11-01 裁）
             )
             DshHomeTab.SETTINGS -> SettingsScreen(
                 updateModel = updateModel,
@@ -496,7 +504,7 @@ internal fun WorkspaceScreen(
                 onOpenDefaultModel = onOpenDefaultModel,
                 onOpenFontSize = onOpenFontSize,
                 onOpenStorage = onOpenStorage,
-                bottomInset = 86.dp
+                bottomInset = tabClearance // 设置 = 推入页形态，保留顶栏（同 iOS）
             )
         }
         DshTabBar(

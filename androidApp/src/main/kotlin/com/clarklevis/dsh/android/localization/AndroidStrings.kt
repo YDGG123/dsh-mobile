@@ -624,6 +624,10 @@ internal object AndroidStrings {
         "最多 120 个字" to "Up to 120 characters",
         "最新正式发布尚未提供可安装的 Android APK，请稍后重试" to "The latest stable release does not include an installable Android APK yet. Try again later.",
         "最近会话" to "Recent sessions",
+        // 名册空态（iOS TeamView :343/:420/:356；en 措辞对齐 iOS xcstrings——iOSCoder 同批）
+        "暂无 Bot" to "No bots",
+        "暂无群聊" to "No groups",
+        "暂无其他会话" to "No other chats",
         "最近投递" to "Latest delivery",
         "服务器" to "Server",
         "服务端提供 Agent 预设配置文档。" to "The server provides agent preset configuration docs.",

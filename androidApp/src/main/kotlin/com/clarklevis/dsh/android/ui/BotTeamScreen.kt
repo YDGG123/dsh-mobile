@@ -75,7 +75,9 @@ import kotlinx.serialization.json.JsonPrimitive
 internal fun BotTeamScreen(
     adapter: AndroidBridgeTeamAdapter?,
     onBack: () -> Unit,
-    bottomInset: androidx.compose.ui.unit.Dp = androidx.compose.ui.unit.Dp(0f)
+    bottomInset: androidx.compose.ui.unit.Dp = androidx.compose.ui.unit.Dp(0f),
+    // iOS Bot tab 无返回键顶栏（WorkspaceView:321 primaryTab 内容分段）；抽屉/导航入口进来的保留顶栏。
+    showTopBar: Boolean = true
 ) {
     // 走主题（与 ScheduledTasksScreen/PluginsScreen 一致）：A1 换品牌海军蓝底时本页自动跟随，不许硬编码。
     val background = MaterialTheme.colorScheme.background
@@ -97,7 +99,7 @@ internal fun BotTeamScreen(
         modifier = Modifier.testTag("bot-team-page"),
         containerColor = background,
         topBar = {
-            CenterAlignedTopAppBar(
+            if (showTopBar) CenterAlignedTopAppBar(
                 title = { Text(appText("Bot 团队"), fontSize = 17.sp, fontWeight = FontWeight.SemiBold) },
                 navigationIcon = {
                     TopBarCircleButton(
@@ -145,20 +147,34 @@ internal fun BotTeamScreen(
                     PrimaryBotCard(primaryBot, modifier = Modifier.testTag("bot-row-primary-${primaryBot.name}"))
                 }
             }
-            if (bots.isNotEmpty()) {
-                item { SectionTitle(appText("Bot")) }
+            // Bots 节（iOS :343 Section("Bots")，zh-Hans 值同为 "Bots"——iOSDev 裁决）：
+            // 标题常显、空时 emptyRow「暂无 Bot」（iOS 空节也显示，Android 原来整节隐藏）。
+            item { SectionTitle(appText("Bots")) }
+            if (bots.isEmpty()) {
+                item { EmptyRosterRow(appText("暂无 Bot")) }
+            } else {
                 items(bots, key = { it.id }) { row ->
                     BotRow(row, isMain = mainBotIds.contains(row.id))
                 }
             }
-            if (rooms.isNotEmpty()) {
-                item { SectionTitle(appText("群聊")) }
+            // 群聊节：标题常显，空时「暂无群聊」（iOS :420-422）。
+            item { SectionTitle(appText("群聊")) }
+            if (rooms.isEmpty()) {
+                item { EmptyRosterRow(appText("暂无群聊")) }
+            } else {
                 items(rooms, key = { it.id }) { row -> RoomRow(row) }
             }
-            if (sessions.isNotEmpty()) {
-                item { SectionTitle(appText("会话")) }
+            // 会话节：标题常显，空时「暂无其他会话」（iOS :356-359）。
+            item { SectionTitle(appText("会话")) }
+            if (sessions.isEmpty()) {
+                item { EmptyRosterRow(appText("暂无其他会话")) }
+            } else {
                 items(sessions, key = { it.id }) { row -> SessionRow(row) }
             }
+            // 「卡片」节 = Android 有意超出（iOSDev 裁决，规格 §15）：BridgeCardRow 全仓唯一渲染点，
+            // 是 Android 侧 pending view/question/secret 卡唯一可见入口；iOS 对应可见性走 Bot tab 行
+            // 状态文案（GatewayTeamFeed:1179 statusText，D 组 feed 层，Android 未接）。
+            // D 组落地、tab 切 feed 后重评，预期移除。
             if (cards.isNotEmpty()) {
                 item { SectionTitle(appText("卡片（${cards.size}）")) }
                 items(cards, key = { it.id }) { card ->
@@ -484,6 +500,17 @@ private fun CapsuleBadge(
         modifier = Modifier
             .background(container, RoundedCornerShape(50))
             .padding(horizontal = 6.dp, vertical = 2.dp)
+    )
+}
+
+/** iOS emptyRow（TeamView :343/:356/:420 空态）：节标题常显、内容位单行说明。样式待真机校准（iOS 字号未逐值核）。 */
+@Composable
+private fun EmptyRosterRow(text: String) {
+    Text(
+        text,
+        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f),
+        fontSize = 13.sp,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp)
     )
 }
 
