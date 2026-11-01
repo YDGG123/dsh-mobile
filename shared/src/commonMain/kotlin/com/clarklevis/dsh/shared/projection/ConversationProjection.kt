@@ -53,7 +53,14 @@ data class ConversationItem(
     val epochSeconds: Double,
     val turn: Int? = null,
     val files: List<PresentedFile> = emptyList(),
-    val knownFiles: List<PresentedFile> = emptyList()
+    val knownFiles: List<PresentedFile> = emptyList(),
+    /**
+     * 源事件的 seq（`eventId` 里那一段，`sessionId-seq` 形态的条目可直接取用）。
+     * **跨源精确去重键的一半**：`(sessionId, seq)` 与 bridge 消息的 seq 同源（宿主事件 seq），
+     * 加它是为了覆盖「用户自己发的消息」——那类条目 id 是 `sessionId-user-<messageId>`，拆不出 seq
+     * （iOSCoder 2026-11-02 查出，Chief 定为不许退化成启发式去重）。
+     */
+    val seq: Int? = null
 )
 
 /** 高频 token 流只发送有序操作，不重复发送已经累计的完整消息文本。 */
@@ -186,7 +193,8 @@ class ConversationProjector(
             val item = ConversationItem(
                 id = "${record.sessionId}-user-$id", kind = ConversationItemKind.USER,
                 title = labels.userMessage, text = record.event.text.orEmpty(),
-                images = record.event.images.orEmpty(), files = record.event.files.orEmpty(), epochSeconds = normalizeEpoch(record.time)
+                images = record.event.images.orEmpty(), files = record.event.files.orEmpty(), epochSeconds = normalizeEpoch(record.time),
+                seq = record.seq
             )
             val index = streamIndexes[key]
             if (index == null) {
@@ -229,7 +237,8 @@ class ConversationProjector(
                         text = event.text.orEmpty(),
                         images = event.images.orEmpty(),
                         files = event.files.orEmpty(),
-                        epochSeconds = date
+                        epochSeconds = date,
+                        seq = record.seq
                     )
                     if (pendingId != null) {
                         finalizeStream("steering-$pendingId", item, operations)
@@ -245,7 +254,8 @@ class ConversationProjector(
                 title = labels.context + contextSourceName(event),
                 text = event.text,
                 images = event.images.orEmpty(),
-                epochSeconds = date
+                epochSeconds = date,
+                seq = record.seq
             ), operations)
             event.type == "assistant/chunk" && event.chunkType == "text-delta" && key !in finalizedKeys ->
                 appendStream("stream-text-$key", "text-$key", ConversationItemKind.ASSISTANT, labels.streamingAssistant, event.text.orEmpty(), date, operations)
@@ -274,7 +284,7 @@ class ConversationProjector(
                 attemptKeys[key] = itemKey
                 streamIndexes[itemKey] = mutableItems.size
                 insert(ConversationItem(eventId(record), ConversationItemKind.SYSTEM, title,
-                    text, isError = !cancelled, epochSeconds = date), operations)
+                    text, isError = !cancelled, epochSeconds = date, seq = record.seq), operations)
             }
             event.type == "llm/retry" || event.type == "llm/retry-started" -> {
                 // A retry settles the attempt notice; keep one status row per provider retry chain.
@@ -288,7 +298,7 @@ class ConversationProjector(
                 upsertStatus(itemKey, ConversationItem(old?.id ?: eventId(record), ConversationItemKind.SYSTEM,
                     if (started && old != null) old.title.replace(labels.modelRetrying, labels.modelRetried)
                     else (if (started) labels.modelRetried else labels.modelRetrying) + count + delay,
-                    text, epochSeconds = date), operations)
+                    text, epochSeconds = date, seq = record.seq), operations)
                 event.turn?.let { retryKeys[it] = itemKey }
             }
             event.type == "turn/end" -> {
