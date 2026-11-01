@@ -59,6 +59,19 @@ data class ConversationItem(
      * **跨源精确去重键的一半**：`(sessionId, seq)` 与 bridge 消息的 seq 同源（宿主事件 seq），
      * 加它是为了覆盖「用户自己发的消息」——那类条目 id 是 `sessionId-user-<messageId>`，拆不出 seq
      * （iOSCoder 2026-11-02 查出，Chief 定为不许退化成启发式去重）。
+     *
+     * ⚠️ **已知边界（Chief 2026-11-02 裁定不做）**：**helper 产物本条为 `null`**——
+     * `appendStream` / `upsertStatus` / `insert` 等 helper 里构造的条目（工具/流式/状态类，共 9 处）
+     * 作用域里没有 `record`，填 seq 需要改函数签名并一路透传，收益有限（这些条目 id 本就是
+     * `sessionId-seq`）。**消费方（合并层）的取值优先级因此写死**：
+     *
+     * ```
+     * item.seq          → 有则用（用户消息等已填）
+     * 否则从 id 末段拆   → "sessionId-seq" 形态
+     * 两样都拿不到      → **该条目不参与去重，但必须留日志**（不许静默跳过）
+     * ```
+     *
+     * 用户消息两条路径（steering / user-message）**已填 seq**，③「自己发的只出现一次」不缺字段。
      */
     val seq: Int? = null
 )
