@@ -9,8 +9,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -181,11 +179,10 @@ internal fun BotTeamScreen(
         val filteredRooms = remember(rooms, query) {
             if (query.isBlank()) rooms else rooms.filter { it.name.contains(query, ignoreCase = true) }
         }
-        // 顶栏净空：共享页头直接铺在 LazyColumn 顶上，必须自己吃状态栏 inset——
-        // 工作区 tab 的 contentPadding 是 WindowInsets.safeDrawing（DshProductApp:405），
-        // vc40 的 Bot tab 只给了 top=8dp，字标大（52dp 盒）还看得见，
-        // 右侧两枚 34dp 圆钮整个被压在状态栏下 ⇒ 用户看到「＋没了」（11-02 截图）。
-        // 顶栏净空走共享来源（runbook §5.7 ⑨②：与工作区同偏移 +18，不再各自写死）。
+        // 顶栏净空走共享来源（runbook §5.7 ⑨：与工作区同一表达式 statusBars+18；设置层 +0 走 Scaffold）。
+        // 【历史】vc40 的 Bot tab 只给了 top=8dp 且无状态栏 inset——字标盒 52dp 露得出、右侧两枚
+        // 34dp 圆钮整枚压在状态栏带里 ⇒ 用户看到「＋没了」（2026-11-02 截图）；当批修为 statusBars+8，
+        // vc42 起并入 dshHomeListTopInset()（18，与工作区同层同偏移）。
         val topInset = dshHomeListTopInset()
         LazyColumn(
             Modifier.fillMaxSize().padding(padding).testTag("bot-team-list"),

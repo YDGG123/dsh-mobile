@@ -51,7 +51,35 @@ object CrashLog {
 
     fun clear(context: Context) {
         runCatching { file(context).delete() }
+        runCatching { trimFile(context).delete() }
     }
+
+    private fun trimFile(context: Context): File = File(context.noBackupFilesDir, "last-trim.txt")
+
+    /**
+     * onTrimMemory 落盘（iOSCoder 2026-11-02：异常 handler 抓不到 OOM/被系统杀，只有这条能留痕）。
+     * 与「上次崩溃日志」同组展示——用户一次截图同时给两类证据（异常/被杀）。
+     */
+    fun recordMemoryTrim(context: Context, level: Int) {
+        runCatching {
+            val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+            val memoryInfo = android.app.ActivityManager.MemoryInfo()
+            activityManager.getMemoryInfo(memoryInfo)
+            val nl = "\n"
+            val text = buildString {
+                append("时间: ").append(SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())).append(nl)
+                append("级别: ").append(level).append(nl)
+                append("系统可用内存: ").append(memoryInfo.availMem / 1024 / 1024).append(" MB").append(nl)
+                append("是否低内存: ").append(memoryInfo.lowMemory).append(nl)
+                version(context).let { append("版本: ").append(it.first).append(" (").append(it.second).append(")").append(nl) }
+            }.take(MAX_CHARS)
+            trimFile(context).writeText(text)
+        }.onFailure { Log.w(TAG, "trim log write failed") }
+    }
+
+    fun readTrim(context: Context): String? = runCatching {
+        trimFile(context).takeIf { it.exists() }?.readText()?.trim()?.takeIf(String::isNotEmpty)
+    }.getOrNull()
 
     private fun write(context: Context, thread: Thread, throwable: Throwable, foreground: Boolean) {
         val (versionName, versionCode) = version(context)

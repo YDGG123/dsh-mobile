@@ -352,6 +352,21 @@ internal fun SettingsScreen(
                         color = homeInk(0.85f),
                         modifier = Modifier.testTag("crash-log-text")
                     )
+                    val trimText = com.clarklevis.dsh.android.platform.CrashLog.readTrim(context)
+                    if (trimText != null) {
+                        Text(
+                            appText("—— 最近一次内存告警 ——"),
+                            fontSize = 12.sp,
+                            color = homeInk(0.6f),
+                            modifier = Modifier.padding(top = 8.dp)
+                        )
+                        Text(
+                            trimText,
+                            fontSize = 12.sp,
+                            lineHeight = 16.sp,
+                            color = homeInk(0.85f)
+                        )
+                    }
                 }
             }
         )

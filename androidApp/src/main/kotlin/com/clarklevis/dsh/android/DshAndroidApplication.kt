@@ -67,6 +67,7 @@ class DshAndroidApplication : Application(), DefaultLifecycleObserver {
 
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
+        com.clarklevis.dsh.android.platform.CrashLog.recordMemoryTrim(this, level)
         if (!::hosts.isInitialized) return
         graph.stateHolder.trimMemory()
         com.clarklevis.dsh.android.platform.AndroidAttachmentCache.trimMemory()
