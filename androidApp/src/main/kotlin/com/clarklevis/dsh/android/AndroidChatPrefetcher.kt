@@ -91,6 +91,13 @@ internal class AndroidChatPrefetcher(
         cancelLocked(reason)
     }
 
+    /** 回前台恢复预取（对齐 iOS `.active` 后重启预取；后台期 stop("background")）。 */
+    fun resume(reason: String) = synchronized(lock) {
+        if (!stopped) return@synchronized
+        stopped = false
+        startLocked()
+    }
+
     fun interceptTerminal(event: GatewayRuntimeEvent): Boolean {
         val target = when (event) {
             is GatewayRuntimeEvent.RequestCancelled -> event.targetSessionId.takeIf {
