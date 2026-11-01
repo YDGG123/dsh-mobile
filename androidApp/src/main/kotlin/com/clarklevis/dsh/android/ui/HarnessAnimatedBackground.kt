@@ -96,13 +96,18 @@ internal fun HarnessAnimatedBackground(
             .semantics { hideFromAccessibility() }
     ) {
         val largeWindow = maxWidth >= 600.dp
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        // 浅色形态**不跑着色器**：HarnessFluidBrush 的着色器输出 alpha=1、配色按深海写死
+        // （iOS 同设计，HarnessStaticBase 注释「浅色形态不用 Metal 流体」）；浅色走近白冷调静态底。
+        // 用户设备 SDK 36 走 FluidField —— 不分档的话 Paper 底色会被整屏不透明深海盖掉（Chief 实测根因）。
+        if (isLight) {
+            FluidFallback(currentTime, largeWindow, isLight = true)
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             FluidField(currentTime, largeWindow)
         } else {
-            FluidFallback(currentTime, largeWindow)
+            FluidFallback(currentTime, largeWindow, isLight = false)
         }
         TechnicalGrid(largeWindow, isLight)
-        WhaleParticleField(currentTime, !motionEnabled, largeWindow)
+        WhaleParticleField(currentTime, !motionEnabled, largeWindow, isLight)
         Canvas(Modifier.fillMaxSize()) {
             drawRect(
                 Brush.verticalGradient(
@@ -142,8 +147,21 @@ private fun FluidField(time: () -> Float, largeWindow: Boolean) {
 }
 
 @Composable
-private fun FluidFallback(time: () -> Float, largeWindow: Boolean) {
+private fun FluidFallback(time: () -> Float, largeWindow: Boolean, isLight: Boolean = false) {
     Canvas(Modifier.fillMaxSize()) {
+        if (isLight) {
+            // iOS HarnessStaticBase(isLight:) 浅色档：三段「近白 + 一点冷」对角渐变
+            // （0.976/0.980/0.988 → #F9FAFC、0.958/0.966/0.978 → #F4F6F9、0.986/0.988/0.994 → #FBFCFE；
+            // 设计稿 01-home 浅色取值，旧明显浅蓝值被用户真机否过）。深色光弧不画。
+            drawRect(
+                Brush.linearGradient(
+                    colors = listOf(Color(0xFFF9FAFC), Color(0xFFF4F6F9), Color(0xFFFBFCFE)),
+                    start = Offset.Zero,
+                    end = Offset(size.width, size.height)
+                )
+            )
+            return@Canvas
+        }
         val x = size.width * (0.46f + sin(time() * 0.075f) * 0.08f)
         drawRect(
             Brush.radialGradient(
@@ -192,14 +210,16 @@ private class HarnessFluidBrush(largeWindow: Boolean) : ShaderBrush() {
 private fun TechnicalGrid(largeWindow: Boolean, isLight: Boolean) {
     Canvas(Modifier.fillMaxSize()) {
         val spacing = if (largeWindow) (size.minDimension / 16f).coerceIn(42.dp.toPx(), 64.dp.toPx()) else 42.dp.toPx()
+        // 网格线双档（iOS HarnessTechnicalGrid :202-203）：深白@0.043 / 浅 ink@0.07；点 白@0.085 / 浅 ink@0.11。
+        val lineColor = if (isLight) DshColors.Ink.copy(alpha = 0.07f) else Color.White.copy(alpha = 0.043f)
         var x = -spacing
         while (x <= size.width + spacing) {
-            drawLine(Color.White.copy(alpha = 0.043f), Offset(x, 0f), Offset(x, size.height), 0.55.dp.toPx())
+            drawLine(lineColor, Offset(x, 0f), Offset(x, size.height), 0.55.dp.toPx())
             x += spacing
         }
         var y = -spacing
         while (y <= size.height + spacing) {
-            drawLine(Color.White.copy(alpha = 0.043f), Offset(0f, y), Offset(size.width, y), 0.55.dp.toPx())
+            drawLine(lineColor, Offset(0f, y), Offset(size.width, y), 0.55.dp.toPx())
             y += spacing
         }
         val columns = ceil(size.width / spacing).toInt() + 1
@@ -208,7 +228,7 @@ private fun TechnicalGrid(largeWindow: Boolean, isLight: Boolean) {
             repeat(columns) { column ->
                 if ((row * 11 + column * 7) % 13 == 0) {
                     drawRect(
-                        Color.White.copy(alpha = 0.085f),
+                        if (isLight) DshColors.Ink.copy(alpha = 0.11f) else Color.White.copy(alpha = 0.085f),
                         Offset(column * spacing - 1.1.dp.toPx(), row * spacing - 1.1.dp.toPx()),
                         Size(2.2.dp.toPx(), 2.2.dp.toPx())
                     )
@@ -227,7 +247,7 @@ private fun TechnicalGrid(largeWindow: Boolean, isLight: Boolean) {
 }
 
 @Composable
-private fun WhaleParticleField(time: () -> Float, isStatic: Boolean, largeWindow: Boolean) {
+private fun WhaleParticleField(time: () -> Float, isStatic: Boolean, largeWindow: Boolean, isLight: Boolean) {
     val sampleSize = if (largeWindow) 100 else WHALE_SAMPLE_SIZE
     val particles = remember(sampleSize) { makeWhaleParticles(sampleSize) }
     Canvas(Modifier.fillMaxSize()) {
@@ -265,22 +285,31 @@ private fun WhaleParticleField(time: () -> Float, isStatic: Boolean, largeWindow
             val staggerY = sin(column * 0.90f - rowPhase + t * 0.42f) * staggerAmplitude * 0.7f
             val tailWave = sin(t * 1.10f - particle.x * 7f) * tailAmplitude * tail
             val shimmer = 0.90f + 0.10f * sin(t * 1.5f + particle.x * 15f + particle.y * 9f)
+            // 粒子双档（iOS HarnessWhaleField :291-308）：浅底共需更高不透明度才看得见（底明暗两档）
+            val baseAlpha = if (isLight) 0.30f + particle.luminance * 0.45f else 0.10f + particle.luminance * 0.38f
+            val layerOpacity = if (isLight) 0.5f else 0.42f // 浅色 iOS 整体 0.5；深色保持既有 0.42 校准不漂移
             val point = Offset(
                 center.x + (particle.x - 0.5f) * whaleWidth + driftX + staggerX,
                 center.y + (particle.y - 0.5f) * square + driftY + staggerY + tailWave
             )
             val dot = baseDot * (0.72f + particle.luminance * 0.58f)
-            val alpha = ((0.10f + particle.luminance * 0.38f) * shimmer).coerceIn(0f, 1f) * 0.42f
+            val alpha = (baseAlpha * shimmer).coerceIn(0f, 1f) * layerOpacity
+            // 色值双档（iOS 同上）：浅色冷蓝系 0.10+0.10L / 0.26+0.12L / 0.50+0.14L；深色近白 0.73+0.15L / 0.79+0.12L / 0.92+0.08L
+            val r = if (isLight) (0.10f + 0.10f * particle.light) else (0.73f + 0.15f * particle.light)
+            val g = if (isLight) (0.26f + 0.12f * particle.light) else (0.79f + 0.12f * particle.light)
+            val b = if (isLight) (0.50f + 0.14f * particle.light) else (0.92f + 0.08f * particle.light)
             drawRoundRect(
                 Color(
-                    red = (0.73f + 0.15f * particle.light).coerceIn(0f, 1f),
-                    green = (0.79f + 0.12f * particle.light).coerceIn(0f, 1f),
-                    blue = (0.92f + 0.08f * particle.light).coerceIn(0f, 1f),
+                    red = r.coerceIn(0f, 1f),
+                    green = g.coerceIn(0f, 1f),
+                    blue = b.coerceIn(0f, 1f),
                     alpha = alpha
                 ),
                 topLeft = Offset(point.x - dot / 2f, point.y - dot / 2f),
                 size = Size(dot, dot),
-                cornerRadius = androidx.compose.ui.geometry.CornerRadius(dot * 0.18f)
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(dot * 0.18f),
+                // 混合模式双档（iOS :64）：浅色 .normal —— Screen 会把浅底上的鲸鱼点冲淡到看不见；深色 .screen 保留
+                blendMode = if (isLight) BlendMode.SrcOver else BlendMode.Screen
             )
         }
     }
