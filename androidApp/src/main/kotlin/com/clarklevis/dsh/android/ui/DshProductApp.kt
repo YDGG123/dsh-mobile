@@ -634,13 +634,12 @@ private fun HarnessMark(onClick: () -> Unit, modifier: Modifier = Modifier) {
         val showWordmark = maxWidth >= 128.dp
         val scale = (maxWidth / 216.dp).coerceIn(0f, 1f)
         if (showWordmark) {
-            // 共享实现（OrcarnessWordmark.kt）：一处反相逻辑，四处调用点（首页/抽屉/会话侧栏）
-            Image(
-                painter = painterResource(R.drawable.dsh_orcarness_wordmark),
-                contentDescription = null,
-                colorFilter = if (dark) ColorFilter.colorMatrix(OrcarnessWordmarkInvertMatrix) else null,
-                modifier = Modifier.size(width = 216.dp * scale, height = 29.dp * scale)
-            )
+            // 共享实现（OrcarnessWordmark.kt）：反相与 29dp 高度只有一处，三处调用点共用。
+            // **这里有意在调用点先乘 scale**（Android 自造：可用宽度不足 216 时连续收缩）——
+            // iOS WorkspaceView.swift:937 只有 `dynamicTypeSize.isAccessibilitySize ? 150 : 216` 一档，
+            // 既不做连续缩放也不隐藏。该规则**不搬进共享组件**，否则会扩散到抽屉/会话侧栏那两处
+            // （iOS 那两处分别是固定 min(width-48,216) 与 116）。360dp 手机上两者都是 216，无可见差异。
+            OrcarnessWordmark(width = 216.dp * scale, height = 29.dp * scale)
         }
     }
 }

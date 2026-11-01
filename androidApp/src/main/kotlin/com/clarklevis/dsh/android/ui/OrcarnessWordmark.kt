@@ -1,7 +1,6 @@
 package com.clarklevis.dsh.android.ui
 
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -23,25 +22,13 @@ import com.clarklevis.dsh.android.R
  * 高度恒 29（iOS 三处都一样），宽度由调用方给：首页 216 / 抽屉 min(抽屉宽−48, 216) / 会话侧栏 116。
  */
 @Composable
-internal fun OrcarnessWordmark(width: Dp, modifier: Modifier = Modifier) {
+internal fun OrcarnessWordmark(width: Dp, modifier: Modifier = Modifier, height: Dp = 29.dp) {
     val dark = LocalDshIsDark.current
     Image(
         painter = painterResource(R.drawable.dsh_orcarness_wordmark),
         contentDescription = null,
         colorFilter = if (dark) ColorFilter.colorMatrix(OrcarnessWordmarkInvertMatrix) else null,
-        modifier = modifier.size(width = width, height = 29.dp)
-    )
-}
-
-/** 仅高度固定 29dp、宽度由外部约束给定时用（抽屉那处按可用宽度收缩）。 */
-@Composable
-internal fun OrcarnessWordmarkFillWidth(modifier: Modifier = Modifier) {
-    val dark = LocalDshIsDark.current
-    Image(
-        painter = painterResource(R.drawable.dsh_orcarness_wordmark),
-        contentDescription = null,
-        colorFilter = if (dark) ColorFilter.colorMatrix(OrcarnessWordmarkInvertMatrix) else null,
-        modifier = modifier.height(29.dp)
+        modifier = modifier.size(width = width, height = height)
     )
 }
 
