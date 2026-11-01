@@ -531,7 +531,12 @@ internal fun WorkspaceScreen(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .navigationBarsPadding()
-                // B2：栏底 = 安全区 + 39（8 + 62/2，照 iOS 表达式，不写死）。原来只有 4dp → 用户两轮报「太贴底」。
+                // B2：栏底 = **系统底区 + 39**（8 + 62/2，照 iOS 表达式，不写死）。原来只有 4dp → 用户两轮报「太贴底」。
+                // **不要为了让数字对上 iOS 而补 34pt**（Chief 2026-11-01 裁决，已由图与源码确认）：
+                // iOS 那个 34 是 **Home 指示条占据的可交互区**，不是设计留白；Android 的对应物是手势条，
+                // 已由 `navigationBarsPadding()` 吃掉。硬补会在系统底区之上再叠一块死白 → 判据通过、观感变差。
+                // 判据用**相对式**：`pill底 − 平台底区 − 内层4 = 39`（两端同式）；绝对数随各自机型安全区换算，
+                // 平台固有差记档、不算 parity 缺陷（iPhone 16:9 Home 键机型安全区 = 0，与 Android 43dp 零差）。
                 // 水平 16 只由 DshTabBar 内部那一处给（iOS 也只有一次 lg=16）：原先调用点再叠 16 = 两侧 32，比 iOS 每侧窄 16dp。
                 .padding(bottom = DshTabBarBottomRise)
         )
