@@ -101,6 +101,27 @@ class TeamGlyphParserTest {
         assertEquals(0.16, layers.first().opacity!!, 1e-9)
     }
 
+    /** 缺口 1（tilt）：eyes 是五元组 [cx,cy,w,h,tilt]，第 5 位必须进模型——
+     *  丢了它眼睛不旋转，与电脑端/iOS 可见不一致。tilt 角度值取 AndroidTester 实测的
+     *  真 whale 两眼（-15.8°/-21.2°）；cx/cy/w/h 为样例值。 */
+    @Test
+    fun fifthEyeElementIsParsedAsTilt() {
+        val glyph = parseTeamFeedGlyph(
+            Json.parseToJsonElement(
+                """{"size":100,"path":"M1 1L2 2Z",
+                   "eyes":[[10,10,4,2,-15.8],[10,30,4,2,-21.2]]}""",
+            ).jsonObject,
+        )
+        assertNotNull(glyph)
+        assertEquals(-15.8, glyph!!.eyes[0].tilt, 1e-9)
+        assertEquals(-21.2, glyph.eyes[1].tilt, 1e-9)
+        // 四元组（旧形状）⇒ tilt 缺省 0，不抛。
+        val legacy = parseTeamFeedGlyph(
+            Json.parseToJsonElement("""{"size":100,"path":"M1 1L2 2Z","eyes":[[1,2,3,4]]}""").jsonObject,
+        )
+        assertEquals(0.0, legacy!!.eyes[0].tilt, 1e-9)
+    }
+
     /** 缺 path / size 非法 ⇒ null（parseTeamFeedGlyph 的守卫）。 */
     @Test
     fun glyphWithoutPathOrNullSizeIsRejected() {

@@ -274,7 +274,11 @@ fun parseTeamFeedGlyph(obj: JsonObject): TeamFeedGlyph? {
             val numbers = e.mapNotNull { (it as? JsonPrimitive)?.doubleOrNull }
             // 电脑端 eyes = [cx, cy, w, h, tilt?]（w/h 是宽高，这里存成半径对）。
             if (numbers.size < 4) return@mapNotNull null
-            TeamFeedGlyphEye(cx = numbers[0], cy = numbers[1], rx = numbers[2] / 2, ry = numbers[3] / 2)
+            // 第 5 位是 tilt（度）。丢了它眼睛就不旋转，与电脑端/iOS 可见不一致（缺口 1，2026-11-03 补）。
+            TeamFeedGlyphEye(
+                cx = numbers[0], cy = numbers[1], rx = numbers[2] / 2, ry = numbers[3] / 2,
+                tilt = numbers.getOrNull(4) ?: 0.0,
+            )
         },
         color = obj.str("color"),
     )

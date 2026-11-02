@@ -73,8 +73,15 @@ data class TeamFeedGlyph(
 @Serializable
 data class TeamFeedGlyphLayer(val d: String, val fill: String? = null, val opacity: Double? = null)
 
+/** 电脑端 eyes = [cx, cy, w, h, tilt?]（五元组，20 角色全是 5 元；tilt 单位度，AndroidTester 2026-11-03 实测）。 */
 @Serializable
-data class TeamFeedGlyphEye(val cx: Double, val cy: Double, val rx: Double = 1.0, val ry: Double = 1.0)
+data class TeamFeedGlyphEye(
+    val cx: Double,
+    val cy: Double,
+    val rx: Double = 1.0,
+    val ry: Double = 1.0,
+    val tilt: Double = 0.0,
+)
 
 /** ds-bot rosters 的 `avatar` 是 `{ shape, image }` 对象（不是单个 data URL）。 */
 @Serializable

@@ -125,6 +125,16 @@ class TeamFeedReducerTest {
         assertTrue(outcome is TeamFeedReducer.Outcome.Applied)
         assertEquals(7L, reducer.state.seq, "order 不推进 seq（否则下一次 delta.base 立即失配）")
         assertEquals(listOf("s2", "s1"), reducer.state.orderSessions)
+
+        // 假绿修复（AndroidTester 2026-11-03）：本例 seq 与 order 帧回显值恰好相等，
+        // 若实现错写成 `seq = frame.seq` 不会红——必须跟一条 delta(base=seq) 断言 Applied，
+        // 才把「order 不推进消费水位」这个不变式真正钉死。
+        val followUp = reducer.apply(
+            delta(seq = 8, base = 7, ops = """{"op":"bot.patch","id":"b1","set":{"activity":"idle"}}"""),
+        )
+        assertTrue(followUp is TeamFeedReducer.Outcome.Applied, "order 之后 base=seq 的 delta 必须照常生效")
+        assertEquals(8L, reducer.state.seq)
+        assertEquals("idle", reducer.state.rows.getValue("b1").activity)
     }
 
     // —— 段 2 判据 6：degraded 每帧必带，且显式置位（不许渲染成全部空闲）——

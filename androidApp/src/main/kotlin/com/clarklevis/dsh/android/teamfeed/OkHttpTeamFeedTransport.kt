@@ -30,8 +30,12 @@ class OkHttpTeamFeedTransport(
             object : WebSocketListener() {
                 override fun onOpen(webSocket: WebSocket, response: Response) {
                     listener.onOpen()
-                    // 契约：首帧 auth（**不需要** conversationId）；失败由服务端关连接，onClosed 会上抛。
-                    val sent = webSocket.send("{\"type\":\"auth\",\"token\":\"$token\"}")
+                    // 契约：首帧 auth（**不需要** conversationId）；capabilities 声明 chunked-frames-v1
+                    // 之后网关才可能发 chunk 帧（chunked.mjs:11；server.mjs:560 按声明置 state.chunked）。
+                    // 失败由服务端关连接，onClosed 会上抛。
+                    val sent = webSocket.send(
+                        "{\"type\":\"auth\",\"token\":\"$token\",\"capabilities\":[\"chunked-frames-v1\"]}",
+                    )
                     if (!sent) listener.onClosed("auth frame not sent")
                 }
 
