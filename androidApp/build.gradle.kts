@@ -22,7 +22,7 @@ android {
         applicationId = "com.clarklevis.dsh.android"
         minSdk = 24
         targetSdk = 36
-        versionCode = 45 // 本批（修「覆盖安装后 Bot 页每次都要重配」：不再按 phase 销毁会话；凭证主动刷新 + 401 重试；配对链诊断日志）；44 为上一批
+        versionCode = 46 // 本批（自愈拉取式：缺 bridge 会话时主动请求补发 + 60s 去抖；三种帧 kind 都接且 adopt 前判 hasSession；不再按 phase 销毁会话；凭证主动刷新；诊断日志）；45 为未发布的中间版
         versionName = "1.7.13"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
