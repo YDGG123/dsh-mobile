@@ -1041,7 +1041,7 @@ final class AppStore: ObservableObject {
                 if self.isShowingSearchContext, let timeline = self.searchContextTimeline {
                     timeline.publish(timeline.currentSnapshot.items)
                 }
-                if let items = self.renderedConversationItems[id] { self.conversationTimeline(for: id).publish(items) }
+                if self.renderedConversationItems[id] != nil { self.publishMergedTimeline(for: id) }
             }
         }
         let historyCache = chatHistoryCache
@@ -1318,11 +1318,10 @@ final class AppStore: ObservableObject {
         // 别的 publish（历史装载/投影循环）上，于是表现为「历史看得到、实时看不到」。
         // 只重推**当前显示的会话**：后台会话没必要为渲染做功。
         guard sessionId == selectedSessionId else { return }
-        let items = mergedConversationItems(for: sessionId)
-        conversationTimeline(for: sessionId).publish(items)
+        publishMergedTimeline(for: sessionId)
         // 固定 ASCII 标记（≥16 字节）：既便于日志定位，也作为产物指纹
-        // （`roomchat-push-timeline` 在 build 70 里为 0、71 里 ≥1 ⇒ 新增式指纹）。
-        Self.roomChatLog.notice("roomchat-push-timeline session=\(sessionId, privacy: .public) items=\(items.count, privacy: .public)")
+        // （`roomchat-push-timeline` 在 build 70 里为 0、71 起 ≥1 ⇒ 新增式指纹）。
+        Self.roomChatLog.notice("roomchat-push-timeline session=\(sessionId, privacy: .public)")
     }
 
     var selectedEvents: [SessionEvent] {
@@ -1467,10 +1466,31 @@ final class AppStore: ObservableObject {
         if let timeline = conversationTimelines[sessionId] { return timeline }
         let timeline = ConversationTimeline()
         conversationTimelines[sessionId] = timeline
-        if let items = renderedConversationItems[sessionId], !items.isEmpty {
-            timeline.publish(items)
+        // 首建时就用**合流结果**初始化（否则刚进会话那一屏缺气泡，要等下一次喂桶/轮询才补上）。
+        // 这里不能用 `publishMergedTimeline`：它只推已存在的实例，从创建分支调它会自递归。
+        if !(renderedConversationItems[sessionId] ?? []).isEmpty || !(roomChatBubbles[sessionId] ?? []).isEmpty {
+            timeline.publish(mergedConversationItems(for: sessionId))
         }
         return timeline
+    }
+
+    /// **合流结果进 `conversationTimeline` 的唯一出口**（2026-11-02 登记：把 5 处发布点收成一处）。
+    ///
+    /// 为什么必须收：`ConversationTimeline.publish` 是**整份替换**（`ConversationTimeline.swift:81`
+    /// `self.items = items`）。合流结果只被推一处，而其它发布点推的是"纯网关条目"
+    /// （`renderedConversationItems`）⇒ 一批投影/一次附件解码到达就把合流那一半**抹掉**，
+    /// 最差 8s 后才由兜底轮询补回 ⇒ 用户看到「出现 → 消失 → 又回」。
+    /// 收成一处后判据变成可机械执行的：**树里不再有直接推 `renderedConversationItems` 的 publish**。
+    ///
+    /// - 只推给**已存在**的 timeline（不在这里创建实例：创建分支自己会用合流结果初始化，见上）。
+    /// - `stamp` 与收口前**逐处一致**：投影批次那处传 stamp，附件加载/首建那几处传 nil。
+    ///   `publish` 的 stamp 是**粘性**的（不传 = 保留上一次），且新 epoch 会发准入事件
+    ///   ⇒ 图省事全传同一个 stamp，会让每次附件解码都补发一次准入事件（修 A 坏 B）。
+    private func publishMergedTimeline(for sessionId: String, stamp: HistoryPresentationStamp? = nil) {
+        guard let timeline = conversationTimelines[sessionId] else { return }
+        timeline.publish(mergedConversationItems(for: sessionId), historyPresentationStamp: stamp)
+        // 固定 ASCII 标记（≥16 字节）：build 72 的树标记（71 里为 0）。
+        Self.roomChatLog.notice("roomchat-timeline-outlet session=\(sessionId, privacy: .public)")
     }
     func displayedConversationTimeline(for sessionID: String) -> ConversationTimeline {
         if isShowingSearchContext, sessionID == selectedSessionId, let searchContextTimeline { return searchContextTimeline }
@@ -4577,7 +4597,7 @@ final class AppStore: ObservableObject {
         Task { [weak self] in
             for attachment in attachments { _ = await cache.loadData(for: attachment.id) }
             guard let self, !self.evictedConversationSessionIDs.contains(sessionId) else { return }
-            if let items = self.renderedConversationItems[sessionId] { self.conversationTimeline(for: sessionId).publish(items) }
+            if self.renderedConversationItems[sessionId] != nil { self.publishMergedTimeline(for: sessionId) }
             let requests = self.attachmentLoader.enqueue(attachments, sessionID: sessionId) {
                 cache.data(for: $0) != nil
             }
@@ -4617,10 +4637,10 @@ final class AppStore: ObservableObject {
         imageAttachmentCache.store(decoded, for: attachment.id, expectedEpoch: requestEpoch)
         if isShowingSearchContext, let timeline = searchContextTimeline { timeline.publish(timeline.currentSnapshot.items) }
         guard let sessionId = payload.sessionID,
-              let items = renderedConversationItems[sessionId] else { return }
+              renderedConversationItems[sessionId] != nil else { return }
         // The row revision also includes cache presence, so this publication
         // replaces only rows whose attachment just became renderable.
-        conversationTimeline(for: sessionId).publish(items)
+        publishMergedTimeline(for: sessionId)
     }
 
     private func scheduleConversationProjection(for sessionId: String) {
@@ -4870,7 +4890,7 @@ final class AppStore: ObservableObject {
             sessionId != selectedSessionId && events[sessionId]?.last?.event.type != "assistant/chunk" {
             scheduleInactiveConversationMemoryTrim()
         }
-        conversationTimeline(for: sessionId).publish(items, historyPresentationStamp: historyPresentationAdmission.stamp(
+        publishMergedTimeline(for: sessionId, stamp: historyPresentationAdmission.stamp(
             sessionID: sessionId, committedEpoch: historyPresentationCommittedEpochs[sessionId, default: 0]))
         if let request = pendingApprovalRequests.last(where: { $0.sessionId == sessionId }) {
             if #available(iOS 16.2, *) {
