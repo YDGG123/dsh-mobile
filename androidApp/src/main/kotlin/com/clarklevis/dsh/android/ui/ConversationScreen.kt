@@ -915,7 +915,11 @@ private fun ConversationTimeline(
             }
         }
     }
-    val peerEntries = remember(room?.id, stateHolder.bridgeTeam?.chatMessagesByConversation) {
+    // 去重键依赖 `presentation.items`，而它与 bridge 快照节奏不同（实时 vs 8s 轮询）⇒
+    // 键里必须带上「items 的去重签名」，否则网关先到、桥未刷新时 memo 不重算 ⇒ 同一行两份（≤8s）。
+    // 签名只取 id+seq：流式 token 只改文本、不影响签名，不会让合流每帧重算。
+    val gatewaySignature = gatewayDedupeSignature(presentation.items)
+    val peerEntries = remember(room?.id, stateHolder.bridgeTeam?.chatMessagesByConversation, gatewaySignature) {
         val bubbles = decodeRoomChatBubbles(stateHolder.bridgeTeam?.chatMessagesByConversation?.get(room?.id))
         if (room == null) emptyList()
         else mergeRoomChatEntries(items = presentation.items, sessionId = room.sessionId, bubbles = bubbles)

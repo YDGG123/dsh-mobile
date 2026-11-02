@@ -22,7 +22,7 @@ android {
         applicationId = "com.clarklevis.dsh.android"
         minSdk = 24
         targetSdk = 36
-        versionCode = 49 // 本批（合流锚点日志：room chat merge gateway/bridge/dropped/withoutSeq —— 让「not deduped 0 命中」可区分于「根本没跑」）；48 为上一批
+        versionCode = 50 // 本批（修合流 memo 键漏输入：键改为 id+seq 内容签名，网关条目变化时去重结果跟着更新，避免同一行短暂两份）；49 为上一批
         versionName = "1.7.13"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

@@ -36,6 +36,29 @@ internal fun decodeRoomChatBubbles(snapshotJson: String?): List<RoomChatBubble> 
 }
 
 /**
+ * 合流的**去重签名**：只由「能参与去重键的字段」决定——`id` 与 `seq`。
+ *
+ * 为什么需要它（AndroidTester 2026-11-02 查出的一处缓存键漏输入）：
+ * 原 memo 键只有 `(room.id, bridge 快照)`，但 `mergeRoomChatEntries` 还用 `items` 建去重键集合——
+ * 网关条目走实时事件、桥快照走 8s 轮询，两者节奏不同 ⇒ 网关先到、桥还没刷新时 memo 不重算
+ * ⇒ 去重用的是**旧的键集合** ⇒ 本该丢的桥气泡留着 ⇒ 同一行短暂显示两份（≤8s 后收敛）。
+ *
+ * 为什么不用 `items.size`：流式 token 期间**条数不变、内容在变**，用条数会让这类检查恒假（iOSDev 同款提醒）。
+ * 为什么不用整个 `items`：那样每个 token 都会让合流重算（含排序），代价随流式频率上升。
+ * ⇒ 用 id+seq 的滚动哈希：文本变化不影响它，条目增删或 seq 变化才变。
+ */
+internal fun gatewayDedupeSignature(
+    items: List<com.clarklevis.dsh.shared.projection.ConversationItem>
+): Int {
+    var hash = 0
+    items.forEach { item ->
+        hash = 31 * hash + item.id.hashCode()
+        hash = 31 * hash + (item.seq ?: -1)
+    }
+    return hash
+}
+
+/**
  * 合流：网关条目 + bridge 气泡 → 要插入的 [ConversationTimelineEntry.PeerMessage] 列表。
  *
  * @param withoutSeqLogged 由调用方传入日志函数（测试可注入），**每条都要调用**。
