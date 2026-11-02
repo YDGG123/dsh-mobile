@@ -59,7 +59,30 @@ enum RoomChatMergePlan {
         if id.contains("-user-") { return nil }
         if syntheticIDPrefixes.contains(where: { id.hasPrefix($0) }) { return nil }
         guard let last = id.split(separator: "-").last, !last.isEmpty,
-              last.allSatisfy(\.isNumber), let value = Int(last) else { return nil }
+              last.allSatisfy({ $0.isASCII && $0.isNumber }), let value = Int(last) else { return nil }
+        return value
+    }
+
+    /// **桥行 id 的 seq**（iOS 侧自己的约定，2026-11-02 AndroidTester 查实后重写）。
+    ///
+    /// `BridgeChatEngine.roomChatBubble` 拼的是 `"bridge:<conversationId>:<sessionId>:<seq>"`
+    /// —— **不是** Android 的 `"<sessionId>:<seq>"`。照抄安卓形态写（判前缀 `"\(sessionId):"`）在 iOS 上
+    /// **恒不命中**：id 以 `bridge:` 开头。这是一条"看起来对、永不生效"的死代码，用例若用错 id 形态还会绿着没用。
+    ///
+    /// 这里**不要求 conversationId**（`merge` 拿不到它），校验方式改成**从右往左**：
+    /// 末段必须是纯 ASCII 数字（seq）、倒数第二段必须等于传入的 `sessionId`、前面至少还有一段（conversationId）。
+    ///
+    /// ⚠️ **为什么不硬判「恰好 4 段」**（Chief 2026-11-02 提的前提）：id 是 `bridge:<conv>:<sid>:<seq>`，
+    /// 4 段只在「`<conv>` 不含冒号」时成立。实测当前**成立**（网关 `adapter.mjs:100` / `actions.mjs:48` 是
+    /// `id = room.id = sessionId`，落盘样本 12 个全是 UUID、含冒号 0 个），但把判定建在这个未受保护的前提下，
+    /// 一旦 room.id 换成带冒号的形态就是**永不命中的死代码**——从右取，两种形态都对。
+    static func seqFromBridgeID(_ id: String, sessionId: String?) -> Int? {
+        let parts = id.split(separator: ":", omittingEmptySubsequences: false)
+        guard parts.count >= 4, parts[0] == "bridge" else { return nil }
+        if let sessionId, !sessionId.isEmpty, parts[parts.count - 2] != Substring(sessionId) { return nil }
+        let tail = parts[parts.count - 1]
+        guard !tail.isEmpty, tail.count <= 18,
+              tail.allSatisfy({ $0.isASCII && $0.isNumber }), let value = Int(tail) else { return nil }
         return value
     }
 
@@ -87,9 +110,13 @@ enum RoomChatMergePlan {
     }
 
     /// 合流：网关条目的相对顺序保持；bridge 里**独有的**条目按时间插入。
-    /// `sessionId` 参与键，不参与内容——两侧同源（`adapter.mjs:100` `sessionId: room.id`）。
+    ///
+    /// **`sessionId` 参与的是「id 解析」而不是「去重键」**（2026-11-02 更正）：
+    /// 一次调用只处理一个会话（`AppStore` 按 sessionId 分桶），所以去重键实际退化为 `seq`；
+    /// 但**桥侧的 id 是 `"<sessionId>:<seq>"` 冒号形态**，不带上 sessionId 就无法只认精确形态
+    /// （会造出假 seq 而互相吞消息）⇒ `sessionId` 用来做「精确冒号形态」的判定。
+    /// 上一条 KDoc 写「跨源精确键 = `(sessionId, seq)`」是**目标形态**；当前单会话调用下与 seq 等价。
     static func merge(gateway: [Bubble], bridge: [Bubble], sessionId: String) -> Result {
-        _ = sessionId   // 键的一半；当前实现只需两侧 seq 相等即可（同一次调用只处理一个会话）
 
         var gatewayKeys = Set<Int>()          // 网关侧「有 seq 的」条目 seq 集合
         var seqFromID: [String] = []
@@ -108,7 +135,12 @@ enum RoomChatMergePlan {
         var dropped: [String] = []
         var extra: [Bubble] = []
         for item in bridge {
-            if let s = item.seq, gatewayKeys.contains(s) {
+            // **桥侧也要有 id 兜底**（2026-11-02 修，与 KMP 对齐）：桥条目的 `seq` 只能来自
+            // `message.seq` 字段，缺字段时 id 里的冒号形态就是唯一的 seq 来源；
+            // 原先只判 `item.seq` ⇒ 桥条目缺字段时**永不去重**，同一行会显示两遍
+            // （ASSISTANT 带名字 + bridge 气泡）。判据：两端对同一批输入 dropped/withoutSeq 必须相同。
+            let key = item.seq ?? seqFromBridgeID(item.id, sessionId: sessionId)
+            if let key, gatewayKeys.contains(key) {
                 dropped.append(item.id)       // 网关那份信息更全（带卡片上下文）⇒ 保留网关
                 continue
             }

@@ -142,4 +142,36 @@ final class RoomChatMergePlanTests: XCTestCase {
     func testLegalEventIDIsStillSplit() {
         XCTAssertEqual(RoomChatMergePlan.seqFromGatewayID("sess-1234"), 1234, "不许误伤正常事件 id")
     }
+
+    // MARK: - 桥行 id 的冒号形态（2026-11-02 AndroidTester 指出的跨端真差异）
+
+    /// iOS 的桥行 id 是 `bridge:<conversationId>:<sessionId>:<seq>`（**不是** Android 的 `<sessionId>:<seq>`）。
+    /// 这条用例存在的理由：照抄安卓形态写过一版（判前缀 `"\(sessionId):"`），在 iOS 上**恒不命中**——
+    /// 解析函数再对也没用，因为 id 以 `bridge:` 开头。用错 id 形态的用例还会"绿着没用"。
+    func testSeqFromBridgeIDUsesIOSOwnIDShape() {
+        XCTAssertEqual(RoomChatMergePlan.seqFromBridgeID("bridge:room-1:sess-1:7", sessionId: "sess-1"), 7)
+        XCTAssertNil(RoomChatMergePlan.seqFromBridgeID("sess-1:7", sessionId: "sess-1"),
+                     "安卓形态在 iOS 上不存在，不该命中（否则是死代码")
+        XCTAssertNil(RoomChatMergePlan.seqFromBridgeID("bridge:room-1:other-sess:7", sessionId: "sess-1"),
+                     "第 3 段 sessionId 必须精确相等")
+        XCTAssertNil(RoomChatMergePlan.seqFromBridgeID("bridge:room-1:sess-1:7:9", sessionId: "sess-1"),
+                     "多一段 ⇒ 非精确形态，不拆（防假 seq 吞消息）")
+        // conversationId 若自带冒号（Chief 提的前提）：从右取仍然对，「恰 4 段」会恒假
+        XCTAssertEqual(RoomChatMergePlan.seqFromBridgeID("bridge:room:1:sess-1:7", sessionId: "sess-1"), 7)
+        XCTAssertNil(RoomChatMergePlan.seqFromBridgeID("bridge:room-1:sess-1:٣", sessionId: "sess-1"),
+                     "只认 ASCII 数字：Kotlin 判 `'0'..'9'`，Swift 的 isNumber 还认其他 Unicode 数字 ⇒ 两端规则必须同形")
+    }
+
+    /// **生产路径**：桥气泡**缺 `seq` 字段**时靠 id 形态去重（AndroidTester 指出两端合并层此前都 0 覆盖）。
+    /// 关键：桥侧 `seq = nil` —— 给它 seq 就是在测字段路径，压根走不到 id 解析分支。
+    func testBridgeColonFormDedupesWhenBridgeSeqIsMissing() {
+        let gateway = [bubble("sess-1-7", "assistant", "同一句话", 7, 1000)]
+        let bridge = [bubble("bridge:room-1:sess-1:7", "assistant", "同一句话", nil, 1000, "Chief")]
+        let result = RoomChatMergePlan.merge(gateway: gateway, bridge: bridge, sessionId: "sess-1")
+
+        XCTAssertEqual(result.merged.count, 1, "同一行不能出现两份")
+        XCTAssertEqual(result.dropped, ["bridge:room-1:sess-1:7"], "桥那份必须被去重掉")
+        // 桥侧 :: 不许"落 withoutSeq 仍显示"蒙过去
+        XCTAssertTrue(result.withoutSeq.isEmpty, "去重生效 ⇒ 不该有 withoutSeq")
+    }
 }
