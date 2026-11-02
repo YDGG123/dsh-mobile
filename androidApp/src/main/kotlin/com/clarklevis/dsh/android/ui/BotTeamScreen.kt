@@ -322,13 +322,16 @@ internal fun BotTeamScreen(
     // 「团队」→ 底部弹出**完整 Bot 列表**：iOS 是 `.sheet { TeamView }`（WorkspaceView:189-199），
     // Android 用 ModalBottomSheet 承载同一套渲染（本页复用一个实例，不另写列表）。
     // 内层 `showTeamEntry = false`：sheet 里再出「团队」就是套娃。
+    // tag 用 `bot-team-sheet` 而**不是** `team-sheet` —— 后者已被「智能体团队」（`TeamUi.kt:196`，
+    // 宿主自带那套 144 张几何头像）占用；用户明确要求「Bot」与「智能体团队」两套系统不许混称，
+    // 同名 tag 会让验收脚本和指纹都分不清是哪一套。
     if (showTeamSheet) {
         ModalBottomSheet(
             onDismissRequest = { showTeamSheet = false },
             sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
             containerColor = MaterialTheme.colorScheme.background
         ) {
-            Box(Modifier.fillMaxWidth().fillMaxHeight(0.92f).testTag("team-sheet")) {
+            Box(Modifier.fillMaxWidth().fillMaxHeight(0.92f).testTag("bot-team-sheet")) {
                 BotTeamScreen(
                     adapter = adapter,
                     onBack = { showTeamSheet = false },
