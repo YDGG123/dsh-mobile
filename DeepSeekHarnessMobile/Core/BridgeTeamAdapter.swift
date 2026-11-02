@@ -220,11 +220,14 @@ final class BridgeKeychainSessionStore: NSObject, BridgeSessionStore {
 
 // MARK: - 团队页适配器：KMP 唯一状态源 + Swift 镜像与 effect
 
-/// 连接问题的可读分类：地址失效 / 网络不通 / 服务端异常 / 其他。
+/// 连接问题的可读分类：地址失效 / 网络不通 / 服务端异常 / 中断 / 其他。
 enum BridgeConnectionIssue: Equatable {
     case addressInvalid
     case network
     case server
+    /// **本次刷新被中断**（请求被取消：切后台、换主机、停轮询、或同批请求里有一路失败引起的取消）。
+    /// 它**不是**断线——哪怕是真断线，也会由 network/server/addressInvalid 那几类说清。
+    case interrupted
     case unknown
 
     var headline: String {
@@ -232,6 +235,7 @@ enum BridgeConnectionIssue: Equatable {
         case .addressInvalid: return "服务器入口已失效"
         case .network: return "网络不通"
         case .server: return "服务器异常"
+        case .interrupted: return "刷新被中断"
         case .unknown: return "连接已断开"
         }
     }
@@ -241,6 +245,7 @@ enum BridgeConnectionIssue: Equatable {
         case .addressInvalid: return "隧道域名可能已更换，请更换服务器地址后重新连接。"
         case .network: return "正在自动重连，请检查手机网络或隧道是否在线。"
         case .server: return "服务器暂时不可用，正在自动重试。"
+        case .interrupted: return "本次刷新被中断，不算断线；下一个周期会自动重试。"
         case .unknown: return "正在自动重连。"
         }
     }
@@ -652,11 +657,14 @@ final class BridgeTeamAdapter: ObservableObject {
 
     /// 传输失败分类（供离线 UI 与用例使用）。
     nonisolated static func classifyTransportFailure(_ error: Error) -> BridgeConnectionIssue {
+        if isCancellation(error) { return .interrupted }
         if let status = error as? BridgeResponseStatus {
             return status.status >= 500 ? .server : .unknown
         }
         guard let urlError = error as? URLError else { return .unknown }
         switch urlError.code {
+        case .cancelled:
+            return .interrupted
         case .cannotFindHost, .dnsLookupFailed, .cannotConnectToHost:
             return .addressInvalid
         case .notConnectedToInternet, .networkConnectionLost, .timedOut, .dataNotAllowed:
@@ -665,6 +673,26 @@ final class BridgeTeamAdapter: ObservableObject {
             return .unknown
         }
     }
+
+    /// **取消不是断线**：切后台、换主机、停轮询，以及同一批 `async let` 里某一路失败引起的兄弟取消，
+    /// 都会让在途请求以 `CancellationError` / `URLError.cancelled` 结束。
+    /// 2026-11-02 用户报「明明已连接却一直挂着『连接已断开』」就是这条被当成连接失败。
+    nonisolated static func isCancellation(_ error: Error) -> Bool {
+        if error is CancellationError { return true }
+        if let urlError = error as? URLError, urlError.code == .cancelled { return true }
+        return false
+    }
+
+    /// 失败/中断时打一行（**成功不打**：8 秒一条会把日志刷爆）。
+    /// 固定标记 `bridgeteam-refresh-failed`（24 字节 ASCII）也可作为产物树标记。
+    @MainActor
+    static func logRefreshFailure(_ error: Error, attempt: Int) {
+        let status = (error as? BridgeResponseStatus).map { String($0.status) } ?? "nil"
+        let urlError = (error as? URLError).map { String($0.errorCode) } ?? "nil"
+        refreshFailureLog.notice("bridgeteam-refresh-failed status=\(status, privacy: .public) urlerror=\(urlError, privacy: .public) cancelled=\(isCancellation(error), privacy: .public) attempt=\(attempt, privacy: .public)")
+    }
+
+    private static let refreshFailureLog = Logger(subsystem: "ai.dsh.mobile.ios", category: "bridge-refresh")
 
     private static func pairingMessage(for status: BridgeResponseStatus) -> String {
         let envelope = BridgeErrorsKt.decodeBridgeErrorEnvelope(
@@ -956,11 +984,17 @@ final class BridgeTeamAdapter: ObservableObject {
             // 只要后续轮询恢复，就重新排上，不必等到下次前台。
             startTokenRefreshLoop()
         } catch {
+            // **取消不设 connectionIssue、不 bump failureAttempt**：被中断的刷新不是断线。
+            if Self.isCancellation(error) {
+                Self.logRefreshFailure(error, attempt: failureAttempt)
+                return
+            }
             await handleRefreshFailure(error, transport: transport)
         }
     }
 
     private func handleRefreshFailure(_ error: Error, transport: BridgeTransport) async {
+        Self.logRefreshFailure(error, attempt: failureAttempt + 1)
         if let status = error as? BridgeResponseStatus {
             if status.status == 401 {
                 // 被踢才有机会刷：成功就顺手把主动刷新重新排上（重置 14 分钟窗口）。
@@ -991,6 +1025,8 @@ final class BridgeTeamAdapter: ObservableObject {
             message = "网络不通，正在自动重连"
         case .server:
             message = "服务器异常，正在自动重试"
+        case .interrupted:
+            message = "本次刷新被中断，不算断线；下一个周期会自动重试"
         case .unknown, .none:
             message = error.localizedDescription
         }
