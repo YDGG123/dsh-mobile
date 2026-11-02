@@ -14,7 +14,9 @@
 		CF2030000000000000000001 /* ChatSessionPrefetcherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF2030000000000000000002 /* ChatSessionPrefetcherTests.swift */; };
 		CF2020000000000000000001 /* ChatSessionPrefetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF2020000000000000000002 /* ChatSessionPrefetcher.swift */; };
 		CF2010000000000000000003 /* ChatHistoryCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF2010000000000000000004 /* ChatHistoryCacheTests.swift */; };
+		CF9000000000000000000003 /* RoomChatMergePlanTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF9000000000000000000004 /* RoomChatMergePlanTests.swift */; };
 		CF2010000000000000000001 /* ChatHistoryCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF2010000000000000000002 /* ChatHistoryCache.swift */; };
+		CF9000000000000000000001 /* RoomChatMergePlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF9000000000000000000002 /* RoomChatMergePlan.swift */; };
 		AF19C0000000000000000001 /* WorkspaceLoadingLogo.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF19C0000000000000000002 /* WorkspaceLoadingLogo.swift */; };
         AF18C0000000000000000001 /* WorkspacePreviewCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF18C0000000000000000002 /* WorkspacePreviewCache.swift */; };
         AF18C0000000000000000003 /* WorkspacePreviewCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF18C0000000000000000004 /* WorkspacePreviewCacheTests.swift */; };
@@ -167,7 +169,9 @@
 		CF2030000000000000000002 /* ChatSessionPrefetcherTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatSessionPrefetcherTests.swift; sourceTree = "<group>"; };
 		CF2020000000000000000002 /* ChatSessionPrefetcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatSessionPrefetcher.swift; sourceTree = "<group>"; };
 		CF2010000000000000000004 /* ChatHistoryCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatHistoryCacheTests.swift; sourceTree = "<group>"; };
+		CF9000000000000000000004 /* RoomChatMergePlanTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomChatMergePlanTests.swift; sourceTree = "<group>"; };
 		CF2010000000000000000002 /* ChatHistoryCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatHistoryCache.swift; sourceTree = "<group>"; };
+		CF9000000000000000000002 /* RoomChatMergePlan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomChatMergePlan.swift; sourceTree = "<group>"; };
 		AF19C0000000000000000002 /* WorkspaceLoadingLogo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceLoadingLogo.swift; sourceTree = "<group>"; };
         AF18C0000000000000000002 /* WorkspacePreviewCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspacePreviewCache.swift; sourceTree = "<group>"; };
         AF18C0000000000000000004 /* WorkspacePreviewCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspacePreviewCacheTests.swift; sourceTree = "<group>"; };
@@ -344,6 +348,7 @@
 				61A1F439244BA594BF547C92 /* AppStore.swift */,
 				AF18C0000000000000000002 /* WorkspacePreviewCache.swift */,
 				CF2010000000000000000002 /* ChatHistoryCache.swift */,
+				CF9000000000000000000002 /* RoomChatMergePlan.swift */,
 				CF2020000000000000000002 /* ChatSessionPrefetcher.swift */,
 				CF2050000000000000000002 /* DebugHistoryScrollMetrics.swift */,
 				CF2050000000000000000012 /* HistoryPresentationAdmission.swift */,
@@ -377,6 +382,7 @@
 				AF17C0000000000000000004 /* FileIconAssetTests.swift */,
 				AF18C0000000000000000004 /* WorkspacePreviewCacheTests.swift */,
 				CF2010000000000000000004 /* ChatHistoryCacheTests.swift */,
+				CF9000000000000000000004 /* RoomChatMergePlanTests.swift */,
 				5D3FFEFFB831B9A6454ECA0E /* AdaptiveLayoutTests.swift */,
 				CF2270000000000000000020 /* TrajectoryOverviewLayoutTests.swift */,
 				CF2280000000000000000080 /* MarkdownMathTests.swift */,
@@ -782,6 +788,7 @@
 				AF17C0000000000000000003 /* FileIconAssetTests.swift in Sources */,
 				AF18C0000000000000000003 /* WorkspacePreviewCacheTests.swift in Sources */,
 				CF2010000000000000000003 /* ChatHistoryCacheTests.swift in Sources */,
+				CF9000000000000000000003 /* RoomChatMergePlanTests.swift in Sources */,
 				EAAE88B94CBECC20963D9646 /* AdaptiveLayoutTests.swift in Sources */,
 				CF2270000000000000000010 /* TrajectoryOverviewLayoutTests.swift in Sources */,
 				CF2290000000000000000030 /* CodeSyntaxHighlighterTests.swift in Sources */,
@@ -821,6 +828,7 @@
 				5ED39F22065A71FC54D755AC /* AppStore.swift in Sources */,
 				AF18C0000000000000000001 /* WorkspacePreviewCache.swift in Sources */,
 				CF2010000000000000000001 /* ChatHistoryCache.swift in Sources */,
+				CF9000000000000000000001 /* RoomChatMergePlan.swift in Sources */,
 				CF2020000000000000000001 /* ChatSessionPrefetcher.swift in Sources */,
 				CF2050000000000000000001 /* DebugHistoryScrollMetrics.swift in Sources */,
 				CF2050000000000000000011 /* HistoryPresentationAdmission.swift in Sources */,

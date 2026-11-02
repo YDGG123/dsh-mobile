@@ -333,9 +333,85 @@ struct BridgeChatItem: Decodable, Identifiable, Hashable {
     let localSubmission: Bool?
     let delivery: String?
 
+    /// 合流用（2026-11-02 新增，只加解码、不改现有渲染）。
+    /// `seq` = **宿主事件 seq**（服务端 `group-projection.mjs:8` 的 `id = ${sessionId}:${event.seq}`），
+    /// 与网关侧 `SessionEvent.seq` 同源 ⇒ 跨源精确去重的键是 `(sessionId, seq)`。
+    /// ⚠️ 两边的 **id 字符串格式不同**（bridge 是 `sessionId:seq`、网关是 `sessionId-seq`），
+    /// 所以去重**必须比 (sessionId, seq) 分量**，拿 id 直接比会恒不等且静默失效。
+    let seq: Int64?
+    /// `createdAt` 在 KMP 里是 `JsonPrimitive`（可能是数字、也可能是字符串）⇒ 宽松解码，
+    /// 用强类型会让整份 snapshot 解码失败、把现有 bridge 视图一起带崩。
+    let createdAtMillis: Int64?
+    /// 群聊消息的发送者名（服务端只对 room 分支下发 `author`）。
+    /// KMP 两级模型已声明并透传（commit `3ea7340`）⇒ **iOS 重新链接 shared 之后即可拿到值**；
+    /// 在那之前、或旧 bridge 服务端不下发时仍为 nil ⇒ 渲染必须按 nil 兜底（不得当成"我"）。
+    let authorName: String?
+    /// 群回复的归组 id（服务端 `groupReplyId`）；同 `authorName`，KMP 已透传（`3ea7340`）。
+    let groupReplyId: String?
+
     var isUser: Bool { role == "user" }
     var isStreaming: Bool { pending == true }
     var isDeliveryFailed: Bool { delivery == "rejected" }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, role, text, pending, localSubmission, delivery, seq, createdAt, author, groupReplyId
+    }
+    private enum AuthorKeys: String, CodingKey { case id, name }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        role = try c.decode(String.self, forKey: .role)
+        text = (try? c.decode(String.self, forKey: .text)) ?? ""
+        pending = try? c.decodeIfPresent(Bool.self, forKey: .pending)
+        localSubmission = try? c.decodeIfPresent(Bool.self, forKey: .localSubmission)
+        delivery = try? c.decodeIfPresent(String.self, forKey: .delivery)
+        seq = (try? c.decodeIfPresent(Int64.self, forKey: .seq)) ?? nil
+        if let n = try? c.decodeIfPresent(Int64.self, forKey: .createdAt) {
+            createdAtMillis = n
+        } else if let d = try? c.decodeIfPresent(Double.self, forKey: .createdAt) {
+            createdAtMillis = Int64(d)
+        } else if let s = try? c.decodeIfPresent(String.self, forKey: .createdAt) {
+            createdAtMillis = Self.parseCreatedAt(s)
+        } else {
+            createdAtMillis = nil
+        }
+        if let ac = try? c.nestedContainer(keyedBy: AuthorKeys.self, forKey: .author) {
+            authorName = (try? ac.decodeIfPresent(String.self, forKey: .name)) ?? nil
+        } else {
+            authorName = nil
+        }
+        groupReplyId = (try? c.decodeIfPresent(String.self, forKey: .groupReplyId)) ?? nil
+    }
+
+    private static func parseCreatedAt(_ s: String) -> Int64? {
+        if let n = Int64(s) { return n }
+        let f = ISO8601DateFormatter()
+        if let d = f.date(from: s) { return Int64(d.timeIntervalSince1970 * 1000) }
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let d = f.date(from: s) { return Int64(d.timeIntervalSince1970 * 1000) }
+        return nil
+    }
+
+    /// ③ 群聊合流：bridge 气泡 → 合流行（`RoomChatMergePlan.Bubble`）。
+    ///
+    /// - `id` 必须加 `bridge:` 命名空间：bridge 的 id 是 `"<sessionId>:<seq>"`（冒号），
+    ///   网关的是 `"<sessionId>-<seq>"`（连字符），拿裸 id 参与任何比较都会恒不等（静默失效）。
+    ///   `conversationId` 只用于让同屏多会话的 bridge 行彼此不撞号。
+    /// - **特意不过滤"自己刚发出的本地回声"**（`localSubmission == true`）：KMP 已按
+    ///   `(sessionId, requestId)` 对账，服务端回显一到，该条就会从列表里消失
+    ///   （`BridgeChatMerge.kt:94-97`）。在这里再过滤一次，反而会在"回执未到"的窗口里
+    ///   把自己的话整条抹掉——那是比重复更糟的故障。
+    func roomChatBubble(conversationId: String) -> RoomChatMergePlan.Bubble {
+        RoomChatMergePlan.Bubble(
+            id: "bridge:\(conversationId):\(id)",
+            role: isUser ? "user" : "assistant",
+            text: text,
+            seq: RoomChatMergePlan.normalizedSeq(seq),
+            dateMillis: createdAtMillis,
+            authorName: authorName
+        )
+    }
 }
 
 struct BridgeChatEventHead: Decodable {

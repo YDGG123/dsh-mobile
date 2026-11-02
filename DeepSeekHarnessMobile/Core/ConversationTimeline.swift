@@ -15,6 +15,17 @@ struct ConversationItem: Identifiable, Sendable {
     let date: Date
     let files: [PresentedFile]
     let knownFiles: [PresentedFile]
+    /// 源事件的 `seq`（KMP 投影 `ConversationItem.seq`，2026-11-02 新增）。
+    /// **跨源精确去重键的一半**：与 bridge 消息的 `seq` 同源（宿主事件 seq）。
+    /// ⚠️ 目前 **KMP 侧不是所有类目都填**（14 处构造点里 5 处已填，用户消息两处在内）；
+    /// 其余为 nil 时，可从 `id`（`sessionId-seq` 形态）拆出 seq 兜底。
+    /// ⚠️ bridge 侧 `seq` 是 `Long`、此处是 `Int` ⇒ 比对前先归一类型。
+    let seq: Int?
+
+    /// 群聊发言者名（**只许来自 bridge 的 `author.name`（服务端）**，禁止本地推断/用会话标题凑）。
+    /// 渲染规则（2026-11-02 定）：`senderName != nil` ⇒ 显示名字；
+    /// `nil && kind == .user` ⇒ 「我」；**`nil && assistant` ⇒ 不显示任何名字（绝不回落成「我」）**。
+    let senderName: String?
 
     init(
         id: String,
@@ -25,7 +36,9 @@ struct ConversationItem: Identifiable, Sendable {
         isError: Bool,
         date: Date,
         files: [PresentedFile] = [],
-        knownFiles: [PresentedFile] = []
+        knownFiles: [PresentedFile] = [],
+        seq: Int? = nil,
+        senderName: String? = nil
     ) {
         self.id = id
         self.kind = kind
@@ -36,6 +49,8 @@ struct ConversationItem: Identifiable, Sendable {
         self.files = files
         self.knownFiles = knownFiles
         self.date = date
+        self.seq = seq
+        self.senderName = senderName
     }
 
 

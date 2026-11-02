@@ -494,14 +494,6 @@ WDLOG=$(mktemp)
 WIDGET_DEBUG_ERRORS=$(grep -c "error:" "$WDLOG" 2>/dev/null | head -1)
 WIDGET_DEBUG_ERRORS=${WIDGET_DEBUG_ERRORS:-0}
 
-# ---- 版本一致性闸门（2026-10-26 教训：0548 包主 App 31 / widget 32）----
-# 主 App 的 build/version 取自硬编码的 Resources/Info.plist（该 target 无 CURRENT_PROJECT_VERSION），
-# Widget 走 pbxproj 变量。只改一侧会出"主 App 停在旧 build 号"的包，云端照常构建成功。
-if ! "$PYTHON3" "$(dirname "${BASH_SOURCE[0]}")/verify-version-consistency.py"; then
-  echo "   版本号必须同时改：Resources/Info.plist 的 CFBundleVersion + pbxproj 两处 CURRENT_PROJECT_VERSION"
-  exit 1
-fi
-
 # ---- Bundle ID 前缀闸门（2026-10-28 教训：47 包归档被 ValidateEmbeddedBinary 拒绝）----
 # 合并上游把 Widget target 的 Release 配置从硬编码改成了 "$(LOCAL_BUNDLE_IDENTIFIER).AgentLiveActivityWidget"，
 # 而 config/Debug.xcconfig 里该变量 = com.example.dshmobile（上游占位值）→ 嵌入二进制 ID 不再以主 App
@@ -583,6 +575,21 @@ fi
 # 这里把"用例能编"变成硬闸门；`--self-test` 是该闸门的反向自证。
 if ! bash "$(dirname "${BASH_SOURCE[0]}")/local-test-typecheck.sh"; then
   echo "   测试目标编不过：先看上面报错（App 四路绿 ≠ 测试能编）"
+  exit 1
+fi
+
+# ---- 版本一致性闸门（2026-10-26 教训：0548 包主 App 31 / widget 32）----
+# 主 App 的 build/version 取自硬编码的 Resources/Info.plist（该 target 无 CURRENT_PROJECT_VERSION），
+# Widget 走 pbxproj 变量。只改一侧会出"主 App 停在旧 build 号"的包，云端照常构建成功。
+#
+# **放在最后（2026-11-02 挪位）**：它原先排在四路类型检查之后、测试目标之前。后果是
+# **版本号没升就当场 exit，第五路（测试目标）根本不执行** —— 实测那一跑的日志里没有
+# 「测试目标类型检查通过」，于是"App 四路绿 + 测试目标绿"这句话在那次跑里是没有证据的
+# （这就是 `VERSION_GATE_ALLOW_REUSE=1` 这个本地逃生口存在的背景）。
+# 挪到最后之后：任何一次跑都会把四条检查 + 第五路走完再判版本，读数不再依赖逃生口。
+# 判定语义不变（该红还是红，退出码还是 1），只是"谁先报"变了。
+if ! "$PYTHON3" "$(dirname "${BASH_SOURCE[0]}")/verify-version-consistency.py"; then
+  echo "   版本号必须同时改：Resources/Info.plist 的 CFBundleVersion + pbxproj 两处 CURRENT_PROJECT_VERSION"
   exit 1
 fi
 

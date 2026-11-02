@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 import MarkdownUI
 import PhotosUI
@@ -363,11 +364,16 @@ final class CommandTextView: UITextView {
 struct ConversationView: View {
     @Environment(\.dismiss) private var dismissConversation
     @EnvironmentObject private var store: AppStore
+    /// ③ 群聊合流用：room 的 bridge 只读引擎挂在 App 级单例上（`MultiGatewayStore.bridgeTeam`），
+    /// 这里只借它的镜像找 room 行、取引擎，不另起客户端。
+    @EnvironmentObject private var hosts: MultiGatewayStore
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Binding var activeView: Int
     var topContentInset: CGFloat = 0
     @State private var draft = ""
+    /// ③ 群聊合流：当前会话正在跑的 room bridge 引擎（`onDisappear` 双保险停它）。
+    @State private var activeRoomChatEngine: BridgeChatEngine?
     @State private var memberDrafts: [String: String] = [:]
     @State private var memberImages: [String: [GatewayOutgoingImage]] = [:]
     @State private var voiceSnapshot: SharedVoiceInputSnapshot?
@@ -1003,6 +1009,56 @@ struct ConversationView: View {
                 viewportScrollToBottomToken &+= 1
             }
         }
+        // ③ 群聊合流：会话切换 = room 只读 bridge 引擎的生命周期。
+        // **只 start/stop + 回灌气泡，绝不 send()**（发言一律走网关 composer，
+        // 否则 bridge 自带的 POST /submissions 会把同一句提交两遍）。
+        .task(id: store.selectedSessionId) {
+            await runRoomChatFeed(for: store.selectedSessionId)
+        }
+        .onDisappear {
+            // `.task` 取消时 `defer` 也会停它；这里是双保险（任务还没醒来的那个窗口）。
+            activeRoomChatEngine?.stop()
+        }
+    }
+
+    /// ③ 群聊合流：把 room 的 bridge 消息流回灌进 `AppStore` 的合流桶。
+    ///
+    /// 触发条件是**当前打开的会话正好是一个 bridge room**；其余会话（含 1:1 Bot）直接返回，
+    /// 一个字节也不碰——桶为空时 `selectedConversationItems` 与原逻辑逐字节一致。
+    private func runRoomChatFeed(for sessionId: String?) async {
+        guard let sessionId else { return }
+        guard let row = await roomBridgeRow(for: sessionId) else { return }
+        guard let engine = hosts.bridgeTeam.chatEngine(conversationId: row.id, sessionId: row.sessionId) else {
+            // 未配对 / token 不可用：桶保持空，时间线照旧。
+            store.setRoomChatBubbles([], forSessionId: row.sessionId)
+            return
+        }
+        activeRoomChatEngine = engine
+        defer {
+            engine.stop()
+            if activeRoomChatEngine === engine { activeRoomChatEngine = nil }
+            store.setRoomChatBubbles([], forSessionId: row.sessionId)
+        }
+        engine.start()
+        for await _ in engine.$messagesJson.values {
+            if Task.isCancelled { break }
+            store.setRoomChatBubbles(
+                engine.messages.map { $0.roomChatBubble(conversationId: row.id) },
+                forSessionId: row.sessionId
+            )
+        }
+    }
+
+    /// 该 `sessionId` 是否是 bridge 镜像里的 room。镜像还没到时**等一次推送**再判
+    /// （冷启动首帧常见：会话已选中、团队镜像还在路上）。
+    private func roomBridgeRow(for sessionId: String) async -> BridgeTeamRow? {
+        if let row = hosts.bridgeTeam.mirror?.rooms.first(where: { $0.sessionId == sessionId }) { return row }
+        guard hosts.bridgeTeam.mirror == nil else { return nil }
+        for await mirror in hosts.bridgeTeam.$mirror.values {
+            if let row = mirror?.rooms.first(where: { $0.sessionId == sessionId }) { return row }
+            if mirror != nil { return nil }
+        }
+        return nil
     }
 
     private var emptyState: some View {
@@ -2353,7 +2409,8 @@ struct ConversationView: View {
                         showsCopyButton: entry.showsCopyButton,
                         imageData: { store.imageData(for: $0) },
                         onOpenFile: conversationFileOpener(),
-                        onOpenUploadedFile: uploadedFileOpener()
+                        onOpenUploadedFile: uploadedFileOpener(),
+                        speakerName: item.senderName
                     )),
                     // Completed responses are immutable for this revision.
                     // The viewport measures their SwiftUI root directly before
@@ -2497,6 +2554,9 @@ struct ConversationView: View {
             hasher.combine(item.title)
             hasher.combine(item.text)
             hasher.combine(item.isError)
+            // ③ 成员名也进哈希：bridge 的作者名可能比正文晚到一帧，
+            // 不进哈希的话缓存住的 cell 不会重配置，名字就永远不显示。
+            hasher.combine(item.senderName)
             hasher.combine(item.files)
             hasher.combine(item.knownFiles)
             for image in item.images {
@@ -4686,7 +4746,12 @@ struct ConversationRow: View {
     let imageData: (String) -> Data?
     var onOpenFile: ((String) -> Void)? = nil
     var onOpenUploadedFile: ((PresentedFile) -> Void)? = nil
+    /// ③ 群聊合流的发言人名（只有 bridge 气泡带 `author.name` 时非空）。
+    /// **nil 一律不渲染**，绝不回落成「我」——那是错误信息，不是兜底。
+    /// 数值口径见共用规格 §2e（`DSHType.meta` + `ink(0.45)` + 气泡上方 `DSHSpacing.xs`）。
+    var speakerName: String? = nil
     @Environment(\.colorScheme) private var colorScheme
+    private var palette: DSHPalette { DSHPalette.resolve(colorScheme) }
 
     var body: some View {
         switch item.kind {
@@ -4726,6 +4791,15 @@ struct ConversationRow: View {
             )
         case .assistant:
             VStack(alignment: .leading, spacing: 7) {
+                if let speakerName, !speakerName.isEmpty {
+                    Text(speakerName)
+                        .appFont(DSHType.meta)
+                        .foregroundStyle(palette.ink(0.45))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .padding(.bottom, DSHSpacing.xs)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
                 if !item.images.isEmpty {
                     AttachmentImageGrid(attachments: item.images, imageData: imageData)
                 }

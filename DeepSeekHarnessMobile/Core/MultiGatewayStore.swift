@@ -149,7 +149,14 @@ final class MultiGatewayStore: ObservableObject {
                 self.acceptIdentity(frame, store: store)
             }
             // U5 对称配对：网关配对一次，插件顺带下发 mobile-v1 session，Bot tab 立刻可用。
-            if frame.kind == "paired", let session = frame.bridgeSession, let json = session.jsonString() {
+            // **自愈补接（与 Android 侧对称）**：网关只在配对那一刻下发 `bridgeSession`，
+            // 重连与 `hello` 都不带 ⇒ 本地会话一旦丢失就永不自愈、只能重新扫码（Android 真机报的就是这个）。
+            // - 不能借 `paired` 补发：`paired` 带 token 语义，伪造一帧不带 token 的会把 bearerToken 置空
+            //   （ReleaseBot 核实：`shared/.../SplitGatewayTransport.kt:48`）。`hello` 是纯状态帧，安全。
+            // - 只在**本地确实没有会话**时接：有会话就不动，免得每次重连都走 `adoptSession`
+            //   （`:712` 那里是**强制重建** transport + 重开轮询）。
+            if frame.kind == "paired" || (frame.kind == "hello" && !bridgeTeam.hasStoredSession),
+               let session = frame.bridgeSession, let json = session.jsonString() {
                 // 反向 session 不带 serverUrl：把网关端点交给适配器折成 https origin 注入。
                 self.bridgeTeam.adoptSession(json: json, endpoint: store.gateway.connectedEndpoint ?? store.endpoint)
             }

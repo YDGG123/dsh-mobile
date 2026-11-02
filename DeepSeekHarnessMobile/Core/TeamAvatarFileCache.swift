@@ -20,7 +20,11 @@ final class TeamAvatarFileCache {
 
     /// 单张头像落盘体积上限（data URL base64 解出来的字节）。超过直接不缓存（宁可回符号层也不写坏文件）。
     static let maxEntryBytes = 512 * 1024
-    /// 目录总量上限：超过就先清「名册里已经不存在」的文件，再按最久未用淘汰。
+    /// 目录总量上限：超过时**只记一条日志，不淘汰任何仍在被引用的文件**——
+    /// 删掉正在用的头像会让 Bot 页退化成符号层，宁可暂时超限（机理见 `prune(keeping:)`）。
+    /// 实际清理只有一条规则：按「当前名册引用的 hash 集合」做**差集删除**。
+    /// ⚠️ **没有 LRU / 最久未用淘汰**，别照「超限就淘汰」去实现（2026-11-02 修注释：原文
+    /// 「再按最久未用淘汰」与实现不符，Android 端口差点据此做出 iOS 没有的策略）。
     static let maxTotalBytes = 20 * 1024 * 1024
     /// 文件扩展名固定 `.img`（内容其实是 PNG/JPEG 原始字节，靠 UIImage 嗅探解码）。
     static let fileExtension = "img"

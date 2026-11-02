@@ -1282,6 +1282,25 @@ final class AppStore: ObservableObject {
     /// 多段 Bot 的旧段登记/翻完状态（见 `BotHistorySegments` 注释）
     var botSegments = BotHistorySegments()
 
+    /// ③ 群聊合流的 bridge 气泡桶：`sessionId`（= room id，与网关侧同源）→ 气泡。
+    /// 由视图层（room 的**只读** bridge 引擎）喂入；**为空时 `selectedConversationItems` 与原逻辑逐字节一致**。
+    private var roomChatBubbles: [String: [RoomChatMergePlan.Bubble]] = [:]
+
+    /// 已经记过日志的"拿不到 seq"条目 id（见 `selectedConversationItems` 里的按 id 去重）。
+    /// 桶清空时一并清掉，这样同一会话重新进入时会重新留痕一次。
+    private var loggedWithoutSeq: Set<String> = []
+
+    /// 视图层回调：只读引擎拉到/收到消息后回灌。**只收数据、不发起任何网络**（发送一律走网关 composer，
+    /// 否则一次发言会被 bridge 的 `POST /submissions` 再提交一遍）。
+    func setRoomChatBubbles(_ bubbles: [RoomChatMergePlan.Bubble], forSessionId sessionId: String) {
+        if bubbles.isEmpty {
+            roomChatBubbles.removeValue(forKey: sessionId)
+            loggedWithoutSeq.removeAll()
+        } else {
+            roomChatBubbles[sessionId] = bubbles
+        }
+    }
+
     var selectedEvents: [SessionEvent] {
         guard let selectedSessionId else { return [] }
         return isShowingSearchContext ? searchContextRecords : events[selectedSessionId, default: []]
@@ -1293,9 +1312,58 @@ final class AppStore: ObservableObject {
         // 多段 Bot：把已发现旧段的桶与当前段合并（跨段 createdAt、同段 seq、当前段末尾）。
         // **单段/普通会话 parts.count == 1 → 原样返回**（与 40 逐字节一致，主用例）。
         let parts = conversationSegments(for: selectedSessionId)
-        guard parts.count > 1 else { return current }
-        return Self.mergedHistory(currentSegment: selectedSessionId,
-                                  segments: parts.map { ($0, renderedConversationItems[$0, default: []]) })
+        let base = parts.count > 1
+            ? Self.mergedHistory(currentSegment: selectedSessionId,
+                                 segments: parts.map { ($0, renderedConversationItems[$0, default: []]) })
+            : current
+        // ③ 群聊合流：把 bridge 侧气泡并入同一条时间线（**桶为空时零行为变化** ⇒ 未喂数据前与原逻辑逐字节一致）。
+        // 取值优先级/去重键/第三档日志口径见 `RoomChatMergePlan`（两端同用例）。
+        guard let bubbles = roomChatBubbles[selectedSessionId], !bubbles.isEmpty else { return base }
+        let plan = RoomChatMergePlan.merge(
+            gateway: base.map(Self.mergeBubble(from:)),
+            bridge: bubbles,
+            sessionId: selectedSessionId
+        )
+        // 不许静默跳过：拿不到 seq 的条目不参与去重，但必须留痕。
+        // **按 id 去重后才打日志**：本属性每次渲染都会求值，逐次打会把日志刷爆
+        // （曾经一秒钟几十行），而"留痕"要的是"这些条目没参与去重"这件事被记下来一次。
+        let freshWithoutSeq = Set(plan.withoutSeq).subtracting(loggedWithoutSeq)
+        if !freshWithoutSeq.isEmpty {
+            loggedWithoutSeq.formUnion(freshWithoutSeq)
+            Self.roomChatLog.notice("room chat merge: \(freshWithoutSeq.count, privacy: .public) entries without seq (not deduped)")
+        }
+        return plan.merged.map(Self.conversationItem(from:))
+    }
+
+    // MARK: - ③ 群聊合流的取值映射（纯转换，无副作用）
+
+    private static let roomChatLog = Logger(subsystem: "ai.dsh.mobile.ios", category: "room-chat-merge")
+
+    /// 网关条目 → 合流行。`senderName` 只来自 bridge（网关条目为 nil）。
+    private static func mergeBubble(from item: ConversationItem) -> RoomChatMergePlan.Bubble {
+        RoomChatMergePlan.Bubble(
+            id: item.id,
+            role: item.kind == .user ? "user" : "assistant",
+            text: item.text,
+            seq: item.seq,
+            dateMillis: RoomChatMergePlan.millis(fromEpochSeconds: item.date.timeIntervalSince1970),
+            authorName: item.senderName
+        )
+    }
+
+    /// 合流行 → 展示条目。`role == "user"` ⇒ `.user`（渲染层显示「我」）；否则 `.assistant`，
+    /// `senderName` 为空时**不回落成「我」**（渲染规则见 ConversationItem.senderName 注释）。
+    private static func conversationItem(from bubble: RoomChatMergePlan.Bubble) -> ConversationItem {
+        ConversationItem(
+            id: bubble.id,
+            kind: bubble.role == "user" ? .user : .assistant,
+            title: "",
+            text: bubble.text,
+            isError: false,
+            date: bubble.dateMillis.map { Date(timeIntervalSince1970: Double($0) / 1000) } ?? Date(),
+            seq: bubble.seq,
+            senderName: bubble.authorName
+        )
     }
     var selectedNotices: [GatewayNotice] {
         Array(protocolNotices.filter { $0.sessionId == nil || $0.sessionId == selectedSessionId }.suffix(20))

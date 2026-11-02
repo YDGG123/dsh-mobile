@@ -17,6 +17,8 @@ private struct KMPConversationItemSnapshot: Decodable {
     let epochSeconds: Double
     let files: [PresentedFile]?
     let knownFiles: [PresentedFile]?
+    /// 源事件 seq（KMP 投影新增字段；旧 KMP 或未填类目为 nil ⇒ 解码缺失键即 nil，向后兼容）。
+    let seq: Int?
 
     var item: ConversationItem? {
         guard !id.isEmpty,
@@ -31,7 +33,8 @@ private struct KMPConversationItemSnapshot: Decodable {
             isError: isError,
             date: Date(timeIntervalSince1970: epochSeconds),
             files: files ?? [],
-            knownFiles: knownFiles ?? []
+            knownFiles: knownFiles ?? [],
+            seq: seq
         )
     }
 }
@@ -495,7 +498,10 @@ final class KMPConversationStoreAdapter {
                         isError: old.isError,
                         date: Date(timeIntervalSince1970: epochSeconds),
                         files: old.files,
-                        knownFiles: old.knownFiles
+                        knownFiles: old.knownFiles,
+                        // 这里是**重建**而不是 `old.copy` ⇒ 不显式带上就会把 seq 丢掉，
+                        // 导致流式追加后的条目退化成"从 id 拆 seq"那条兜底路径。
+                        seq: old.seq
                     )
                 case "replace":
                     guard let item = operation.item?.item,

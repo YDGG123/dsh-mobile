@@ -258,6 +258,12 @@ final class BridgeTeamAdapter: ObservableObject {
     var onOpenConversation: ((String) -> Void)?
 
     private let sessionStore = BridgeKeychainSessionStore()
+
+    /// 本地是否已有可用的 bridge 会话。
+    /// 用途：**自愈**——网关只在配对那一刻下发 `bridgeSession`（重连与 `hello` 都不带），
+    /// 丢了就永不自愈。补发的接法见 `MultiGatewayStore`：`hello` 上**只在没有会话时**接一次，
+    /// 有会话就不接，避免每次重连都走一遍 `adoptSession`（它会强制重建 transport + 重开轮询）。
+    var hasStoredSession: Bool { sessionStore.loadJson() != nil }
     /// U5：配对成功且服务端下发了网关凭证时回调（由 MultiGatewayStore 接管落盘/建 profile）。
     /// 参数：凭证、bridge 的 https 根 origin。缺失时不会调用。
     var onGatewayCredential: ((BridgeGatewayCredential, String) -> Void)?
