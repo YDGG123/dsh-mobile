@@ -22,8 +22,8 @@ android {
         applicationId = "com.clarklevis.dsh.android"
         minSdk = 24
         targetSdk = 36
-        versionCode = 50 // 本批（修合流 memo 键漏输入：键改为 id+seq 内容签名，网关条目变化时去重结果跟着更新，避免同一行短暂两份）；49 为上一批
-        versionName = "1.7.13"
+        versionCode = 51 // 本批（Bot 页三处用户报障：头像派生形象、群聊行露 sessionId+错位、卡片串页并接会话页；另 #14 发送确认解耦、#12 版本自证）；50 为上一批
+        versionName = "1.7.14"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
