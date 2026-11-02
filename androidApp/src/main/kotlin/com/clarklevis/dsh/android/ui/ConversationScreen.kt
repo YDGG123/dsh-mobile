@@ -634,6 +634,17 @@ private fun ConversationPage(
     val question = stateHolder.snapshot.pendingQuestions.firstOrNull {
         stateHolder.snapshot.selectedSessionId == null || it.sessionId == stateHolder.snapshot.selectedSessionId
     }
+    // 桥接卡（A 批，2026-11-02）：整张卡**只在会话页**渲染，位置同 iOS `questionCard`
+    // （`ConversationView:543`，钉在输入区上方，随 composer 一起被底部留白让位）。
+    // 归属按 `card.sessionId`；Bot 页只留行内预览 ⇒ C6「同一张卡归属唯一」。
+    val sessionBridgeCards = bridgeCardsForSession(
+        stateHolder.bridgeTeam?.pendingCards.orEmpty(),
+        sessionId
+    )
+    val bridgeOwnerNames = remember(stateHolder.bridgeTeam?.state) {
+        val team = stateHolder.bridgeTeam?.state
+        (team?.bots.orEmpty() + team?.rooms.orEmpty()).associate { it.id to it.name }
+    }
     Box(Modifier.fillMaxSize()) {
         androidx.compose.runtime.key(sessionId) {
             ConversationTimeline(
@@ -716,6 +727,17 @@ private fun ConversationPage(
                         ?.isRunning == true,
                     onClick = { scrollToBottomToken += 1 }
                 )
+            }
+            // 待答/待确认的桥接卡：钉在输入区上方（与审批卡、问题面板同一竖列）。
+            // 只渲染属于**本会话**的卡 —— 无会话 id 的会话一张都不出，避免凭空出卡。
+            if (sessionBridgeCards.isNotEmpty()) {
+                Column(
+                    Modifier.fillMaxWidth().testTag("conversation-bridge-cards")
+                ) {
+                    sessionBridgeCards.forEach { card ->
+                        BridgeCardRow(card, ownerName = bridgeOwnerNames[card.owner])
+                    }
+                }
             }
             if (approval != null) {
                 ApprovalRequestCard(

@@ -125,10 +125,10 @@ internal fun BotTeamScreen(
     val sessions = state?.sessions.orEmpty()
     val mainBotIds = state?.mainBotIds.orEmpty()
     val cards = adapter?.pendingCards.orEmpty()
-    // ⚠️ `cards` 在本页只剩两处用途：设置行的 caution 点（`pending`）与只读预览正文
-    // （`cardPrompt`）。整张卡的渲染已按页面归属移出本页（见下方 ⑤ 注释），
-    // `owner id → 名字` 的映射随之暂无消费者 —— 它属于**会话窗口**里那份卡片，
-    // 接线时随 `BridgeCardRow` 一起搬过去，别在别处再造一份。
+    // ⚠️ `cards` 在本页只剩两处用途：行内 caution 点（`pending`）与只读预览正文
+    // （`cardPrompt`）。整张卡的渲染只在**会话页**（`ConversationScreen` 的输入区上方，
+    // 见 `BridgeCardRow.kt`）——用户 2026-11-02 截图里串页的那块就是从这里移走的，
+    // 别再往本页加回来（C5：Bot 页 0 整卡）。
     LaunchedEffect(adapter) {
         adapter?.start()
         adapter?.refreshNow()
@@ -265,12 +265,10 @@ internal fun BotTeamScreen(
             } else {
                 items(filteredRooms, key = { it.id }) { row -> RoomRow(row, bots, onOpenSession) }
             }
-            // ⑤ 卡片**不再在本页成块渲染**（用户 2026-11-02 截图：卡片串到了 Bot 页）。
+            // ⑤ 卡片**不在本页成块渲染**（用户 2026-11-02 截图：卡片串到了 Bot 页）。
             // 页面归属按 iOS：08 屏只在**行内**给一句只读预览（`WorkspaceView:719-726`
-            // `「prompt」` caption2 ≤2 行），整张卡只在会话窗口里（`ConversationView:543`）。
-            // 所以这里的「卡片（N）」整块删掉，改由 `BotRow` 的 cardPrompt 承接预览；
-            // `BridgeCardRow` 保留但暂无调用点 —— 它的归属是**会话窗口**（Android 侧尚未接线，
-            // 已报 Chief 决定放本批还是下一批），删它才会真的丢掉卡片渲染能力。
+            // `「prompt」` caption2 ≤2 行），整张卡只在会话页（`ConversationView:543`）。
+            // 本页的入口是 `BotRow` 的 cardPrompt；整张卡由 `BridgeCardRow.kt` 在会话页渲染。
             // ⑥ 桥接状态卡：iOS 正常态什么都不画，只有离线横幅 / 未就绪诊断卡。
             // 这里从"常驻整卡"改成**只在异常/未就绪时出现**（用户 11-02：常驻那张是 Android 多出来的）。
             item {
@@ -287,59 +285,6 @@ internal fun BotTeamScreen(
                 }
             }
         }
-    }
-}
-
-/**
- * 桥接卡片行（E1）：`kind:"view"` 出「方案对比」这类正文卡，question/secret 出
- * 「等你回答／等你填密钥」行 —— 文案与 iOS `statusText`（GatewayTeamFeed :1179）一致。
- * 纪律同 iOS：bridge 没有 question-answer action，**卡片只能看**，必须标明在电脑端处理。
- *
- * ⚠️ **当前无调用点**（2026-11-02 从 Bot 页移出）：整张卡的归属是**会话窗口**
- * （iOS `ConversationView:543`），Bot 页只留行内只读预览。会话页的接线 Android 尚未做，
- * 所以这里先保留实现、不删（删了就真没有卡片渲染能力了）；等接线时连
- * `card.owner → 名字` 的映射一起搬过去。
- */
-@Composable
-private fun BridgeCardRow(card: com.clarklevis.dsh.shared.protocol.BridgeCardQuestion, ownerName: String?) {
-    Column(
-        Modifier.fillMaxWidth()
-            .background(MaterialTheme.colorScheme.onBackground.copy(alpha = 0.06f), RoundedCornerShape(14.dp))
-            .padding(horizontal = 14.dp, vertical = 12.dp)
-            .testTag("bridge-card-${card.kind}")
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                ownerName ?: card.owner,
-                color = MaterialTheme.colorScheme.onBackground,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.weight(1f)
-            )
-            Text(card.statusText, color = homeInk(0.7f), fontSize = 12.sp)
-        }
-        if (card.prompt.isNotBlank()) {
-            Text(
-                card.prompt,
-                color = homeInk(0.85f),
-                fontSize = 14.sp,
-                modifier = Modifier.padding(top = 4.dp)
-            )
-        }
-        if (card.options.isNotEmpty()) {
-            Text(
-                card.options.joinToString(" / "),
-                color = homeInk(0.55f),
-                fontSize = 12.sp,
-                modifier = Modifier.padding(top = 2.dp)
-            )
-        }
-        Text(
-            appText("在电脑端处理"),
-            color = homeInk(0.5f),
-            fontSize = 11.sp,
-            modifier = Modifier.padding(top = 4.dp)
-        )
     }
 }
 
@@ -530,9 +475,12 @@ private fun RoomRow(row: BridgeConversationRow, bots: List<BridgeConversationRow
  * 群聊副行文案 = **成员名字**串（iOS `GatewayTeamFeed.roomSubtitle`，:1209）：
  * 前 4 个名字用「、」连接，超过 4 个补「等 N 人」，一个都查不到 ⇒「群聊」。
  *
- * ⚠️ 与 iOS 的**一处有意差异**：iOS 的名字查不到时回落打印原值（`botNames[$0] ?? $0`，
- * 那个原值是 session id）；Android 一律**丢弃**查不到的成员 —— 用户 2026-11-02 明确
- * 「`session-xxxx` 这种内部 id 一律不露」。宁可少显一个名字，也不把内部 id 摊在界面上。
+ * ⚠️ **iOS 侧同型缺陷已确认（不是"有意差异"）**：iOS 两处都露内部 id ——
+ * `WorkspaceView.swift:912-916 bridgeRowSubtitle` 裸 join `row.members`（room 行不带 `role`，
+ * 必然走到这一支），`GatewayTeamFeed.swift:1209-1213 roomSubtitle` 的 `botNames[$0] ?? $0`
+ * 查不到就回落打印原值。依据 `row.members` 装的是 session id（网关 `adapter.mjs:101`）。
+ * Chief 2026-11-02 已判 iOS 一并修（并入 73，口径与这里一致：查名、查不到丢弃）。
+ * Android 这边**只认名字**：查不到就不显示，绝不把内部 id 摊在界面上。
  */
 internal fun roomMemberNames(members: List<String>?, bots: List<BridgeConversationRow>): String {
     val ids = members.orEmpty()
