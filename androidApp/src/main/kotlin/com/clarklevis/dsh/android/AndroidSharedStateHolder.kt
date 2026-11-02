@@ -2962,17 +2962,25 @@ class AndroidSharedStateHolder(
                             when (event) {
                                 is GatewayRuntimeEvent.Frame -> {
                                     // C1：U5 对称配对 —— 网关在 paired 帧顺带下发团队会话，收到即接上桥接轮询。
-                                    if (event.frame.kind == "paired") {
+                                    //
+                                    // **自愈（2026-11-02 用户报障）**：也接受 `hello` 帧里带的 bridgeSession。
+                                    // 理由：网关只在「配对那一刻」发 paired（issueSessionForDevice 只有那一处调用），
+                                    // 而 hello 每次连接都会来——本地会话一旦丢失，只有 hello 能把它补回来，
+                                    // 否则用户每次覆盖安装都得重新扫码。
+                                    // 注意：**不能**反过来让网关伪造 paired 来补发（paired 有 token 语义：
+                                    // SplitGatewayTransport.kt:48 会把 bearerToken 置成帧里的 token，空 token 反而搞坏鉴权）。
+                                    if (event.frame.kind == "paired" || event.frame.kind == "hello") {
                                         // 诊断：区分「网关没下发 bridgeSession」与「下发了但落盘失败」——
-                                        // 这两者在 UI 上都表现为"尚未配对"，没有日志就查不出来（2026-11-02 用户报障）。
+                                        // 这两者在 UI 上都表现为"尚未配对"，没有日志就查不出来。
                                         android.util.Log.i(
                                             "DshBridgeTeam",
-                                            "paired frame: bridgeSession=" +
+                                            "${event.frame.kind} frame: bridgeSession=" +
                                                 (event.frame.bridgeSession?.let { "device=${it.deviceId.take(8)}" } ?: "null")
                                         )
                                         event.frame.bridgeSession?.let { session ->
                                             withContext(Dispatchers.Main.immediate) {
-                                                bridgeTeam?.adoptSession(session)
+                                                // 已有可用会话时不重复写入（hello 比 paired 频繁，幂等但不必空转）
+                                                if (bridgeTeam?.hasSession != true) bridgeTeam?.adoptSession(session)
                                             }
                                         }
                                     }
