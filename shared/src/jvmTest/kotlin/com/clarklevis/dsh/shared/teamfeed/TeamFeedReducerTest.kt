@@ -230,6 +230,23 @@ class TeamFeedReducerTest {
         assertEquals(avatar.image, "data:image/png;base64,AAA")
     }
 
+    /** 缺口 1 的 shared 侧用例：feed 帧生产路径（TeamFeedFrames:280）读 tilt，
+     *  之前只有 androidApp 解析器那份有用例——两份实现共存期间各自都要有判据（段 5 收口）。 */
+    @Test
+    fun sharedGlyphPathParsesFifthEyeElementAsTilt() {
+        val frame = parseTeamFeedFrame(
+            """{"v":1,"kind":"snapshot","instanceId":"i","seq":1,"degraded":false,"mainBotIds":[],
+               "bots":[{"id":"b1","kind":"bot","name":"n","sessionId":"s1",
+                        "glyph":{"size":100,"path":"M1 1L2 2Z",
+                                 "eyes":[[10,10,4,2,-15.8],[10,30,4,2,-21.2]]}}],
+               "rooms":[],"pending":[]}""",
+        ) as TeamFeedFrame.Snapshot
+        // Snapshot.rows 是 List（原始帧），不是 reducer 归并后的 Map。
+        val eyes = frame.rows.first { it.id == "b1" }.glyph!!.eyes
+        assertEquals(-15.8, eyes[0].tilt, 1e-9)
+        assertEquals(-21.2, eyes[1].tilt, 1e-9)
+    }
+
     // —— 负例：未知 kind / 不合规 op 整帧丢弃，不许混进状态 ——
     @Test
     fun unknownKindAndIllegalOpsAreDropped() {

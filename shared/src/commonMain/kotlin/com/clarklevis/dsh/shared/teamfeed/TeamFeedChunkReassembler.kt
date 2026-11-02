@@ -118,6 +118,11 @@ class TeamFeedChunkReassembler(
         streams.remove(streamId)
     }
 
+    /** 清空全部流（新连接 ⇒ 旧连接的 chunk 流全部作废）。 */
+    fun clear() {
+        streams.clear()
+    }
+
     /**
      * 喂一块。返回 [TeamFeedChunkOutcome.Success] 且 payload 非空表示这条流已收齐；
      * payload 为 null 表示还差块；[TeamFeedChunkOutcome.Failure] 一律意味着该流已被丢弃，
