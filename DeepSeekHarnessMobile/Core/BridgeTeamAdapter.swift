@@ -129,10 +129,13 @@ struct BridgeTeamErrorMirror: Decodable {
     let message: String?
 
     /// fail-closed：未知 wire 码显示原文 + 通用文案（§2.9）。
+    ///
+    /// **已登记的 code 一律走人话**（`BridgeErrorText`，与 Android 的 `humanMessageFor` 逐条对齐）；
+    /// 只有「网关新增、还没登记」的 wire 码才保留原文——那是有意留的诊断，它提示我们回来登记。
     var displayText: String {
         if let message, !message.isEmpty { return message }
         if source == "wire", knownWireCode == nil { return "服务器错误（\(code)）" }
-        return "操作失败（\(code)）"
+        return BridgeErrorText.registeredMessage(forCode: code) ?? "操作失败（\(code)）"
     }
 }
 
@@ -730,7 +733,11 @@ final class BridgeTeamAdapter: ObservableObject {
         }
         let outcome = store.sessionPaired(sessionJson: payload)
         guard outcome.isSuccess else {
-            let message = "配对资料保存失败：" + (outcome.errorMessage ?? outcome.errorCode ?? "未知原因")
+            // 兜底绝不能把内部 code 摆到用户面前（曾出现 `no-device-session` / `bridge-session-unavailable`）。
+            let detail = outcome.errorMessage
+                ?? outcome.errorCode.map { BridgeErrorText.humanMessage(forCode: $0) }
+                ?? "未知原因"
+            let message = "配对资料保存失败：" + detail
             pairingState = .failed(message)
             lastTransportError = message
             return
@@ -1159,5 +1166,47 @@ enum BridgeTokenTTL {
     static func proactiveInterval(ttlSeconds: Double) -> TimeInterval? {
         guard ttlSeconds.isFinite, ttlSeconds > 0 else { return nil }
         return min(max(ttlSeconds * refreshRatio, minimumInterval), maximumInterval)
+    }
+}
+
+/// bridge 错误码 → 中文人话。**与 Android 的 `AndroidBridgeTeamAdapter.humanMessageFor` 逐条对齐**
+/// （映射各自放在平台的适配层、不在 KMP；但文案必须一致——见 `docs/spec/parity-defect-registry.md` #2）。
+///
+/// 为什么必须有：网关/传输层只给 `code` 不给 `message` 时，App 曾把 code 原文直接摆到用户面前
+/// （截图实测 `no-device-session`；`bridge-session-unavailable` 在 iOS 全仓 0 命中 ⇒ 用户只会看到兜底）。
+/// **判据（机械可执行）**：已登记的 code 在 UI 文案里 0 命中；未登记的 code 走通用文案、同样不外露。
+enum BridgeErrorText {
+    /// 未登记 code 的兜底（**绝不外露 code**）。
+    static let genericFailure = "连接出问题了，稍后会自动重试"
+    static let notPaired = "尚未配对桥接设备：请先与网关配对"
+    static let networkRetry = "网络不通，稍后会自动重试"
+
+    /// 已登记 code → 人话；**未登记返回 nil**，让调用方自行兜底
+    /// （`BridgeTeamErrorMirror` 要保留「未登记 wire 码显示原文」的 fail-closed 诊断，§2.9）。
+    static func registeredMessage(forCode code: String?) -> String? {
+        guard let code = code?.trimmingCharacters(in: .whitespacesAndNewlines), !code.isEmpty else { return nil }
+        switch code {
+        case "no-bridge-origin":
+            return "尚未连接桌面端：请先在设置里配对服务器"
+        case "no-device-session", "unauthorized", "invalid_session", "session_clear", "blocked_url":
+            return notPaired
+        case "network_error", "transport_failed":
+            return networkRetry
+        // 网关自愈分支的三种 error（mobile-gateway `lib/index.mjs`）：Android 早前已登记，iOS 此前 0 命中。
+        // **网关侧每新增一个 code，都要在这里登记。**
+        case "authentication-required":
+            return "桌面端连接尚未认证，正在重连"
+        case "rate-limited":
+            return "请求太频繁，稍后自动重试"
+        case "bridge-session-unavailable":
+            return "桌面端暂时无法签发桥接凭证，请稍后重试或重新扫码配对"
+        default:
+            return nil
+        }
+    }
+
+    /// 未登记也回落到人话（**绝不显示裸 code**）。
+    static func humanMessage(forCode code: String?) -> String {
+        registeredMessage(forCode: code) ?? genericFailure
     }
 }

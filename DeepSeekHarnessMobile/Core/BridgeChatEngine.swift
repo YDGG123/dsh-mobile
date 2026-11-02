@@ -1,6 +1,7 @@
 import DeepSeekHarnessShared
 import Foundation
 import SwiftUI
+import os
 
 /// ## 为什么不把主聊天窗整窗切到这条通道（2026-10-27 定论，别再重新评估一遍）
 /// 这条通道**确实能跨段**：REST 的 cursor 由服务端顺着 `parts` 翻
@@ -233,6 +234,40 @@ final class BridgeChatEngine: ObservableObject {
             canLoadOlder = false
         }
     }
+
+    /// **兜底轮询**：拉最新一页并与现有快照**合并**（与 Android 的 8s 轮询同一个可观察行为）。
+    ///
+    /// 为什么必须有：房间消息的实时只有 WS 一条路；那条一旦不通，用户就表现为
+    /// 「必须重开才看到」（重开才走 REST 历史）。有了这条，最差退化成「≤8s 延迟」，
+    /// 而不是「永远不出现」——两端可观察行为也就一致了（Android 本来就是 8s 轮询）。
+    ///
+    /// 合并走 KMP 的 `chatMergeHistoryPage`：按 id/seq 去重，**无新消息时返回原串**
+    /// ⇒ 不产生多余的 `messagesJson` 变更（@Published 不空转，视图不白重算）。
+    /// 失败不报错、不改状态，下个周期再来（与 Android 的静默重试一致）。
+    func refreshLatest(limit: Int = 50) async {
+        guard !stopped, let token = tokenProvider() else { return }
+        let path = "/conversations/\(conversationId)/messages?limit=\(limit)"
+        do {
+            applyLatestPage(try await transport.fetch(path: path, token: token))
+        } catch let status as BridgeResponseStatus where status.status == 401 {
+            guard await refreshToken(), let fresh = tokenProvider() else { return }
+            if let body = try? await transport.fetch(path: path, token: fresh) {
+                applyLatestPage(body)
+            }
+        } catch {
+            // 静默：兜底轮询不是主路径，失败不该污染 status/lastError。
+        }
+    }
+
+    private func applyLatestPage(_ body: String) {
+        let merged = BridgeChatMergeKt.chatMergeHistoryPage(messagesJson: messagesJson, historyJson: body)
+        guard merged != messagesJson else { return }
+        messagesJson = merged
+        // 固定 ASCII 标记（≥16 字节）：既用于日志定位，也用作产物指纹（70 为 0、71 ≥1）。
+        Self.pollLog.notice("roomchat-poll-latest-merged conversation=\(self.conversationId, privacy: .public)")
+    }
+
+    private static let pollLog = Logger(subsystem: "ai.dsh.mobile.ios", category: "roomchat-poll")
 
     private static func cursor(from historyJson: String) -> String? {
         guard let data = historyJson.data(using: .utf8),

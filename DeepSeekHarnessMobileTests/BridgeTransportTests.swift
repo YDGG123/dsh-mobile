@@ -421,3 +421,93 @@ final class ChunkLimitNegotiationTests: XCTestCase {
         XCTAssertEqual(BridgeChunkLimits.shared.maxChunkBytes, 256 * 1024, "幂等")
     }
 }
+
+/// bridge 错误码 → 人话的**可执行定义**：与 Android 的 `humanMessageFor` 逐条对齐，且绝不外露 code。
+///
+/// 背景（2026-11-02）：用户能看到的缺陷里，有一种是「界面直接显示内部 code」
+/// （截图实测 `no-device-session`；`bridge-session-unavailable` 此前在 iOS 全仓 0 命中 ⇒ 只会看到兜底文案）。
+/// 判据是机械式的：**已登记的 code 在 UI 文案里 0 命中**——所以这里逐个 code 断言。
+final class BridgeErrorTextTests: XCTestCase {
+
+    /// Android 侧已登记的 code（`AndroidBridgeTeamAdapter.humanMessageFor`）——两端同一张表。
+    static let registeredCodes = [
+        "no-bridge-origin", "no-device-session", "unauthorized", "invalid_session", "session_clear",
+        "blocked_url", "network_error", "transport_failed",
+        "authentication-required", "rate-limited", "bridge-session-unavailable",
+    ]
+
+    // MARK: - 判据主体：不外露 code
+
+    func testRegisteredCodesNeverLeakInternalCode() {
+        for code in Self.registeredCodes {
+            let text = BridgeErrorText.humanMessage(forCode: code)
+            XCTAssertFalse(text.isEmpty, "\(code) 没有文案")
+            XCTAssertFalse(text.contains(code), "\(code) 出现在文案里：\(text)")
+            XCTAssertFalse(text.contains("-"), "\(code) 的文案里不该有内部串的连字符：\(text)")
+        }
+    }
+
+    func testUnregisteredAndEmptyFallBackToGenericWithoutLeaking() {
+        for raw in ["brand-new-gateway-code", "unknown-error", "", "   ", nil] {
+            let text = BridgeErrorText.humanMessage(forCode: raw)
+            XCTAssertEqual(text, BridgeErrorText.genericFailure, "\(raw ?? "nil") 应回落通用文案")
+            if let raw, !raw.isEmpty {
+                XCTAssertFalse(text.contains(raw), "兜底也不能外露 \(raw)")
+            }
+        }
+    }
+
+    // MARK: - 文案逐条（与 Android 一致；改一处两端都要改）
+
+    func testExactTextsMatchAndroidTable() {
+        XCTAssertEqual(BridgeErrorText.humanMessage(forCode: "no-bridge-origin"),
+                       "尚未连接桌面端：请先在设置里配对服务器")
+        XCTAssertEqual(BridgeErrorText.humanMessage(forCode: "no-device-session"),
+                       "尚未配对桥接设备：请先与网关配对")
+        XCTAssertEqual(BridgeErrorText.humanMessage(forCode: "unauthorized"),
+                       BridgeErrorText.notPaired)
+        XCTAssertEqual(BridgeErrorText.humanMessage(forCode: "network_error"),
+                       "网络不通，稍后会自动重试")
+        XCTAssertEqual(BridgeErrorText.humanMessage(forCode: "transport_failed"),
+                       BridgeErrorText.networkRetry)
+        XCTAssertEqual(BridgeErrorText.humanMessage(forCode: "authentication-required"),
+                       "桌面端连接尚未认证，正在重连")
+        XCTAssertEqual(BridgeErrorText.humanMessage(forCode: "rate-limited"),
+                       "请求太频繁，稍后自动重试")
+        XCTAssertEqual(BridgeErrorText.humanMessage(forCode: "bridge-session-unavailable"),
+                       "桌面端暂时无法签发桥接凭证，请稍后重试或重新扫码配对")
+    }
+
+    /// 「未登记 ⇒ nil」这一档是给镜像层留的：它必须能区分「已登记」与「没登记」。
+    func testRegisteredMessageIsNilForUnregisteredOnly() {
+        XCTAssertNil(BridgeErrorText.registeredMessage(forCode: "read-only"))
+        XCTAssertNil(BridgeErrorText.registeredMessage(forCode: nil))
+        XCTAssertNotNil(BridgeErrorText.registeredMessage(forCode: "rate-limited"))
+    }
+
+    // MARK: - 镜像显示：已登记走人话，未登记 wire 码保留 fail-closed 诊断（§2.9）
+
+    private func mirror(_ json: String) throws -> BridgeTeamErrorMirror {
+        try JSONDecoder().decode(BridgeTeamErrorMirror.self, from: Data(json.utf8))
+    }
+
+    func testMirrorShowsHumanTextForRegisteredCodeWithoutMessage() throws {
+        let wire = try mirror(#"{"source":"wire","code":"bridge-session-unavailable"}"#)
+        XCTAssertEqual(wire.displayText, "桌面端暂时无法签发桥接凭证，请稍后重试或重新扫码配对")
+        let client = try mirror(#"{"source":"client","code":"no-device-session"}"#)
+        XCTAssertEqual(client.displayText, BridgeErrorText.notPaired)
+    }
+
+    func testMirrorKeepsRawCodeOnlyForUnregisteredWireCode() throws {
+        let unknown = try mirror(#"{"source":"wire","code":"some-future-code"}"#)
+        XCTAssertEqual(unknown.displayText, "服务器错误（some-future-code）",
+                       "网关新增未登记 code 时保留原文是【有意】的诊断（§2.9），别顺手改成人话")
+        let known = try mirror(#"{"source":"wire","code":"read-only","knownWireCode":"READ_ONLY"}"#)
+        XCTAssertEqual(known.displayText, "操作失败（read-only）", "已登记枚举但未在表里 ⇒ 行为不变")
+    }
+
+    func testMirrorPrefersServerMessageOverTable() throws {
+        let mirrored = try mirror(#"{"source":"client","code":"no-device-session","message":"服务器给的人话"}"#)
+        XCTAssertEqual(mirrored.displayText, "服务器给的人话")
+    }
+}

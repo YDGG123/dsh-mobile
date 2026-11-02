@@ -112,8 +112,20 @@ struct SettingsView: View {
     private var palette: DSHPalette { DSHPalette.resolve(colorScheme) }
 
 
-    private var appVersion: String {
+    /// 机器可比的版本（`CFBundleShortVersionString`，如 `1.7.12`）。
+    /// **发布说明的比较必须用它**（`:429`），不能换成下面的显示串——否则 `releaseInfo.version`
+    /// 永远等于不上，界面会一直显示「本版本发布说明暂未提供」。
+    private var appVersionRaw: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "未知"
+    }
+
+    /// 界面上显示的版本：**带上 build**（`1.7.12 (71)`）。
+    /// 为什么必须带：69/70/71 的短版本都是 `1.7.12`，光看界面分不清用户装的是哪一版
+    /// （2026-11-02 因这个障碍至少多花一轮验收——用户说不清装的是哪个包）。
+    private var appVersionDisplay: String {
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
+        guard let build, !build.isEmpty else { return appVersionRaw }
+        return "\(appVersionRaw) (\(build))"
     }
 
     private var connectedGatewayVersion: String? {
@@ -354,7 +366,7 @@ struct SettingsView: View {
                 // ⑥ 关于（3 行）
                 DSHGroup("关于") {
                     DSHRow("当前版本", showsDivider: true) {
-                        DSHRowValue(text: appVersion, showsChevron: false)
+                        DSHRowValue(text: appVersionDisplay, showsChevron: false)
                     }
                     DSHRow("本版本新功能",
                            showsDivider: true,
@@ -426,7 +438,7 @@ struct SettingsView: View {
         .sheet(isPresented: $showsReleaseNotes) {
             NavigationStack {
                 ScrollView {
-                    Markdown(releaseInfo?.version == appVersion ? releaseInfo!.notes : "本版本发布说明暂未提供，请查看 GitHub 发布页。")
+                    Markdown(releaseInfo?.version == appVersionRaw ? releaseInfo!.notes : "本版本发布说明暂未提供，请查看 GitHub 发布页。")
                         .padding(20)
                 }
                 .navigationTitle("本版本新功能")

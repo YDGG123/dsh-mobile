@@ -1025,6 +1025,10 @@ struct ConversationView: View {
     ///
     /// 触发条件是**当前打开的会话正好是一个 bridge room**；其余会话（含 1:1 Bot）直接返回，
     /// 一个字节也不碰——桶为空时 `selectedConversationItems` 与原逻辑逐字节一致。
+    /// 兜底轮询间隔：与 Android 的 `POLL_INTERVAL_MILLIS = 8_000` 对齐
+    /// （两端可观察行为一致：最差 8s 出现，而不是「必须重开才看到」）。
+    private static let roomChatPollIntervalSeconds: TimeInterval = 8
+
     private func runRoomChatFeed(for sessionId: String?) async {
         guard let sessionId else { return }
         guard let row = await roomBridgeRow(for: sessionId) else { return }
@@ -1040,6 +1044,16 @@ struct ConversationView: View {
             store.setRoomChatBubbles([], forSessionId: row.sessionId)
         }
         engine.start()
+        // 兜底轮询（间隔与 Android 的 `POLL_INTERVAL_MILLIS = 8_000` 对齐）：
+        // 实时只有 WS 一条路，那条断了用户就表现为「必须重开才看到」；轮询把最差情况压到 ≤8s。
+        let pollTask = Task { [weak engine] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: UInt64(Self.roomChatPollIntervalSeconds * 1_000_000_000))
+                if Task.isCancelled { break }
+                await engine?.refreshLatest()
+            }
+        }
+        defer { pollTask.cancel() }
         for await _ in engine.$messagesJson.values {
             if Task.isCancelled { break }
             store.setRoomChatBubbles(

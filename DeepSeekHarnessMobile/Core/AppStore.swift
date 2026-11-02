@@ -1311,6 +1311,18 @@ final class AppStore: ObservableObject {
         } else {
             roomChatBubbles[sessionId] = bubbles
         }
+        // ⚠️ **合流结果必须重推给时间线**——这才是「实时群聊看得到 / 看不到」的那一环：
+        // 行渲染读的是 `ConversationTimeline` 的 snapshot（**推式**，见 `ConversationViewport`
+        // 的 `receive(timeline.currentSnapshot)`），**不读** `selectedConversationItems`（拉式）。
+        // 此前这里只改桶、一次 publish 都没有 ⇒ 合流结果在界面上永远不出现；历史那次恰好搭在
+        // 别的 publish（历史装载/投影循环）上，于是表现为「历史看得到、实时看不到」。
+        // 只重推**当前显示的会话**：后台会话没必要为渲染做功。
+        guard sessionId == selectedSessionId else { return }
+        let items = mergedConversationItems(for: sessionId)
+        conversationTimeline(for: sessionId).publish(items)
+        // 固定 ASCII 标记（≥16 字节）：既便于日志定位，也作为产物指纹
+        // （`roomchat-push-timeline` 在 build 70 里为 0、71 里 ≥1 ⇒ 新增式指纹）。
+        Self.roomChatLog.notice("roomchat-push-timeline session=\(sessionId, privacy: .public) items=\(items.count, privacy: .public)")
     }
 
     var selectedEvents: [SessionEvent] {
@@ -1320,21 +1332,31 @@ final class AppStore: ObservableObject {
     var selectedConversationItems: [ConversationItem] {
         guard let selectedSessionId else { return [] }
         if isShowingSearchContext { return searchContextTimeline?.currentSnapshot.items ?? [] }
-        let current = renderedConversationItems[selectedSessionId, default: []]
+        return mergedConversationItems(for: selectedSessionId)
+    }
+
+    /// 合流后的时间线（网关条目 + bridge 气泡）。
+    ///
+    /// **两个调用方共用这一处**：① `selectedConversationItems`（拉式，SwiftUI 求值时算）
+    /// ② `setRoomChatBubbles` 里的重推（推式，喂给 `ConversationTimeline`）。
+    /// 抽出来是因为**行渲染只认推式的 snapshot**（见 `setRoomChatBubbles` 注释），
+    /// 两条路径各写一份合流逻辑迟早会漂移。
+    private func mergedConversationItems(for sessionId: String) -> [ConversationItem] {
+        let current = renderedConversationItems[sessionId, default: []]
         // 多段 Bot：把已发现旧段的桶与当前段合并（跨段 createdAt、同段 seq、当前段末尾）。
         // **单段/普通会话 parts.count == 1 → 原样返回**（与 40 逐字节一致，主用例）。
-        let parts = conversationSegments(for: selectedSessionId)
+        let parts = conversationSegments(for: sessionId)
         let base = parts.count > 1
-            ? Self.mergedHistory(currentSegment: selectedSessionId,
+            ? Self.mergedHistory(currentSegment: sessionId,
                                  segments: parts.map { ($0, renderedConversationItems[$0, default: []]) })
             : current
         // ③ 群聊合流：把 bridge 侧气泡并入同一条时间线（**桶为空时零行为变化** ⇒ 未喂数据前与原逻辑逐字节一致）。
         // 取值优先级/去重键/第三档日志口径见 `RoomChatMergePlan`（两端同用例）。
-        guard let bubbles = roomChatBubbles[selectedSessionId], !bubbles.isEmpty else { return base }
+        guard let bubbles = roomChatBubbles[sessionId], !bubbles.isEmpty else { return base }
         let plan = RoomChatMergePlan.merge(
             gateway: base.map(Self.mergeBubble(from:)),
             bridge: bubbles,
-            sessionId: selectedSessionId
+            sessionId: sessionId
         )
         // 不许静默跳过：拿不到 seq 的条目不参与去重，但必须留痕。
         // **按 id 去重后才打日志**：本属性每次渲染都会求值，逐次打会把日志刷爆
