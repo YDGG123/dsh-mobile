@@ -48,6 +48,59 @@ fail() { echo "❌ $1"; exit 1; }
 [ -d "$SDK" ] || fail "找不到 iOS SDK: $SDK"
 [ -d "$FW" ] || fail "缺少 KMP 框架,先运行: ./gradlew :shared:linkDebugFrameworkIosX64"
 
+# ---- KMP 共享层三闸门（2026-11-02 教训：iOS 整平台编不出来、闸门却一路绿）----
+# 事故原文：`07552f4` 往 commonMain 写了 `putIfAbsent`（JVM 专有），
+#   Android 的 JVM 单测 283/572 例全绿、iOS 的 `:shared:compileKotlinIosX64` 直接失败。
+#   而这里当时只做 `[ -d "$FW" ]`（目录在不在）——**框架过期时，四路类型检查是在旧框架上跑的**。
+# 三个判据按代价从低到高，任一条红即 exit 1：
+
+# ③ 禁用 API 扫描（最便宜）：commonMain 是两端共用层，JVM 专有 API 在 native 目标上编不过。
+#    必须**排除注释行**——记录这次教训的注释自己就含 `putIfAbsent`，否则判据被自己弄红。
+if [ -n "$PYTHON3" ]; then
+  "$PYTHON3" - <<'PYCHECK' || exit 1
+import pathlib, re
+pat = re.compile(r'\bputIfAbsent\b|ConcurrentHashMap|java\.util|java\.lang|synchronized\(')
+bad = []
+for path in sorted(pathlib.Path('shared/src/commonMain').rglob('*.kt')):
+    for line_no, line in enumerate(path.read_text(encoding='utf-8').splitlines(), 1):
+        code = line.split('//')[0]            # 去掉行尾注释后再判
+        if pat.search(code):
+            bad.append(f"   {path}:{line_no}: {line.strip()[:90]}")
+if bad:
+    print("❌ commonMain 出现 JVM 专有 API（iOS/native 目标编不过）：")
+    print("\n".join(bad[:10]))
+    raise SystemExit(1)
+print(f"✅ commonMain 无 JVM 专有 API（扫描 {len(list(pathlib.Path('shared/src/commonMain').rglob('*.kt')))} 个 .kt）")
+PYCHECK
+fi
+
+# ② 脏检查（一行）：框架比 commonMain 源码旧 ⇒ 后面四路类型检查读的是过期框架，结果不可信。
+# ⚠️ 锚点必须是**产物本身**（`.framework` bundle），不能是它的父目录 `$FW`：
+#    `$FW` 的 mtime 不随链接更新（实测 11-01 22:40，而里面的 bundle 是 11-02 08:17:57），
+#    拿父目录当锚会恒报"脏"（10 个 .kt 比它新），而锚到 bundle 上是 0 —— 判据没变，被量的参照物错了。
+FW_ANCHOR="$(ls -d "$FW"/*.framework 2>/dev/null | head -1)"
+[ -n "$FW_ANCHOR" ] || FW_ANCHOR="$FW"
+STALE_SOURCE="$(find shared/src/commonMain -name '*.kt' -newer "$FW_ANCHOR" | head -1)"
+if [ -n "$STALE_SOURCE" ]; then
+  echo "→ KMP 框架早于 commonMain 源码（例：$STALE_SOURCE）"
+
+  # ① 真编译 iOS 目标。**`UP-TO-DATE` 不算编译过**（Gradle 会直接跳过）⇒ 用 --rerun-tasks。
+  #    只看 `BUILD SUCCESSFUL` 不够：AndroidCoder 那次 1m31s 的“成功”其实是
+  #    `1 executed, 1 from cache, 2 up-to-date`，执行的还不是编译。
+  echo "→ 真编译 iOS 目标（--rerun-tasks）..."
+  KMP_LOG="$(mktemp)"
+  if ! ./gradlew :shared:compileKotlinIosX64 --rerun-tasks --console=plain > "$KMP_LOG" 2>&1; then
+    tail -20 "$KMP_LOG"
+    rm -f "$KMP_LOG"
+    fail "commonMain 在 iOS 目标上编不过（上面是 Gradle 报错；Android 的 JVM 测试照不到这一层）"
+  fi
+  rm -f "$KMP_LOG"
+
+  # 编译过了但框架仍是旧的 ⇒ 四路类型检查用的还是过期框架，必须重链才算数。
+  [ -z "$(find shared/src/commonMain -name '*.kt' -newer "$FW_ANCHOR" | head -1)" ] \
+    || fail "commonMain 已能编译，但 $FW_ANCHOR 仍是旧的：请先跑 ./gradlew :shared:linkDebugFrameworkIosX64 再回来"
+fi
+
 mkdir -p "$DEPS"
 
 # ---- 准备 ChatLayout 模块 ----

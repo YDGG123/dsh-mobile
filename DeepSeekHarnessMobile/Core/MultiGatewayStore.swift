@@ -1,6 +1,7 @@
 import DeepSeekHarnessShared
 import SwiftUI
 import Combine
+import os
 
 /// 每次切换创建全新的业务容器。资料 ID 是持久化、凭证和缓存的共同命名空间。
 @MainActor
@@ -149,20 +150,54 @@ final class MultiGatewayStore: ObservableObject {
                 self.acceptIdentity(frame, store: store)
             }
             // U5 对称配对：网关配对一次，插件顺带下发 mobile-v1 session，Bot tab 立刻可用。
-            // **自愈补接（与 Android 侧对称）**：网关只在配对那一刻下发 `bridgeSession`，
-            // 重连与 `hello` 都不带 ⇒ 本地会话一旦丢失就永不自愈、只能重新扫码（Android 真机报的就是这个）。
+            // **自愈补接（与 Android 对称，契约 = 拉取式）**：网关**只在**配对那一刻下发 `bridgeSession`
+            // （`sendHello` 不带，重连也不带）⇒ 本地会话一旦丢失就永不自愈、只能重新扫码。
+            // 最终契约（ReleaseBot 的网关 `63cec17 → b43ae99`）：App 缺会话时发
+            // `{type:"bridge-session", requestId}`，网关回 `{kind:"bridge-session", bridgeSession}`。
+            // - 三种 kind 都接（`paired` 是配对那一刻、`bridge-session` 是主路径、`hello` 留作兼容）：
+            //   网关发哪个都认，不必因对方选择而失效。
             // - 不能借 `paired` 补发：`paired` 带 token 语义，伪造一帧不带 token 的会把 bearerToken 置空
-            //   （ReleaseBot 核实：`shared/.../SplitGatewayTransport.kt:48`）。`hello` 是纯状态帧，安全。
+            //   （ReleaseBot 核实：`shared/.../SplitGatewayTransport.kt:48`）。
             // - 只在**本地确实没有会话**时接：有会话就不动，免得每次重连都走 `adoptSession`
             //   （`:712` 那里是**强制重建** transport + 重开轮询）。
-            if frame.kind == "paired" || (frame.kind == "hello" && !bridgeTeam.hasStoredSession),
-               let session = frame.bridgeSession, let json = session.jsonString() {
+            if frame.kind == "paired" || frame.kind == "bridge-session"
+                || (frame.kind == "hello" && !bridgeTeam.hasStoredSession),
+               let session = frame.bridgeSession, let json = session.jsonString(),
+               !bridgeTeam.hasStoredSession {
                 // 反向 session 不带 serverUrl：把网关端点交给适配器折成 https origin 注入。
                 self.bridgeTeam.adoptSession(json: json, endpoint: store.gateway.connectedEndpoint ?? store.endpoint)
+            }
+            // 缺会话时主动拉一次（`hello` = 网关已连上并完成鉴权，是唯一能发请求的时机）。
+            if frame.kind == "hello" {
+                self.requestBridgeSessionIfMissing(on: store)
             }
         }
         return store
     }
+
+    /// 缺会话时向网关拉一次（**拉取式自愈**，与 Android 同一契约）。
+    /// 三道闸门，逐条对应 Android 侧那四道（`AndroidSharedStateHolder` 的 hasSession / restoreFailed / 60s 去抖）：
+    /// ① 已有会话 ⇒ 一个字节都不发（重连抖动不该刷请求：网关每次签发都**轮换 token**）；
+    /// ② 密文在、解不开 ⇒ 不发（安全边界，见 `storedSessionPresentButUnusable`）；
+    /// ③ 60 秒去抖 ⇒ 连签不出会话时也不会变成请求风暴。
+    /// **通道**：网关的通道守卫把非会话请求在 conversation 通道上判 `wrong-channel` 拒掉，
+    /// `bridge-session` 必须走 control。`GatewayClient.sendRequestPayload` 按 `usesConversationChannel(type)`
+    /// 分流，`bridge-session` 不在会话类型表里 ⇒ 自动落到 control socket。
+    /// **decorate: false**：载荷就是契约说的 `{type, requestId}` 两个字段，不经过 requestDecorator
+    /// （它会按会话/工作区补字段，对未知类型可能返回 nil 而**静默丢包**）。
+    private func requestBridgeSessionIfMissing(on store: AppStore) {
+        guard !bridgeTeam.hasStoredSession else { return }
+        guard !bridgeTeam.storedSessionPresentButUnusable else { return }
+        if let last = lastBridgeSessionRequestAt, Date().timeIntervalSince(last) < 60 { return }
+        lastBridgeSessionRequestAt = Date()
+        let requestId = "bridge-session-\(Int(Date().timeIntervalSince1970 * 1000))"
+        let payload = "{\"type\":\"bridge-session\",\"requestId\":\"\(requestId)\"}"
+        store.gateway.sendRequestPayload(payload, decorate: false)
+        Self.bridgeSessionLog.notice("bridge-session missing -> requesting re-issue from gateway")
+    }
+
+    private static let bridgeSessionLog = Logger(subsystem: "ai.dsh.mobile.ios", category: "bridge-session")
+    private var lastBridgeSessionRequestAt: Date?
 
     private func installPairingHandler(on store: AppStore) {
         store.pairingHandler = { [weak self] raw in try self?.pair(raw) }

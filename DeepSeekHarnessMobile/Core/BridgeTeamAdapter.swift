@@ -184,6 +184,18 @@ final class BridgeKeychainSessionStore: NSObject, BridgeSessionStore {
         return String(data: data, encoding: .utf8)
     }
 
+    /// Keychain 里**有没有**这条记录（不管能否读出内容）。
+    /// 用途：区分「会话丢了」（允许自愈补发）与「会话在、但读不出来」（**不得**自动补发）——
+    /// 后者是安全边界（iOSTester 2026-11-02 提）：不能把一次瞬时的读取失败
+    /// 静默升级成「向网关换一份新凭证」，那等于把授权范围从「配对码 ⇒ bridge 会话」
+    /// 扩成「网关 token ⇒ 可铸造 bridge 会话」。
+    func exists() -> Bool {
+        var query = baseQuery
+        query[kSecReturnData as String] = false
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        return SecItemCopyMatching(query as CFDictionary, nil) == errSecSuccess
+    }
+
     func saveJson(json: String) {
         guard let data = json.data(using: .utf8) else { return }
         var query = baseQuery
@@ -264,6 +276,14 @@ final class BridgeTeamAdapter: ObservableObject {
     /// 丢了就永不自愈。补发的接法见 `MultiGatewayStore`：`hello` 上**只在没有会话时**接一次，
     /// 有会话就不接，避免每次重连都走一遍 `adoptSession`（它会强制重建 transport + 重开轮询）。
     var hasStoredSession: Bool { sessionStore.loadJson() != nil }
+
+    /// 本地**存在**会话记录、但读不出内容（= 密文在、解不开）。
+    /// 自愈补发只在「确实没有记录」时才做；解不开时**不补发**（iOSTester 的安全边界）——
+    /// 否则一次瞬时的读取失败会被静默升级成「向网关换一份新凭证」，
+    /// 授权范围从「配对码 ⇒ bridge 会话」扩成「网关 token ⇒ 可铸造 bridge 会话」。
+    var storedSessionPresentButUnusable: Bool {
+        sessionStore.exists() && sessionStore.loadJson() == nil
+    }
     /// U5：配对成功且服务端下发了网关凭证时回调（由 MultiGatewayStore 接管落盘/建 profile）。
     /// 参数：凭证、bridge 的 https 根 origin。缺失时不会调用。
     var onGatewayCredential: ((BridgeGatewayCredential, String) -> Void)?
