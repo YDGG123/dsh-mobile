@@ -188,6 +188,18 @@ class AndroidSharedStateHolder(
     private fun requestBridgeSessionIfMissing() {
         val appGraph = graph ?: return
         if (bridgeTeam?.hasSession == true) return
+        // **区分「丢了」与「解不开」**（iOSTester 2026-11-02）：
+        // 密文还在、只是这次解不开（Keystore 临时不可用 / 密文被写坏）时**不得自动补发**——
+        // 否则会把"瞬时解不开"静默升级成"换了一份新凭证"，与本项目「非销毁式失败（保留密文）」
+        // 的原则直接冲突，而且顺手把权限从「配对码 ⇒ bridge 会话」扩成「网关 token ⇒ 可铸造 bridge 会话」。
+        // 这种情形应停在「设备凭证无法读取，需要重新配对」那一档，由用户决定。
+        if (bridgeTeam?.restoreFailed == true) {
+            android.util.Log.i(
+                "DshBridgeTeam",
+                "bridge session present-but-undecryptable -> no auto re-issue (needs explicit re-pair)"
+            )
+            return
+        }
         val now = System.currentTimeMillis()
         // 60 秒内不重复请求：避免重连抖动时刷请求（网关每次都会轮换 token）
         if (now - bridgeSessionRequestedAtMillis < 60_000L) return

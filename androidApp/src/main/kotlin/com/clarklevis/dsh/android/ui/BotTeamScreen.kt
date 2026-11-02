@@ -280,7 +280,8 @@ internal fun BotTeamScreen(
                         serverName = adapter?.serverInfo?.name,
                         origin = adapter?.origin,
                         error = adapter?.lastError,
-                        hasSession = adapter?.hasSession == true
+                        hasSession = adapter?.hasSession == true,
+                        onRequestPairing = onRequestPairing
                     )
                 }
             }
@@ -767,7 +768,9 @@ private fun StatusCard(
     serverName: String?,
     origin: String?,
     error: String?,
-    hasSession: Boolean
+    hasSession: Boolean,
+    /** 未配对档的配对入口（规则 3：写了「请先配对」就必须给得到入口）。 */
+    onRequestPairing: () -> Unit = {}
 ) {
     val label = when (phase) {
         TeamPhase.READY -> appText("已就绪")
@@ -788,22 +791,22 @@ private fun StatusCard(
             Spacer(Modifier.weight(1f))
             Text(label, color = homeInk(0.7f), style = DshType.footnote)
         }
-        Text(
-            appText("服务器：") + (serverName ?: "—"),
-            color = homeInk(0.6f),
-            style = DshType.footnote
-        )
-        Text(
-            appText("地址：") + (origin ?: "—"),
-            color = homeInk(0.6f),
-            style = DshType.footnote
-        )
+        // 折叠（iOSDev 规则：异常态只留「状态 + 原因」）：服务器名/地址属「设置→连接」组，
+        // 不在 Bot 页重复四行扁平清单；排障需要时看设置页，那里是唯一来源。
         if (!hasSession) {
             Text(
                 appText("尚未配对桥接设备：请先与网关配对（配对成功会自动下发团队会话）"),
                 color = DshSemantic.warning,
                 style = DshType.footnote
             )
+            // iOSDev 规则 3：**凡文案写「请先配对」，同屏必须有可点的配对入口**——
+            // 否则用户知道要做什么却无处可点（用户 2026-11-02 截图里就是这样）。
+            androidx.compose.material3.TextButton(
+                onClick = onRequestPairing,
+                contentPadding = PaddingValues(horizontal = 0.dp, vertical = 2.dp)
+            ) {
+                Text(appText("重新扫码配对"), color = MaterialTheme.colorScheme.primary, style = DshType.footnote)
+            }
         }
         // 一屏只允许一条主提示（iOSDev 规则 1）：未配对档已经把原因说清，
         // 再叠一条 error 就是同一件事讲两遍（截图实测出现过三条同义提示）。

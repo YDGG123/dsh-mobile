@@ -22,7 +22,7 @@ android {
         applicationId = "com.clarklevis.dsh.android"
         minSdk = 24
         targetSdk = 36
-        versionCode = 46 // 本批（自愈拉取式：缺 bridge 会话时主动请求补发 + 60s 去抖；三种帧 kind 都接且 adopt 前判 hasSession；不再按 phase 销毁会话；凭证主动刷新；诊断日志）；45 为未发布的中间版
+        versionCode = 47 // 本批（在 46 基础上：密文存在但解不开时【不得】自动补发（iOSTester 安全边界）+ 未配对档补可点配对入口 + 桥接状态卡折叠）；46 为未发布
         versionName = "1.7.13"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
