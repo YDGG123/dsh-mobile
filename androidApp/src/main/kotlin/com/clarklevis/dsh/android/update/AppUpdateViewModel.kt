@@ -144,6 +144,24 @@ internal class AppUpdateViewModel(application: Application) : AndroidViewModel(a
     private val installed = context.packageManager.getPackageInfo(context.packageName, 0)
     val currentVersion: String = installed.versionName ?: appText("未知")
 
+    /** versionCode（API 28+ 读 longVersionCode，24–27 回落已废弃的 versionCode）。 */
+    @Suppress("DEPRECATION")
+    private val installedVersionCode: Long =
+        if (android.os.Build.VERSION.SDK_INT >= 28) installed.longVersionCode else installed.versionCode.toLong()
+
+    /**
+     * **界面自证用**：「1.7.13 (50)」—— 装的是哪个 versionCode 一眼可见
+     * （缺陷登记表 #12；此前 69/70/71 三版界面全显示 `1.7.12`，两次靠问用户才分清）。
+     *
+     * ⚠️ 只有「关于」的显示行（`SettingsScreen.kt:268`）允许用它。
+     * **两处比较必须保持 [currentVersion] 原值**：`:260 compareVersions(...)` 与
+     * `SettingsScreen.kt:384 releaseInfo.version == currentVersion`。
+     * 把 versionCode 拼进 currentVersion 会同时弄坏「检查更新」和「本版本新功能」
+     * —— 与 iOS `:429` 是同一坑（iOS 拆成 appVersionRaw / appVersionDisplay）。
+     */
+    val displayVersion: String =
+        formatDisplayVersion(installed.versionName, installedVersionCode, appText("未知"))
+
     fun dismiss() {
         if (!mutableState.value.busy) {
             releaseUpdateLease()

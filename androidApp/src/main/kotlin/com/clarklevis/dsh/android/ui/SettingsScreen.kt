@@ -265,7 +265,8 @@ internal fun SettingsScreen(
                         // iOS SettingsView:356「当前版本」= 纯值行（无 chevron、不可点）；更新入口是下面的「检查更新」
                         SettingsValueRow(
                             title = appText("当前版本"),
-                            value = updateModel.currentVersion,
+                            // #12：显示行带 versionCode（`1.7.13 (50)`）；比较仍用 currentVersion 原值。
+                            value = updateModel.displayVersion,
                             isLoading = updateState.busy
                         )
                         SettingsDivider()

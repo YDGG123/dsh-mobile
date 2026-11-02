@@ -552,6 +552,8 @@ class AndroidSharedStateHolder(
     }
 
     private var pendingMessageSubmission: MessageSubmission? by mutableStateOf(null)
+    /** #14：投递身份（超时不撤，迟到确认仍可认领）；见 [MessageAckGate]。 */
+    private val messageAck = MessageAckGate<MessageSubmission>()
     var queueDraftRestoreCount by mutableLongStateOf(0L)
         private set
 
@@ -1910,6 +1912,8 @@ class AndroidSharedStateHolder(
             applySessionAgentPresetTransition(sessionAgentPresetStore.beginMessage())
         }
         pendingMessageSubmission = submission
+        // #14：身份单独记账 —— 超时只撤「还在等」，身份留到确认/失败为止。
+        messageAck.begin(submission.requestId, submission)
         appGraph.diagnostics.intent(
             GatewayDiagnosticAction.SEND_MESSAGE,
             hasSession = submission.sessionId != null,
@@ -1948,7 +1952,9 @@ class AndroidSharedStateHolder(
                     clientTimeZone = TimeZone.getDefault().id,
                     mode = mode,
                     receipts = submission.receipts,
-                    requestId = submission.requestId.takeIf { submission.fileIds.isNotEmpty() }
+                    // #14：纯文本也带 requestId（Chief 定：与 iOS 同一形状，不另造本地标识）——
+                    // 迟到确认靠它认领；网关 `lib/index.mjs:609` 会把它原样回显进 sent/error。
+                    requestId = submission.requestId
                 )
                 if (!sent) withContext(Dispatchers.Main.immediate) {
                     pendingMessageSubmission = null
@@ -2926,6 +2932,8 @@ class AndroidSharedStateHolder(
                                 remoteSearchResultQuery = null
                                 applySessionAgentPresetTransition(sessionAgentPresetStore.disconnected())
                                 pendingMessageSubmission = null
+                                // #14：断连只是「我们这边不等了」，投递可能已经落地 ⇒ 身份不撤。
+                                messageAck.timedOut()
                                 cancellingSessionIds = emptySet()
                             }
                             if (state.connection != GatewayConnectionState.CONNECTED &&
@@ -3086,6 +3094,7 @@ class AndroidSharedStateHolder(
                                                 }?.let {
                                                     if (event.frame.code == "session/attachment-invalid") fileUploads.invalidReceipts()
                                                     pendingMessageSubmission = null
+                                                    messageAck.abandon() // 明确错误帧 = 这条投递没成
                                                 }
                                             }
                                         }
@@ -3139,7 +3148,10 @@ class AndroidSharedStateHolder(
                                             }
                                         }
                                         if (event.frame.kind == "sent") {
-                                            pendingMessageSubmission?.takeIf { event.frame.requestId == it.requestId || (it.fileIds.isEmpty() && event.frame.requestId == null) }?.let {
+                                            // #14：接受条件从「还在等」改为「有在途投递 + requestId 匹配」——
+                                            // 迟到的成功确认也能清空输入框；命中即清身份，重复帧不会再认领一次。
+                                            val hadNoFiles = messageAck.payload?.fileIds.isNullOrEmpty()
+                                            messageAck.accept(event.frame.requestId, submissionHadNoFiles = hadNoFiles)?.let {
                                                 applyMessageSendResult(it, true)
                                                 pendingMessageSubmission = null
                                             }
@@ -3267,7 +3279,10 @@ class AndroidSharedStateHolder(
                                             event.requestType, event.targetSessionId, event.correlationId, appText("请求未完成，请重试")
                                         ))
                                         handleSessionCancellationFailure(event.requestType, event.targetSessionId)
-                                        if (event.requestType == "message") pendingMessageSubmission = null
+                                        if (event.requestType == "message") {
+                                            pendingMessageSubmission = null
+                                            messageAck.abandon() // 取消 = 确定没发出去
+                                        }
                                         if (event.requestType == "queue-update") {
                                             queueState = queueStore.failPending(appText("队列操作未完成，请检查最新状态后重试"))
                                             platformError = queueState.lastError
@@ -3339,7 +3354,11 @@ class AndroidSharedStateHolder(
                                             event.requestType, event.targetSessionId, event.correlationId, appText("请求未完成，请重试")
                                         ))
                                         handleSessionCancellationFailure(event.requestType, event.targetSessionId)
-                                        if (event.requestType == "message") pendingMessageSubmission = null
+                                        if (event.requestType == "message") {
+                                            // #14：超时只撤「还在等」，**身份留着** —— 迟到的 sent 仍能认领。
+                                            pendingMessageSubmission = null
+                                            messageAck.timedOut()
+                                        }
                                         if (event.requestType == "queue-update") {
                                             queueState = queueStore.failPending(appText("队列操作未完成，请检查最新状态后重试"))
                                             platformError = queueState.lastError
@@ -3408,7 +3427,10 @@ class AndroidSharedStateHolder(
                                             event.requestType, event.targetSessionId, event.correlationId, appText("请求未完成，请重试")
                                         ))
                                         handleSessionCancellationFailure(event.requestType, event.targetSessionId)
-                                        if (event.requestType == "message") pendingMessageSubmission = null
+                                        if (event.requestType == "message") {
+                                            pendingMessageSubmission = null
+                                            messageAck.abandon() // 被拒 = 确定没成，草稿留着让用户重发
+                                        }
                                         if (event.requestType == "queue-update") {
                                             queueState = queueStore.failPending(appText("队列操作未完成，请检查最新状态后重试"))
                                             platformError = queueState.lastError
