@@ -1284,10 +1284,22 @@ final class AppStore: ObservableObject {
 
     /// ③ 群聊合流的 bridge 气泡桶：`sessionId`（= room id，与网关侧同源）→ 气泡。
     /// 由视图层（room 的**只读** bridge 引擎）喂入；**为空时 `selectedConversationItems` 与原逻辑逐字节一致**。
-    private var roomChatBubbles: [String: [RoomChatMergePlan.Bubble]] = [:]
+    ///
+    /// **必须是 `@Published`**：喂数据的是 `ConversationView.runRoomChatFeed()` 里那个
+    /// `for await _ in engine.$messagesJson.values` 循环——它只写这个桶，不碰 AppStore 上任何其它
+    /// 已发布状态。此前它是个普通 `var`：历史那一次写入恰好"搭"在进会话时其它 `@Published`
+    /// 变化（订阅状态/工具卡/流式）触发的重算上，所以历史看得见；而一条纯实时新消息可能等不到
+    /// 任何一次重算，于是气泡写进桶了、界面永远不刷新（=「历史能看、实时看不到」）。
+    /// 同理，离开会话时 `defer` 里的清桶也靠这个通知才会立刻生效。
+    @Published private var roomChatBubbles: [String: [RoomChatMergePlan.Bubble]] = [:]
 
     /// 已经记过日志的"拿不到 seq"条目 id（见 `selectedConversationItems` 里的按 id 去重）。
     /// 桶清空时一并清掉，这样同一会话重新进入时会重新留痕一次。
+    ///
+    /// ⚠️ **它和上面的 `roomChatBubbles` 写法一样但语义相反：这里永远不得加 `@Published`。**
+    /// 它在下面 `selectedConversationItems` 这个计算属性的求值过程中被 `formUnion` 原地修改；
+    /// 一旦可观察，就成了"在视图求值期间修改可观察状态"⇒ 重算循环（表现为"有时刷新、有时不刷新"）。
+    /// 它只服务于日志去重，不影响任何显示。
     private var loggedWithoutSeq: Set<String> = []
 
     /// 视图层回调：只读引擎拉到/收到消息后回灌。**只收数据、不发起任何网络**（发送一律走网关 composer，
