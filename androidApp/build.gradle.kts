@@ -22,7 +22,7 @@ android {
         applicationId = "com.clarklevis.dsh.android"
         minSdk = 24
         targetSdk = 36
-        versionCode = 48 // 本批（群聊成员名：安卓渲染层消费 KMP 的 senderName（同名两端口径）+ 桥侧冒号 id 精确拆解防重复行）；47 为上一批
+        versionCode = 49 // 本批（合流锚点日志：room chat merge gateway/bridge/dropped/withoutSeq —— 让「not deduped 0 命中」可区分于「根本没跑」）；48 为上一批
         versionName = "1.7.13"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

@@ -46,11 +46,22 @@ internal fun mergeRoomChatEntries(
     bubbles: List<RoomChatBubble>,
     logWithoutSeq: (String) -> Unit = { Log.i(TAG, "bubble without seq, not deduped: $it") }
 ): List<ConversationTimelineEntry.PeerMessage> {
-    if (bubbles.isEmpty()) return emptyList()
+    // **合流锚点（vc49）**：没有它，"not deduped 0 命中" 与 "根本没跑过合流" 不可区分（AndroidTester 2026-11-02）。
+    // 三件套判据：该行出现 ⇒ withoutSeq=0 ⇒ not deduped 0 命中。空 bridge 也要打，否则整个判据在空态下恒真。
+    if (bubbles.isEmpty()) {
+        Log.i(TAG, "room chat merge: gateway=${items.size} bridge=0 dropped=0 withoutSeq=0 (no bridge bubbles)")
+        return emptyList()
+    }
     val refs = items.map { item ->
         GatewayTimelineRef(id = item.id, sessionId = sessionId, seq = item.seq, epochSeconds = item.epochSeconds)
     }
     val merged = mergeRoomChat(gateway = refs, bridge = bubbles)
+    Log.i(
+        TAG,
+        "room chat merge: gateway=${refs.size} bridge=${bubbles.size} " +
+            "dropped=${bubbles.size - merged.bubbles.size - merged.withoutSeq.size} " +
+            "withoutSeq=${merged.withoutSeq.size} gatewayWithoutSeq=${merged.withoutSeqGateway.size}"
+    )
     // 第三档：留痕（C7-b 判据靠它）——**两侧都要记**：bridge 气泡与网关条目各记各的
     merged.withoutSeq.forEach { logWithoutSeq("bridge:${it.id}") }
     merged.withoutSeqGateway.forEach { logWithoutSeq("gateway:${it.id}") }
