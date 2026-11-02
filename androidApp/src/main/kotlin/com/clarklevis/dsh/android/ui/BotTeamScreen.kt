@@ -125,9 +125,10 @@ internal fun BotTeamScreen(
     val sessions = state?.sessions.orEmpty()
     val mainBotIds = state?.mainBotIds.orEmpty()
     val cards = adapter?.pendingCards.orEmpty()
-    val cardOwnerNames = remember(bots, rooms) {
-        (bots + rooms).associate { it.id to it.name }
-    }
+    // ⚠️ `cards` 在本页只剩两处用途：设置行的 caution 点（`pending`）与只读预览正文
+    // （`cardPrompt`）。整张卡的渲染已按页面归属移出本页（见下方 ⑤ 注释），
+    // `owner id → 名字` 的映射随之暂无消费者 —— 它属于**会话窗口**里那份卡片，
+    // 接线时随 `BridgeCardRow` 一起搬过去，别在别处再造一份。
     LaunchedEffect(adapter) {
         adapter?.start()
         adapter?.refreshNow()
@@ -251,6 +252,8 @@ internal fun BotTeamScreen(
                         isMain = mainBotIds.contains(row.id),
                         pending = row.sessionId in pendingSessionIds ||
                             cards.any { it.owner == row.id },
+                        cardPrompt = cards.firstOrNull { it.owner == row.id }
+                            ?.prompt?.takeIf(String::isNotBlank),
                         onOpenSession = onOpenSession
                     )
                 }
@@ -262,14 +265,12 @@ internal fun BotTeamScreen(
             } else {
                 items(filteredRooms, key = { it.id }) { row -> RoomRow(row, bots, onOpenSession) }
             }
-            // ⑤「卡片（N）」节**保留**：BridgeCardRow 全仓唯一渲染点，承载 A4 密钥卡 / E1 view 卡
-            // 的可见入口（iOS 走 Bot 行状态文案，D 组 feed 未接）。删它 = 删掉卡片显示，不许顺手删。
-            if (cards.isNotEmpty()) {
-                item { SectionTitle(appText("卡片（${cards.size}）")) }
-                items(cards, key = { it.id }) { card ->
-                    BridgeCardRow(card, ownerName = cardOwnerNames[card.owner])
-                }
-            }
+            // ⑤ 卡片**不再在本页成块渲染**（用户 2026-11-02 截图：卡片串到了 Bot 页）。
+            // 页面归属按 iOS：08 屏只在**行内**给一句只读预览（`WorkspaceView:719-726`
+            // `「prompt」` caption2 ≤2 行），整张卡只在会话窗口里（`ConversationView:543`）。
+            // 所以这里的「卡片（N）」整块删掉，改由 `BotRow` 的 cardPrompt 承接预览；
+            // `BridgeCardRow` 保留但暂无调用点 —— 它的归属是**会话窗口**（Android 侧尚未接线，
+            // 已报 Chief 决定放本批还是下一批），删它才会真的丢掉卡片渲染能力。
             // ⑥ 桥接状态卡：iOS 正常态什么都不画，只有离线横幅 / 未就绪诊断卡。
             // 这里从"常驻整卡"改成**只在异常/未就绪时出现**（用户 11-02：常驻那张是 Android 多出来的）。
             item {
@@ -293,6 +294,11 @@ internal fun BotTeamScreen(
  * 桥接卡片行（E1）：`kind:"view"` 出「方案对比」这类正文卡，question/secret 出
  * 「等你回答／等你填密钥」行 —— 文案与 iOS `statusText`（GatewayTeamFeed :1179）一致。
  * 纪律同 iOS：bridge 没有 question-answer action，**卡片只能看**，必须标明在电脑端处理。
+ *
+ * ⚠️ **当前无调用点**（2026-11-02 从 Bot 页移出）：整张卡的归属是**会话窗口**
+ * （iOS `ConversationView:543`），Bot 页只留行内只读预览。会话页的接线 Android 尚未做，
+ * 所以这里先保留实现、不删（删了就真没有卡片渲染能力了）；等接线时连
+ * `card.owner → 名字` 的映射一起搬过去。
  */
 @Composable
 private fun BridgeCardRow(card: com.clarklevis.dsh.shared.protocol.BridgeCardQuestion, ownerName: String?) {
@@ -347,7 +353,7 @@ private fun PrimaryBotCard(row: BridgeConversationRow, modifier: Modifier = Modi
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        RosterAvatar(row.name, row.color, row.avatar, size = 46)
+        RosterAvatar(row.name, row.color, row.avatar, size = 46, botId = row.id)
         Column(Modifier.weight(1f)) {
             // iOS .headline = 17 semibold（TeamView :435）。裁决原文写「主 Bot 18」，但源码
             // .headline 实际值是 17 —— 按「忠实 iOS 系统档」原则取 17，如需 18 一行改回。
@@ -377,7 +383,14 @@ private fun PrimaryBotCard(row: BridgeConversationRow, modifier: Modifier = Modi
  * `row.activity`，bridge 名册只有 `busy`，所以这里只渲染「正在干活」/「空闲」，**不编造动作**。
  */
 @Composable
-private fun BotRow(row: BridgeConversationRow, isMain: Boolean, pending: Boolean, onOpenSession: (String) -> Unit) {
+private fun BotRow(
+    row: BridgeConversationRow,
+    isMain: Boolean,
+    pending: Boolean,
+    /** 该 bot 名下待答卡片的正文（bridge `/cards` 的 `prompt`）：只读预览一行，不是卡片。 */
+    cardPrompt: String?,
+    onOpenSession: (String) -> Unit
+) {
     val busy = row.busy == true
     val context = LocalContext.current
     Row(
@@ -399,7 +412,7 @@ private fun BotRow(row: BridgeConversationRow, isMain: Boolean, pending: Boolean
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Box {
-            RosterAvatar(row.name, row.color, row.avatar, size = 38, rowImageHash = row.avatarImageHash)
+            RosterAvatar(row.name, row.color, row.avatar, size = 38, rowImageHash = row.avatarImageHash, botId = row.id)
             RosterStatusDot(busy = busy, caution = pending, modifier = Modifier.align(Alignment.BottomEnd))
         }
         Column(Modifier.weight(1f)) {
@@ -414,6 +427,18 @@ private fun BotRow(row: BridgeConversationRow, isMain: Boolean, pending: Boolean
                 color = if (busy) DshSemantic.success else homeInk(0.55f),
                 fontSize = 13.sp
             )
+            // 卡片**只读预览**（iOS `WorkspaceView:719-726`：`「prompt」` caption2 ink(0.6) ≤2 行）。
+            // 整张卡归会话窗口，不在这里成块渲染 —— 用户 2026-11-02 截图里串到 Bot 页的就是那块。
+            if (cardPrompt != null) {
+                Text(
+                    "「$cardPrompt」",
+                    color = homeInk(0.6f),
+                    fontSize = 11.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.testTag("bot-row-card-preview-${row.name}")
+                )
+            }
         }
         if (row.hidden == true) {
             CapsuleBadge(appText("Hidden"), container = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.12f))
@@ -475,6 +500,7 @@ private fun RoomRow(row: BridgeConversationRow, bots: List<BridgeConversationRow
                         avatar = member.avatar,
                         size = 27,
                         rowImageHash = member.avatarImageHash, // 38 × 0.72
+                        botId = member.id,
                         stroke = 1.5.dp,
                         modifier = Modifier
                             .offset(x = (16 * index).dp)
@@ -485,17 +511,37 @@ private fun RoomRow(row: BridgeConversationRow, bots: List<BridgeConversationRow
         }
         Column(Modifier.weight(1f)) {
             Text(row.name, color = MaterialTheme.colorScheme.onBackground, fontSize = 17.sp) // iOS .body（:492）
-            if (!row.members.isNullOrEmpty()) {
-                Text(
-                    row.members.joinToString(appText("、")),
-                    color = homeInk(0.6f),
-                    fontSize = 12.sp, // iOS .caption（:494）
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
+            // 副行 = 成员**名字**串（iOS `roomSubtitle`）。此前直接 join `row.members` ——
+            // 那是 bot 的 **session id**（网关 adapter.mjs:101 过滤后原样下发），于是每行都
+            // 把 `session-a5000f0e-…` 摊在界面上（用户 2026-11-02 截图），长 id 还挤坏行距。
+            val memberNames = remember(row.members, bots) { roomMemberNames(row.members, bots) }
+            Text(
+                memberNames,
+                color = homeInk(0.6f),
+                fontSize = 12.sp, // iOS .caption（:494）
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
         }
     }
+}
+
+/**
+ * 群聊副行文案 = **成员名字**串（iOS `GatewayTeamFeed.roomSubtitle`，:1209）：
+ * 前 4 个名字用「、」连接，超过 4 个补「等 N 人」，一个都查不到 ⇒「群聊」。
+ *
+ * ⚠️ 与 iOS 的**一处有意差异**：iOS 的名字查不到时回落打印原值（`botNames[$0] ?? $0`，
+ * 那个原值是 session id）；Android 一律**丢弃**查不到的成员 —— 用户 2026-11-02 明确
+ * 「`session-xxxx` 这种内部 id 一律不露」。宁可少显一个名字，也不把内部 id 摊在界面上。
+ */
+internal fun roomMemberNames(members: List<String>?, bots: List<BridgeConversationRow>): String {
+    val ids = members.orEmpty()
+    if (ids.isEmpty()) return appText("群聊")
+    val byId = bots.associateBy { it.id }
+    val names = ids.take(4).mapNotNull { byId[it]?.name?.takeIf(String::isNotBlank) }
+    if (names.isEmpty()) return appText("群聊")
+    val extra = if (ids.size > 4) appText(" 等 %1\$s 人", ids.size) else ""
+    return names.joinToString(appText("、")) + extra
 }
 
 /** iOS roomCell（:482-486）：person.3.fill 图标 + 灰底圆 38×38，无首字母 —— 与 bot 行（色圆+首字母）两种形态并存。 */
@@ -626,6 +672,8 @@ private fun RosterAvatar(
     modifier: Modifier = Modifier,
     /** 帧里只带 hash 不带字节时，从这里读缓存渲染（iOS 水合行同形态）。 */
     rowImageHash: String? = null,
+    /** bot 的 id（`bots[].id`）：没有 avatar 字段时用它派生形象（与电脑端 `lookOf(id)` 同源）。 */
+    botId: String? = null,
     /** 成员堆叠的分离环（iOS surface@0.9 1.5pt）；普通行传 0。 */
     stroke: androidx.compose.ui.unit.Dp = androidx.compose.ui.unit.Dp(0f)
 ) {
@@ -653,15 +701,23 @@ private fun RosterAvatar(
         }
     }
     val avatarHex = (avatar?.get("color") as? JsonPrimitive)?.takeIf { it.isString }?.content
-    // ② shape 符号（iOS 兜底顺序：image > glyph > shape 符号 > 中性圆点）
+    // ② shape 符号（iOS 兜底顺序：image > glyph > shape 符号 > **派生** > 首字母/中性圆点）
     val shapeValue = (avatar?.get("shape") as? JsonPrimitive)?.takeIf { it.isString }?.content
-    val shapeRes = shapeValue?.let { shapeIconRes(it) }
-    // 三档兜底：① 有映射 ⇒ 画符号；② 字段有值但未知 ⇒ **中性圆点**（对齐 iOS `circle.fill`，
-    // Chief 2026-11-02 指定）；③ 字段缺失 ⇒ 保留色圆+首字母（无信息时字母比一群同色点可读，
+    // 派生层（B 批，2026-11-02）：bridge 名册线上 11 行里 10 行没有 avatar 字段（实测
+    // `~/.dsh/bot/state.json`），用 id 派生与电脑端 `lookOf(id)` 同源的 shape+ink。
+    // **帧里有 shape 时绝不覆盖**（用户手动设过的形象优先）；D1 的 glyph 通道落地后先接管，
+    // 这一层自动退成兜底。
+    val derivedLook = remember(botId, shapeValue) {
+        if (shapeValue == null) RosterDerivedLook.look(botId) else null
+    }
+    val resolvedShapeName = shapeValue ?: derivedLook?.first
+    val shapeRes = resolvedShapeName?.let { shapeIconRes(it) }
+    // 三档兜底：① 有映射 ⇒ 画符号；② 有名字但未知 ⇒ **中性圆点**（对齐 iOS `circle.fill`，
+    // Chief 2026-11-02 指定）；③ 连 id 都没有 ⇒ 保留色圆+首字母（无意造信息的最后兜底，
     // 这条是**有意差异**，已登记）。
-    val unknownShape = shapeValue != null && shapeRes == null
-    val color = remember(rowColor, avatarHex, dark, fallback) {
-        rosterAvatarColor(rowColor, avatarHex, dark, fallback)
+    val unknownShape = resolvedShapeName != null && shapeRes == null
+    val color = remember(rowColor, avatarHex, derivedLook, dark, fallback) {
+        rosterAvatarColor(rowColor, avatarHex, derivedLook?.second, dark, fallback)
     }
     Box(
         modifier.size(size.dp)
@@ -694,10 +750,17 @@ private fun RosterAvatar(
     }
 }
 
-/** 行级 color（ink 名/#hex）→ avatar.color hex → fallback；两头都 null 才轮到中性色。 */
-private fun rosterAvatarColor(rowColor: String?, avatarHex: String?, dark: Boolean, fallback: Color): Color {
+/** 行级 color（ink 名/#hex）→ avatar.color hex → **派生 ink** → fallback；全 null 才轮到中性色。 */
+private fun rosterAvatarColor(
+    rowColor: String?,
+    avatarHex: String?,
+    derivedInk: String?,
+    dark: Boolean,
+    fallback: Color
+): Color {
     BridgeInks.resolve(rowColor, dark)?.let { return parseBridgeHexColor(it, fallback) }
     avatarHex?.let { return parseBridgeHexColor(it, fallback) }
+    BridgeInks.resolve(derivedInk, dark)?.let { return parseBridgeHexColor(it, fallback) }
     return fallback
 }
 
