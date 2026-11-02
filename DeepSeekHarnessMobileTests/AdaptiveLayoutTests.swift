@@ -155,3 +155,48 @@ final class AdaptiveLayoutTests: XCTestCase {
         XCTAssertTrue(groups.ungrouped.isEmpty)
     }
 }
+
+/// 会话页「贴底」迟滞决策的用例（2026-11-02 用户报「滑一点箭头就闪」）。
+///
+/// 判定抽成了纯函数 `ConversationViewportController.pinnedAfter`，所以这里能直接钉住语义：
+/// **已贴底时离底 ≤28pt 仍算贴底；未贴底时回到 ≤8pt 才算贴底**（enter < exit）。
+/// 两个阈值接反（这是当时的真实 bug）时，8–28pt 之间每次求值都翻转 ⇒ 负对照必须变红。
+final class PinnedHysteresisTests: XCTestCase {
+
+    private let enter: CGFloat = 8
+    private let exit: CGFloat = 28
+
+    private func pinned(_ distance: CGFloat, currentlyPinned: Bool) -> Bool {
+        ConversationViewportController.pinnedAfter(distance: distance, currentlyPinned: currentlyPinned,
+                                                  enter: enter, exit: exit)
+    }
+
+    /// ① 迟滞带内连续求值 5 次不得翻转（两个起始状态都测）。
+    func testHysteresisDoesNotFlipInsideBand() {
+        for start in [true, false] {
+            var pinned = start
+            for step in 0..<5 {
+                let next = self.pinned(18, currentlyPinned: pinned)
+                XCTAssertEqual(next, pinned, "8–28pt 区间内第 \(step + 1) 次求值翻转了（start=\(start)）")
+                pinned = next
+            }
+        }
+    }
+
+    /// ② 阈值本身：28 算贴底、28.1 算离开；8 才算重新贴底、8.1 不算。
+    func testThresholdsAreExactAndOrdered() {
+        XCTAssertTrue(pinned(28, currentlyPinned: true))
+        XCTAssertFalse(pinned(28.1, currentlyPinned: true))
+        XCTAssertTrue(pinned(8, currentlyPinned: false))
+        XCTAssertFalse(pinned(8.1, currentlyPinned: false))
+        XCTAssertLessThan(enter, exit, "enter 必须小于 exit，否则迟滞失效")
+    }
+
+    /// ③ 负对照（红-绿对照）：把两个阈值接反 ⇒ 区间内**必然翻转**。
+    /// 这条存在的意义就是「用例能抓住这个 bug」，只跑绿不算证明。
+    func testSwappedThresholdsFlipInsideBandNegativeControl() {
+        let flipped = ConversationViewportController.pinnedAfter(distance: 18, currentlyPinned: true,
+                                                                 enter: exit, exit: enter)
+        XCTAssertNotEqual(flipped, true, "阈值接反时必须翻转——否则上面那条用例是假绿")
+    }
+}

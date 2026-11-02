@@ -353,6 +353,11 @@ final class ConversationViewportController: UIViewController, UICollectionViewDe
     /// 抑制窗内追平的每帧阻尼（吃掉剩余距离的比例）。0.25 → 约 10 帧（0.17s）收敛到视差，
     /// 同时把单帧位移限在剩余距离的 1/4。
     private static let tailFollowCatchUpDamping: CGFloat = 0.25
+    /// 超过这个差值就**不再一帧硬跳**，改走逐帧追平（见 `followStreamingTail`）。
+    /// 为什么要它：抑制窗只在「刚进会话」那 1.2s 内有效，之后每来一条新消息都会硬跳；
+    /// 而自尺寸 cell 量高要 ~200ms 才落位 ⇒ 硬跳发生在高度落位之前，落位后再纠正一次，
+    /// 用户看到的就是「新消息到了抽一下」（2026-11-02 用户报）。差值小于它时硬跳无感，保留。
+    private static let tailFollowHardJumpLimit: CGFloat = 24
     /// Advanced only by an actual user drag. Layout invalidation can briefly
     /// move the collection view away from its old bottom while a new user or
     /// reasoning row is inserted; that transient offset must not cancel the
@@ -2248,9 +2253,13 @@ final class ConversationViewportController: UIViewController, UICollectionViewDe
             collectionView.contentSize.height - collectionView.bounds.height + collectionView.adjustedContentInset.bottom
         )
         let currentOffset = collectionView.contentOffset.y
-        // 抑制窗内：内容继续到达时不再逐条硬跳，交给逐帧插值的追平动画
-        // （每帧只吃剩余距离的 1/4，见 startTailFollowCatchUp）。
-        if isTailFollowSuppressionActive(), abs(bottomOffset - currentOffset) > 0.5 {
+        let gap = abs(bottomOffset - currentOffset)
+        // 逐帧追平的两条触发路（都比一帧硬跳平滑）：
+        // ① 抑制窗内：内容还在长，逐条硬跳会把新长出来的一段揉进一帧（见 startTailFollowCatchUp 注释）；
+        // ② **差值超过硬跳上限**：抑制窗只覆盖「刚进会话」那 1.2s，之后每来一条新消息都会走到硬跳；
+        //    而自尺寸 cell 量高要 ~200ms 才落位 ⇒ 硬跳发生在落位前、落位后再纠正一次，
+        //    表现就是「新消息到了抽一下」（2026-11-02 用户报，与 a2fb9a0 修的首帧硬跳同族）。
+        if gap > 0.5, (isTailFollowSuppressionActive() || gap > Self.tailFollowHardJumpLimit) {
             startTailFollowCatchUp(from: currentOffset)
             return
         }
@@ -2494,20 +2503,28 @@ final class ConversationViewportController: UIViewController, UICollectionViewDe
     }
 
     /// 贴底判定的**几何**版本（无迟滞），供尾随滚动等内部逻辑使用。
+    /// 容差与改动前一致（28pt）：换常量名时**不能**顺手把它收紧到 8pt，
+    /// 否则尾部跟随在离底 9–28pt 时就脱离，表现为跟不住。
     private func isAtBottom(_ scrollView: UIScrollView) -> Bool {
-        bottomDistance(scrollView) <= pinnedEnterDistance
+        bottomDistance(scrollView) <= pinnedExitDistance
     }
 
-    /// 贴底判定的**迟滞**版本：离开底部 ≤28pt 即算离底（按钮早出现），
-    /// 但重新「贴底」要求 ≤8pt——否则在 28pt 容差线附近 offset 每次穿越都会
-    /// 翻转 pinned → 滚动按钮闪现闪灭（跑任务时边界还在移动，翻转更密），
-    /// 用户看到的就是会话页「上下抽搐」。
+    /// 贴底判定的**迟滞**版本：迟滞带 20pt——
+    /// 已贴底：离底 ≤28pt 仍算贴底（超过才算离开）；未贴底：回到 ≤8pt 才算重新贴底。
+    /// ⚠️ 两个阈值**必须 enter < exit**：接反时（2026-11-02 的 bug）8–28pt 之间每次求值都翻转，
+    /// 表现就是滚动按钮闪 + 会话页上下抽搐。判定委托给纯函数 `pinnedAfter`，便于单测。
     private func isAtBottomForPinning(_ scrollView: UIScrollView) -> Bool {
-        let distance = bottomDistance(scrollView)
-        if isPinnedToBottom {
-            return distance <= pinnedExitDistance
-        }
-        return distance <= pinnedEnterDistance
+        Self.pinnedAfter(distance: bottomDistance(scrollView),
+                         currentlyPinned: isPinnedToBottom,
+                         enter: pinnedEnterDistance,
+                         exit: pinnedExitDistance)
+    }
+
+    /// **迟滞决策（纯函数）**：已贴底时离底 ≤`exit` 才算离开；未贴底时离底 ≤`enter` 才算贴底。
+    /// 抽成静态纯函数是为了能直接单测迟滞本身（不依赖 `UIScrollView`）。
+    nonisolated static func pinnedAfter(distance: CGFloat, currentlyPinned: Bool,
+                                        enter: CGFloat, exit: CGFloat) -> Bool {
+        currentlyPinned ? distance <= exit : distance <= enter
     }
 
     private func bottomDistance(_ scrollView: UIScrollView) -> CGFloat {
@@ -2521,10 +2538,11 @@ final class ConversationViewportController: UIViewController, UICollectionViewDe
         return max(0, maximumOffsetY - scrollView.contentOffset.y)
     }
 
-    /// 离底超过这个距离 = 未贴底（按钮出现）
-    private var pinnedEnterDistance: CGFloat { 28 }
-    /// 已贴底状态下，回到这个距离以内才算重新贴底（按钮消失）——迟滞带 20pt
-    private var pinnedExitDistance: CGFloat { 8 }
+    /// 未贴底 → 重新贴底的距离阈值（≤8pt）。**必须小于 `pinnedExitDistance`**，否则迟滞失效。
+    private var pinnedEnterDistance: CGFloat { 8 }
+    /// 已贴底 → 仍算贴底的距离阈值（≤28pt）；超过它才算离开。迟滞带 = 28 − 8 = 20pt。
+    /// 同时是「几何版贴底判定」(`isAtBottom`) 的容差，保持与改动前同值 28。
+    private var pinnedExitDistance: CGFloat { 28 }
 
     private struct VisibleAnchor {
         let id: String

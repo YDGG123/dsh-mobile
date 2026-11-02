@@ -775,9 +775,11 @@ struct WorkspaceView: View {
     @ViewBuilder
     private func avatarBlock(_ row: GatewayTeamFeed.Row, size: CGFloat) -> some View {
         // 三层兜底（glyph → image → shape 符号）统一在 TeamAvatarView 里，别再分叉。
-        // 背景色 = 工作区页面底色（与 body 的 .background 同一表达式），眼睛「挖洞透底」靠它；
-        // 动效只在团队页开，这里保持静止。
-        TeamAvatarView(row: row, size: size, backdrop: workspaceBackdrop)
+        // 背景色 = 工作区页面底色（与 body 的 .background 同一表达式），眼睛「挖洞透底」靠它。
+        // **动效与「团队」sheet 同档**（2026-11-02 用户报：以前修的眨眼只落在团队页那套视图里，
+        // Bot 页名册一直是静止的 ⇒ 看起来「没修好」）。参数与 TeamView.swift:260 完全一致。
+        TeamAvatarView(row: row, size: size, backdrop: workspaceBackdrop,
+                       motion: .live(working: gatewayTeam.isLive(row)))
     }
 
     /// 工作区页面底色（与 `body` 里的 `.background(...)` 保持同一处定义，避免两处漂移）。
