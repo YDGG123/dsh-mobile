@@ -84,9 +84,20 @@ fun parseSeqFromTimelineId(id: String): Long? {
  * 一旦 `sessionId` 已知（合流两个来源都带），就应当用这条严判，宽松版只留作无 sessionId 时的兜底。
  */
 fun parseSeqFromTimelineId(id: String, sessionId: String?): Long? {
-    val seq = parseSeqFromTimelineId(id) ?: return null
-    if (sessionId != null && id != "$sessionId-$seq") return null
-    return seq
+    // ① 网关口音：`"<sessionId>-<seq>"`（连字符）
+    parseSeqFromTimelineId(id)?.let { seq ->
+        if (sessionId == null || id == "$sessionId-$seq") return seq
+    }
+    // ② 桥口音：`"<sessionId>:<seq>"`（**冒号**）——两处 id 格式不同（AndroidTester 2026-11-02 实测）。
+    // 不加这一支，桥侧条目在 `message.seq` 缺失时会落 withoutSeq ⇒ **不去重** ⇒ 同一行出现两遍
+    // （ASSISTANT 带 senderName + PeerMessage 带 authorName），C 判据直接红。
+    if (sessionId != null) {
+        val tail = id.substringAfterLast(':', "")
+        if (tail.isNotEmpty() && tail.length <= 18 && tail.all { it in '0'..'9' } && id == "$sessionId:$tail") {
+            return tail.toLongOrNull()
+        }
+    }
+    return null
 }
 
 fun mergeRoomChat(

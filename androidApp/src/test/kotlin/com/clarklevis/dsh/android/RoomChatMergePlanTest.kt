@@ -244,6 +244,17 @@ class RoomChatMergePlanTest {
         // -user- 形态：末段即便是数字（messageId）也不拆
         assertNull(parseSeqFromTimelineId("s-42-user-77"))
     }
+
+    /** 桥口音 `"<sessionId>:<seq>"` 也必须能拆 —— 否则桥条目退到 withoutSeq、同一行显示两遍。 */
+    @Test
+    fun parsesBridgeColonFormExactly() {
+        assertEquals(7L, parseSeqFromTimelineId("room-1:7", "room-1"))
+        // 只认精确形态：别的 id 里出现冒号+数字不得被拆
+        assertNull(parseSeqFromTimelineId("x-room-1:7", "room-1"))
+        assertNull(parseSeqFromTimelineId("room-1:7:9", "room-1"))
+        // 网关口音不受影响
+        assertEquals(7L, parseSeqFromTimelineId("room-1-7", "room-1"))
+    }
 }
 
 // 合并快照的用例放在文件末尾（另一个类）
@@ -266,4 +277,5 @@ class ChatSnapshotMergeTest {
         val merged = decodeBridgeChatSnapshot(mergeChatSnapshots(null, snapshotJson("s:1")))
         assertEquals(listOf("s:1"), merged?.messages?.map { it.id })
     }
+
 }

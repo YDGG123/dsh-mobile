@@ -3564,6 +3564,19 @@ private fun AssistantMessage(
     onRetry: (String) -> Unit
 ) {
     Column(Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+        // 群聊成员名（iOSDev 规格 §2e，iOS 侧同款）：气泡上方小号灰字，11sp medium / ink(0.45) / 距顶 4dp。
+        // **只来自 KMP 的 `senderName`**（服务端 `author.name`，已过 redact）——
+        // 渲染层一律不自己填、不本地推断；`senderName == null` 的 assistant **不显示任何名字**
+        // （绝不回落成「我」，那是身份错位）。
+        item.senderName?.takeIf { it.isNotBlank() }?.let { name ->
+            Text(
+                text = name,
+                color = homeInk(0.45f),
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.padding(bottom = 1.dp).testTag("assistant-sender-name")
+            )
+        }
         AttachmentGrid(item.images, thumbnails, states, onRetry)
         if (item.text.isNotEmpty()) {
             DshStreamingAwareMarkdownText(

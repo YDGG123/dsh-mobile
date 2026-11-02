@@ -22,7 +22,7 @@ android {
         applicationId = "com.clarklevis.dsh.android"
         minSdk = 24
         targetSdk = 36
-        versionCode = 47 // 本批（在 46 基础上：密文存在但解不开时【不得】自动补发（iOSTester 安全边界）+ 未配对档补可点配对入口 + 桥接状态卡折叠）；46 为未发布
+        versionCode = 48 // 本批（群聊成员名：安卓渲染层消费 KMP 的 senderName（同名两端口径）+ 桥侧冒号 id 精确拆解防重复行）；47 为上一批
         versionName = "1.7.13"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
