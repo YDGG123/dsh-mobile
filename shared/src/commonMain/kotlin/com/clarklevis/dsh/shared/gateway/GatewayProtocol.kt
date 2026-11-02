@@ -154,6 +154,22 @@ object GatewayRequests {
 
     fun scheduleCatalog(): GatewayRequest = simple("schedule-catalog")
 
+    /**
+     * **自愈拉取**（2026-11-02）：本地丢失 bridge 会话时，向网关要一次补发。
+     *
+     * 为什么是「拉」不是「推」：网关 `issueSession` 每次签发都会轮换 access/refresh token
+     * （`mobile-v1/auth.mjs:60-66`，TTL 15 分钟），若在每次 `hello` 里附带新会话，
+     * App 刚拿到的 token 会立刻作废、两条通道互相顶掉（ReleaseBot 查出）。
+     * 所以只在**客户端确认自己缺会话**时才请求。
+     */
+    fun bridgeSessionRequest(requestId: String): GatewayRequest = request(
+        "bridge-session",
+        "bridge-session",
+        correlationId = requestId
+    ) {
+        put("requestId", requestId)
+    }
+
     fun scheduleList(sessionId: String): GatewayRequest = sessionControl("schedule-list", sessionId)
 
     fun scheduleHistory(sessionId: String, id: String, limit: Int, before: String? = null): GatewayRequest = request(

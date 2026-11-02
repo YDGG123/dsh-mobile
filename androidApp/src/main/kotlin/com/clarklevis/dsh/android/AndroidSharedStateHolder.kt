@@ -176,6 +176,33 @@ class AndroidSharedStateHolder(
     private val workspaceFileStore = SharedWorkspaceFileStore()
     private val slashCommandStore = SharedSlashCommandStore()
     val voiceInput = com.clarklevis.dsh.android.platform.AndroidVoiceInputAdapter(voiceContext, ::sendVoiceRequest, voiceStore)
+    /** 上次「补发桥接会话」请求的时刻（去抖：一次连接只请求一次，失败等下一次连接）。 */
+    private var bridgeSessionRequestedAtMillis: Long = 0L
+
+    /**
+     * 自愈（2026-11-02）：网关已连上、但本地没有 bridge 会话时，主动要一次补发。
+     *
+     * 只在**确实缺会话**时发，因为网关侧签发会轮换 token（`auth.mjs:60-66`）——
+     * 不缺也发会造成 401 风暴（ReleaseBot 查出、Chief 定的拉取式）。
+     */
+    private fun requestBridgeSessionIfMissing() {
+        val appGraph = graph ?: return
+        if (bridgeTeam?.hasSession == true) return
+        val now = System.currentTimeMillis()
+        // 60 秒内不重复请求：避免重连抖动时刷请求（网关每次都会轮换 token）
+        if (now - bridgeSessionRequestedAtMillis < 60_000L) return
+        bridgeSessionRequestedAtMillis = now
+        android.util.Log.i("DshBridgeTeam", "bridge session missing -> requesting re-issue from gateway")
+        appGraph.gatewayScope.launch {
+            val sent = appGraph.gatewayRuntime.sendRequest(
+                com.clarklevis.dsh.shared.gateway.GatewayRequests.bridgeSessionRequest(
+                    "bridge-session-${now}"
+                )
+            )
+            if (!sent) android.util.Log.w("DshBridgeTeam", "bridge-session request not sent (gateway not ready)")
+        }
+    }
+
     private fun sendVoiceRequest(request: com.clarklevis.dsh.shared.gateway.GatewayRequest) {
         val appGraph = graph ?: return
         appGraph.gatewayScope.launch {
@@ -2969,7 +2996,16 @@ class AndroidSharedStateHolder(
                                     // 否则用户每次覆盖安装都得重新扫码。
                                     // 注意：**不能**反过来让网关伪造 paired 来补发（paired 有 token 语义：
                                     // SplitGatewayTransport.kt:48 会把 bearerToken 置成帧里的 token，空 token 反而搞坏鉴权）。
-                                    if (event.frame.kind == "paired" || event.frame.kind == "hello") {
+                                    // **三种 kind 都接**（Chief 2026-11-02 定：网关发哪个都认，不押契约）：
+                                    //   paired          —— 配对那一刻网关主动下发（原有路径）
+                                    //   bridge-session  —— 自愈拉取请求的响应（拉取式主路径）
+                                    //   hello           —— 兼容网关将来在 hello 里携带（hello 不涉及 token 语义，接它无害）
+                                    // 注意：**网关不得在每次 hello 里新签发**——`issueSession` 会轮换 token
+                                    // （mobile-v1/auth.mjs:60-66，TTL 15 分钟），那会造成 401 风暴；那侧的闸门在网关。
+                                    if (event.frame.kind == "paired" ||
+                                        event.frame.kind == "bridge-session" ||
+                                        event.frame.kind == "hello"
+                                    ) {
                                         // 诊断：区分「网关没下发 bridgeSession」与「下发了但落盘失败」——
                                         // 这两者在 UI 上都表现为"尚未配对"，没有日志就查不出来。
                                         android.util.Log.i(
@@ -3013,7 +3049,10 @@ class AndroidSharedStateHolder(
                                                     persistedTeamRouting = routing
                                                     scheduleOfflineCatalogSave()
                                                 }
-                                                if (event.frame.kind == "hello") refreshTeam()
+                                                if (event.frame.kind == "hello") {
+                                                    refreshTeam()
+                                                    requestBridgeSessionIfMissing()
+                                                }
                                                 if (event.frame.kind in setOf("session-snapshot", "subagent-identity-updated")) {
                                                     snapshot.selectedSessionId?.let { selected ->
                                                         val address = teamStore.targetJson(selected)
