@@ -589,6 +589,12 @@ internal class AndroidBridgeTeamAdapter(
         "no-device-session" -> HUMAN_NOT_PAIRED
         "network_error", "transport_failed" -> "网络不通，稍后会自动重试"
         "unauthorized", "invalid_session", "session_clear", "blocked_url" -> HUMAN_NOT_PAIRED
+        // 网关自愈分支的三种 error（mobile-gateway lib/index.mjs:3271/3277/3294）——
+        // AndroidTester 2026-11-02 查出 `bridge-session-unavailable` 在 App 里 0 命中，
+        // 即用户只会看到兜底文案。**网关侧新增的每个 code 都要在这里登记**。
+        "authentication-required" -> "桌面端连接尚未认证，正在重连"
+        "rate-limited" -> "请求太频繁，稍后自动重试"
+        "bridge-session-unavailable" -> "桌面端暂时无法签发桥接凭证，请稍后重试或重新扫码配对"
         else -> HUMAN_GENERIC_FAILURE
     }
 
