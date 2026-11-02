@@ -19,6 +19,9 @@ private struct KMPConversationItemSnapshot: Decodable {
     let knownFiles: [PresentedFile]?
     /// 源事件 seq（KMP 投影新增字段；旧 KMP 或未填类目为 nil ⇒ 解码缺失键即 nil，向后兼容）。
     let seq: Int?
+    /// 群聊发言者名（**只来自服务端 author.name / source.senderName**，KMP `ConversationItem.senderName`，
+    /// 2026-11-02 群聊"看不到 Bot 回复"修复的一部分；缺失键解码为 nil ⇒ 渲染层不显示名字，向后兼容）。
+    let senderName: String?
 
     var item: ConversationItem? {
         guard !id.isEmpty,
@@ -34,7 +37,8 @@ private struct KMPConversationItemSnapshot: Decodable {
             date: Date(timeIntervalSince1970: epochSeconds),
             files: files ?? [],
             knownFiles: knownFiles ?? [],
-            seq: seq
+            seq: seq,
+            senderName: senderName
         )
     }
 }

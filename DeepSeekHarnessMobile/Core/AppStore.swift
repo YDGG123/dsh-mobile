@@ -1339,7 +1339,11 @@ final class AppStore: ObservableObject {
 
     private static let roomChatLog = Logger(subsystem: "ai.dsh.mobile.ios", category: "room-chat-merge")
 
-    /// 网关条目 → 合流行。`senderName` 只来自 bridge（网关条目为 nil）。
+    /// 网关条目 → 合流行。
+    /// ⚠️ **更正（2026-11-02）**：早前这里写「`senderName` 只来自 bridge、网关条目恒为 nil」，
+    /// 那是 KMP 尚未产出该字段时的实情；现在**网关条目也带名字**（KMP 从服务端
+    /// `source.senderName` 取，`ConversationProjection.kt` 的 bot relay 分支）。两侧都以服务端值为准，
+    /// **客户端不得自行推断**——这条口径没变，变的只是「哪一侧能给出这个名字」。
     private static func mergeBubble(from item: ConversationItem) -> RoomChatMergePlan.Bubble {
         RoomChatMergePlan.Bubble(
             id: item.id,
