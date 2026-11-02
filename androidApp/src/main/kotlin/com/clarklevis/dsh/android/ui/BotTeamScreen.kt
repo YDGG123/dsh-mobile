@@ -2,6 +2,14 @@ package com.clarklevis.dsh.android.ui
 
 import androidx.annotation.DrawableRes
 import androidx.compose.foundation.Image
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.ui.graphics.graphicsLayer
+import kotlinx.coroutines.delay
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
@@ -114,7 +122,10 @@ internal fun BotTeamScreen(
     /** true = 设备身份密文解不开：文案要区别于「会话凭证不可读」（临时故障 vs 需重配，iOSTester 2026-11-02）。 */
     deviceIdentityUnreadable: Boolean = false,
     /** true = 网关 token 密文解不开（≠ 从未配对）：显示「凭证失效，请重新配对」。 */
-    tokenUnreadable: Boolean = false
+    tokenUnreadable: Boolean = false,
+    /** 是否渲染搜索框右上角的「团队」入口（iOS `botRosterHeader` :656-668 的正式入口）。
+     *  sheet 里那份自己不渲染入口，否则会套娃。 */
+    showTeamEntry: Boolean = true
 ) {
     // 走主题（与 ScheduledTasksScreen/PluginsScreen 一致）：A1 换品牌海军蓝底时本页自动跟随，不许硬编码。
     val background = MaterialTheme.colorScheme.background
@@ -125,6 +136,9 @@ internal fun BotTeamScreen(
     val sessions = state?.sessions.orEmpty()
     val mainBotIds = state?.mainBotIds.orEmpty()
     val cards = adapter?.pendingCards.orEmpty()
+    // 「团队」入口（用户 2026-11-02 指出 iOS 有、Android 没有）：点开 = 底部弹出**完整 Bot 列表**
+    // （iOS 是 `.sheet` 里的 `TeamView`，`WorkspaceView.swift:189-199`），内容就是本页同一套渲染。
+    var showTeamSheet by rememberSaveable { mutableStateOf(false) }
     // ⚠️ `cards` 在本页只剩两处用途：行内 caution 点（`pending`）与只读预览正文
     // （`cardPrompt`）。整张卡的渲染只在**会话页**（`ConversationScreen` 的输入区上方，
     // 见 `BridgeCardRow.kt`）——用户 2026-11-02 截图里串页的那块就是从这里移走的，
@@ -229,13 +243,32 @@ internal fun BotTeamScreen(
             }
             // ② 区标题「Bot」：iOS WorkspaceView:653-655，左对齐 18 semibold（不是居中大标题）。
             item {
-                Text(
-                    appText("Bot"),
-                    color = homeInk(0.92f),
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(top = 4.dp, bottom = 8.dp).testTag("bot-roster-title")
-                )
+                Row(
+                    Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        appText("Bot"),
+                        color = homeInk(0.92f),
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.weight(1f).testTag("bot-roster-title")
+                    )
+                    // iOS 的门控：有团队快照才给入口（`store.teamSnapshot.visible`，桌面端没开团队服务时不出空入口）。
+                    if (showTeamEntry && (bots.isNotEmpty() || rooms.isNotEmpty())) {
+                        TextButton(
+                            onClick = { showTeamSheet = true },
+                            modifier = Modifier.testTag("bot-roster-team-entry")
+                        ) {
+                            Text(
+                                appText("团队"),
+                                color = MaterialTheme.colorScheme.primary,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+                }
             }
             // ③ 搜索框：复用会话 tab 的同一个 SessionSearch（iOS Bot tab 也挂同一个 sessionSearch）。
             item {
@@ -286,6 +319,29 @@ internal fun BotTeamScreen(
             }
         }
     }
+    // 「团队」→ 底部弹出**完整 Bot 列表**：iOS 是 `.sheet { TeamView }`（WorkspaceView:189-199），
+    // Android 用 ModalBottomSheet 承载同一套渲染（本页复用一个实例，不另写列表）。
+    // 内层 `showTeamEntry = false`：sheet 里再出「团队」就是套娃。
+    if (showTeamSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showTeamSheet = false },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+            containerColor = MaterialTheme.colorScheme.background
+        ) {
+            Box(Modifier.fillMaxWidth().fillMaxHeight(0.92f).testTag("team-sheet")) {
+                BotTeamScreen(
+                    adapter = adapter,
+                    onBack = { showTeamSheet = false },
+                    pendingSessionIds = pendingSessionIds,
+                    onOpenSession = onOpenSession,
+                    onRequestPairing = onRequestPairing,
+                    deviceIdentityUnreadable = deviceIdentityUnreadable,
+                    tokenUnreadable = tokenUnreadable,
+                    showTeamEntry = false
+                )
+            }
+        }
+    }
 }
 
 /** iOS mainBotCard（TeamView :431-455）：头像 46 + 名字 + 角色 + 「主」胶囊（accent 15% 底）。 */
@@ -298,7 +354,7 @@ private fun PrimaryBotCard(row: BridgeConversationRow, modifier: Modifier = Modi
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        RosterAvatar(row.name, row.color, row.avatar, size = 46, botId = row.id)
+        RosterAvatar(row.name, row.color, row.avatar, size = 46, botId = row.id, blink = true)
         Column(Modifier.weight(1f)) {
             // iOS .headline = 17 semibold（TeamView :435）。裁决原文写「主 Bot 18」，但源码
             // .headline 实际值是 17 —— 按「忠实 iOS 系统档」原则取 17，如需 18 一行改回。
@@ -357,7 +413,7 @@ private fun BotRow(
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Box {
-            RosterAvatar(row.name, row.color, row.avatar, size = 38, rowImageHash = row.avatarImageHash, botId = row.id)
+            RosterAvatar(row.name, row.color, row.avatar, size = 38, rowImageHash = row.avatarImageHash, botId = row.id, blink = true, blinkWorking = busy)
             RosterStatusDot(busy = busy, caution = pending, modifier = Modifier.align(Alignment.BottomEnd))
         }
         Column(Modifier.weight(1f)) {
@@ -622,6 +678,10 @@ private fun RosterAvatar(
     rowImageHash: String? = null,
     /** bot 的 id（`bots[].id`）：没有 avatar 字段时用它派生形象（与电脑端 `lookOf(id)` 同源）。 */
     botId: String? = null,
+    /** 是否驱动「眨眼」（用户 2026-11-02：iOS Bot 页会眨、Android 不会）。节奏见 [BlinkCadence.kt]。 */
+    blink: Boolean = false,
+    /** 眨眼节奏按"正在干活"加密（iOS `.live(working:)`）。 */
+    blinkWorking: Boolean = false,
     /** 成员堆叠的分离环（iOS surface@0.9 1.5pt）；普通行传 0。 */
     stroke: androidx.compose.ui.unit.Dp = androidx.compose.ui.unit.Dp(0f)
 ) {
@@ -646,6 +706,32 @@ private fun RosterAvatar(
             BotAvatarFileCache.remember(hash)
             BotAvatarFileCache.fileFor(hash)?.path
                 ?.let { path -> android.graphics.BitmapFactory.decodeFile(path)?.asImageBitmap() }
+        }
+    }
+    // 眨眼：节奏/相位与 iOS `TeamAvatarView` 同源（fnv1a 相位窗口 5s），但压的是**符号本身**
+    // ——Android 画描边符号、没有独立眼睛层（`avatar.glyph` 归 D1），这条差异已登记。
+    // 系统关掉动画（开发者选项/无障碍"移除动画"）时一律不动。
+    val localContext = LocalContext.current
+    val systemAnimationsOn = remember(localContext) {
+        android.provider.Settings.Global.getFloat(
+            localContext.contentResolver,
+            android.provider.Settings.Global.ANIMATOR_DURATION_SCALE,
+            1f
+        ) > 0f
+    }
+    val blinkActive = shouldBlink(blink, systemAnimationsOn)
+    val blinkSquash = remember { Animatable(1f) }
+    LaunchedEffect(botId, blinkActive, blinkWorking) {
+        if (!blinkActive) {
+            blinkSquash.snapTo(1f)
+            return@LaunchedEffect
+        }
+        delay(blinkPhaseMillis(botId))
+        val steps = blinkStepsFor(working = blinkWorking)
+        while (true) {
+            for (step in steps) {
+                blinkSquash.animateTo(step.squash, tween(durationMillis = step.holdMillis.toInt()))
+            }
         }
     }
     val avatarHex = (avatar?.get("color") as? JsonPrimitive)?.takeIf { it.isString }?.content
@@ -683,7 +769,7 @@ private fun RosterAvatar(
             Icon(
                 painter = painterResource(shapeRes),
                 contentDescription = null,
-                modifier = Modifier.size((size * 0.62f).dp),
+                modifier = Modifier.size((size * 0.62f).dp).graphicsLayer { scaleY = blinkSquash.value },
                 tint = Color.White
             )
         } else if (unknownShape) {
