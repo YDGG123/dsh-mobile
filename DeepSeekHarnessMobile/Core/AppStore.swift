@@ -3134,13 +3134,16 @@ final class AppStore: ObservableObject {
         messageSubmissionTimeout = Task { [weak self] in
             do { try await Task.sleep(for: .seconds(20)) } catch { return }
             guard let self, self.messageSubmissionPending else { return }
+            // 只把「还在等」这个标记撤掉，**不动 requestID/sessionID**——
+            // 迟到的成功确认仍要按 requestId 被接受（见接收帧那处的注释），否则就变成
+            // 「消息已发出、界面报超时、输入框不清空」。文案也降级成"仍在等待"，不写成失败。
             self.messageSubmissionPending = false
             self.updateChatPrefetchState()
             self.applySessionAgentPresetTransition(self.sessionAgentPresetStore.requestFailed(
                 type: "message", sessionId: self.messageSubmissionSessionID, requestId: self.messageSubmissionRequestID, message: nil
             ))
             self.waitingForNewSession = false
-            self.lastError = "发送确认超时，请确认队列状态后重试"
+            self.lastError = "仍在等待桌面端确认发送结果，稍后会自动更新"
         }
         waitingForNewSession = selectedSessionId == nil
         beginAgentBackgroundExecution(for: selectedSessionId, startsNewTurn: true)
@@ -3393,16 +3396,27 @@ final class AppStore: ObservableObject {
         acceptQueueFrame(frame)
         let matchesSubmission = (frame.requestId == messageSubmissionRequestID || (submittedUploadIDs.isEmpty && frame.requestId == nil)) &&
             (messageSubmissionSessionID == nil || frame.sessionId == nil || frame.sessionId == messageSubmissionSessionID)
-        if frame.kind == "sent" && messageSubmissionPending && matchesSubmission {
+        // **不要拿 `messageSubmissionPending` 当必要条件**：本地 20 秒超时（:3134-3143）与断线（disconnect）
+        // 都会把它提前置 false，而迟到的成功确认仍然有效 ⇒ 用它当门槛会把「已经发出去」的确认整支丢掉，
+        // 症状就是「消息在会话里出现了、界面却报超时、输入框里的文字永不清空」（2026-11-02 用户报的同一根因）。
+        // 认的是 **requestId 匹配**＋「确有在途投递」；pending 只表示"还在等"。
+        let hasOutstandingSubmission = messageSubmissionPending || messageSubmissionRequestID != nil || !submittedUploadIDs.isEmpty
+        if frame.kind == "sent" && hasOutstandingSubmission && matchesSubmission {
             messageSubmissionPending = false
             messageSubmissionTimeout?.cancel()
             fileUploads.accepted(submittedUploadIDs)
             submittedUploadIDs = []
+            // 接受后必须清掉 requestID/sessionID：否则同一条重复 `sent` 帧会再 bump 一次
+            // `messageAcceptedRevision`（即"清空两次"，极端时序下会抹掉用户新输入）。
+            messageSubmissionRequestID = nil
+            messageSubmissionSessionID = nil
             messageAcceptedRevision &+= 1
         }
-        if frame.kind == "error" && (frame.requestType == "message" || frame.requestType == nil) && messageSubmissionPending && matchesSubmission {
+        if frame.kind == "error" && (frame.requestType == "message" || frame.requestType == nil) && hasOutstandingSubmission && matchesSubmission {
             messageSubmissionPending = false
             messageSubmissionTimeout?.cancel()
+            messageSubmissionRequestID = nil
+            messageSubmissionSessionID = nil
             waitingForNewSession = false
             if frame.code == "session/attachment-invalid" { fileUploads.invalidReceipts() }
         }
