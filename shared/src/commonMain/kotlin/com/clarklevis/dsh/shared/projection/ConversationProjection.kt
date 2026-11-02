@@ -11,6 +11,7 @@ import com.clarklevis.dsh.shared.sync.AssistantChunk
 import com.clarklevis.dsh.shared.sync.expandAssistantStream
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -273,7 +274,10 @@ class ConversationProjector(
                         images = event.images.orEmpty(),
                         files = event.files.orEmpty(),
                         epochSeconds = date,
-                        seq = record.seq
+                        seq = record.seq,
+                        // 群聊里「用户自己发的」⇒ senderName 保持 null（渲染层显示「我」）。
+                        // 这一层统一产出：两端渲染层只消费，不再各自去 raw 里挖 author。
+                        senderName = null
                     )
                     if (pendingId != null) {
                         finalizeStream("steering-$pendingId", item, operations)
@@ -283,15 +287,55 @@ class ConversationProjector(
                     if (messageId != null) committedUserMessageIds += messageId
                 }
             }
-            event.type == "user/message" && !event.text.isNullOrEmpty() -> insert(ConversationItem(
-                id = eventId(record),
-                kind = ConversationItemKind.CONTEXT,
-                title = labels.context + contextSourceName(event),
-                text = event.text,
-                images = event.images.orEmpty(),
-                epochSeconds = date,
-                seq = record.seq
-            ), operations)
+            event.type == "user/message" && !event.text.isNullOrEmpty() -> {
+                // 群聊里 Bot 以 user/message 形态转发发言（`source.kind == "bot" && source.role == "post"`，
+                // 网关 group-projection.mjs:34 已确认形态）：它是**别人 Bot 的发言**，要渲染成 assistant 气泡
+                // 并带作者名（`source.senderName`）；**系统事件（failed/resumed/stopped/done/again）不能混进来**
+                // ——它们继续走下面的 CONTEXT 分支，senderName 必须 null（iOSDev 定的判据：不该有人名不能出现）。
+                val source = event.raw?.get("source")
+                val botPost = source?.get("kind")?.stringValue == "bot" && source?.get("role")?.stringValue == "post"
+                if (botPost && source?.get("form")?.stringValue == "relay"
+                    // ⚠️ 判空必须用 `!= null`（JsonObject.get 对**缺失键**返回 null）：
+                // 写成 `!= JsonNull` 时缺失键也判 true → none 恒 false → 全部落 CONTEXT（修复无效）。
+                // 显式 null（`"done": null`）按网关语义 `!== undefined` 也算已投递 → skip，与此一致。
+                && setOf("failed", "resumed", "stopped", "done", "again").none { source?.get(it) != null }
+                ) {
+                    val rawText = event.text
+                        .replace(Regex("^\\[Group post from [^\\]]*\\]\\n?"), "")   // content 已并成单串（textBlocks joinToString("")）
+                    // **防御性死分支**（AndroidTester 2026-11-02 grep 网关原文后定性，勿写成"与网关一致"）：
+                    // 网关 `group-projection.mjs:33` 先剥前缀、`:34` 才 `if (text)` ⇒ **产出层就不会发这种行**，
+                    // 所以这条分支在真实链路上不可达；保留只为防上游形态变更。丢弃本身是**消费层**行为，
+                    // 与网关的**产出层**丢弃不是同一件事——两层"看起来一样"不等于语义一致。
+                    if (rawText.isNotBlank()) {
+                        // 名字**沿用网关已脱敏的 source.senderName**（网关 group-projection.mjs:34 已过 redact 并截 100 字），
+                        // 客户端**不自行脱敏也不本地推断**——与「senderName 只来自服务端 author.name」同一口径。
+                        val senderName = source?.get("senderName")?.stringValue?.takeIf { it.isNotBlank() }
+                        insert(ConversationItem(
+                            id = eventId(record),
+                            kind = ConversationItemKind.ASSISTANT,
+                            title = "",
+                            text = rawText,
+                            epochSeconds = date,
+                            seq = record.seq,
+                            // KMP 统一产出（Chief 裁定）：两端渲染层只消费 item.senderName 显示，
+                            // 不再各自从 raw 里挖；名字缺失 ⇒ null ⇒ 渲染层不显示任何名字。
+                            senderName = senderName
+                        ), operations)
+                    }
+                } else {
+                    insert(ConversationItem(
+                        id = eventId(record),
+                        kind = ConversationItemKind.CONTEXT,
+                        title = labels.context + contextSourceName(event),
+                        text = event.text,
+                        images = event.images.orEmpty(),
+                        epochSeconds = date,
+                        seq = record.seq,
+                        // 系统事件/上下文注入 ⇒ 一律不署名（不是 Bot 发言）。
+                        senderName = null
+                    ), operations)
+                }
+            }
             event.type == "assistant/chunk" && event.chunkType == "text-delta" && key !in finalizedKeys ->
                 appendStream("stream-text-$key", "text-$key", ConversationItemKind.ASSISTANT, labels.streamingAssistant, event.text.orEmpty(), date, operations)
             event.type == "assistant/chunk" && event.chunkType == "reasoning-delta" && key !in finalizedKeys ->
