@@ -124,6 +124,35 @@ class RoomRelaySenderNameTest {
         }, "修复后不应再有 CONTEXT+转发前缀 的旧形态")
     }
 
+    /**
+     * 真数据的**类目分布**（本条从诊断探针 `RoomRelayParityProbe` 并进来后探针删除）。
+     *
+     * 为什么必须钉住其它类目：bot relay 是 `when` 里**新增的一条臂**（`ConversationProjection`），
+     * 臂的判据一旦放宽（漏判 `role`/`form`），就会把别的 bot source 也吞进 ASSISTANT。
+     * 而上面那些断言只盯 relay 那 106 条 —— **106 条照样齐全、其它类目被吞光也不会报警**。
+     * 真数据里 CONTEXT=8 / TOOL=108 这两组就是「没被误伤」的反证。
+     *
+     * 读数来自 2026-11-02 探针实测：records=1090, items=330
+     * （TOOL 108 / TOOL_RESULT 107 / ASSISTANT 106 / CONTEXT 8 / USER 1）。
+     */
+    @Test
+    fun otherCategoriesAreNotSwallowedByTheNewBotBranch() {
+        val items = projectedItems()
+        assertFixtureShape(items)   // 非空自证仍在前
+
+        val byKind = items.groupingBy { it.kind }.eachCount()
+        assertEquals(330, items.size, "真数据投影条目总数变了（某类目消失或被重复产出）")
+        assertEquals(108, byKind[ConversationItemKind.TOOL] ?: 0, "工具调用条目被新分支误伤")
+        assertEquals(107, byKind[ConversationItemKind.TOOL_RESULT] ?: 0, "工具结果条目被新分支误伤")
+        assertEquals(8, byKind[ConversationItemKind.CONTEXT] ?: 0,
+            "CONTEXT 条数变了：变少=新分支把系统提示也当成 Bot 发言吞了；变多=relay 判定退化了")
+        assertEquals(1, byKind[ConversationItemKind.USER] ?: 0, "用户自己发的条目数变了")
+        // ASSISTANT **总数**必须恰好等于 relay 数：多出来的都是「无名 ASSISTANT」，
+        // 即某个别的 bot source 被误当成发言（上面只断言了「带名字的」== 106，挡不住这类）。
+        assertEquals(fixtureRelayPosts, byKind[ConversationItemKind.ASSISTANT] ?: 0,
+            "出现了 relay 之外的 ASSISTANT ⇒ 新分支的判据过宽（把别的 bot source 也当成了发言）")
+    }
+
     // ------------------------------------------------------------------
     // 下面两条是**构造数据**：真实 fixture 里这两种形态各 0 条（AndroidTester 查实），
     // 只跑真数据的话这两条分支等于零覆盖。
