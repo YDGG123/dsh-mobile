@@ -255,6 +255,37 @@ class RoomChatMergePlanTest {
         // 网关口音不受影响
         assertEquals(7L, parseSeqFromTimelineId("room-1-7", "room-1"))
     }
+
+    /**
+     * **生产路径**（AndroidTester 2026-11-02 指出此前 0 覆盖）：
+     * 桥气泡 `seq = null` 时，必须靠 id 的冒号形态拆出 seq 才能去重——
+     * 只测解析函数不够（那只能证明"拆得对"），这里测**去重真的生效**。
+     *
+     * 断言同时要求 `withoutSeq` 为空：否则"bridge 被丢弃"可能是因为它落进第三档被跳过显示，
+     * 而不是因为精确键命中——那是另一种假绿。
+     */
+    @Test
+    fun bridgeBubbleWithoutSeqIsDedupedByColonID() {
+        val result = mergeRoomChat(
+            gateway = listOf(gateway("room-1-7", seq = 7, session = "room-1")),
+            bridge = listOf(bubble("room-1:7", seq = null, session = "room-1"))
+        )
+        assertTrue("bridge 那份应被网关那份去重掉", result.bubbles.isEmpty())
+        assertTrue("不得靠落 withoutSeq 蒙过去", result.withoutSeq.isEmpty())
+        assertEquals(setOf("room-1|7"), result.gatewayKeys)
+    }
+
+    /** 反向：桥 id 形态不对（非精确冒号）时**不得**去重——否则就是"假去重吞消息"。 */
+    @Test
+    fun nonExactColonIDIsNotDeduped() {
+        val result = mergeRoomChat(
+            gateway = listOf(gateway("room-1-7", seq = 7, session = "room-1")),
+            bridge = listOf(bubble("room-1:7:9", seq = null, session = "room-1"))
+        )
+        // 不进 bubbles（那只是"要插入的去重后条目"），而是如实落第三档：仍显示 + 调用方留日志
+        assertTrue(result.bubbles.isEmpty())
+        assertEquals(listOf("room-1:7:9"), result.withoutSeq.map { it.id })
+    }
 }
 
 // 合并快照的用例放在文件末尾（另一个类）
