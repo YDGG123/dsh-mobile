@@ -214,3 +214,83 @@ final class RosterLookParityTests: XCTestCase {
                       Int((blue * 255).rounded()))
     }
 }
+
+/// 群聊副行文案的**两端同口径**用例（与 Android `RoomMemberNamesTest` 一一对应）。
+///
+/// 为什么必须有：iOS 原来把 `row.members` 直接 `joined("、")`，而 `members` 装的是 **session id**
+/// （网关 `mobile-v1/adapter.mjs:101`），等于把内部 id 摆给用户；Android 的口径是「查不到就丢弃」。
+/// 2026-11-02 定为双端同型缺陷（登记表 #17）⇒ 这条用例把口径钉死，**任何输入下不得出现 `session-`**。
+final class RoomMemberNamesParityTests: XCTestCase {
+
+    private let bots: [String: String] = [
+        "session-a5000f0e": "Chief",
+        "session-4745edd2": "iOSCoder",
+        "session-7b2c1a44": "AndroidCoder",
+        "session-0f9c8e21": "AndroidTester",
+        "session-3d1b7a90": "ReleaseBot",
+        "session-c9e4f012": "iOSTester",
+    ]
+
+    /// ① 正常：都能查到 ⇒ 用「、」连接。
+    func testKnownMembersRenderNames() {
+        XCTAssertEqual(
+            GatewayTeamFeed.roomMemberNames(members: ["session-a5000f0e", "session-4745edd2"], botNames: bots),
+            "Chief、iOSCoder"
+        )
+    }
+
+    /// ② 超过 4 个：只列前 4 个 + 「 等 N 人」，**N 是成员总数**（与 Android 文案同式）。
+    func testMoreThanFourMembersCollapseToFirstFourPlusCount() {
+        let all = bots.keys.sorted()
+        let text = GatewayTeamFeed.roomMemberNames(members: all, botNames: bots)
+        XCTAssertEqual(all.count, 6)
+        XCTAssertTrue(text.hasSuffix(" 等 6 人"), text)
+        XCTAssertEqual(text.components(separatedBy: "、").count, 4, text)
+    }
+
+    /// ③ 空 / 全查不到 ⇒ 「群聊」——不是空串、也不是 id 串。
+    func testEmptyOrUnknownMembersFallBackToRoomLabel() {
+        XCTAssertEqual(GatewayTeamFeed.roomMemberNames(members: [], botNames: bots), "群聊")
+        XCTAssertEqual(GatewayTeamFeed.roomMemberNames(members: nil, botNames: bots), "群聊")
+        XCTAssertEqual(
+            GatewayTeamFeed.roomMemberNames(members: ["session-deadbeef", "session-cafebabe"], botNames: bots),
+            "群聊"
+        )
+    }
+
+    /// ④ 部分查不到：丢掉那几个，其余照常显示（不因一个查不到就整行退成「群聊」）。
+    func testPartiallyUnknownMembersKeepTheKnownOnes() {
+        XCTAssertEqual(
+            GatewayTeamFeed.roomMemberNames(
+                members: ["session-a5000f0e", "session-deadbeef", "session-4745edd2"], botNames: bots),
+            "Chief、iOSCoder"
+        )
+    }
+
+    /// **硬判据**：任何输入下都不得出现 `session-`（用户明确「内部 id 一律不露」）。
+    func testRenderedTextNeverLeaksInternalSessionIds() {
+        let inputs: [[String]?] = [
+            bots.keys.sorted(),
+            ["session-deadbeef"],
+            ["session-a5000f0e", "session-deadbeef", "session-cafebabe", "nope", "session-4d8741a8"],
+            [],
+            nil,
+        ]
+        for members in inputs {
+            let text = GatewayTeamFeed.roomMemberNames(members: members, botNames: bots)
+            XCTAssertFalse(text.contains("session-"), "\(members ?? []) → \(text)")
+            XCTAssertFalse(text.isEmpty)
+        }
+    }
+
+    /// 只有空白、或空串的名字也必须当作「查不到」丢弃——别把空串接进「、」里。
+    func testBlankNamesAreTreatedAsUnknown() {
+        let names = ["session-a5000f0e": "Chief", "session-blank": "   ", "session-empty": ""]
+        XCTAssertEqual(GatewayTeamFeed.roomMemberNames(members: ["session-blank"], botNames: names), "群聊")
+        XCTAssertEqual(GatewayTeamFeed.roomMemberNames(members: ["session-empty"], botNames: names), "群聊")
+        XCTAssertEqual(
+            GatewayTeamFeed.roomMemberNames(members: ["session-a5000f0e", "session-blank", "session-empty"], botNames: names),
+            "Chief"
+        )
+    }
+}

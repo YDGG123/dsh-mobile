@@ -1207,9 +1207,26 @@ final class GatewayTeamFeed: ObservableObject {
 
     /// 群聊行（需求 3）：成员 + 谁在发言 + 最后一条消息摘要。
     func roomSubtitle(for row: Row, botNames: [String: String]) -> String {
-        let members = row.members.prefix(4).map { botNames[$0] ?? $0 }.joined(separator: "、")
-        let extra = row.members.count > 4 ? " 等 \(row.members.count) 人" : ""
-        return members.isEmpty ? "群聊" : "\(members)\(extra)"
+        Self.roomMemberNames(members: row.members, botNames: botNames)
+    }
+
+    /// 群聊副行文案 = **成员名字**串。**与 Android `BotTeamScreen.roomMemberNames`（:537）逐条同口径**：
+    /// 取前 4 个成员、查名、用「、」连接；成员总数 > 4 补「 等 N 人」（N = 成员总数）；
+    /// **一个名字都查不到 ⇒「群聊」**。
+    ///
+    /// 关键一条：**查不到名字必须丢弃，绝不回落打印原始 id**——`row.members` 装的是 session id
+    /// （网关 `mobile-v1/adapter.mjs:101` `(room.members ?? []).filter(id => botIds.has(id))`），
+    /// 裸 join 会把内部 id 直接显示给用户。两端同一可观察行为（2026-11-02 双端对齐项 #17）。
+    nonisolated static func roomMemberNames(members: [String]?, botNames: [String: String]) -> String {
+        let ids = members ?? []
+        guard !ids.isEmpty else { return "群聊" }
+        let names = ids.prefix(4).compactMap { id -> String? in
+            guard let name = botNames[id]?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty else { return nil }
+            return name
+        }
+        guard !names.isEmpty else { return "群聊" }
+        let extra = ids.count > 4 ? " 等 \(ids.count) 人" : ""
+        return names.joined(separator: "、") + extra
     }
 
     // MARK: - 头像（静态字段，缺失时回落默认块）

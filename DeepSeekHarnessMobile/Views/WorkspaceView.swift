@@ -909,9 +909,21 @@ struct WorkspaceView: View {
         .contentShape(Rectangle())
     }
 
+    /// bridge 侧 bot 名字表：键 = 行 `id`，与 `row.members` 里的 id 同源（网关 `mobile-v1/adapter.mjs:101`）。
+    private var bridgeBotNames: [String: String] {
+        var names: [String: String] = [:]
+        for row in bridgeTeam.mirror?.bots ?? [] where !row.name.isEmpty { names[row.id] = row.name }
+        return names
+    }
+
     private func bridgeRowSubtitle(_ row: BridgeTeamRow) -> String {
         if let role = row.role, !role.isEmpty { return role }
-        if let members = row.members, !members.isEmpty { return members.joined(separator: "、") }
+        // 成员**是 session id**（网关 `adapter.mjs:101`）：只显示查得到名字的成员，
+        // 查不到就丢弃——绝不像以前那样裸 `joined` 把内部 id 摆给用户（2026-11-02 双端对齐项 #17）。
+        // 一个都查不到时 `roomMemberNames` 返回「群聊」，正是群聊行的期望文案。
+        if row.isRoom, let members = row.members, !members.isEmpty {
+            return GatewayTeamFeed.roomMemberNames(members: members, botNames: bridgeBotNames)
+        }
         return row.isRoom ? "群聊" : "Bot"
     }
 
