@@ -40,12 +40,58 @@ internal object RosterDerivedLook {
     const val FALLBACK_COLOR = "black"
 
     /**
+     * ds-bot `characters` 表的 **20 个角色名**（JS 文件 `characters: { … }` 的键，
+     * 2026-11-02 23:0x 用正则在 `project-avatar.mjs` 里取出；与 `shape_*.xml` 20 个同名 1:1）。
+     * `resolveLook` 用 `owns(characters, shape)` 判"显式 shape 是否合法"，这里等价。
+     */
+    private val ALL_CHARACTERS = setOf(
+        "acorn", "beacon", "bunny", "cushion", "gem", "gumdrop", "hex", "kitty", "magnet", "moon",
+        "peanut", "pebbles", "plus", "ring", "saucer", "squircle", "star", "wave", "whale", "zed"
+    )
+
+    val characterNames: Set<String> get() = ALL_CHARACTERS
+
+    /**
      * 派生形象：返回 `shape 名（20 个角色名之一）` 与 `ink 名`。
      * `botId` 为空 ⇒ null（调用方保持原兜底，不猜）。
      */
     fun look(botId: String?): Pair<String, String>? {
         val id = botId?.takeIf { it.isNotBlank() } ?: return null
         return derivedShape(id) to derivedColorInk(id)
+    }
+
+    /**
+     * **`resolveLook(bot)` 的等价实现**（JS :660）：先认显式字段，再按 id 派生，最后落字面量兜底。
+     *
+     * 顺序不能反 —— 线上 Chief 那行显式 `avatar.shape=whale`、`color=deepseek`，
+     * 只按 id 派生会算成 `gumdrop/orange`（错）。这条正是 AndroidTester 真值表的第一条，
+     * 顺序反了当场红。
+     *
+     * @param explicitShape 帧里的 `avatar.shape`（用户手动设过的形象）
+     * @param explicitColor 行级 `color`（ink 名或 `#rrggbb`）或 `avatar.color`
+     */
+    fun effectiveLook(explicitShape: String?, explicitColor: String?, botId: String?): Pair<String, String> {
+        val id = botId?.takeIf { it.isNotBlank() }
+        val shape = explicitShape?.trim()?.takeIf(::isCharacter)
+            ?: id?.let(::derivedShape)
+            ?: FALLBACK_SHAPE
+        val color = explicitColor?.trim()?.takeIf(::isColorName)
+            ?: id?.let(::derivedColorInk)
+            ?: FALLBACK_COLOR
+        return shape to color
+    }
+
+    /** `owns(characters, shape)`：必须是那 20 个角色名之一（大小写不敏感，与既有 `shapeIconRes` 同口径）。 */
+    fun isCharacter(shape: String?): Boolean =
+        shape != null && shape.trim().lowercase() in ALL_CHARACTERS
+
+    /** `colorName(value)`（JS :616）：19 个 ink 名之一，或 `#rrggbb`（Android 另接受 `#rrggbbaa`）。 */
+    private fun isColorName(color: String?): Boolean {
+        val value = color?.trim() ?: return false
+        if (value.lowercase() in com.clarklevis.dsh.shared.protocol.BridgeInks.names) return true
+        val digits = value.removePrefix("#")
+        if (!value.startsWith("#") || (digits.length != 6 && digits.length != 8)) return false
+        return digits.all { it.isDigit() || it.lowercaseChar() in 'a'..'f' }
     }
 
     /** `defaultShape(id)`（JS :648）。 */

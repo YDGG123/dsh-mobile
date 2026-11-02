@@ -701,23 +701,22 @@ private fun RosterAvatar(
         }
     }
     val avatarHex = (avatar?.get("color") as? JsonPrimitive)?.takeIf { it.isString }?.content
-    // ② shape 符号（iOS 兜底顺序：image > glyph > shape 符号 > **派生** > 首字母/中性圆点）
+    // ② 形象链 = 电脑端 `resolveLook(bot)` 的等价实现（image > glyph > **显式 shape** > 派生 > 兜底）：
+    // 显式字段**只在合法时**采用（20 个角色名 / ink 名或 hex），否则按 id 派生；
+    // 派生与 `lookOf(id)` 同源，所以没有 glyph 通道时也与电脑端逐行一致。
+    // ⚠️ 顺序不能反：线上 Chief 那行显式 `shape=whale,color=deepseek`，只按 id 算会得到
+    // `gumdrop/orange`（错），这条是 AndroidTester 真值表第 1 行。
     val shapeValue = (avatar?.get("shape") as? JsonPrimitive)?.takeIf { it.isString }?.content
-    // 派生层（B 批，2026-11-02）：bridge 名册线上 11 行里 10 行没有 avatar 字段（实测
-    // `~/.dsh/bot/state.json`），用 id 派生与电脑端 `lookOf(id)` 同源的 shape+ink。
-    // **帧里有 shape 时绝不覆盖**（用户手动设过的形象优先）；D1 的 glyph 通道落地后先接管，
-    // 这一层自动退成兜底。
-    val derivedLook = remember(botId, shapeValue) {
-        if (shapeValue == null) RosterDerivedLook.look(botId) else null
+    val effectiveLook = remember(botId, shapeValue, rowColor, avatarHex) {
+        RosterDerivedLook.effectiveLook(shapeValue, rowColor ?: avatarHex, botId)
     }
-    val resolvedShapeName = shapeValue ?: derivedLook?.first
-    val shapeRes = resolvedShapeName?.let { shapeIconRes(it) }
-    // 三档兜底：① 有映射 ⇒ 画符号；② 有名字但未知 ⇒ **中性圆点**（对齐 iOS `circle.fill`，
-    // Chief 2026-11-02 指定）；③ 连 id 都没有 ⇒ 保留色圆+首字母（无意造信息的最后兜底，
-    // 这条是**有意差异**，已登记）。
-    val unknownShape = resolvedShapeName != null && shapeRes == null
-    val color = remember(rowColor, avatarHex, derivedLook, dark, fallback) {
-        rosterAvatarColor(rowColor, avatarHex, derivedLook?.second, dark, fallback)
+    val resolvedShapeName = effectiveLook.first
+    val shapeRes = shapeIconRes(resolvedShapeName)
+    // 兜底只剩两种：① 角色名没有同名 drawable（20/20 已由用例守住）⇒ 中性圆点；
+    // ② 连 id 都没有 ⇒ 首字母。两种都不该出现在正常数据里，留着是为了"不画错"。
+    val unknownShape = shapeRes == null && resolvedShapeName.isNotBlank()
+    val color = remember(rowColor, avatarHex, effectiveLook, dark, fallback) {
+        rosterAvatarColor(rowColor, avatarHex, effectiveLook.second, dark, fallback)
     }
     Box(
         modifier.size(size.dp)
