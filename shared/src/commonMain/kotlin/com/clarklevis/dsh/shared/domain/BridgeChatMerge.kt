@@ -304,7 +304,11 @@ fun chatMessagesFromHistoryPages(
             return@forEachIndexed
         }
         page.messages.map { it.toChatMessage() }.forEach { message ->
-            seen.putIfAbsent(message.id, message)
+            // ⚠️ 这里原来写的是 `putIfAbsent`：它是 **JVM 专有**（java.util.Map 的默认方法），
+            // commonMain 里在 iOS/native 目标上编不过（`:shared:compileKotlinIosX64` 直接失败）
+            // ⇒ Android 的 JVM 单测全绿，iOS 却整个平台编不出来。`getOrPut` 是 common stdlib，
+            // 语义相同（缺席才写入 = 保留先到的）。
+            seen.getOrPut(message.id) { message }
         }
     }
     return com.clarklevis.dsh.shared.protocol.wireJson.encodeToString(
@@ -323,8 +327,9 @@ fun mergeChatSnapshots(existing: String?, incoming: String): String {
     val old = existing?.let { decodeBridgeChatSnapshot(it) }?.messages.orEmpty()
     val new = decodeBridgeChatSnapshot(incoming)?.messages.orEmpty()
     val seen = LinkedHashMap<String, BridgeChatMessage>()
-    old.forEach { seen.putIfAbsent(it.id, it) }
-    new.forEach { seen.putIfAbsent(it.id, it) }
+    // 同 `mergeChatHistoryPages`：`putIfAbsent` 是 JVM 专有，native 目标编不过，用 `getOrPut`。
+    old.forEach { seen.getOrPut(it.id) { it } }
+    new.forEach { seen.getOrPut(it.id) { it } }
     return com.clarklevis.dsh.shared.protocol.wireJson.encodeToString(
         BridgeChatSnapshot.serializer(),
         BridgeChatSnapshot(seen.values.toList())
