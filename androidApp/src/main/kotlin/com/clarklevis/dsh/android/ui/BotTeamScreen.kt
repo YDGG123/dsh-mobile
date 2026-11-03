@@ -5,9 +5,6 @@ import androidx.compose.foundation.Image
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.ui.graphics.graphicsLayer
 import kotlinx.coroutines.delay
 import androidx.compose.foundation.background
@@ -125,9 +122,6 @@ internal fun BotTeamScreen(
     deviceIdentityUnreadable: Boolean = false,
     /** true = 网关 token 密文解不开（≠ 从未配对）：显示「凭证失效，请重新配对」。 */
     tokenUnreadable: Boolean = false,
-    /** 是否渲染搜索框右上角的「团队」入口（iOS `botRosterHeader` :656-668 的正式入口）。
-     *  sheet 里那份自己不渲染入口，否则会套娃。 */
-    showTeamEntry: Boolean = true
 ) {
     // 走主题（与 ScheduledTasksScreen/PluginsScreen 一致）：A1 换品牌海军蓝底时本页自动跟随，不许硬编码。
     val background = MaterialTheme.colorScheme.background
@@ -152,7 +146,6 @@ internal fun BotTeamScreen(
     val feedDegraded = feedPhase == TeamFeedPhase.LIVE && feed?.state?.degraded == true
     // 「团队」入口（用户 2026-11-02 指出 iOS 有、Android 没有）：点开 = 底部弹出**完整 Bot 列表**
     // （iOS 是 `.sheet` 里的 `TeamView`，`WorkspaceView.swift:189-199`），内容就是本页同一套渲染。
-    var showTeamSheet by rememberSaveable { mutableStateOf(false) }
     // ⚠️ `cards` 在本页只剩两处用途：行内 caution 点（`pending`）与只读预览正文
     // （`cardPrompt`）。整张卡的渲染只在**会话页**（`ConversationScreen` 的输入区上方，
     // 见 `BridgeCardRow.kt`）——用户 2026-11-02 截图里串页的那块就是从这里移走的，
@@ -258,32 +251,15 @@ internal fun BotTeamScreen(
             }
             // ② 区标题「Bot」：iOS WorkspaceView:653-655，左对齐 18 semibold（不是居中大标题）。
             item {
-                Row(
-                    Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        appText("Bot"),
-                        color = homeInk(0.92f),
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.weight(1f).testTag("bot-roster-title")
-                    )
-                    // iOS 的门控：有团队快照才给入口（`store.teamSnapshot.visible`，桌面端没开团队服务时不出空入口）。
-                    if (showTeamEntry && (bots.isNotEmpty() || rooms.isNotEmpty())) {
-                        TextButton(
-                            onClick = { showTeamSheet = true },
-                            modifier = Modifier.testTag("bot-roster-team-entry")
-                        ) {
-                            Text(
-                                appText("团队"),
-                                color = MaterialTheme.colorScheme.primary,
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
-                    }
-                }
+                // 77④（用户 2026-11-03：「这个入口就是 Bot bar 的复制，不要了」，两端都删）：
+                // 段头只剩「Bot」标题；名册与搜索框原样在（防删功能式假绿）。
+                Text(
+                    appText("Bot"),
+                    color = homeInk(0.92f),
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(top = 4.dp, bottom = 8.dp).testTag("bot-roster-title")
+                )
             }
             // ③ 搜索框：复用会话 tab 的同一个 SessionSearch（iOS Bot tab 也挂同一个 sessionSearch）。
             item {
@@ -350,32 +326,6 @@ internal fun BotTeamScreen(
                         onRequestPairing = onRequestPairing
                     )
                 }
-            }
-        }
-    }
-    // 「团队」→ 底部弹出**完整 Bot 列表**：iOS 是 `.sheet { TeamView }`（WorkspaceView:189-199），
-    // Android 用 ModalBottomSheet 承载同一套渲染（本页复用一个实例，不另写列表）。
-    // 内层 `showTeamEntry = false`：sheet 里再出「团队」就是套娃。
-    // tag 用 `bot-team-sheet` 而**不是** `team-sheet` —— 后者已被「智能体团队」（`TeamUi.kt:196`，
-    // 宿主自带那套 144 张几何头像）占用；用户明确要求「Bot」与「智能体团队」两套系统不许混称，
-    // 同名 tag 会让验收脚本和指纹都分不清是哪一套。
-    if (showTeamSheet) {
-        ModalBottomSheet(
-            onDismissRequest = { showTeamSheet = false },
-            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-            containerColor = MaterialTheme.colorScheme.background
-        ) {
-            Box(Modifier.fillMaxWidth().fillMaxHeight(0.92f).testTag("bot-team-sheet")) {
-                BotTeamScreen(
-                    adapter = adapter,
-                    onBack = { showTeamSheet = false },
-                    pendingSessionIds = pendingSessionIds,
-                    onOpenSession = onOpenSession,
-                    onRequestPairing = onRequestPairing,
-                    deviceIdentityUnreadable = deviceIdentityUnreadable,
-                    tokenUnreadable = tokenUnreadable,
-                    showTeamEntry = false
-                )
             }
         }
     }
