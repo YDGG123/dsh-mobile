@@ -22,8 +22,8 @@ android {
         applicationId = "com.clarklevis.dsh.android"
         minSdk = 24
         targetSdk = 36
-        versionCode = 58 // 本批（vc58：D1 feed 启动时机修——origin 驱动启动/重启，修 init 默认端点 127.0.0.1 致 Bot 页实时流全失效；f357574）；57 为上一批
-        versionName = "1.7.21"
+        versionCode = 59 // 本批（vc59：D1 feed 握手帧分发修——帧判别符是 type 不是 kind，{type:"ready",kind:"team"} 曾落 else 被丢、phase 永不到 LIVE）；58 为上一批
+        versionName = "1.7.22"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
