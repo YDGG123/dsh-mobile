@@ -107,6 +107,8 @@ mkdir -p "$DEPS"
 if [ ! -f "$DEPS/ChatLayout.swiftmodule" ]; then
   echo "→ 准备 ChatLayout 模块..."
   CL_SRC="${CHATLAYOUT_SRC:-/tmp/ChatLayout/ChatLayout}"
+  # 持久缓存优先：/tmp 会被清理脚本清掉，联网又不稳（2026-11-02 起）
+  [ -d "$CL_SRC" ] || CL_SRC="$HOME/.cache/dsh-typecheck-src/ChatLayout/ChatLayout"
   if [ ! -d "$CL_SRC" ]; then
     echo "  克隆 ChatLayout 2.4.3..."
     git clone --depth 1 --branch 2.4.3 https://github.com/ekazaev/ChatLayout.git /tmp/ChatLayout >/dev/null 2>&1 \
@@ -127,6 +129,8 @@ fi
 if [ ! -f "$DEPS/SwiftMath.swiftmodule" ]; then
   echo "→ 准备 SwiftMath 模块..."
   SM_SRC="${SWIFTMATH_SRC:-/tmp/SwiftMath/Sources/SwiftMath}"
+  # 同上：持久缓存优先
+  [ -d "$SM_SRC" ] || SM_SRC="$HOME/.cache/dsh-typecheck-src/SwiftMath/Sources/SwiftMath"
   if [ ! -d "$SM_SRC" ]; then
     echo "  克隆 SwiftMath 1.7.3..."
     git clone --depth 1 --branch 1.7.3 https://github.com/mgriebling/SwiftMath.git /tmp/SwiftMath >/dev/null 2>&1 \
@@ -578,7 +582,12 @@ fi
 # 五路 typecheck 走 swiftc 前端，**不解析 .xcstrings**；顶层缺 `version` 时闸门全绿，
 # 只有 xcodebuild 的 `xcstringstool compile` 阶段才报 "Missing required key 'version'" →
 # ARCHIVE FAILED（合上游 1.7.12 时冲突解决把该键丢了，出包才暴露）。
-# 这里守三件事：JSON 合法 + 顶层键齐备（sourceLanguage / version / strings）+ strings 非空。
+# 这里守四件事：JSON 合法 + 顶层键齐备（sourceLanguage / version / strings）+ strings 非空
+# + **每条 `localizations` 必须是字典**。
+#
+# ⚠️ 第四条是 2026-11-04 的教训（79 出包 archive EXIT=65）：手写新增条目时把
+# `localizations` 写成了数组，全文件其余 912 条都是字典形态；Xcode 的 xcstringstool
+# 只认字典 → archive 直接失败。**前三件全绿也查不出这条**，所以必须逐条验类型。
 "$PYTHON3" - "$PWD/DeepSeekHarnessMobile/Resources/Localizable.xcstrings" <<'PYCHECK' || exit 1
 import json, sys
 path = sys.argv[1]
@@ -592,7 +601,22 @@ if missing:
     sys.exit(1)
 if not isinstance(data.get('strings'), dict) or not data['strings']:
     print("❌ xcstrings 的 strings 为空或类型不对"); sys.exit(1)
-print("✅ xcstrings 顶层结构齐备：sourceLanguage=%s version=%s strings=%d 条"
+# 逐条验 localizations 形态：Xcode 只接受字典（{locale: {...}}），数组会让 archive 65 退出。
+bad_shape = []
+for key, entry in data['strings'].items():
+    if not isinstance(entry, dict):
+        bad_shape.append((key, 'entry:' + type(entry).__name__)); continue
+    loc = entry.get('localizations')
+    if loc is not None and not isinstance(loc, dict):
+        bad_shape.append((key, 'localizations:' + type(loc).__name__))
+if bad_shape:
+    print("❌ xcstrings 有 %d 条 localizations 不是字典（Xcode 只认字典，archive 会 EXIT=65）：" % len(bad_shape))
+    for key, why in bad_shape[:10]:
+        print("   %s  → %s" % (key, why))
+    if len(bad_shape) > 10:
+        print("   …另有 %d 条" % (len(bad_shape) - 10))
+    sys.exit(1)
+print("✅ xcstrings 顶层结构齐备：sourceLanguage=%s version=%s strings=%d 条（localizations 全部为字典）"
       % (data['sourceLanguage'], data['version'], len(data['strings'])))
 PYCHECK
 
