@@ -22,8 +22,8 @@ android {
         applicationId = "com.clarklevis.dsh.android"
         minSdk = 24
         targetSdk = 36
-        versionCode = 53 // 本批（75① 内部提醒 repeat-tool-reminder 不画进正文——KMP 共享层双端同享；75② 会话列表取消「全部 N 个」折叠、同工作区全列、上限 500、maxRows 改必传）；52 为上一批
-        versionName = "1.7.16"
+        versionCode = 54 // 本批（vc54：②群聊成员头像堆叠错位 6520ebe；③群聊气泡接上 Markdown 修 bot 粗体 6a8ec9a；共享层 a8230c0 time-context/runtime-context 英文不再进对话页——vc53 漏带，本批自动带上）；53 为上一批
+        versionName = "1.7.17"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
