@@ -22,8 +22,8 @@ android {
         applicationId = "com.clarklevis.dsh.android"
         minSdk = 24
         targetSdk = 36
-        versionCode = 55 // 本批（vc55 复核两修：①群聊 Markdown 灰调解耦——compact 只管字号、opaqueText 全不透明；②群聊头像堆叠改 Box+CenterStart 同起点，落点 0/16/32 对齐 iOS ZStack，修「Row 排位+offset 叠加」的 0/43/86 溢出）；54 为上一批
-        versionName = "1.7.18"
+        versionCode = 56 // 本批（vc56 = D1 段 5 接线：Bot 页吃 team feed——glyph 矢量头像/实时状态副行/降级横幅；并修复 vc55 可复现性：RoomStackGeometry 定义文件入库）；55 为上一批
+        versionName = "1.7.19"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
