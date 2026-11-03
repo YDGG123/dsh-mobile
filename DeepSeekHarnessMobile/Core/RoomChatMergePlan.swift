@@ -154,6 +154,15 @@ enum RoomChatMergePlan {
 
     /// 稳定归并：网关数组内部顺序不动；`extra` 里每一项插到「第一个 dateMillis 更大者」之前。
     /// 缺时间的项按到达顺序放在其插入点（不参与比较，避免把无时间的流式项抛到最前）。
+    ///
+    /// 78 修复（2026-11-04 用户报「消息同步完顺序对不上，后发的跑到前面」）：插入完成后
+    /// **最终统一按 `(seq, 原相对顺序)` 稳定排序一遍**——`seq` 是宿主事件序号，才是真序；
+    /// `dateMillis` 只到毫秒，同毫秒的 reply:0/reply:1 或快速连发的消息插入顺序由循环先后
+    /// 决定，不由 seq 决定（网关侧已由探针实测严格 seq 升序，乱序 100% 出在插入层）。
+    /// - 有 seq 的按 seq 升序；seq 相同保持原数组相对顺序（Swift sorted 不保证稳定，
+    ///   故带原始下标装饰排序）。
+    /// - 无 seq 的排最后，组内保持相对顺序（withoutSeq 日志口径不变）。
+    /// - `extra` 为空时**原样返回 gateway**（既有 guard 行为不变，见判据）。
     private static func stableMerge(gateway: [Bubble], extra: [Bubble]) -> [Bubble] {
         guard !extra.isEmpty else { return gateway }
         var result = gateway
@@ -166,6 +175,24 @@ enum RoomChatMergePlan {
             }
             result.insert(item, at: insertAt)
         }
-        return result
+        return orderedBySeqThenOriginalOrder(result)
+    }
+
+    /// 装饰排序：seq 升序 → 同 seq 保持原相对顺序 → 无 seq 殿后且组内保持原相对顺序。
+    private static func orderedBySeqThenOriginalOrder(_ items: [Bubble]) -> [Bubble] {
+        items.enumerated()
+            .sorted { a, b in
+                switch (a.element.seq, b.element.seq) {
+                case let (l?, r?):
+                    l == r ? a.offset < b.offset : l < r
+                case (_?, nil):
+                    true
+                case (nil, _?):
+                    false
+                default:
+                    a.offset < b.offset
+                }
+            }
+            .map(\.element)
     }
 }

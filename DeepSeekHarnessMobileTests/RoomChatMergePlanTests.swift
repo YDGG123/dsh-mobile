@@ -58,10 +58,14 @@ final class RoomChatMergePlanTests: XCTestCase {
     }
 
     func testTimedInsertGoesToTheMiddleNotAppended() {
+        // 78 契约变更：seq 是真序（Chief 2026-11-04 定），dateMillis 只做插入提示。
+        // 旧行为按 dateMillis 把 seq=9 的 b 插到 seq=2 的 c 之前；新契约下 seq 决定终序
+        // ⇒ b(seq 9) 排在 c(seq 2) 之后。真实数据里 seq 与时间极少倒挂；倒挂时以桌面端
+        // 一致的 seq 序为准（桌面上 b 就在 c 后面）。
         let gateway = [bubble("s-1", "assistant", "a", 1, 1000), bubble("s-2", "assistant", "c", 2, 3000)]
         let bridge = [bubble("bridge:room:9", "assistant", "b", 9, 2000, "Chief")]
         let result = RoomChatMergePlan.merge(gateway: gateway, bridge: bridge, sessionId: "s")
-        XCTAssertEqual(result.merged.map(\.text), ["a", "b", "c"], "必须是插入中间，不能两段拼接")
+        XCTAssertEqual(result.merged.map(\.text), ["a", "c", "b"], "seq 决定终序（旧 dateMillis 期望已随契约更新）")
     }
 
     func testEntryWithoutTimeIsAppendedAtTheEnd() {
@@ -173,5 +177,63 @@ final class RoomChatMergePlanTests: XCTestCase {
         XCTAssertEqual(result.dropped, ["bridge:room-1:sess-1:7"], "桥那份必须被去重掉")
         // 桥侧 :: 不许"落 withoutSeq 仍显示"蒙过去
         XCTAssertTrue(result.withoutSeq.isEmpty, "去重生效 ⇒ 不该有 withoutSeq")
+    }
+
+    // MARK: - 78 顺序修复（2026-11-04 用户报「消息同步完顺序对不上，后发的跑到前面」）
+
+    /// 判据 1（先红后绿）+ 判据 3：extra 里 seq 乱序、dateMillis 相同的项插入后
+    /// 必须按 **seq 升序** 输出（旧实现只按 dateMillis 插入，同毫秒内顺序=插入顺序 ⇒ 旧实现红）。
+    /// 判据 3 同时钉住：同 seq（reply:0/reply:1）保持原相对顺序。
+    func testExtraInsertsWithSameDateAreFinallyOrderedBySeq() {
+        let gateway = [
+            bubble("s-100", "assistant", "早", 100, 1000),
+            bubble("s-300", "assistant", "晚", 300, 3000),
+        ]
+        // extra：seq 320 先于 310 到达（78 快照恢复路径的真实形态），dateMillis 全相同
+        let bridge = [
+            bubble("bridge:r:320", "assistant", "三百二", 320, 2000, "iOSDev"),
+            bubble("bridge:r:310", "assistant", "三百一", 310, 2000, "Chief"),
+        ]
+        let result = RoomChatMergePlan.merge(gateway: gateway, bridge: bridge, sessionId: "r")
+        XCTAssertEqual(result.merged.map(\.seq), [100, 300, 310, 320],
+            "合流输出必须按 seq 升序（旧实现输出 [100,300,320,310] 必红）")
+        XCTAssertEqual(result.merged.last?.id, "bridge:r:320", "seq 大者必须最后（用户看到的「后发的跑到前面」回归位）")
+    }
+
+    /// 判据 3：同 seq 的 reply:0/reply:1 保持原相对顺序，不许交换。
+    func testEqualSeqKeepsOriginalRelativeOrder() {
+        let gateway = [bubble("s-1", "assistant", "锚", 10, 1000)]
+        let bridge = [
+            bubble("bridge:r:20:reply:0", "assistant", "第一条", 20, 2000, "A"),
+            bubble("bridge:r:20:reply:1", "assistant", "第二条", 20, 2000, "B"),
+        ]
+        let result = RoomChatMergePlan.merge(gateway: gateway, bridge: bridge, sessionId: "r")
+        XCTAssertEqual(result.merged.map(\.id), ["s-1", "bridge:r:20:reply:0", "bridge:r:20:reply:1"],
+            "同 seq 必须稳定（reply:0 在 reply:1 前）")
+    }
+
+    /// 判据 4：无 seq 的项殿后，组内保持相对顺序；withoutSeq 口径不变。
+    func testSeqLessItemsGoLastKeepingRelativeOrder() {
+        let gateway = [
+            bubble("s-5", "assistant", "有seq", 5, 1000),
+            // id 不能带数字尾巴：seqFromGatewayID 会从 id 末段拆出 seq（"no-seq-1" ⇒ 1）
+            bubble("no-seq-anchor", "assistant", "无seq一", nil, 3000),
+        ]
+        let bridge = [bubble("bridge:r:30", "assistant", "三十", 30, 2000, "B")]
+        let result = RoomChatMergePlan.merge(gateway: gateway, bridge: bridge, sessionId: "r")
+        XCTAssertEqual(result.merged.map(\.id), ["s-5", "bridge:r:30", "no-seq-anchor"],
+            "有 seq 按 seq；无 seq 殿后且相对顺序稳定")
+        XCTAssertEqual(result.withoutSeq, ["no-seq-anchor"], "withoutSeq 日志口径不变")
+    }
+
+    /// 判据 2（反向对照）：extra 为空时输出必须逐字节等于 gateway（既有 guard 行为不许变）。
+    func testEmptyExtraReturnsGatewayVerbatim() {
+        let gateway = [
+            bubble("s-9", "assistant", "九", 9, 900),
+            bubble("s-2", "assistant", "二", 2, 200),
+        ]
+        let result = RoomChatMergePlan.merge(gateway: gateway, bridge: [], sessionId: "r")
+        XCTAssertEqual(result.merged.map(\.id), gateway.map(\.id),
+            "extra 为空 ⇒ 原样返回（guard 行为不变，不做排序）")
     }
 }
