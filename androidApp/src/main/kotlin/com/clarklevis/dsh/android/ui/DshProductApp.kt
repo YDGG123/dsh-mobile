@@ -352,8 +352,6 @@ internal fun WorkspaceScreen(
         buildMap { workspaces.forEach { ws -> ws.sessionIds.forEach { sid -> put(sid, ws.title) } } }
     }
     val showingAllWorkspaces = stateHolder.selectedWorkspaceId == AndroidSharedStateHolder.ALL_WORKSPACES_ID
-    // A1 §1.6 段头右侧「全部 N 个」：iOS sessionsHeader 的可点链接，展开最近会话列表（默认 12 行）
-    var sessionsExpanded by rememberSaveable { mutableStateOf(false) }
     val ungroupedSelected = stateHolder.isUngroupedWorkspaceSelected
     val sessions = remember(
         stateHolder.snapshot.sessions,
@@ -493,30 +491,10 @@ internal fun WorkspaceScreen(
                             }
                         },
                         recentSessions = {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                // A1 §1.6 段头：「最近会话」11pt semibold ink(0.55)（iOS sessionsHeader :1254）
-                                Text(appText("最近会话"), color = homeInk(0.55f), fontWeight = FontWeight.SemiBold, fontSize = 11.sp)
-                                Spacer(Modifier.weight(1f))
-                                // 连接状态在 §1.4 网关行里已有；段头右侧按 iOS 换成「全部 N 个」+ chevron
-                                Row(
-                                    Modifier.clickable(role = Role.Button) { sessionsExpanded = true }
-                                        .testTag("sessions-show-all"),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    Text(
-                                        appText("全部 %1\$s 个", sessions.size),
-                                        color = homeInk(0.4f), // iOS ink(0.40)
-                                        fontSize = 11.sp
-                                    )
-                                    Image(
-                                        painter = painterResource(R.drawable.ic_chevron_right),
-                                        contentDescription = null,
-                                        colorFilter = ColorFilter.tint(homeInk(0.4f)),
-                                        modifier = Modifier.size(11.dp)
-                                    )
-                                }
-                            }
+                            // 75②（2026-11-03 用户定）：取消「全部 N 个」折叠开关——同工作区会话**全列**，
+                            // 不再有"展开"这一步；段头只剩「最近会话」标题。
+                            // 安全上限：固定 500（防极端会话数卡死），只截断、**不出现任何折叠提示**。
+                            Text(appText("最近会话"), color = homeInk(0.55f), fontWeight = FontWeight.SemiBold, fontSize = 11.sp)
                             LocalChatSearchContent(stateHolder, searchQuery, { searchQuery = it }, onOpenSession)
                             if (sessions.isEmpty()) EmptySessions()
                             else SessionList(sessions, { id ->
@@ -525,7 +503,7 @@ internal fun WorkspaceScreen(
                                 onOpenSession(id)
                             }, stateHolder::renameSession, stateHolder::archiveSession,
                                 folderLabels = sessionFolderLabels,
-                                maxRows = if (showingAllWorkspaces || sessionsExpanded) 200 else 12)
+                                maxRows = 500)
                             Spacer(Modifier.height(24.dp))
                         }
                     )
