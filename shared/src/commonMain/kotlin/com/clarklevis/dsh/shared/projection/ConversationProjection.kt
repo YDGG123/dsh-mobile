@@ -142,7 +142,23 @@ class ConversationProjector(
     // 事件，注入仍以 CONTEXT 节点保留（对话页不显示、轨迹页照常，Chief 判据）。
     // 与 internalTools 同一机制——按 kind 判，不按文本判（"Repeated tool call detected" 这串字
     // 可能出现在正常对话里）。黑名单制：不在名单里的 kind 照旧走原分支（fail-open 同向）。
-    private val internalSourceKinds = setOf("repeat-tool-reminder", "runtime-context", "time-context")
+    // 78（2026-11-03）：宿主注入给模型的上下文家族一次补全——每个都真实出现过/必然出现，
+    // 只修一个下一个又会冒出来（dsh-mnemon 84 条实证：iOSCoder 20:15 真会话统计）。
+    // 按 source.kind 判，不按文本判；轨迹页不受影响（消费原始事件）。
+    private val internalSourceKinds = setOf(
+        "repeat-tool-reminder",
+        "runtime-context",
+        "time-context",
+        "dsh-mnemon",
+        "ds-bot-time-context",
+        "plugin:hindsight",
+        "skill-catalog",
+        "tool-jobs",
+        "model-selection",
+        "agent-instructions",
+        "session-reference",
+        "compact-checkpoint",
+    )
     // callId → 工具名：tool/result 不带 name，判定「是不是内部工具」必须靠 call 帧登记。
     // 有上限防爆表：超过就把较早的一半丢掉（call 帧与其 result 几乎总是相邻到达）。
     private val toolCallNames = linkedMapOf<String, String>()
