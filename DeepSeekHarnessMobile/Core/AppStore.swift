@@ -1488,7 +1488,14 @@ final class AppStore: ObservableObject {
     ///   ⇒ 图省事全传同一个 stamp，会让每次附件解码都补发一次准入事件（修 A 坏 B）。
     private func publishMergedTimeline(for sessionId: String, stamp: HistoryPresentationStamp? = nil) {
         guard let timeline = conversationTimelines[sessionId] else { return }
-        timeline.publish(mergedConversationItems(for: sessionId), historyPresentationStamp: stamp)
+        let merged = mergedConversationItems(for: sessionId)
+        // 75 抖动修复（判据：静止且无新数据 ⇒ 不得整份重推）：合流结果与上次发布**逐项相等**时跳过。
+        // publish 本身没有短路（无条件 revision+1 + 通知全部观察者），room 的 WS 帧 + 8s 轮询
+        // 在活跃群里几乎每次到达都重算重推——这就是用户报的「静止也抖 2-3 秒」的直接来源。
+        // `stamp == nil` 才短路：publish 对 nil stamp 是粘性（不更新 = 状态等价）；带 stamp 的
+        // 调用不跳（历史准入事件依赖 publish 发出）。
+        if stamp == nil, timeline.currentSnapshot.items == merged { return }
+        timeline.publish(merged, historyPresentationStamp: stamp)
         // 固定 ASCII 标记（≥16 字节）：build 72 的树标记（71 里为 0）。
         Self.roomChatLog.notice("roomchat-timeline-outlet session=\(sessionId, privacy: .public)")
     }
