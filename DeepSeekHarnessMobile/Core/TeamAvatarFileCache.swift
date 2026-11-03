@@ -146,6 +146,13 @@ final class TeamAvatarFileCache {
     func prune(keeping hashes: Set<String>) {
         queue.sync {
             ensureDirectory()
+            // **空集合 = 本次快照没带图**（delta/快照帧不带图是常态），它证明不了
+            // 「这些文件没人引用」——直接跳过。空集 prune 会把文件全删光，
+            // 用户看到的就是「切后台回来头像全空」（2026-11-03 真机报）。
+            guard !hashes.isEmpty else {
+                Self.log.notice("avatar cache prune skipped: keep-set empty (snapshot carried no image hashes)")
+                return
+            }
             var removed = 0
             var keptBytes = 0
             var keptFiles = 0

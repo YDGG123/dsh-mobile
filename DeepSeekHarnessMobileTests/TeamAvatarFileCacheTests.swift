@@ -243,4 +243,16 @@ final class TeamAvatarFileCacheTests: XCTestCase {
         XCTAssertTrue(TeamAvatarFileCache.shared.contains(hashA))
         XCTAssertFalse(TeamAvatarFileCache.shared.contains(hashB), "名册里已经没有的 Bot，头像文件必须被清掉")
     }
+
+    /// **空 keep-set 必须跳过剪枝**（2026-11-03 真机：切后台回来头像全空）。
+    /// 本次快照没带图 ≠「没人引用」——delta/快照帧不带图是常态。
+    /// 反向对照就是上一条用例：同一实现 `prune(keeping:[kept])` 能把 stale 删掉 ⇒ 用例抓得住。
+    func testPruneWithEmptyKeepSetDeletesNothing() throws {
+        let a = try XCTUnwrap(cache.store(imageData: samplePNG(9)))
+        let b = try XCTUnwrap(cache.store(imageData: samplePNG(10)))
+        cache.prune(keeping: [])
+        XCTAssertTrue(cache.contains(a), "空 keep-set 必须跳过剪枝，一个文件都不能删")
+        XCTAssertTrue(cache.contains(b))
+        XCTAssertEqual(cache.cachedFileCount(), 2)
+    }
 }

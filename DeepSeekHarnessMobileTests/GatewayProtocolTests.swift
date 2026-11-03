@@ -14949,3 +14949,52 @@ final class BridgeCardStaleRemovalTests: XCTestCase {
         XCTAssertEqual(store.bridgePendingQuestions.count, 1, "别的卡的 stale 不误伤本卡")
     }
 }
+
+/// **头像不丢**（2026-11-03 用户报「切后台回来头像全空」，登记表 #19）三层一起钉：
+/// delta 只带 shape ⇒ 行保留图；整表快照不带图 ⇒ 从旧行带过来；
+/// 文件剪枝空集跳过（那条在 `TeamAvatarFileCacheTests`）。
+/// 缓存回写 imageHash 的那一行是代码级（applySnapshot 内部变异，测试拿不到副本），如实标注。
+@MainActor
+final class TeamAvatarPersistenceTests: XCTestCase {
+
+    private let avatarURL = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUg=="
+
+    private func botRaw(image: String?, id: String = "b1") -> [String: Any] {
+        var avatar: [String: Any] = ["shape": "whale"]
+        if let image { avatar["image"] = image }
+        return ["id": id, "kind": "bot", "name": "Chief", "sessionId": "s1", "avatar": avatar]
+    }
+
+    /// delta `bot.update` 的实体只带 shape（图在更早的帧里）⇒ 行必须保留图。
+    /// 反向：删掉 update 分支里「实体没带图就沿用旧行」那段 → 本条变红。
+    func testShapeOnlyUpdateKeepsAvatarImage() {
+        let feed = GatewayTeamFeed()
+        feed.applySnapshot(["instanceId": "i1", "seq": 1, "bots": [botRaw(image: avatarURL)]])
+        XCTAssertEqual(feed.rows.first?.avatarImage, avatarURL)
+
+        feed.applyDelta(["instanceId": "i1", "base": 1, "seq": 2,
+                         "ops": [["op": "bot.update", "id": "b1",
+                                  "entity": botRaw(image: nil)]]])
+        XCTAssertEqual(feed.rows.first?.avatarImage, avatarURL, "shape-only update 不得把图清掉")
+        // hash 的断言放在缓存往返用例里（TeamAvatarFileCacheTests）：live 路径的行只带 data URL，
+        // 哈希由 trimEntity 落盘时计算（makeRow 不算），这里断言它会得到假红。
+    }
+
+    /// 整表快照不带图 ⇒ 从旧行按 id 带过来（内存层）。缺图的那次快照本身也要能解析。
+    func testImageLessFullSnapshotCarriesOverAvatarFromPreviousRows() {
+        let feed = GatewayTeamFeed()
+        feed.applySnapshot(["instanceId": "i1", "seq": 1, "bots": [botRaw(image: avatarURL)]])
+        feed.applySnapshot(["instanceId": "i1", "seq": 2, "bots": [botRaw(image: nil)]])
+        XCTAssertEqual(feed.rows.first?.avatarImage, avatarURL, "快照不带图 ≠ 头像没了")
+    }
+
+    /// 真的换了图（新 data URL）⇒ 必须换成新的，不能被「保留旧图」挡住（防保留逻辑过宽）。
+    func testChangedImageStillReplaces() {
+        let feed = GatewayTeamFeed()
+        let old = "data:image/png;base64,iVBORw0KGgoAAAAB="
+        let new = "data:image/png;base64,iVBORw0KGgoAAAAC="
+        feed.applySnapshot(["instanceId": "i1", "seq": 1, "bots": [botRaw(image: old)]])
+        feed.applySnapshot(["instanceId": "i1", "seq": 2, "bots": [botRaw(image: new)]])
+        XCTAssertEqual(feed.rows.first?.avatarImage, new)
+    }
+}

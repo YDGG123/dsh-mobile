@@ -749,6 +749,14 @@ final class GatewayTeamFeed: ObservableObject {
                 if hash != nil, hash == rows[position].avatarImageHash, rows[position].avatarShape == shape {
                     continue
                 }
+                // **本帧没带图 ≠ 头像没了**（2026-11-03 用户报：切后台回来头像全空）：
+                // delta 帧的 avatar 可能只带 shape（图在更早的帧里发过一次）。
+                // 行里已有图时必须**保留**，只更新 shape——否则内存行丢图，
+                // 下一次缓存落盘把 imageHash 写丢，剪枝/冷启动两层跟着丢头像。
+                if image == nil, rows[position].avatarImage != nil || rows[position].avatarImageHash != nil {
+                    if shape != nil { rows[position].avatarShape = shape }
+                    continue
+                }
                 rows[position].avatarShape = shape
                 rows[position].avatarImage = image
                 rows[position].avatarImageHash = hash
@@ -763,7 +771,10 @@ final class GatewayTeamFeed: ObservableObject {
         objectWillChange.send()
     }
 
-    private func applySnapshot(_ object: [String: Any]) {
+    /// internal 仅为接线测试（与 applyOrder 同一理由：private 用例测不到「接线漏没漏」）。
+    func applySnapshot(_ object: [String: Any]) {
+        // 参数是值类型：函数内做「带图保底」要改本地副本（object 会被写进 lastSnapshotObject/缓存）。
+        var object = object
         let frameInstance = object["instanceId"] as? String ?? instanceId
         instanceId = frameInstance
         mainBotIds = (object["mainBotIds"] as? [String]) ?? []
@@ -771,12 +782,35 @@ final class GatewayTeamFeed: ObservableObject {
         degraded = object["degraded"] as? Bool == true
         seq = (object["seq"] as? NSNumber)?.intValue ?? 0
         var next: [Row] = []
-        for raw in (object["bots"] as? [[String: Any]]) ?? [] {
-            if let row = row(from: raw, kind: .bot) { next.append(row) }
+        // **整表快照不带图 ≠ 头像没了**（2026-11-03 用户报：切后台回来头像全空）。
+        // ds-bot 后续快照的 avatar 可能只带 shape（图只在更早的帧里发过一次）：
+        // 新行缺图时从旧行按 id 带过来，否则三层兜底走到 shape/符号层，
+        // 且缓存落盘丢 imageHash ⇒ 剪枝/冷启动两层跟着丢。
+        var previousByID: [String: Row] = [:]
+        for old in rows { previousByID[old.id] = old }
+        var botRaws = (object["bots"] as? [[String: Any]]) ?? []
+        var didCarryOverImage = false
+        for rawIndex in botRaws.indices {
+            guard var row = row(from: botRaws[rawIndex], kind: .bot) else { continue }
+            if row.avatarImage == nil, row.avatarImageHash == nil,
+               let old = previousByID[row.id],
+               old.avatarImage != nil || old.avatarImageHash != nil {
+                row.avatarImage = old.avatarImage
+                row.avatarImageHash = old.avatarImageHash
+                // 回写进快照对象：缓存 JSON 里必须留 imageHash（冷启动水合靠它找到磁盘文件）。
+                if var avatar = botRaws[rawIndex]["avatar"] as? [String: Any] {
+                    if let hash = row.avatarImageHash { avatar["imageHash"] = hash }
+                    if row.avatarImage != nil { avatar["hasImage"] = true }
+                    botRaws[rawIndex]["avatar"] = avatar
+                    didCarryOverImage = true
+                }
+            }
+            next.append(row)
         }
         for raw in (object["rooms"] as? [[String: Any]]) ?? [] {
             if let row = row(from: raw, kind: .room) { next.append(row) }
         }
+        if didCarryOverImage { object["bots"] = botRaws }
         rows = next
         // 诊断（Release 保留）：下一次同类问题不用再猜是「没收到快照」还是「快照是空的」。
         Self.chunkLog.notice("snapshot rows=\(next.count, privacy: .public) bots=\((object["bots"] as? [[String: Any]])?.count ?? -1, privacy: .public) rooms=\((object["rooms"] as? [[String: Any]])?.count ?? -1, privacy: .public) instance=\(frameInstance, privacy: .public) seq=\(self.seq, privacy: .public)")
@@ -1012,7 +1046,8 @@ final class GatewayTeamFeed: ObservableObject {
         }
     }
 
-    private func applyDelta(_ object: [String: Any]) {
+    /// internal 仅为接线测试（与 applyOrder 同一理由）。
+    func applyDelta(_ object: [String: Any]) {
         let frameInstance = object["instanceId"] as? String ?? instanceId
         if !instanceId.isEmpty, frameInstance != instanceId {
             // host 重启：seq 空间重来，必须重取快照（契约 §6）。
@@ -1063,6 +1098,13 @@ final class GatewayTeamFeed: ObservableObject {
                     }
                     row.placeholderCards = existing.placeholderCards
                     row.parts = row.parts ?? existing.parts
+                    // **实体没带图 ≠ 头像没了**：update 实体的 avatar 可能只带 shape；
+                    // 行里已有图时必须保留，否则内存行丢图、缓存落盘丢 imageHash
+                    // ⇒ 剪枝/冷启动两层跟着丢头像（2026-11-03 用户报「切后台回来头像全空」同族）。
+                    if row.avatarImage == nil, row.avatarImageHash == nil {
+                        row.avatarImage = existing.avatarImage
+                        row.avatarImageHash = existing.avatarImageHash
+                    }
                 }
                 if table[row.id] == nil { order.append(row.id) }
                 table[row.id] = row
