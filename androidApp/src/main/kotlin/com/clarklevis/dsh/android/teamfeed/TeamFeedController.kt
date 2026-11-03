@@ -48,7 +48,14 @@ class TeamFeedController(
 
     fun start(newEndpoint: String, newToken: String) {
         stopped = false
-        if (endpoint == newEndpoint && token == newToken && connectJob != null) return
+        if (endpoint == newEndpoint && token == newToken && connectJob?.isActive == true) return
+        if (endpoint != newEndpoint || token != newToken) {
+            // 端点/token 变了（init 默认值 → preferences 真值）：断开旧 socket、撤旧重连，
+            // 否则旧连接与重连循环永远指着 127.0.0.1（vc56 真机「Bot 页全空闲」的根因）。
+            connectJob?.cancel()
+            connectJob = null
+            transport.disconnect()
+        }
         endpoint = newEndpoint
         token = newToken
         connect()

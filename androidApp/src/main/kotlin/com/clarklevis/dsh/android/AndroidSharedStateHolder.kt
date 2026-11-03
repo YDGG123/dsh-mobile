@@ -2862,6 +2862,7 @@ class AndroidSharedStateHolder(
     init {
         graph?.let { appGraph ->
             bridgeTeam?.apply {
+                android.util.Log.i("GatewayEndpoint", "init: endpoint=$endpoint (默认值，真实地址走 preferences 异步)")
                 updateGatewayEndpoint(endpoint)
                 // 落盘会话存在则直接进入 8s 轮询；没有则等 paired 帧下发 bridgeSession。
                 start()
@@ -2902,6 +2903,7 @@ class AndroidSharedStateHolder(
                     appGraph.preferences.snapshots.collect { value ->
                         withContext(Dispatchers.Main.immediate) {
                             endpoint = value.endpoint
+                            android.util.Log.i("GatewayEndpoint", "preferences: endpoint=${value.endpoint}")
                             bridgeTeam?.updateGatewayEndpoint(value.endpoint)
                             if (!workspaceSelectedByUser) selectedWorkspaceId = value.selectedWorkspaceId ?: selectedWorkspaceId
                             workspacePreferenceLoaded = true

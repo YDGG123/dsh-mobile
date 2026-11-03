@@ -153,9 +153,15 @@ internal fun BotTeamScreen(
     LaunchedEffect(adapter) {
         adapter?.start()
         adapter?.refreshNow()
-        // D1 段 5 诊断（Chief 21:1x 派查：feed 疑似首组合时 origin/token 未就绪 ⇒ 永不连接）。
+        // D1 段 5 诊断（Chief 21:1x 派查）：init 时的 endpoint 是默认值（127.0.0.1），
+        // 真实地址走 preferences 异步（GatewayEndpoint 两条日志可证）——feed 启动改由 origin 变化驱动。
         adapter?.logFeedStartupState() // 只打事实，不改行为
-        adapter?.ensureTeamFeedStarted() // D1 段 5：feed WS（幂等；token 刷新后重连自动带新 token）
+    }
+    // D1 段 5 修复（Chief 21:1x 定案）：**origin 变化时启动/重启 feed**——
+    // 真实网关地址异步到达后这里再触发一次，controller 检测端点变化会断开旧连接换新端点。
+    LaunchedEffect(adapter?.origin) {
+        adapter?.logFeedStartupState()
+        adapter?.ensureTeamFeedStarted()
         adapter?.logFeedStartupState()
     }
     LaunchedEffect(bots) {
