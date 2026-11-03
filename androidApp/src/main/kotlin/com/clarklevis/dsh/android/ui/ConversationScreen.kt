@@ -2085,7 +2085,8 @@ private fun PeerMessageRow(entry: ConversationTimelineEntry.PeerMessage) {
         DshMarkdownText(
             markdown = entry.text,
             modifier = Modifier.fillMaxWidth(),
-            compact = true // 14sp，贴近原 15sp/21sp 行高的群聊密度
+            compact = true, // 14sp，贴近原 15sp/21sp 行高的群聊密度
+            opaqueText = true, // 15:3x 复核：compact 的 0.68 灰调不要——字号与色调必须解耦
         )
     }
 }

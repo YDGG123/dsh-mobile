@@ -217,11 +217,23 @@ internal fun dshMarkdownPalette(compact: Boolean): DshMarkdownPalette {
 internal fun DshMarkdownText(
     markdown: String,
     modifier: Modifier = Modifier,
-    compact: Boolean = false
+    compact: Boolean = false,
+    /**
+     * 全不透明正文（75③ 复核）：compact 原本把「字号 14sp」和「色调 0.68」绑在一起，
+     * 群聊气泡只要字号不要灰调——传 true 解耦。**新代码不要再用 compact 顺带压色调**。
+     */
+    opaqueText: Boolean = false,
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current
-    val palette = dshMarkdownPalette(compact)
+    val palette = dshMarkdownPalette(compact).let {
+        if (opaqueText) it.copy(textColor = android.graphics.Color.argb(
+            255,
+            android.graphics.Color.red(it.textColor),
+            android.graphics.Color.green(it.textColor),
+            android.graphics.Color.blue(it.textColor),
+        )) else it
+    }
     val markwon = remember(context.applicationContext, palette) {
         DshMarkdownTextApplier.get(context.applicationContext, palette)
     }

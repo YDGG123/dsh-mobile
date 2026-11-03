@@ -500,23 +500,24 @@ private fun RoomRow(row: BridgeConversationRow, bots: List<BridgeConversationRow
             // 堆叠框高**固定 38dp**（iOS `gatewayAvatar` 的 `.frame(height: size)`，TeamView 同参）：
             // 27dp 的成员头像在其中垂直居中——之前内层 Row 是 wrap-content（27dp），
             // 比 Bot 行的 38dp 头像矮 11dp，与名字行/相邻行都错位（用户 2026-11-03 vc53 验收反馈）。
-            Row(
-                Modifier.width(38.dp + (stack.size - 1).dp * 16f)
-                    .height(38.dp)
-                    .testTag("bot-member-stack"),
-                verticalAlignment = Alignment.CenterVertically
+            val (stackWidthDp, offsets) = RoomStackGeometry.layout(stack.size)
+            Box(
+                Modifier.width(stackWidthDp.dp)
+                    .height(RoomStackGeometry.CONTAINER_HEIGHT_DP.dp)
+                    .testTag("bot-member-stack")
             ) {
                 stack.forEachIndexed { index, member ->
                     RosterAvatar(
                         name = member.name,
                         rowColor = member.color,
                         avatar = member.avatar,
-                        size = 27,
+                        size = RoomStackGeometry.AVATAR_SIZE_DP,
                         rowImageHash = member.avatarImageHash, // 38 × 0.72
                         botId = member.id,
                         stroke = 1.5.dp,
                         modifier = Modifier
-                            .offset(x = (16 * index).dp)
+                            .align(Alignment.CenterStart) // 同一起点（iOS ZStack leading）
+                            .offset(x = offsets[index].dp)
                             .zIndex((3 - index).toFloat())
                     )
                 }

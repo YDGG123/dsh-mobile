@@ -22,8 +22,8 @@ android {
         applicationId = "com.clarklevis.dsh.android"
         minSdk = 24
         targetSdk = 36
-        versionCode = 54 // 本批（vc54：②群聊成员头像堆叠错位 6520ebe；③群聊气泡接上 Markdown 修 bot 粗体 6a8ec9a；共享层 a8230c0 time-context/runtime-context 英文不再进对话页——vc53 漏带，本批自动带上）；53 为上一批
-        versionName = "1.7.17"
+        versionCode = 55 // 本批（vc55 复核两修：①群聊 Markdown 灰调解耦——compact 只管字号、opaqueText 全不透明；②群聊头像堆叠改 Box+CenterStart 同起点，落点 0/16/32 对齐 iOS ZStack，修「Row 排位+offset 叠加」的 0/43/86 溢出）；54 为上一批
+        versionName = "1.7.18"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
