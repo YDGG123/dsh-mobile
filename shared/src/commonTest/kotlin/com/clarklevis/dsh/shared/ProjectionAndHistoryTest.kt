@@ -174,3 +174,62 @@ class ProjectionAndHistoryTest {
     private fun event(sequence: Int, gatewayEvent: GatewayEvent) =
         SessionEvent("s1", sequence, sequence.toDouble(), gatewayEvent)
 }
+
+/// 内部工具白名单（2026-11-03 用户报「群聊出现 {} / {"replies":[]} 裸 JSON」，登记表 #20）。
+/// 口径与网关 `projection.mjs:4/:104` 同源：INTERNAL_TOOLS 的 call/result 一行都不生成；
+/// 正常工具（bash/run_code）**一行都不能少**；callId 未登记 ⇒ fail-open。
+/// 反向：删掉 `tool/call`/`tool/result` 分支里的 `internalTools` 判定 → 本组必红。
+class InternalToolProjectionTest {
+    private fun event(seq: Int, e: GatewayEvent) = SessionEvent("s1", seq, seq.toDouble(), e)
+
+    @Test
+    fun groupRelayCallAndResultProduceNoItems() {
+        val projector = ConversationProjector()
+        projector.fold(
+            listOf(
+                event(1, GatewayEvent("tool/call", callId = "c1", name = "group_relay",
+                                      arguments = JsonValue.ObjectValue(emptyMap()))),
+                event(2, GatewayEvent("tool/result", callId = "c1",
+                                      output = "{\"replies\":[],\"passed\":[]}")),
+            )
+        )
+        assertTrue(projector.items.isEmpty(), "group_relay 的 call/result 一行都不出现（改前必红）")
+    }
+
+    @Test
+    fun normalToolsAreNotCollaterallyFiltered() {
+        val projector = ConversationProjector()
+        projector.fold(
+            listOf(
+                event(1, GatewayEvent("tool/call", callId = "c1", name = "bash",
+                                      arguments = JsonValue.ObjectValue(mapOf("cmd" to JsonValue.StringValue("pwd"))))),
+                event(2, GatewayEvent("tool/result", callId = "c1", output = "/home")),
+                event(3, GatewayEvent("tool/call", callId = "c2", name = "run_code",
+                                      arguments = JsonValue.ObjectValue(emptyMap()))),
+                event(4, GatewayEvent("tool/result", callId = "c2", output = "ok")),
+            )
+        )
+        assertEquals(4, projector.items.size, "正常工具的 call/result 一条都不能少（不许误伤）")
+        assertEquals("bash", projector.items[0].title)
+        assertEquals(ConversationItemKind.TOOL, projector.items[0].kind)
+        assertEquals(ConversationItemKind.JSON_TOOL, projector.items[2].kind)
+        assertFalse(projector.items.joinToString("|") { it.text }.contains("group_relay"))
+    }
+
+    @Test
+    fun resultWithoutRegisteredCallFailsOpen() {
+        val projector = ConversationProjector()
+        projector.fold(listOf(event(1, GatewayEvent("tool/result", output = "/home"))))
+        assertEquals(1, projector.items.size, "callId 未登记（旧网关/缺 call 帧）⇒ fail-open，别误伤")
+    }
+
+    @Test
+    fun caseInsensitiveMatchAndReset() {
+        val projector = ConversationProjector()
+        projector.fold(listOf(event(1, GatewayEvent("tool/call", callId = "c1", name = "Group_Relay"))))
+        assertTrue(projector.items.isEmpty(), "大小写不敏感（与 run_code 判定同式）")
+        projector.reset()
+        projector.fold(listOf(event(2, GatewayEvent("tool/result", callId = "c9", output = "x"))))
+        assertEquals(1, projector.items.size, "reset 后登记表清空 ⇒ fail-open（不能跨会话残留）")
+    }
+}
