@@ -111,6 +111,7 @@ class TeamFeedController(
             is TeamFeedFrame.Ready -> {
                 phase = Phase.LIVE
                 attempt = 0
+                android.util.Log.i("TeamFeedController", "feed ready: phase=LIVE (type==\"ready\" dispatch)")
             }
             is TeamFeedFrame.Error -> android.util.Log.w(
                 "TeamFeedController",
