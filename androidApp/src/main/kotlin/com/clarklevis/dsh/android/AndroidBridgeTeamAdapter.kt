@@ -156,9 +156,24 @@ internal class AndroidBridgeTeamAdapter(
     /** D1 段 5：feed 控制器（adapter 单例一份，Bot 页/team sheet 多个实例共享同一条 WS）。 */
     val teamFeed by lazy { com.clarklevis.dsh.android.teamfeed.TeamFeedController(scope) }
 
-    /** feed 未连/断线时由 UI 层调；幂等（同端点+token 不重复连接）。 */
-    fun ensureTeamFeedStarted() {
-        feedConnection()?.let { (ep, tk) -> teamFeed.start(ep, tk) }
+    /** feed 未连/断线时由 UI 层调；幂等（同端点+token 不重复连接）。返回是否真的发起了连接。 */
+    fun ensureTeamFeedStarted(): Boolean {
+        val connection = feedConnection()
+        val started = connection != null
+        Log.i(TAG, "teamFeed ensure: connection=" + (if (connection != null) "ok" else "null") +
+            " origin=" + (origin ?: "null") +
+            " token=" + if (store.currentAccessToken() != null) "present" else "null" +
+            " phase=" + teamFeed.phase)
+        connection?.let { (ep, tk) -> teamFeed.start(ep, tk) }
+        return started
+    }
+
+    /** 诊断专用（21:1x 派查）：把 feed 启动前的事实打出来——origin/token/phase，不改任何行为。 */
+    fun logFeedStartupState() {
+        Log.i(TAG, "teamFeed state: origin=" + (origin ?: "null") +
+            " token=" + if (store.currentAccessToken() != null) "present" else "null" +
+            " phase=" + teamFeed.phase +
+            " endpointSet=" + (origin != null))
     }
 
     fun feedConnection(): Pair<String, String>? {

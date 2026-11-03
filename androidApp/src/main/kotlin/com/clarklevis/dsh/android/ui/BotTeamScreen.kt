@@ -153,7 +153,10 @@ internal fun BotTeamScreen(
     LaunchedEffect(adapter) {
         adapter?.start()
         adapter?.refreshNow()
+        // D1 段 5 诊断（Chief 21:1x 派查：feed 疑似首组合时 origin/token 未就绪 ⇒ 永不连接）。
+        adapter?.logFeedStartupState() // 只打事实，不改行为
         adapter?.ensureTeamFeedStarted() // D1 段 5：feed WS（幂等；token 刷新后重连自动带新 token）
+        adapter?.logFeedStartupState()
     }
     LaunchedEffect(bots) {
         // prune 的 keeping 集合先由**全部行**喂（hash-only 帧也要注册），再做差集删除——
