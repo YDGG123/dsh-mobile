@@ -149,12 +149,14 @@ class RoomRelaySenderNameTest {
         // 2026-11-03 起 room 会话的工具行（全部是 group_relay：108 call + 107 result）按网关
         // projection.mjs:104 同口径整类去掉 ⇒ 总数 330 → 115（ASSISTANT 106 / CONTEXT 8 / USER 1）；
         // 75① 内部提醒（repeat-tool-reminder，fixture 里恰 2 条 user/message）再不出行 ⇒ 115 → 113；
-        // 76③ time-context（fixture 里恰 5 条 user/message）再不出行 ⇒ 113 → 108。
+        // 76③ time-context（fixture 里恰 5 条 user/message）再不出行 ⇒ 113 → 108；
+        // 78 记忆注入家族（dsh-mnemon，fixture 里恰 1 条 user/message——seq 26003，用户截图实体）
+        // 再不出行 ⇒ 108 → 107，CONTEXT 归零（iOSCoder 20:15 实证该条真在 fixture）。
         // 「正常工具不被误伤」的判据在 `InternalToolProjectionTest`（合成 bash/run_code，room 里没有）。
-        assertEquals(108, items.size, "真数据投影条目总数变了（某类目消失或被重复产出）")
+        assertEquals(107, items.size, "真数据投影条目总数变了（某类目消失或被重复产出）")
         assertEquals(0, byKind[ConversationItemKind.TOOL] ?: 0, "room 会话不该再有 group_relay 工具行")
         assertEquals(0, byKind[ConversationItemKind.TOOL_RESULT] ?: 0, "room 会话不该再有 group_relay 结果行")
-        assertEquals(1, byKind[ConversationItemKind.CONTEXT] ?: 0,
+        assertEquals(0, byKind[ConversationItemKind.CONTEXT] ?: 0,
             "CONTEXT 条数变了：变少=新分支把系统提示也当成 Bot 发言吞了；变多=relay 判定退化或提醒没拦住")
         assertEquals(1, byKind[ConversationItemKind.USER] ?: 0, "用户自己发的条目数变了")
         // ASSISTANT **总数**必须恰好等于 relay 数：多出来的都是「无名 ASSISTANT」，
