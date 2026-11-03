@@ -66,6 +66,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.clarklevis.dsh.android.AndroidBridgeTeamAdapter
 import com.clarklevis.dsh.android.R
+import com.clarklevis.dsh.android.teamfeed.TeamFeedController
 import com.clarklevis.dsh.android.platform.BotAvatarFileCache
 import android.widget.Toast
 import com.clarklevis.dsh.android.localization.appText
@@ -137,6 +138,18 @@ internal fun BotTeamScreen(
     val sessions = state?.sessions.orEmpty()
     val mainBotIds = state?.mainBotIds.orEmpty()
     val cards = adapter?.pendingCards.orEmpty()
+    // D1 段 5：feed 状态（adapter 单例控制器）。LIVE 且非降级才允许 overlay（纯函数判定）。
+    val feed = adapter?.teamFeed
+    // 控制器 Phase → overlay 枚举（两套枚举解耦：控制器归 transport，映射归 UI）。
+    val feedPhase = when (feed?.phase) {
+        TeamFeedController.Phase.LIVE -> TeamFeedPhase.LIVE
+        TeamFeedController.Phase.CONNECTING -> TeamFeedPhase.CONNECTING
+        TeamFeedController.Phase.OFFLINE -> TeamFeedPhase.OFFLINE
+        null, TeamFeedController.Phase.IDLE -> TeamFeedPhase.IDLE
+    }
+    val feedOverlayOn = TeamFeedOverlay.overlayActive(feedPhase, feed?.state?.degraded ?: false)
+    val feedRowsById = if (feedOverlayOn) overlayRowsByFeedId(feed!!.state) else emptyMap()
+    val feedDegraded = feedPhase == TeamFeedPhase.LIVE && feed?.state?.degraded == true
     // 「团队」入口（用户 2026-11-02 指出 iOS 有、Android 没有）：点开 = 底部弹出**完整 Bot 列表**
     // （iOS 是 `.sheet` 里的 `TeamView`，`WorkspaceView.swift:189-199`），内容就是本页同一套渲染。
     var showTeamSheet by rememberSaveable { mutableStateOf(false) }
@@ -147,6 +160,7 @@ internal fun BotTeamScreen(
     LaunchedEffect(adapter) {
         adapter?.start()
         adapter?.refreshNow()
+        adapter?.ensureTeamFeedStarted() // D1 段 5：feed WS（幂等；token 刷新后重连自动带新 token）
     }
     LaunchedEffect(bots) {
         // prune 的 keeping 集合先由**全部行**喂（hash-only 帧也要注册），再做差集删除——
@@ -277,10 +291,26 @@ internal fun BotTeamScreen(
             }
             // ④ 单一分组「Agent」（iOS gatewayTeamSection 按 kind 分组：bot → Agent，room → 群聊）。
             item { SectionTitle(appText("Agent")) }
+            if (feedDegraded) {
+                item {
+                    // degraded 横幅：**逐字**对齐 iOS WorkspaceView:583（不自编）——
+                    // 降级时易变数据不可信，绝不渲染成「全部空闲」。
+                    Text(
+                        TeamFeedOverlay.DEGRADED_BANNER,
+                        color = homeInk(0.6f),
+                        fontSize = 12.sp,
+                        modifier = Modifier.fillMaxWidth()
+                            .background(homeSurface(0.05f), RoundedCornerShape(12.dp))
+                            .padding(12.dp)
+                            .testTag("team-feed-degraded-banner")
+                    )
+                }
+            }
             if (filteredBots.isEmpty()) {
                 item { EmptyRosterRow(appText("暂无 Bot")) }
             } else {
                 items(filteredBots, key = { it.id }) { row ->
+                    val feedRow = feedRowsById[row.id]
                     BotRow(
                         row = row,
                         isMain = mainBotIds.contains(row.id),
@@ -288,6 +318,9 @@ internal fun BotTeamScreen(
                             cards.any { it.owner == row.id },
                         cardPrompt = cards.firstOrNull { it.owner == row.id }
                             ?.prompt?.takeIf(String::isNotBlank),
+                        feedActivity = feedRow?.activity,
+                        feedGlyph = feedRow?.glyph,
+                        feedColorKey = feedRow?.colorKey,
                         onOpenSession = onOpenSession
                     )
                 }
@@ -350,7 +383,12 @@ internal fun BotTeamScreen(
 
 /** iOS mainBotCard（TeamView :431-455）：头像 46 + 名字 + 角色 + 「主」胶囊（accent 15% 底）。 */
 @Composable
-private fun PrimaryBotCard(row: BridgeConversationRow, modifier: Modifier = Modifier) {
+private fun PrimaryBotCard(
+    row: BridgeConversationRow,
+    modifier: Modifier = Modifier,
+    feedGlyph: com.clarklevis.dsh.shared.teamfeed.TeamFeedGlyph? = null,
+    feedColorKey: String? = null,
+) {
     Row(
         modifier.fillMaxWidth()
             .background(MaterialTheme.colorScheme.onBackground.copy(alpha = 0.06f), RoundedCornerShape(14.dp))
@@ -358,7 +396,11 @@ private fun PrimaryBotCard(row: BridgeConversationRow, modifier: Modifier = Modi
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        RosterAvatar(row.name, row.color, row.avatar, size = 46, botId = row.id, blink = true)
+        RosterAvatar(
+            row.name, row.color, row.avatar, size = 46, botId = row.id,
+            glyph = feedGlyph, glyphColorKey = feedColorKey,
+            blink = true,
+        )
         Column(Modifier.weight(1f)) {
             // iOS .headline = 17 semibold（TeamView :435）。裁决原文写「主 Bot 18」，但源码
             // .headline 实际值是 17 —— 按「忠实 iOS 系统档」原则取 17，如需 18 一行改回。
@@ -394,6 +436,11 @@ private fun BotRow(
     pending: Boolean,
     /** 该 bot 名下待答卡片的正文（bridge `/cards` 的 `prompt`）：只读预览一行，不是卡片。 */
     cardPrompt: String?,
+    /** D1 段 5：feed 的 activity（非降级时才有；null=沿用 bridge busy 显示）。 */
+    feedActivity: String? = null,
+    feedGlyph: com.clarklevis.dsh.shared.teamfeed.TeamFeedGlyph? = null,
+    feedColorKey: String? = null,
+    feedDegraded: Boolean = false,
     onOpenSession: (String) -> Unit
 ) {
     val busy = row.busy == true
@@ -417,7 +464,12 @@ private fun BotRow(
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Box {
-            RosterAvatar(row.name, row.color, row.avatar, size = 38, rowImageHash = row.avatarImageHash, botId = row.id, blink = true, blinkWorking = busy)
+            RosterAvatar(
+                row.name, row.color, row.avatar, size = 38,
+                rowImageHash = row.avatarImageHash, botId = row.id,
+                glyph = feedGlyph, glyphColorKey = feedColorKey,
+                blink = true, blinkWorking = busy,
+            )
             RosterStatusDot(busy = busy, caution = pending, modifier = Modifier.align(Alignment.BottomEnd))
         }
         Column(Modifier.weight(1f)) {
@@ -427,9 +479,11 @@ private fun BotRow(
                     Text(appText("主"), color = homeInk(0.45f), fontSize = 11.sp)
                 }
             }
+            // D1 段 5：feed live 时副行用 feed 的 activity（纯函数判定，缺字段沿用 bridge）。
+            val statusLine = TeamFeedOverlay.statusLine(feedActivity, feedDegraded, bridgeBusy = busy)
             Text(
-                if (busy) appText("正在干活") else appText("空闲"),
-                color = if (busy) DshSemantic.success else homeInk(0.55f),
+                statusLine ?: if (busy) appText("正在干活") else appText("空闲"),
+                color = if (statusLine == "正在干活" || (statusLine == null && busy)) DshSemantic.success else homeInk(0.55f),
                 fontSize = 13.sp
             )
             // 卡片**只读预览**（iOS `WorkspaceView:719-726`：`「prompt」` caption2 ink(0.6) ≤2 行）。
@@ -691,6 +745,10 @@ private fun RosterAvatar(
     rowImageHash: String? = null,
     /** bot 的 id（`bots[].id`）：没有 avatar 字段时用它派生形象（与电脑端 `lookOf(id)` 同源）。 */
     botId: String? = null,
+    /** D1 段 5：feed 下发的 glyph（电脑端同一份角色矢量）。非空 ⇒ 画填充角色（链位在 image 之后、shape 之前）。 */
+    glyph: com.clarklevis.dsh.shared.teamfeed.TeamFeedGlyph? = null,
+    /** glyph 的 ink 名（契约：与电脑端 `lookOf` 的 color 同源；空则回落页面墨色）。 */
+    glyphColorKey: String? = null,
     /** 是否驱动「眨眼」（用户 2026-11-02：iOS Bot 页会眨、Android 不会）。节奏见 [BlinkCadence.kt]。 */
     blink: Boolean = false,
     /** 眨眼节奏按"正在干活"加密（iOS `.live(working:)`）。 */
@@ -765,9 +823,10 @@ private fun RosterAvatar(
     val color = remember(rowColor, avatarHex, effectiveLook, dark, fallback) {
         rosterAvatarColor(rowColor, avatarHex, effectiveLook.second, dark, fallback)
     }
+    val showGlyph = glyph != null && glyph.body.isNotBlank()
     Box(
         modifier.size(size.dp)
-            .background(color, CircleShape)
+            .then(if (showGlyph) Modifier else Modifier.background(color, CircleShape))
             .then(if (stroke > androidx.compose.ui.unit.Dp(0f)) Modifier.border(stroke, homeSurface(0.9f), CircleShape) else Modifier),
         contentAlignment = Alignment.Center
     ) {
@@ -777,6 +836,18 @@ private fun RosterAvatar(
                 contentDescription = null,
                 modifier = Modifier.fillMaxSize().clip(CircleShape),
                 contentScale = ContentScale.Crop
+            )
+        } else if (showGlyph) {
+            // D1 段 5：glyph 矢量（电脑端同源 path）。ink = colorKey 的 ink 档（未知回落页面墨色）。
+            val dark = androidx.compose.foundation.isSystemInDarkTheme()
+            val ink = BridgeInks.resolve(glyphColorKey, dark)
+                ?.let { parseBridgeHexColor(it, Color.White) }
+                ?: homeInk(0.85f)
+            TeamGlyphCanvas(
+                glyph = glyph!!,
+                inkColor = ink,
+                backdropColor = MaterialTheme.colorScheme.background,
+                modifier = Modifier.fillMaxSize(),
             )
         } else if (shapeRes != null) {
             Icon(

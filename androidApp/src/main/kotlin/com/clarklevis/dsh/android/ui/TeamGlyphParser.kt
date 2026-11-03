@@ -118,6 +118,47 @@ object TeamGlyphParser {
         return segments.ifEmpty { null }
     }
 
+    /**
+     * `d` → 子路径折线（每条 = 顶点序列 [x,y]）。渲染层用它建 android.graphics.Path。
+     * 与 [toAbsolutePolyline] 同口径：M 开子路径、Z 闭合回子路径起点。
+     */
+    fun toSubpaths(d: String): List<List<DoubleArray>>? {
+        val commands = parsePath(d) ?: return null
+        val subpaths = mutableListOf<MutableList<DoubleArray>>()
+        var cursor = doubleArrayOf(0.0, 0.0)
+        var current: MutableList<DoubleArray>? = null
+        for (cmd in commands) {
+            val dx = if (cmd.relative && cmd.command != 'Z') cursor[0] else 0.0
+            val dy = if (cmd.relative && cmd.command != 'Z') cursor[1] else 0.0
+            when (cmd.command) {
+                'M' -> {
+                    cursor = doubleArrayOf(cmd.args[0] + dx, cmd.args[1] + dy)
+                    current = mutableListOf(cursor.copyOf())
+                    subpaths.add(current)
+                }
+                'L' -> {
+                    cursor = doubleArrayOf(cmd.args[0] + dx, cmd.args[1] + dy)
+                    current?.add(cursor.copyOf()) ?: return null
+                }
+                'H' -> {
+                    cursor = doubleArrayOf(cmd.args[0] + dx, cursor[1])
+                    current?.add(cursor.copyOf()) ?: return null
+                }
+                'V' -> {
+                    cursor = doubleArrayOf(cursor[0], cmd.args[0] + dy)
+                    current?.add(cursor.copyOf()) ?: return null
+                }
+                'Z' -> {
+                    // 闭合：补回子路径起点顶点，保证 fill 形状完整。
+                    current?.add(cursor.copyOf())
+                    cursor = (subpaths.lastOrNull()?.first() ?: cursor).copyOf()
+                    current = null
+                }
+            }
+        }
+        return subpaths.filter { it.size >= 2 }.ifEmpty { null }
+    }
+
     /** SVG 片段 `<path d="…" fill="…" fill-opacity="…"/>` → 图层列表（iOS `layers(fromSVGFragment:)` 兼容）。 */
     fun parseSvgFragmentLayers(fragment: String): List<TeamFeedGlyphLayerDsl> {
         val result = mutableListOf<TeamFeedGlyphLayerDsl>()

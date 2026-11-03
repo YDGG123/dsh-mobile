@@ -148,6 +148,30 @@ internal class AndroidBridgeTeamAdapter(
 
     val hasSession: Boolean get() = store.currentAccessToken() != null
 
+    /**
+     * D1 段 5：团队 feed WS 端点与当前 access token（只读出口，token 不落日志）。
+     * `origin` 是 http(s) 桥根；WS = 同 host 换 ws(s) scheme + `/mobile/v1/team`（契约）。
+     * 无 origin/无 token ⇒ null（上层不连接）。
+     */
+    /** D1 段 5：feed 控制器（adapter 单例一份，Bot 页/team sheet 多个实例共享同一条 WS）。 */
+    val teamFeed by lazy { com.clarklevis.dsh.android.teamfeed.TeamFeedController(scope) }
+
+    /** feed 未连/断线时由 UI 层调；幂等（同端点+token 不重复连接）。 */
+    fun ensureTeamFeedStarted() {
+        feedConnection()?.let { (ep, tk) -> teamFeed.start(ep, tk) }
+    }
+
+    fun feedConnection(): Pair<String, String>? {
+        val base = origin ?: return null
+        val token = store.currentAccessToken() ?: return null
+        val wsScheme = when {
+            base.startsWith("https://") -> "wss://"
+            base.startsWith("http://") -> "ws://"
+            else -> return null
+        }
+        return Pair(wsScheme + base.removePrefix("https://").removePrefix("http://") + "/mobile/v1/team", token)
+    }
+
     /** 网关 endpoint 变化（换网关/重新配对）时调用；ws(s) → http(s) 推导桥根并过 origin 策略门。 */
     fun updateGatewayEndpoint(value: String) {
         if (value == endpoint) return
