@@ -993,9 +993,13 @@ struct ConversationView: View {
             if let previous {
                 memberDrafts[previous] = draft
                 memberImages[previous] = pendingImages
+                // 79：同步到 App 级草稿桶（pop 销毁 @State 后，跨「退出再进」靠它兜底）。
+                store.conversationDrafts[previous] = draft
+                store.conversationDraftImages[previous] = pendingImages
             }
-            draft = current.flatMap { memberDrafts[$0] } ?? ""
-            pendingImages = current.flatMap { memberImages[$0] } ?? []
+            // 读序：App 级桶优先（pop 回来的草稿在 memberDrafts 里已不存在），再退回视图内缓存。
+            draft = current.flatMap { store.conversationDrafts[$0] ?? memberDrafts[$0] } ?? ""
+            pendingImages = current.flatMap { store.conversationDraftImages[$0] ?? memberImages[$0] } ?? []
             selectedPhotoItems = []
             store.voiceInput.open(context: current ?? "new-session", draft: draft)
             if previous != nil && current == nil { dismissConversation() }
@@ -1038,6 +1042,12 @@ struct ConversationView: View {
             await runRoomChatFeed(for: store.selectedSessionId)
         }
         .onDisappear {
+            // 79：pop 时把草稿交回 App 级桶（退出再进同一会话不丢）。
+            // 发送后 draft 已被清空 ⇒ 这里写入的是空串 = 正确的"无草稿"。
+            if let sessionID = store.selectedSessionId {
+                store.conversationDrafts[sessionID] = draft
+                store.conversationDraftImages[sessionID] = pendingImages
+            }
             // `.task` 取消时 `defer` 也会停它；这里是双保险（任务还没醒来的那个窗口）。
             activeRoomChatEngine?.stop()
         }

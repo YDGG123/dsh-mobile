@@ -1041,6 +1041,7 @@ final class AppStore: ObservableObject {
                 if self.isShowingSearchContext, let timeline = self.searchContextTimeline {
                     timeline.publish(timeline.currentSnapshot.items)
                 }
+self.bumpAttachmentRenderEpoch(id)
                 if self.renderedConversationItems[id] != nil { self.publishMergedTimeline(for: id) }
             }
         }
@@ -1301,6 +1302,21 @@ final class AppStore: ObservableObject {
     /// 一旦可观察，就成了"在视图求值期间修改可观察状态"⇒ 重算循环（表现为"有时刷新、有时不刷新"）。
     /// 它只服务于日志去重，不影响任何显示。
     private var loggedWithoutSeq: Set<String> = []
+    /// 79：对话页草稿的 App 级保留（对齐 Android `teamDrafts`：内存级、进程内有效）。
+    /// 退出会话页（pop）会销毁视图 @State（draft/memberDrafts 都活不过 pop）——
+    /// 跨「退出再进同一会话」的草稿由这里兜住（2026-11-04 用户报，安卓无此问题）。
+    var conversationDrafts: [String: String] = [:]
+    var conversationDraftImages: [String: [GatewayOutgoingImage]] = [:]
+    /// 79：附件渲染代际——图片字节进缓存不改变 ConversationItem（元数据早就在 item.images 里），
+    /// 75④ 的相等性短路会把这类重推误跳 ⇒ 用户消息里的截图永远不渲染（2026-11-04 用户报的回归）。
+    /// 图片驱动的 repush 前先 bump 对应会话的代际；publishMergedTimeline 里「条目相等但代际变了」
+    /// 仍强制发布（并记录已发布代际），其余路径照旧短路——抖动修复不回退。
+    private var attachmentRenderEpochs: [String: Int] = [:]
+    private var publishedAttachmentEpochs: [String: Int] = [:]
+
+    private func bumpAttachmentRenderEpoch(_ sessionId: String) {
+        attachmentRenderEpochs[sessionId, default: 0] += 1
+    }
 
     /// 视图层回调：只读引擎拉到/收到消息后回灌。**只收数据、不发起任何网络**（发送一律走网关 composer，
     /// 否则一次发言会被 bridge 的 `POST /submissions` 再提交一遍）。
@@ -1494,7 +1510,11 @@ final class AppStore: ObservableObject {
         // 在活跃群里几乎每次到达都重算重推——这就是用户报的「静止也抖 2-3 秒」的直接来源。
         // `stamp == nil` 才短路：publish 对 nil stamp 是粘性（不更新 = 状态等价）；带 stamp 的
         // 调用不跳（历史准入事件依赖 publish 发出）。
-        if stamp == nil, timeline.currentSnapshot.items == merged { return }
+        let attachmentEpoch = attachmentRenderEpochs[sessionId, default: 0]
+        let itemsEqual = timeline.currentSnapshot.items == merged
+        let epochPublished = publishedAttachmentEpochs[sessionId, default: 0] == attachmentEpoch
+        if stamp == nil, itemsEqual, epochPublished { return }
+        if !epochPublished { publishedAttachmentEpochs[sessionId] = attachmentEpoch }
         timeline.publish(merged, historyPresentationStamp: stamp)
         // 固定 ASCII 标记（≥16 字节）：build 72 的树标记（71 里为 0）。
         Self.roomChatLog.notice("roomchat-timeline-outlet session=\(sessionId, privacy: .public)")
@@ -4446,6 +4466,23 @@ final class AppStore: ObservableObject {
            let sessionID = payload.sessionID ?? pendingSnapshotSessionID ?? kmpHistoryStore.pendingSessionID {
             recordHistoryFailure([payload.code, payload.message].compactMap { $0 }.joined(separator: ": "), sessionID: sessionID)
         }
+        // 79 P0：搜索报错降级（2026-11-04 用户截图把 `gateway/internal: session search failed…`
+        // 原始内部码原样弹给了用户）。根因在宿主——一个损坏的会话日志让整次搜索失败；
+        // 客户端能做的是包装成人话 + 保留本地检索结果（searchCoverage 不动）。
+        // 文案与安卓 vc60 `humanizePlatformError` 的基线**逐字一致**（用户明确要求双端统一）。
+        if payload.requestType == "search" {
+            let humanized = String(
+                localized: "search.unavailable",
+                defaultValue: "搜索暂时不可用：桌面端搜索服务报错（可能有会话记录损坏）。请稍后重试；若反复出现，需在桌面端处理损坏的会话记录。"
+            )
+            lastError = humanized
+            notice(
+                String(localized: "search.unavailable.title", defaultValue: "搜索暂时不可用"),
+                humanized,
+                isError: true
+            )
+            return
+        }
         let detail = [payload.code, payload.message].compactMap { $0 }.joined(separator: ": ")
         if let requestType = payload.requestType,
            ["question-answer", "question-cancel"].contains(requestType) {
@@ -4618,6 +4655,7 @@ final class AppStore: ObservableObject {
         Task { [weak self] in
             for attachment in attachments { _ = await cache.loadData(for: attachment.id) }
             guard let self, !self.evictedConversationSessionIDs.contains(sessionId) else { return }
+            self.bumpAttachmentRenderEpoch(sessionId)
             if self.renderedConversationItems[sessionId] != nil { self.publishMergedTimeline(for: sessionId) }
             let requests = self.attachmentLoader.enqueue(attachments, sessionID: sessionId) {
                 cache.data(for: $0) != nil
@@ -4661,6 +4699,7 @@ final class AppStore: ObservableObject {
               renderedConversationItems[sessionId] != nil else { return }
         // The row revision also includes cache presence, so this publication
         // replaces only rows whose attachment just became renderable.
+        bumpAttachmentRenderEpoch(sessionId)
         publishMergedTimeline(for: sessionId)
     }
 
