@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.width
@@ -496,7 +497,15 @@ private fun RoomRow(row: BridgeConversationRow, bots: List<BridgeConversationRow
         if (stack.isEmpty()) {
             RoomGroupGlyph()
         } else {
-            Row(Modifier.width(38.dp + (stack.size - 1).dp * 16f).testTag("bot-member-stack")) {
+            // 堆叠框高**固定 38dp**（iOS `gatewayAvatar` 的 `.frame(height: size)`，TeamView 同参）：
+            // 27dp 的成员头像在其中垂直居中——之前内层 Row 是 wrap-content（27dp），
+            // 比 Bot 行的 38dp 头像矮 11dp，与名字行/相邻行都错位（用户 2026-11-03 vc53 验收反馈）。
+            Row(
+                Modifier.width(38.dp + (stack.size - 1).dp * 16f)
+                    .height(38.dp)
+                    .testTag("bot-member-stack"),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 stack.forEachIndexed { index, member ->
                     RosterAvatar(
                         name = member.name,
