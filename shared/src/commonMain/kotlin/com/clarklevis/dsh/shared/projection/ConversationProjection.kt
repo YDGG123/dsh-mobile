@@ -127,6 +127,12 @@ class ConversationProjector(
     // 与网关 `projection.mjs:4` 的 INTERNAL_TOOLS **同源**（单一真源口径）：
     // 这些工具的 call/result 都不生成对话行（2026-11-03 用户报「群聊出现 {} / {"replies":[]} 裸 JSON」）。
     private val internalTools = setOf("group_relay")
+    // 内部提醒的 source.kind：宿主插件注入的 user/message（发给模型的上下文），**不该画成对话正文**。
+    // 实证：真数据 fixture room-2a10aef5.jsonl 里就有 2 条（source.kind="repeat-tool-reminder"、
+    // form:"notice"、正文 "Repeated tool call detected…"），原先落 CONTEXT 行上屏（2026-11-03 用户报）。
+    // 与 internalTools 同一机制——按 kind 判，不按文本判（"Repeated tool call detected" 这串字
+    // 可能出现在正常对话里）。黑名单制：不在名单里的 kind 照旧走原分支（fail-open 同向）。
+    private val internalSourceKinds = setOf("repeat-tool-reminder")
     // callId → 工具名：tool/result 不带 name，判定「是不是内部工具」必须靠 call 帧登记。
     // 有上限防爆表：超过就把较早的一半丢掉（call 帧与其 result 几乎总是相邻到达）。
     private val toolCallNames = linkedMapOf<String, String>()
@@ -299,6 +305,9 @@ class ConversationProjector(
                 }
             }
             event.type == "user/message" && !event.text.isNullOrEmpty() -> {
+                // 内部提醒不出行：它是注入给模型的上下文（internalSourceKinds 注释），按 kind 判不按文本判。
+                // 轨迹页不受影响——那里消费的是原始事件，不是这条投影。
+                if (event.source in internalSourceKinds) return
                 // 群聊里 Bot 以 user/message 形态转发发言（`source.kind == "bot" && source.role == "post"`，
                 // 网关 group-projection.mjs:34 已确认形态）：它是**别人 Bot 的发言**，要渲染成 assistant 气泡
                 // 并带作者名（`source.senderName`）；**系统事件（failed/resumed/stopped/done/again）不能混进来**
