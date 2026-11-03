@@ -631,7 +631,8 @@ private fun WorkspaceHeader(
         // A1 §1.2：右侧是 **34×34 品牌色实心圆 + plus 15pt bold 白**，未配对时不渲染
         // （iOS WorkspaceView:931 header；这里用 endpoint 是否配置当「已配对」代理）。
         if (state.endpoint != null) {
-            Spacer(Modifier.width(12.dp))
+            // vc60 P3：认证圆钮与新建圆钮间距 6pt（iOS WorkspaceView:1119-1133 规格表）。
+            Spacer(Modifier.width(6.dp))
             NewSessionButton(onNewSession)
         }
     }
@@ -704,9 +705,10 @@ internal fun OrcarnessOrcaIcon(
 
 @Composable
 internal fun GlassCircleButton(iconRes: Int, description: String, onClick: () -> Unit) {
+    // vc60 P3 对齐 iOS 真身（WorkspaceView.swift:944-957，iOSCoder 2026-11-04 00:38 规格表）：
+    // 40×40 圆形纯图标钮、无实心底（52 玻璃底是 iOS 27.1+ toolbar 分支形态，安卓无此分支）、图标 18pt。
     Box(
-        Modifier.requiredSize(52.dp)
-            .dshLiquidGlass(CircleShape, DshGlassStyle.CONTROL)
+        Modifier.requiredSize(40.dp)
             .clickable(role = Role.Button, onClick = onClick)
             .semantics { contentDescription = description },
         contentAlignment = Alignment.Center
@@ -714,7 +716,7 @@ internal fun GlassCircleButton(iconRes: Int, description: String, onClick: () ->
         Image(
             painter = painterResource(iconRes),
             contentDescription = null,
-            modifier = Modifier.size(22.dp),
+            modifier = Modifier.size(18.dp),
             colorFilter = ColorFilter.tint(homeInk())
         )
     }
