@@ -287,6 +287,9 @@ struct WorkspaceView: View {
                 .padding(.bottom, safeArea.bottom + 24)
                 .readableContentWidth(AdaptiveLayout.workspaceWidth)
                 .background {
+                    // 滚动时暂停背景动画（上游 4582f50）：探针必须落在**滚动容器内部**
+                    // 找得到祖先 UIScrollView；恢复时相位由时钟保证连续，不跳帧。
+                    ScrollPausesBackgroundAnimationProbe()
                     DrawerPanGestureAttachment(
                         shouldBegin: { translation in
                             guard abs(translation.x) > abs(translation.y) * 1.2 else { return false }

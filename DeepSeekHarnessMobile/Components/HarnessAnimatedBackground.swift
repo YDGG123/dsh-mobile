@@ -27,6 +27,9 @@ struct HarnessAnimatedBackground: View {
     @Environment(\.colorScheme) private var colorScheme
     /// B4：被子页覆盖时暂停逐帧重绘（卡死根因见 `BackgroundAnimationPause`）。
     @ObservedObject private var pause = BackgroundAnimationPause.shared
+    /// 滚动暂停的相位时钟（上游 4582f50）：`WorkspaceView` 的列表挂了
+    /// `.scrollPausesBackgroundAnimation()`，滚动时这里 `isPaused` 翻 true。
+    @ObservedObject private var scrollClock = HarnessBackgroundAnimationClock.shared
     /// 诊断逃逸口：`dsh.background.layers`（或同名环境变量）可只渲染指定图层 / 全关。
     /// **有意保留**（UI 已无开关，见 `SettingsDiagnostics` 注释）。
     /// 必须被**观察**，否则改值后背景不重算（QA 实测指出）。
@@ -39,15 +42,18 @@ struct HarnessAnimatedBackground: View {
         // 读一次 @AppStorage：在 body 求值期间访问才会建立观察依赖，
         // 否则拨动「关闭背景动画图层」开关后背景不重算（QA 实测指出）。
         _ = layersOverride
-        return reduceMotion || scenePhase != .active || pause.shouldPause || HarnessBackgroundLayers.enabled.isEmpty
+        return reduceMotion || scenePhase != .active || pause.shouldPause
+            || scrollClock.isPaused || HarnessBackgroundLayers.enabled.isEmpty
     }
 
     var body: some View {
         // B7：浅色也要跑动效（鲸鱼是吉祥物）。浅色下把帧率降到 24fps，省电但仍然在动。
         TimelineView(.animation(minimumInterval: isLight ? 1.0 / 24.0 : 1.0 / 30.0, paused: pausesAnimation)) { timeline in
+            // 相位走**时钟**而不是裸墙钟：滚动暂停期间相位冻结，恢复时从原相位继续
+            // （裸墙钟会在恢复那一刻跳到新的墙钟位置 = 背景跳一下；未暂停过时两者完全一致）。
             let elapsed = reduceMotion
                 ? 0
-                : timeline.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 4_096)
+                : scrollClock.anchor(at: timeline.date).timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 4_096)
 
             ZStack {
                 // 深色：Metal 流体（17+）/ 静态深海渐变（16）；浅色：浅海渐变（着色器是深海配色，不用）。

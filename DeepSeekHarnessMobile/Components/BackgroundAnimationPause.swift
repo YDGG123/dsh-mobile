@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import os
 
 /// B4：导航推入时暂停常驻背景动画。
 ///
@@ -67,6 +68,119 @@ extension View {
     func pausesBackgroundAnimation() -> some View {
         modifier(PausesBackgroundAnimation())
     }
+}
+
+/// 背景动画相位时钟（上游 `4582f50` 的 `HarnessBackgroundAnimationClock`）：
+/// 暂停期间把相位**冻结**在暂停那一刻，恢复时从原相位继续。
+/// 为什么必须有它：`TimelineView(paused:)` 只是停帧，`timeline.date` 仍在走，
+/// 恢复那一刻相位会直接跳到新的墙钟位置——肉眼可见的「背景跳一下」。
+@MainActor
+final class HarnessBackgroundAnimationClock: ObservableObject {
+    static let shared = HarnessBackgroundAnimationClock()
+
+    @Published private(set) var isPaused = false
+    private var pausedAt: Date?
+    private var pausedDuration: TimeInterval = 0
+
+    func setPaused(_ paused: Bool, at now: Date = Date()) {
+        guard paused != isPaused else { return }
+        // `now` 是**注入的时间**（测试需要固定时钟），别再被本地 Date() 遮蔽——
+        // 那会把真实墙钟间隔累进 pausedDuration，相位就错了（首轮用例红的原因）。
+        if paused {
+            pausedAt = now
+        } else if let pausedAt {
+            pausedDuration += now.timeIntervalSince(pausedAt)
+            self.pausedAt = nil
+        }
+        isPaused = paused
+        // 固定 ASCII 标记（≥16 字节）：iOSTester 的包级新增式指纹（72 包里为 0、73 ≥1）。
+        // 只在状态真正切换时打一条（began/changed 不打，滚动中每帧一条会把日志刷爆）。
+        Self.clockLog.notice("bganim-pause-resume paused=\(paused, privacy: .public)")
+    }
+
+    private static let clockLog = Logger(subsystem: "ai.dsh.mobile.ios", category: "background-anim")
+
+    /// 相位锚点：暂停期间停在 `pausedAt`；其余时刻 = 当前时间 − 累计暂停时长。
+    /// 从未暂停过时与墙钟完全一致（改动前行为零变化）。
+    func anchor(at date: Date = Date()) -> Date {
+        let reference = pausedAt ?? date
+        return reference.addingTimeInterval(-pausedDuration)
+    }
+}
+
+/// 滚动暂停的**触摸层挂载器**：找到最近的滚动容器，挂一个「不抢触摸、允许同时识别」的
+/// 伴生 pan 手势——`began/changed` ⇒ 暂停，`ended/cancelled` ⇒ 恢复。
+/// **不劫持 SwiftUI ScrollView 自己的 delegate**（iOS 16 上劫持会弄坏
+/// `.scrollDismissesKeyboard` 等内建行为）。
+///
+/// ⚠️ 放置位置：必须作为**滚动容器内部**的视图（与 `DrawerPanGestureAttachment` 同层，
+/// 例如 `.background { … }` 里）——放在 ScrollView 之外找不到祖先滚动视图。
+struct ScrollPausesBackgroundAnimationProbe: UIViewRepresentable {
+    final class ProbeView: UIView {
+        var onHierarchyChange: (() -> Void)?
+        override func didMoveToSuperview() { super.didMoveToSuperview(); onHierarchyChange?() }
+        override func didMoveToWindow() { super.didMoveToWindow(); onHierarchyChange?() }
+    }
+
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        private weak var scrollView: UIScrollView?
+        private var pan: UIPanGestureRecognizer?
+
+        func attach(from view: UIView) {
+            var ancestor = view.superview
+            while let current = ancestor, !(current is UIScrollView) {
+                ancestor = current.superview
+            }
+            guard let scrollView = ancestor as? UIScrollView, self.scrollView !== scrollView else { return }
+            detach()
+            let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
+            pan.delegate = self
+            pan.cancelsTouchesInView = false
+            scrollView.addGestureRecognizer(pan)
+            self.scrollView = scrollView
+            self.pan = pan
+        }
+
+        func detach() {
+            if let pan { scrollView?.removeGestureRecognizer(pan) }
+            pan = nil
+            scrollView = nil
+        }
+
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                               shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
+
+        @objc private func handlePan(_ pan: UIPanGestureRecognizer) {
+            switch pan.state {
+            case .began, .changed:
+                HarnessBackgroundAnimationClock.shared.setPaused(true)
+            case .ended, .cancelled, .failed:
+                HarnessBackgroundAnimationClock.shared.setPaused(false)
+            default:
+                break
+            }
+        }
+    }
+
+    func makeUIView(context: Context) -> ProbeView {
+        let view = ProbeView(frame: .zero)
+        view.isUserInteractionEnabled = false   // 探针自身不参与命中测试
+        let coordinator = context.coordinator
+        // 与 DrawerPanGestureAttachment 同款：SwiftUI 层级未必当场就绪，异步一拍再找祖先。
+        view.onHierarchyChange = { [weak view, weak coordinator] in
+            DispatchQueue.main.async { [weak view, weak coordinator] in
+                guard let view, let coordinator else { return }
+                coordinator.attach(from: view)
+            }
+        }
+        return view
+    }
+
+    func updateUIView(_ view: ProbeView, context: Context) {
+        context.coordinator.attach(from: view)
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
 }
 
 /// B4 的归因开关：只渲染指定图层，便于有设备时逐个排除。

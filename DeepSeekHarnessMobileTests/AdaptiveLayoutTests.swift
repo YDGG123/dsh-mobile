@@ -200,3 +200,36 @@ final class PinnedHysteresisTests: XCTestCase {
         XCTAssertNotEqual(flipped, true, "阈值接反时必须翻转——否则上面那条用例是假绿")
     }
 }
+
+/// 背景动画相位时钟（上游 `4582f50` 引入）的用例：**暂停冻结相位、恢复从原相位继续**。
+/// 判据（装机侧）：滚动开始背景停、结束背景从原相位接着动——不跳帧。
+/// 寄放在本文件是为了省一个新测试文件 + pbxproj 四处登记；类名自证归属。
+final class HarnessBackgroundAnimationClockTests: XCTestCase {
+
+    @MainActor
+    func testPauseFreezesPhaseAndResumeContinuesFromIt() {
+        let clock = HarnessBackgroundAnimationClock()
+        let t0 = Date(timeIntervalSinceReferenceDate: 1_000_000)
+        XCTAssertEqual(clock.anchor(at: t0), t0, "从未暂停：锚点与墙钟一致（改动前行为零变化）")
+
+        clock.setPaused(true, at: t0)
+        XCTAssertEqual(clock.anchor(at: t0.addingTimeInterval(5)), t0, "暂停期间相位必须冻结在 t0")
+
+        clock.setPaused(false, at: t0.addingTimeInterval(5))
+        XCTAssertEqual(clock.anchor(at: t0.addingTimeInterval(5)), t0, "恢复那一刻不得跳帧")
+        XCTAssertEqual(clock.anchor(at: t0.addingTimeInterval(15)),
+                       t0.addingTimeInterval(10), "恢复后从暂停点继续走")
+    }
+
+    @MainActor
+    func testRepeatedPausesAccumulatePausedDuration() {
+        let clock = HarnessBackgroundAnimationClock()
+        let t0 = Date(timeIntervalSinceReferenceDate: 2_000_000)
+        clock.setPaused(true, at: t0)
+        clock.setPaused(false, at: t0.addingTimeInterval(2))
+        clock.setPaused(true, at: t0.addingTimeInterval(4))
+        clock.setPaused(false, at: t0.addingTimeInterval(9))
+        XCTAssertEqual(clock.anchor(at: t0.addingTimeInterval(12)),
+                       t0.addingTimeInterval(5), "累计暂停 = 2 + 5 = 7s ⇒ 相位差 12 − 7 = 5")
+    }
+}
