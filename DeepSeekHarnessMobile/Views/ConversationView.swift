@@ -1021,7 +1021,14 @@ struct ConversationView: View {
             // 77①：记录本次进入是否走了遮罩路径——决定历史装载完成时要不要补对齐。
             historyPresentationUsedMask = isPreparingHistoryPresentation
             if hasUsableLocalContent {
-                viewportScrollToBottomToken &+= 1
+                // 78：room 快照存在且退出时**不在底部** ⇒ 不弹底（跳过进入贴底）。
+                // 恢复内容来自快照，视口停在恢复内容顶部；精确原位恢复需要 viewport
+                // 锚点 API（记录为 78 的后续项），本版先保证「不弹底、不白屏、不重拉」。
+                let resumedNotAtBottom = hosts.bridgeTeam
+                    .roomSnapshot(conversationId: sessionID)?.wasAtBottom == false
+                if !resumedNotAtBottom {
+                    viewportScrollToBottomToken &+= 1
+                }
             }
         }
         // ③ 群聊合流：会话切换 = room 只读 bridge 引擎的生命周期。
@@ -1054,6 +1061,9 @@ struct ConversationView: View {
         }
         activeRoomChatEngine = engine
         defer {
+            // 78：退场时把贴底标记交给快照（消息正文由 onMessagesChanged 实时回写，
+            // 这里补「退出那一刻视口在不在底部」——再进时据此决定贴底还是不弹底）。
+            hosts.bridgeTeam.updateRoomSnapshotWasAtBottom(conversationId: row.id, wasAtBottom: isPinnedToBottom)
             engine.stop()
             if activeRoomChatEngine === engine { activeRoomChatEngine = nil }
             store.setRoomChatBubbles([], forSessionId: row.sessionId)

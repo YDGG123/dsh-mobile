@@ -277,6 +277,71 @@ final class BridgeTeamAdapter: ObservableObject {
     /// effect：进入聊天（sessionId 来自配对端 /state 的 bot/room 行）。
     var onOpenConversation: ((String) -> Void)?
 
+    // MARK: 78 room 快照（2026-11-03 用户报「退出对话页再进，又重新加载一遍最新消息」）
+    //
+    // 根因：room 会话在客户端零持久化 + chatEngine 每次新建（chatEngine() 每次 new），
+    // messagesJson 随实例丢弃 ⇒ 再进必空 ⇒ 无条件拉整页 50 条。
+    // 修法：adapter（App 级单例 MultiGatewayStore.bridgeTeam，App 存活期唯一，
+    // 前置读数 19:51）持有 per-conversation 快照；engine 退场交回、新 engine 先吃
+    // 快照立刻渲染，再走 limit=1 探针增量（探针那 1KB 必发——「有快照 ≠ 零请求」，
+    // 否则桌面端发的新消息必漏）。
+    struct RoomChatSnapshot {
+        var messagesJson: String
+        var maxSeq: Int64?
+        var wasAtBottom: Bool
+        /// 退出时的阅读锚（气泡 id + 视口内偏移），用于非贴底退出的原位恢复。
+        var anchorBubbleID: String?
+        var anchorOffsetInViewport: CGFloat?
+        var byteCount: Int { messagesJson.utf8.count }
+    }
+
+    /// 只留最近 3 个会话（Chief 定）：内存有界，超了丢最旧。
+    private static let roomSnapshotConversationLimit = 3
+    /// 字节预算：单快照超过直接拒收（异常大的会话不缓存，行为退回现状）。
+    private static let roomSnapshotByteBudget = 512 * 1024
+
+    private var roomSnapshots: [String: RoomChatSnapshot] = [:]
+    /// LRU 序（队首 = 最近使用）。
+    private var roomSnapshotOrder: [String] = []
+
+    /// 记录/刷新一个会话的快照（engine 每次消息变更或视图退场时调用）。
+    func storeRoomSnapshot(conversationId: String, _ snapshot: RoomChatSnapshot) {
+        guard snapshot.byteCount <= Self.roomSnapshotByteBudget else { return }
+        roomSnapshots[conversationId] = snapshot
+        roomSnapshotOrder.removeAll { $0 == conversationId }
+        roomSnapshotOrder.insert(conversationId, at: 0)
+        while roomSnapshotOrder.count > Self.roomSnapshotConversationLimit {
+            let evicted = roomSnapshotOrder.removeLast()
+            roomSnapshots[evicted] = nil
+        }
+    }
+
+    /// 取快照（命中则升到 LRU 队首）。
+    func roomSnapshot(conversationId: String) -> RoomChatSnapshot? {
+        guard var snapshot = roomSnapshots[conversationId] else { return nil }
+        roomSnapshotOrder.removeAll { $0 == conversationId }
+        roomSnapshotOrder.insert(conversationId, at: 0)
+        return snapshot
+    }
+
+    /// 只更新贴底标记（视图在退场/滚动时上报，消息正文不动）。
+    func updateRoomSnapshotWasAtBottom(conversationId: String, wasAtBottom: Bool) {
+        guard var snapshot = roomSnapshots[conversationId] else { return }
+        snapshot.wasAtBottom = wasAtBottom
+        roomSnapshots[conversationId] = snapshot
+    }
+
+    /// 只更新阅读锚（视图在退场时上报）。
+    func updateRoomSnapshotAnchor(conversationId: String, bubbleID: String?, offsetInViewport: CGFloat?) {
+        guard var snapshot = roomSnapshots[conversationId] else { return }
+        snapshot.anchorBubbleID = bubbleID
+        snapshot.anchorOffsetInViewport = offsetInViewport
+        roomSnapshots[conversationId] = snapshot
+    }
+
+    /// 测试/诊断用。
+    var roomSnapshotCountForTesting: Int { roomSnapshots.count }
+
     private let sessionStore = BridgeKeychainSessionStore()
 
     /// 本地是否已有可用的 bridge 会话。
@@ -432,7 +497,7 @@ final class BridgeTeamAdapter: ObservableObject {
     func chatEngine(conversationId: String, sessionId: String) -> BridgeChatEngine? {
         restoreTransportFromStoredSession()
         guard let transport, store.currentAccessToken() != nil else { return nil }
-        return BridgeChatEngine(
+        let engine = BridgeChatEngine(
             transport: transport,
             conversationId: conversationId,
             sessionId: sessionId,
@@ -451,6 +516,23 @@ final class BridgeTeamAdapter: ObservableObject {
                 return (mirror.bots.first { $0.id == id } ?? mirror.rooms.first { $0.id == id })?.sessionId
             }
         )
+        // 78：先吃快照立刻渲染（不许白屏等网络），start() 再走 limit=1 探针增量
+        // （探针那 1KB 必发——“有快照 ≠ 零请求”，否则桌面端发的新消息必漏）。
+        if let snapshot = roomSnapshot(conversationId: conversationId) {
+            engine.applyResumedSnapshot(messagesJson: snapshot.messagesJson, wasAtBottom: snapshot.wasAtBottom)
+        }
+        engine.onMessagesChanged = { [weak self, weak engine] json in
+            guard let self, let engine else { return }
+            let previous = self.roomSnapshot(conversationId: conversationId)
+            self.storeRoomSnapshot(conversationId: conversationId, BridgeTeamAdapter.RoomChatSnapshot(
+                messagesJson: json,
+                maxSeq: engine.latestKnownSeq,
+                wasAtBottom: previous?.wasAtBottom ?? true,
+                anchorBubbleID: previous?.anchorBubbleID,
+                anchorOffsetInViewport: previous?.anchorOffsetInViewport
+            ))
+        }
+        return engine
     }
 
     /// 401 时的一次 token 刷新；单飞与永久失效判定都在 KMP。

@@ -28,6 +28,12 @@ final class BridgeChatEngine: ObservableObject {
     @Published private(set) var messagesJson = "[]"
     @Published private(set) var status: Status = .idle
     @Published private(set) var isSending = false
+    /// 78：恢复快照与实时回写。applyResumedSnapshot 在 start() 前由 adapter 注入；
+    /// onMessagesChanged 每次 messagesJson 变化回调（adapter 据此实时刷新快照）。
+    private(set) var resumedWithSnapshot = false
+    var onMessagesChanged: ((String) -> Void)?
+    /// 退出时的贴底标记（视图退场时上报，决定再进时贴底还是恢复原位）。
+    var resumeWasAtBottom = true
 
     let conversationId: String
     /// 会话目标可能在服务端轮换（TARGET_CHANGED 后由团队镜像纠偏）。
@@ -84,9 +90,25 @@ final class BridgeChatEngine: ObservableObject {
         stopped = false
         status = .connecting
         Task { [weak self] in
-            await self?.loadHistory()
-            await self?.connect()
+            guard let self else { return }
+            if self.resumedWithSnapshot {
+                // 78：已有快照渲染在先。整页拉取被 limit=1 探针取代——探针 seq 与
+                // 快照 maxSeq 一致 ⇒ 无新消息，跳过 ~50KB 整页；不一致 ⇒ 拉整页合并。
+                // 探针必发（1KB）：「有快照 ≠ 零请求」，桌面端新消息不能漏。
+                await self.refreshLatest(limit: 50)
+            } else {
+                await self.loadHistory()
+            }
+            await self.connect()
         }
+    }
+
+    /// 78：adapter 在构造后注入跨进入快照（立刻可渲染，不等网络）。
+    func applyResumedSnapshot(messagesJson: String, wasAtBottom: Bool) {
+        guard messagesJson.count > 2, messagesJson != self.messagesJson else { return }
+        self.messagesJson = messagesJson
+        resumeWasAtBottom = wasAtBottom
+        resumedWithSnapshot = true
     }
 
     func stop() {
@@ -106,6 +128,7 @@ final class BridgeChatEngine: ObservableObject {
                 token: token
             )
             messagesJson = BridgeChatMergeKt.chatMessagesFromHistory(historyJson: body)
+            onMessagesChanged?(messagesJson)
             historyCursor = Self.cursor(from: body)
             canLoadOlder = historyCursor != nil
         } catch let status as BridgeResponseStatus where status.status == 401 {
@@ -115,6 +138,7 @@ final class BridgeChatEngine: ObservableObject {
                     token: token
                 ) {
                     messagesJson = BridgeChatMergeKt.chatMessagesFromHistory(historyJson: body)
+                    onMessagesChanged?(messagesJson)
                     historyCursor = Self.cursor(from: body)
                     canLoadOlder = historyCursor != nil
                 }
@@ -199,6 +223,7 @@ final class BridgeChatEngine: ObservableObject {
             eventJson: raw,
             nowMillis: now
         )
+        onMessagesChanged?(messagesJson)
     }
 
     private func scheduleReconnect() {
@@ -274,12 +299,13 @@ final class BridgeChatEngine: ObservableObject {
         return snapshot.messages.compactMap(\.seq).max()
     }
 
-    private var latestKnownSeq: Int64? { messages.compactMap(\.seq).max() }
+    var latestKnownSeq: Int64? { messages.compactMap(\.seq).max() }
 
     private func applyLatestPage(_ body: String) {
         let merged = BridgeChatMergeKt.chatMergeHistoryPage(messagesJson: messagesJson, historyJson: body)
         guard merged != messagesJson else { return }
         messagesJson = merged
+        onMessagesChanged?(messagesJson)
         // 固定 ASCII 标记（≥16 字节）：既用于日志定位，也用作产物指纹（70 为 0、71 ≥1）。
         Self.pollLog.notice("roomchat-poll-latest-merged conversation=\(self.conversationId, privacy: .public)")
     }
@@ -308,6 +334,7 @@ final class BridgeChatEngine: ObservableObject {
             text: trimmed,
             nowMillis: now
         )
+        onMessagesChanged?(messagesJson)
         do {
             try await postSubmission(text: trimmed, requestId: requestId, token: token)
         } catch let status as BridgeResponseStatus where status.status == 401 {
@@ -351,6 +378,7 @@ final class BridgeChatEngine: ObservableObject {
             receiptJson: body,
             nowMillis: Int64(Date().timeIntervalSince1970 * 1000)
         )
+        onMessagesChanged?(messagesJson)
         return body
     }
 
