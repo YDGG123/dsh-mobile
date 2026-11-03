@@ -130,10 +130,12 @@ class RoomRelaySenderNameTest {
      * 为什么必须钉住其它类目：bot relay 是 `when` 里**新增的一条臂**（`ConversationProjection`），
      * 臂的判据一旦放宽（漏判 `role`/`form`），就会把别的 bot source 也吞进 ASSISTANT。
      * 而上面那些断言只盯 relay 那 106 条 —— **106 条照样齐全、其它类目被吞光也不会报警**。
-     * 真数据里 CONTEXT=8 / TOOL=108 这两组就是「没被误伤」的反证。
+     * 真数据里 CONTEXT=8 这组是「relay 判定没吞掉系统提示」的反证。
      *
-     * 读数来自 2026-11-02 探针实测：records=1090, items=330
-     * （TOOL 108 / TOOL_RESULT 107 / ASSISTANT 106 / CONTEXT 8 / USER 1）。
+     * 读数（2026-11-03 更新）：records=1090, items=115
+     * （TOOL 0 / TOOL_RESULT 0 / ASSISTANT 106 / CONTEXT 8 / USER 1；
+     *   2026-11-02 的 TOOL 108+107 是 group_relay 整类，白名单后整类去掉——
+     *   与网关 room 投影「不出工具行」同口径，判定见 InternalToolProjectionTest）。
      */
     @Test
     fun otherCategoriesAreNotSwallowedByTheNewBotBranch() {
@@ -141,9 +143,12 @@ class RoomRelaySenderNameTest {
         assertFixtureShape(items)   // 非空自证仍在前
 
         val byKind = items.groupingBy { it.kind }.eachCount()
-        assertEquals(330, items.size, "真数据投影条目总数变了（某类目消失或被重复产出）")
-        assertEquals(108, byKind[ConversationItemKind.TOOL] ?: 0, "工具调用条目被新分支误伤")
-        assertEquals(107, byKind[ConversationItemKind.TOOL_RESULT] ?: 0, "工具结果条目被新分支误伤")
+        // 2026-11-03 起 room 会话的工具行（全部是 group_relay：108 call + 107 result）按网关
+        // projection.mjs:104 同口径整类去掉 ⇒ 总数 330 → 115（ASSISTANT 106 / CONTEXT 8 / USER 1）。
+        // 「正常工具不被误伤」的判据在 `InternalToolProjectionTest`（合成 bash/run_code，room 里没有）。
+        assertEquals(115, items.size, "真数据投影条目总数变了（某类目消失或被重复产出）")
+        assertEquals(0, byKind[ConversationItemKind.TOOL] ?: 0, "room 会话不该再有 group_relay 工具行")
+        assertEquals(0, byKind[ConversationItemKind.TOOL_RESULT] ?: 0, "room 会话不该再有 group_relay 结果行")
         assertEquals(8, byKind[ConversationItemKind.CONTEXT] ?: 0,
             "CONTEXT 条数变了：变少=新分支把系统提示也当成 Bot 发言吞了；变多=relay 判定退化了")
         assertEquals(1, byKind[ConversationItemKind.USER] ?: 0, "用户自己发的条目数变了")
