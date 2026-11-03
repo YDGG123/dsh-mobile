@@ -24,7 +24,6 @@ struct WorkspaceView: View {
     @State private var showsDirectoryBrowser = false
     @State private var showsQRScanner = false
     @State private var showsManualPairing = false
-    @State private var showsTeam = false
     @State private var bridgeChat: BridgeChatTarget?
     /// Bot tab 的新数据源：网关团队帧（WS `/mobile/v1/team`）。拿不到数据时回退旧 bridge 渲染。
     /// 团队页（TeamView）走同一个 feed 类型；这次把用户真正会看的 Bot tab 也接上，
@@ -184,20 +183,9 @@ struct WorkspaceView: View {
         .sheet(item: $bridgeChat) { target in
             BridgeConversationView(title: target.row.name, engine: target.engine)
         }
-        .sheet(isPresented: $showsTeam) {
-            TeamView(team: bridgeTeam) { sessionId in
-                // P1：团队页只做入口；命中现有 gateway 会话则复用既有聊天链路。
-                guard let session = store.sessions.first(where: { $0.id == sessionId }) else {
-                    return false
-                }
-                showsTeam = false
-                store.lastError = nil
-                onOpenSession(session)
-                return true
-            }
-            // 09：团队页新增共享任务段要从 AppStore 的团队快照取数
-            .environmentObject(store)
-        }
+        // 77④：原「团队」sheet（TeamView）随页头入口一起删除——唯一打开方就是那个按钮，
+        // 删除后无可达路径（死状态会让人误以为入口还在）。对话页工具栏的 team-entry
+        // （TeamNavigationEntry → TeamContentSheet，智能体团队）是另一套组件，不受影响。
     }
 
     /// `workspaceBody` 里的主体层。抽出来是为了把一条长修饰符链从 `body` 的
@@ -649,24 +637,16 @@ struct WorkspaceView: View {
         .id("gateway-team-\(row.id)")
     }
 
-    /// 08 屏页头：「Bot」标题 + 右上「团队」入口。
-    /// 门控沿用既有 `store.teamSnapshot.visible`——桌面端没开团队服务时不给空入口。
+    /// 08 屏页头：「Bot」标题。
+    /// 77④（2026-11-03 用户原话「这个入口就是 Bot bar 的复制，不要了」）：右上「团队」入口删除
+    /// （Android vc 同批一起删，两端一致）。原页头状态的死代码与 TeamView sheet 一并连根删除
+    /// （唯一打开方就是这个按钮，删除后不可达）；对话页工具栏的 team-entry（智能体团队）
+    /// 是另一套组件，不受影响。
     private var botRosterHeader: some View {
-        HStack {
-            Text("Bot")
-                .appFont(DSHType.title)
-                .foregroundStyle(palette.ink(0.92))
-            Spacer()
-            if store.teamSnapshot.visible {
-                Button { showsTeam = true } label: {
-                    Text("团队")
-                        .appFont(DSHType.body.weight(.semibold))
-                        .foregroundStyle(palette.brand)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(String(localized: "团队"))
-            }
-        }
+        Text("Bot")
+            .appFont(DSHType.title)
+            .foregroundStyle(palette.ink(0.92))
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     /// 卡片正文 → 可点卡片（能力 fail-closed：白名单没有 answer-question 就不给可点数据）。

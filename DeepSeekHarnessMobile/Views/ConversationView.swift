@@ -404,6 +404,11 @@ struct ConversationView: View {
     @State private var expandedConversationNodeIDsBySession: [String: Set<String>] = [:]
     @State private var isPreparingHistoryPresentation = false
     @State private var historyPresentationSessionID: String?
+    /// 77①：本次进入是否走了「冷启动遮罩」路径（进入时无本地内容）。
+    /// 只有走了遮罩的进入，历史装载完成才需要补一次对齐；缓存命中的进入在
+    /// `history-present` 已经对齐过，历史到达**不得**再重启对齐循环
+    /// （用户报：进对话页不动，过几秒又重新滚一次到最底部 = 这个重启）。
+    @State private var historyPresentationUsedMask = false
     @State private var viewportHasConversationContent = false
     @State private var viewportContentSessionID: String?
     @State private var bottomSafeAreaInset: CGFloat = 0
@@ -913,12 +918,15 @@ struct ConversationView: View {
         .onChangeCompat(of: store.selectedPendingQuestionRequest?.rpcId) { _, rpcId in
             guard rpcId != nil else { return }
             composerIsFocused = false
-            if isPinnedToBottom { viewportScrollToBottomToken &+= 1 }
+            // 77①：问题卡到达**不再重启对齐循环**（数据到达 ≠ 初始对齐）。
+            // 贴底时由 keepTail/尾随跟随吸附（红线①）；上滑阅读时绝不被拉回（红线②）——
+            // 旧代码在这里 bump token 会把整个 10 趟对齐循环重跑一遍，正是用户报的
+            // 「进对话页不动，过几秒又重新滚一次到最底部」的触发器之一。
         }
         .onChangeCompat(of: store.selectedPendingApprovalRequest?.rpcId) { _, rpcId in
             guard rpcId != nil else { return }
             composerIsFocused = false
-            if isPinnedToBottom { viewportScrollToBottomToken &+= 1 }
+            // 77①：同上——审批卡到达不重启对齐循环。
         }
         .alert("编辑目标", isPresented: $showsGoalEditor) {
             TextField("目标", text: $goalObjectiveDraft, axis: .vertical)
@@ -944,6 +952,11 @@ struct ConversationView: View {
             // History has finished publishing. Ask UIKit to commit the final
             // self-sized layout at the bottom; the mask is removed only from
             // `onBottomAlignmentCompleted` above.
+            // 77①：只有冷启动（进入时无本地内容、走过遮罩）的进入才需要这次补对齐；
+            // 缓存命中的进入早已对齐，历史到达再重启 10 趟对齐循环 = 用户报的
+            // 「过几秒又重新滚一次到最底部」。后到数据的高度差由 keepTail/尾随路径处理
+            // （红线①：贴底时新消息仍跟随；红线②：上滑阅读绝不被拉回）。
+            guard historyPresentationUsedMask else { return }
             viewportScrollToBottomToken &+= 1
         }
         .alert("语音输入暂不可用", isPresented: Binding(
@@ -1005,6 +1018,8 @@ struct ConversationView: View {
             // must never replace it with a full-screen loading mask; the mask
             // is reserved for a genuinely cold session with no local rows.
             isPreparingHistoryPresentation = isLoadingSelectedHistory && !hasUsableLocalContent
+            // 77①：记录本次进入是否走了遮罩路径——决定历史装载完成时要不要补对齐。
+            historyPresentationUsedMask = isPreparingHistoryPresentation
             if hasUsableLocalContent {
                 viewportScrollToBottomToken &+= 1
             }
