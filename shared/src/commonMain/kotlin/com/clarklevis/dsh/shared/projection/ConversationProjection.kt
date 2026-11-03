@@ -124,6 +124,16 @@ class ConversationProjector(
     private val transientKeys = mutableSetOf<String>()
     private val steeringMessages = linkedMapOf<String, SessionEvent>()
     private val committedUserMessageIds = mutableSetOf<String>()
+    // 与网关 `projection.mjs:4` 的 INTERNAL_TOOLS **同源**（单一真源口径）：
+    // 这些工具的 call/result 都不生成对话行（2026-11-03 用户报「群聊出现 {} / {"replies":[]} 裸 JSON」）。
+    private val internalTools = setOf("group_relay")
+    // callId → 工具名：tool/result 不带 name，判定「是不是内部工具」必须靠 call 帧登记。
+    // 有上限防爆表：超过就把较早的一半丢掉（call 帧与其 result 几乎总是相邻到达）。
+    private val toolCallNames = linkedMapOf<String, String>()
+    // 配对：callId → 已插入工具卡的行下标。result 到达时把输出**替换**进同一张卡
+    // （而不是再插一行）——否则正常工具会拆成上下两条（2026-11-03 用户报的形态之一）。
+    // iOSTester 的判据：insert 一次 + 替换正文，绝不允许变成两条。
+    private val pendingToolCards = mutableMapOf<String, Int>()
 
     val items: List<ConversationItem> get() = mutableItems.toList()
     val hasAssistantChunks: Boolean get() = transientKeys.isNotEmpty()
@@ -143,6 +153,7 @@ class ConversationProjector(
         retryKeys.clear()
         steeringMessages.clear()
         committedUserMessageIds.clear()
+        toolCallNames.clear()
         lastSequence = -1
     }
 
@@ -463,17 +474,45 @@ class ConversationProjector(
             }
             event.type == "tool/call" -> {
                 val name = event.name ?: "Tool Call"
-                val kind = if (name.equals("run_code", ignoreCase = true)) ConversationItemKind.JSON_TOOL else ConversationItemKind.TOOL
-                insert(ConversationItem(eventId(record), kind, name, event.arguments?.jsonDisplayText().orEmpty(), epochSeconds = date), operations)
+                if (event.callId != null) {
+                    toolCallNames[event.callId] = name
+                    if (toolCallNames.size > 1024) toolCallNames.keys.take(toolCallNames.size / 2).forEach { toolCallNames.remove(it) }
+                }
+                // 内部工具（如群聊 relay）不出行：网关 projection.mjs:104 同口径。
+                if (name.lowercase() !in internalTools) {
+                    val kind = if (name.equals("run_code", ignoreCase = true)) ConversationItemKind.JSON_TOOL else ConversationItemKind.TOOL
+                    insert(ConversationItem(eventId(record), kind, name, event.arguments?.jsonDisplayText().orEmpty(), epochSeconds = date), operations)
+                }
             }
-            event.type == "tool/result" -> insert(ConversationItem(
-                id = eventId(record),
-                kind = ConversationItemKind.TOOL_RESULT,
-                title = if (toolFailed(event)) labels.toolResultFailed else labels.toolResultDone,
-                text = toolOutput(event),
-                isError = toolFailed(event),
-                epochSeconds = date
-            ), operations)
+            event.type == "tool/result" -> {
+                // result 不带 name：用 callId 查 call 帧登记的工具名再判内部名单。
+                // callId 未知（旧网关 / 缺 call 帧）⇒ fail-open 放行——误伤正常工具比多显示一行更糟。
+                val callName = event.callId?.let { toolCallNames[it] }
+                val internal = callName != null && callName.lowercase() in internalTools
+                val cardIndex = event.callId?.let { pendingToolCards.remove(it) }
+                    ?.takeIf { it in mutableItems.indices }
+                    // 内部工具（如群聊 relay）：call 已经没出过行，result 也一行不生成。
+                    // **配对成功**：把输出替换进 call 那张卡（title 保持工具名），
+                    // 绝不另插一行 TOOL_RESULT——那是「正常工具拆成上下两条」的根因。
+                    // fail-open：callId 未登记（旧网关 / 缺 call 帧）⇒ 按老样子出 TOOL_RESULT 一行。
+                    if (!internal && cardIndex != null) {
+                        val base = mutableItems[cardIndex]
+                        val output = toolOutput(event)
+                        mutableItems[cardIndex] = base.copy(
+                            text = if (output.isEmpty()) base.text else base.text + "\n\n" + output,
+                            isError = base.isError || toolFailed(event)
+                        )
+                    } else if (!internal) {
+                        insert(ConversationItem(
+                            id = eventId(record),
+                            kind = ConversationItemKind.TOOL_RESULT,
+                            title = if (toolFailed(event)) labels.toolResultFailed else labels.toolResultDone,
+                            text = toolOutput(event),
+                            isError = toolFailed(event),
+                            epochSeconds = date
+                        ), operations)
+                    }
+            }
             event.type == "command/run" -> commandStarted(record, date, operations)
             event.type == "compaction/start" -> compactionStarted(record, date, operations)
             event.type == "compaction/summary" -> compactionSummarized(record, date, operations)
