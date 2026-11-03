@@ -1344,7 +1344,17 @@ final class ConversationViewportController: UIViewController, UICollectionViewDe
         }
         let lightweightChanged = Set(streamingChanged + stableUserMessageChanged)
         let configuredChanged = changed.filter { !lightweightChanged.contains($0) }
-        let keepTail = isPinnedToBottom && (
+        // 76①（2026-11-03 用户报「已在最底部，状态行换文案还是闪一下再滚回」）：
+        // 思考状态行（`deep-search-progress`）文字变化（酝酿→梳理）既不是流式增量也不是结构变化，
+        // 却会走 diffable 重排 + keepTail → followStreamingTail——自尺寸新高度还没落位时
+        // 按旧 contentSize 先跳一次底、落位后再被纠正一次 = 「闪一下然后重新滚动到最底部」。
+        // 判据：**停在最底部不动**，状态行换文案时不得滚动（连闪一下都不许）。
+        // 修法：仅状态行文字变化（无行数变化、无其他行变化）时不算 keepTail 的触发，
+        // 高度差由后续高度纠正/下一次快照兜底（状态行只有几 pt 的差，肉眼不可见）。
+        let statusTextOnlyChanged = !hasStructureChange
+            && !configuredChanged.isEmpty
+            && configuredChanged.allSatisfy { $0 == "deep-search-progress" }
+        let keepTail = isPinnedToBottom && !statusTextOnlyChanged && (
             revision != lastAppliedRevision ||
                 (hasStructureChange && ids.last == "deep-search-progress")
         )
