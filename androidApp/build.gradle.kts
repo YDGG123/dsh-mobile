@@ -22,8 +22,8 @@ android {
         applicationId = "com.clarklevis.dsh.android"
         minSdk = 24
         targetSdk = 36
-        versionCode = 52 // 本批（Bot 页补「团队」入口 + 底部完整列表 sheet；Bot 头像眨眼；51 为上一批）
-        versionName = "1.7.15"
+        versionCode = 53 // 本批（75① 内部提醒 repeat-tool-reminder 不画进正文——KMP 共享层双端同享；75② 会话列表取消「全部 N 个」折叠、同工作区全列、上限 500、maxRows 改必传）；52 为上一批
+        versionName = "1.7.16"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
