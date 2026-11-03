@@ -22,8 +22,8 @@ android {
         applicationId = "com.clarklevis.dsh.android"
         minSdk = 24
         targetSdk = 36
-        versionCode = 59 // 本批（vc59：D1 feed 握手帧分发修——帧判别符是 type 不是 kind，{type:"ready",kind:"team"} 曾落 else 被丢、phase 永不到 LIVE）；58 为上一批
-        versionName = "1.7.22"
+        versionCode = 60 // 本批（vc60：①凭证判死自愈——no-device-session 即触发补发拉取，修「连上网关却说未配对」死锁；②启动图标换黑鲸；③搜索等请求失败弹窗文案净化；④配对/新建按钮对齐 iOS 真身规格）；59 为上一批
+        versionName = "1.7.23"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
