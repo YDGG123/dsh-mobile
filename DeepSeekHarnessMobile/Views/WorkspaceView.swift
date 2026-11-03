@@ -12,8 +12,6 @@ struct WorkspaceView: View {
     let onOpenSession: (SessionSummary) -> Void
     let onNewSession: () -> Void
     let onSettings: () -> Void
-    /// 02 屏（全部会话）push 入口：由 RootView 的导航路由接管。
-    let onAllSessions: () -> Void
     let onPlugins: () -> Void
     let onScheduledTasks: () -> Void
     /// 团队页与 bridge 聊天：App 级单例（MultiGatewayStore 持有），这里只观察。
@@ -1269,32 +1267,12 @@ struct WorkspaceView: View {
     }
 
     private var sessionsHeader: some View {
-        // 2/5-a：按参考实现 RefListHead——标题 meta 半透明，右侧「全部 N 个」同为 meta 灰。
-        // 02 屏建成后已接上跳转（原注释「不可点」已过时）：没会话时不渲染成假按钮。
-        HStack {
-            Text("最近会话")
-                .appFont(DSHType.meta.weight(.semibold))
-                .foregroundStyle(palette.ink(0.55))
-            Spacer()
-            if displayedSessions.isEmpty {
-                Text("全部 \(displayedSessions.count) 个")
-                    .appFont(DSHType.meta)
-                    .foregroundStyle(palette.ink(0.4))
-            } else {
-                Button(action: onAllSessions) {
-                    HStack(spacing: DSHSpacing.xxs) {
-                        Text("全部 \(displayedSessions.count) 个")
-                            .appFont(DSHType.meta)
-                        Image(systemName: "chevron.forward")
-                            .appFont(DSHType.meta.weight(.semibold))
-                    }
-                    .foregroundStyle(palette.ink(0.55))
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(String(localized: "全部会话"))
-            }
-        }
+        // 75②（2026-11-03 用户定）：「全部 N 个」折叠入口退役——列表直接全列（见 sessionsList），
+        // 02 屏 AllSessionsView 与其路由一并删除，段头只剩「最近会话」标签。
+        Text("最近会话")
+            .appFont(DSHType.meta.weight(.semibold))
+            .foregroundStyle(palette.ink(0.55))
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func handleScannedCode(_ rawValue: String) {
@@ -1475,9 +1453,10 @@ struct WorkspaceView: View {
                 Text(store.searchCoverage).appFont(.caption).foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
-            // 2/5-a：默认只显示 5 条（原硬上限 12）——「全部 N 个」去 02 屏全量页（见 sessionsHeader）。
-            // 搜索态保持 100：搜索是精确查找，截断会让人以为没有结果。
-            ForEach(displayedSessions.prefix(searchQuery.isEmpty ? 5 : 100)) { session in
+            // 75②：不再截断——选中工作区的会话全列（用户 2026-11-03「全部列出，取消全部 N 个」）。
+            // 安全上限 500（Chief 定）：只防极端卡死，**不做折叠、不出任何折叠提示**；
+            // 搜索态同样 500（原 100 与列表口径不一致，一并统一，不留两个上限）。
+            ForEach(displayedSessions.prefix(500)) { session in
                 Button {
                     sessionSearchIsFocused = false
                     onOpenSession(session)
@@ -2391,4 +2370,39 @@ final class GatewayScannerController: UIViewController, AVCaptureMetadataOutputO
         stop()
         onFailure?(message)
     }
+}
+
+// MARK: - 会话行判据（原在 AllSessionsView.swift，75② 02 屏退役后迁来本文件）
+//
+// 都是「视图怎么读数据」的投影，不改业务状态；02 屏删了，01 屏的 sessionRow 还在用。
+
+/// 行右列状态：审批/问答两条 pending 通道（「要不要动手」的直接体现）。
+@MainActor
+func sessionRowStatusKind(for sessionID: String, store: AppStore) -> DSHStatusKind? {
+    if store.pendingApprovalRequests.contains(where: { $0.sessionId == sessionID }) { return .waiting }
+    if store.pendingQuestionRequests.contains(where: { $0.sessionId == sessionID }) { return .question }
+    if store.bridgePendingQuestions.contains(where: { $0.sessionId == sessionID }) { return .question }
+    return nil
+}
+
+/// 行首状态圆点用的完整判据：待办优先（审批 > 问答），否则运行中才给 `.running`。
+@MainActor
+func sessionRowDotKind(for session: SessionSummary, store: AppStore) -> DSHStatusKind? {
+    if let pending = sessionRowStatusKind(for: session.id, store: store) { return pending }
+    return session.isRunning ? .running : nil
+}
+
+/// 次要信息位 =「模式 · N 轮 · M 步」。缺哪段省哪段，全缺返回 nil（整行不显示，绝不编 0）。
+@MainActor
+func sessionRowSecondaryText(for session: SessionSummary, store: AppStore) -> String? {
+    var parts: [String] = []
+    if let preset = session.agentPreset {
+        parts.append(store.agentPresets.first { $0.id == preset }?.displayName
+            ?? L10n.presetModeName(for: preset))
+    }
+    if let stats = store.sessionStatsSnapshots[session.id]?.stats {
+        if let turns = stats.turns { parts.append("\(turns) 轮") }
+        if let steps = stats.steps { parts.append("\(steps) 步") }
+    }
+    return parts.isEmpty ? nil : parts.joined(separator: " · ")
 }

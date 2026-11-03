@@ -82,11 +82,6 @@ private struct RootNavigationHost: View, Equatable {
                     newConversationTask?.cancel()
                     navigate(to: .settings)
                 },
-                /// 02 屏（全部会话）push 入口。合并上游 1.7.12 时此块曾被整段取走上游版本导致丢失，已按 pre-merge 版本补回。
-                onAllSessions: {
-                    newConversationTask?.cancel()
-                    navigate(to: .allSessions)
-                },
                 onPlugins: {
                     navigate(to: .plugins)
                 },
@@ -166,20 +161,6 @@ private struct RootNavigationHost: View, Equatable {
                     navigationPath = [.conversation(header)]
                 }
             }
-        case .allSessions:
-            AllSessionsView(
-                sessions: store.workspaceScopedSessions,
-                onOpen: { session in
-                    // 与首页 onOpenSession 同一条路径（准备会话 → push 对话），不另开后门。
-                    newConversationTask?.cancel()
-                    let header = conversationHeader(for: session)
-                    Task { @MainActor in
-                        guard await store.prepareConversation(for: session),
-                              !Task.isCancelled else { return }
-                        navigate(to: .conversation(header))
-                    }
-                }
-            )
         }
     }
 
@@ -280,8 +261,7 @@ private struct RootNavigationHost: View, Equatable {
         case settings
         case plugins
         case scheduledTasks
-        /// 02 屏：首页「全部 N 个」push 到这里。合并 1.7.12 时丢失，已补回。
-        case allSessions
+        // 75②：`allSessions`（02 屏「全部会话」）随「全部 N 个」入口一并退役（2026-11-03）。
     }
 }
 
