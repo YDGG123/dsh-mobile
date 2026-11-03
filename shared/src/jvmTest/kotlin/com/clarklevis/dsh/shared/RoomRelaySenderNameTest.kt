@@ -132,12 +132,13 @@ class RoomRelaySenderNameTest {
      * 而上面那些断言只盯 relay 那 106 条 —— **106 条照样齐全、其它类目被吞光也不会报警**。
      * 真数据里 CONTEXT=8 这组是「relay 判定没吞掉系统提示」的反证（75① 后 8→6，见下）。
      *
-     * 读数（2026-11-03 更新）：records=1090, items=113
-     * （TOOL 0 / TOOL_RESULT 0 / ASSISTANT 106 / CONTEXT 6 / USER 1；
+     * 读数（2026-11-03 更新）：records=1090, items=108
+     * （TOOL 0 / TOOL_RESULT 0 / ASSISTANT 106 / CONTEXT 1 / USER 1；
      *   2026-11-02 的 TOOL 108+107 是 group_relay 整类，白名单后整类去掉——
      *   与网关 room 投影「不出工具行」同口径，判定见 InternalToolProjectionTest；
-     *   CONTEXT 8 → 6 是 75①：fixture 里 2 条 repeat-tool-reminder 内部提醒不再出行，
-     *   判据见本文件 internalReminderIsNotRendered）。
+     *   CONTEXT 8 → 6 是 75①：fixture 里 2 条 repeat-tool-reminder 内部提醒不再出行；
+     *   CONTEXT 6 → 1 是 76③：fixture 里另有 5 条 time-context 注入不再出行
+     *   （真数据自带，正好当 76③ 的真数据断言），判据见 internalContextInjectionsAreNotRendered）。
      */
     @Test
     fun otherCategoriesAreNotSwallowedByTheNewBotBranch() {
@@ -147,12 +148,13 @@ class RoomRelaySenderNameTest {
         val byKind = items.groupingBy { it.kind }.eachCount()
         // 2026-11-03 起 room 会话的工具行（全部是 group_relay：108 call + 107 result）按网关
         // projection.mjs:104 同口径整类去掉 ⇒ 总数 330 → 115（ASSISTANT 106 / CONTEXT 8 / USER 1）；
-        // 75① 内部提醒（repeat-tool-reminder，fixture 里恰 2 条 user/message）再不出行 ⇒ 115 → 113。
+        // 75① 内部提醒（repeat-tool-reminder，fixture 里恰 2 条 user/message）再不出行 ⇒ 115 → 113；
+        // 76③ time-context（fixture 里恰 5 条 user/message）再不出行 ⇒ 113 → 108。
         // 「正常工具不被误伤」的判据在 `InternalToolProjectionTest`（合成 bash/run_code，room 里没有）。
-        assertEquals(113, items.size, "真数据投影条目总数变了（某类目消失或被重复产出）")
+        assertEquals(108, items.size, "真数据投影条目总数变了（某类目消失或被重复产出）")
         assertEquals(0, byKind[ConversationItemKind.TOOL] ?: 0, "room 会话不该再有 group_relay 工具行")
         assertEquals(0, byKind[ConversationItemKind.TOOL_RESULT] ?: 0, "room 会话不该再有 group_relay 结果行")
-        assertEquals(6, byKind[ConversationItemKind.CONTEXT] ?: 0,
+        assertEquals(1, byKind[ConversationItemKind.CONTEXT] ?: 0,
             "CONTEXT 条数变了：变少=新分支把系统提示也当成 Bot 发言吞了；变多=relay 判定退化或提醒没拦住")
         assertEquals(1, byKind[ConversationItemKind.USER] ?: 0, "用户自己发的条目数变了")
         // ASSISTANT **总数**必须恰好等于 relay 数：多出来的都是「无名 ASSISTANT」，
@@ -236,24 +238,34 @@ class RoomRelaySenderNameTest {
     }
 
     /**
-     * 75③（2026-11-03 用户截图「MNEMON RUNTIME MEMORY SNAPSHOT」一大段上屏）：
-     * 宿主注入上下文（`source.kind="runtime-context"`、`form:"snapshot"`，dsh-agent-loop 统一打标）
-     * 不出行——mnemon 记忆快照、working-directory 等全是这个 kind，真会话实测 39 条、
-     * 每条整份快照原先都落 CONTEXT 行。轨迹页**不受影响**（TrajectoryProjection 独立消费原始
-     * 事件）；fixture 里该 kind 为 0 条 ⇒ 用例走合成数据。
+     * 75③（2026-11-03 用户截图「MNEMON RUNTIME MEMORY SNAPSHOT」一大段上屏）+
+     * 76③（同日用户报「Time sampled while preparing turn …」）：
+     * 宿主注入上下文（`source.kind="runtime-context"` / `"time-context"`、`form:"snapshot"`，
+     * dsh-agent-loop 统一打标 / dsh-time-context 插件）不出行——真会话实测 39 + 14 条，
+     * 每条原先都落 CONTEXT 行。轨迹页**不受影响**（TrajectoryProjection 独立消费原始
+     * 事件）；fixture 里该两种 kind 均为 0 条 ⇒ 用例走合成数据。
      */
     @Test
-    fun runtimeContextInjectionIsNotRendered() {
-        val snapshotText = "MNEMON RUNTIME MEMORY SNAPSHOT\\nUSER.md (user profile)\\n…（整份快照）"
-        val injection = """{"type":"user/message","seq":94001,"time":1793578891953,"data":{"content":[{"type":"text","text":"$snapshotText"}],"source":{"kind":"runtime-context","form":"snapshot","sections":[{"name":"working-directory:current","text":"x"}]}}}"""
-        val userSaysSame = """{"type":"user/message","seq":94002,"time":1793578891954,"data":{"content":[{"type":"text","text":"$snapshotText"}],"source":{"kind":"user"}}}"""
+    fun internalContextInjectionsAreNotRendered() {
+        val kinds = listOf(
+            "runtime-context" to """{"kind":"runtime-context","form":"snapshot","sections":[{"name":"working-directory:current","text":"x"}]}""",
+            "time-context" to """{"kind":"time-context","form":"snapshot","sections":[{"name":"time-context","text":"Time sampled while preparing turn 1"}]}""",
+        )
+        kinds.forEachIndexed { index, (kind, source) ->
+            val body = when (kind) {
+                "runtime-context" -> "MNEMON RUNTIME MEMORY SNAPSHOT\\nUSER.md (user profile)\\n…（整份快照）"
+                else -> "Time sampled while preparing turn 1, step 1: 2026-11-03T16:30:42+08:00[Asia/Shanghai]"
+            }
+            val injection = """{"type":"user/message","seq":${94001 + index},"time":1793578891953,"data":{"content":[{"type":"text","text":"$body"}],"source":$source}}"""
+            val userSaysSame = """{"type":"user/message","seq":${94002 + index},"time":1793578891954,"data":{"content":[{"type":"text","text":"$body"}],"source":{"kind":"user"}}}"""
 
-        // 注入形态 ⇒ 0 行（CONTEXT/正文都不行）
-        assertEquals(0, project(recordsOf(injection, sessionId)).size, "runtime-context 注入不得出行")
+            // 注入形态 ⇒ 0 行（CONTEXT/正文都不行）
+            assertEquals(0, project(recordsOf(injection, sessionId)).size, "$kind 注入不得出行")
 
-        // 反向对照：同文字来自 user 照常渲染 ⇒ 键是 source.kind 不是文本内容
-        val withUser = project(recordsOf("$injection\n$userSaysSame", sessionId))
-        assertEquals(1, withUser.size, "同文字的 user 消息必须照常渲染（黑名单只按 kind 收口）")
-        assertEquals(ConversationItemKind.USER, withUser.single().kind)
+            // 反向对照：同文字来自 user 照常渲染 ⇒ 键是 source.kind 不是文本内容
+            val withUser = project(recordsOf("$injection\n$userSaysSame", sessionId))
+            assertEquals(1, withUser.size, "$kind：同文字的 user 消息必须照常渲染（黑名单只按 kind 收口）")
+            assertEquals(ConversationItemKind.USER, withUser.single().kind)
+        }
     }
 }
