@@ -149,6 +149,23 @@ internal class AndroidBridgeTeamAdapter(
     val hasSession: Boolean get() = store.currentAccessToken() != null
 
     /**
+     * vc60 P0：轮询判死（no-device-session）时通知上层发起「补发桥接会话」自愈拉取。
+     * 原先全 App 只有 hello 一个触发点（stateholder），而控制通道不因 bridge session 清空而
+     * 重连 ⇒ 没有 hello 就死锁到重启（vc59 真机「尚未配对」根因）。去抖/restoreFailed/
+     * hasSession 三道门都在上层 `requestBridgeSessionIfMissing`，这里只负责「缺会话这一刻」。
+     */
+    var onSessionMissing: (() -> Unit)? = null
+
+    /** vc60 P1：自愈重签已发出、尚未恢复（UI 区分「从未配对」与「轮换后自动恢复中」）。 */
+    var reissuePending: Boolean by mutableStateOf(false)
+        private set
+
+    /** 自愈拉取真正发出（网关收得到）时由上层调；采纳新会话/轮询成功即清。 */
+    fun markReissueRequested() {
+        reissuePending = true
+    }
+
+    /**
      * D1 段 5：团队 feed WS 端点与当前 access token（只读出口，token 不落日志）。
      * `origin` 是 http(s) 桥根；WS = 同 host 换 ws(s) scheme + `/mobile/v1/team`（契约）。
      * 无 origin/无 token ⇒ null（上层不连接）。
@@ -210,6 +227,7 @@ internal class AndroidBridgeTeamAdapter(
         val json = encodeBridgeSession(session)
         val result = store.sessionPaired(json)
         applyEffects(result)
+        if (result.isSuccess) reissuePending = false // vc60 P1：新会话已落，退出「自动重新获取」态
         // 诊断（用户报「每次重装都要重新配对」）：这条日志要能区分三种结局——
         // ① 落盘成功 ② 解析/绑定失败（不落盘）③ 落盘了但读不出来。日志里带 deviceId/serverId 便于与网关侧比对。
         Log.i(
@@ -364,7 +382,12 @@ internal class AndroidBridgeTeamAdapter(
                 }
             }
             val token = store.currentAccessToken()
-            if (token.isNullOrBlank()) return@withLock fail("no-device-session", "本地无移动设备会话")
+            if (token.isNullOrBlank()) {
+                fail("no-device-session", "本地无移动设备会话")
+                // vc60 P0：判死这一刻就触发自愈拉取（去抖在门里，连续轮询不会刷请求）。
+                onSessionMissing?.invoke()
+                return@withLock
+            }
             val state = authorizedFetch("$base/mobile/v1/state")
             val stateJson = when (state) {
                 is BridgeFetch.Ok -> state.body
@@ -385,6 +408,7 @@ internal class AndroidBridgeTeamAdapter(
             } else {
                 lastError = null
                 lastErrorCode = null
+                reissuePending = false // vc60 P1：轮询已恢复，退出「自动重新获取」态
             }
             applyEffects(result) // 只有显式 session-clear 才销毁凭证（不再按 phase 推断）
             publishState()

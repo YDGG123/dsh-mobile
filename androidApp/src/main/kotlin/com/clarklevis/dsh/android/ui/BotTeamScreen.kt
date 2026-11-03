@@ -332,6 +332,7 @@ internal fun BotTeamScreen(
                         origin = adapter?.origin,
                         error = adapter?.lastError,
                         hasSession = adapter?.hasSession == true,
+                        reissuePending = adapter?.reissuePending == true,
                         onRequestPairing = onRequestPairing
                     )
                 }
@@ -901,6 +902,11 @@ private fun SectionTitle(text: String) {
     )
 }
 
+/** vc60 P1：未配对档文案——自愈重签进行中要区分于「从未配对」，别把恢复态报成死局。 */
+internal fun pairingStatusCopy(reissuePending: Boolean): String =
+    if (reissuePending) "凭证已被桌面端轮换，正在自动重新获取…"
+    else "尚未配对桥接设备：请先与网关配对（配对成功会自动下发团队会话）"
+
 @Composable
 private fun StatusCard(
     phase: TeamPhase,
@@ -908,6 +914,8 @@ private fun StatusCard(
     origin: String?,
     error: String?,
     hasSession: Boolean,
+    /** vc60 P1：判死后自愈重签已发出（区分「从未配对」与「轮换后自动恢复中」）。 */
+    reissuePending: Boolean = false,
     /** 未配对档的配对入口（规则 3：写了「请先配对」就必须给得到入口）。 */
     onRequestPairing: () -> Unit = {}
 ) {
@@ -934,17 +942,20 @@ private fun StatusCard(
         // 不在 Bot 页重复四行扁平清单；排障需要时看设置页，那里是唯一来源。
         if (!hasSession) {
             Text(
-                appText("尚未配对桥接设备：请先与网关配对（配对成功会自动下发团队会话）"),
+                appText(pairingStatusCopy(reissuePending)),
                 color = DshSemantic.warning,
                 style = DshType.footnote
             )
             // iOSDev 规则 3：**凡文案写「请先配对」，同屏必须有可点的配对入口**——
             // 否则用户知道要做什么却无处可点（用户 2026-11-02 截图里就是这样）。
-            androidx.compose.material3.TextButton(
-                onClick = onRequestPairing,
-                contentPadding = PaddingValues(horizontal = 0.dp, vertical = 2.dp)
-            ) {
-                Text(appText("重新扫码配对"), color = MaterialTheme.colorScheme.primary, style = DshType.footnote)
+            // vc60 P1：自愈重签进行中不显示入口——「轮换恢复中」不该诱导用户重新扫码。
+            if (!reissuePending) {
+                androidx.compose.material3.TextButton(
+                    onClick = onRequestPairing,
+                    contentPadding = PaddingValues(horizontal = 0.dp, vertical = 2.dp)
+                ) {
+                    Text(appText("重新扫码配对"), color = MaterialTheme.colorScheme.primary, style = DshType.footnote)
+                }
             }
         }
         // 一屏只允许一条主提示（iOSDev 规则 1）：未配对档已经把原因说清，

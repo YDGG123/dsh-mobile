@@ -111,7 +111,11 @@ class AndroidSharedStateHolder(
                 it.applicationScope,
                 // Chief 拍板（2026-11-01）：对齐 iOS 生产 https-only；debug 源集才放行 loopback 明文。
                 allowInsecureLoopback = BRIDGE_ALLOW_INSECURE_LOOPBACK
-            )
+            ).apply {
+                // vc60 P0：轮询判死也触发自愈拉取——原先只有 hello 一个触发点，判死后控制通道
+                // 不重连就没有 hello，死锁到重启（vc59 真机「尚未配对」根因）。
+                onSessionMissing = { requestBridgeSessionIfMissing() }
+            }
         }
 
     fun isSubagentSession(sessionId: String): Boolean =
@@ -212,6 +216,7 @@ class AndroidSharedStateHolder(
                 )
             )
             if (!sent) android.util.Log.w("DshBridgeTeam", "bridge-session request not sent (gateway not ready)")
+            else bridgeTeam?.markReissueRequested() // vc60 P1：重签已发出，UI 进「自动重新获取」态
         }
     }
 
