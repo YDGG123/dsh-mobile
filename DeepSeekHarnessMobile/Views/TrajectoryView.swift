@@ -313,7 +313,8 @@ enum TrajectoryPhases {
     }
 }
 
-fileprivate struct TrajectoryPresentation {
+/// internal：轨迹倒序/轮次头用例直接驱动（fileprivate 测不到）。
+struct TrajectoryPresentation {
     let nodes: [TrajectoryNode]
     let visibleNodes: [TrajectoryNode]
     let rows: [TrajectoryDisplayRow]
@@ -349,8 +350,9 @@ fileprivate struct TrajectoryPresentation {
             }
             resolvedTurns[index] = nextTurn
         }
+        // 时间正序下的 startsTurn 照算（历史行为保留），但**展示用的 startsTurn 在倒序后重算**（见下）。
         var previousTurn: Int?
-        rows = visible.enumerated().map { index, node in
+        let chronological = visible.enumerated().map { index, node in
             let turn = resolvedTurns[index]
             let startsTurn = turn != nil && turn != previousTurn
             if let turn { previousTurn = turn }
@@ -367,6 +369,20 @@ fileprivate struct TrajectoryPresentation {
                 startsTurn: startsTurn
             )
         }
+        // **展示层倒序**（2026-11-03 用户要求：最新的在最上面）。
+        // 底层顺序与 seq **不动**（`visibleNodes`/overview 画布仍按时间正序，序号逐字不变）；
+        // 轮次归属（resolvedTurns）已按时间正序算完，翻过来之后 **startsTurn 必须重算**：
+        // 倒序里每组的第一行 = 该轮在时间序里的最后一行，轮次头必须挂在那里。
+        // 直接沿用正序的 startsTurn 会让轮次头挂到每组的末行（判据会红）。
+        var display = Array(chronological.reversed())
+        var previousTurnInDisplay: Int?
+        display = display.map { row in
+            let startsTurn = previousTurnInDisplay == nil || row.turn != previousTurnInDisplay
+            previousTurnInDisplay = row.turn
+            return TrajectoryDisplayRow(node: row.node, request: row.request,
+                                        turn: row.turn, startsTurn: startsTurn)
+        }
+        rows = display
     }
 }
 
@@ -477,7 +493,7 @@ struct TrajectoryOverviewLayout {
     }
 }
 
-fileprivate struct TrajectoryDisplayRow: Identifiable {
+struct TrajectoryDisplayRow: Identifiable {
     let node: TrajectoryNode
     let request: TrajectoryNode?
     let turn: Int?
