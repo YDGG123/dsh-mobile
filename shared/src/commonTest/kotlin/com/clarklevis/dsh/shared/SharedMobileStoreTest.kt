@@ -221,4 +221,43 @@ class SharedMobileStoreTest {
         )
         assertNull(snapshot.goalSnapshot?.goal)
     }
+
+    /**
+     * 76④（2026-11-03 用户报「答完问题卡片一直挂着」）：宿主重启/广播过滤会让
+     * `question-resolved`/`approval-resolved` 永远到不了客户端。对账机制 =
+     * 网关 replay 完整注册表后发 `interaction-replay-end`，客户端把
+     * 「本机有、replay 里没有」的 pending 就地清掉。
+     *
+     * Chief 三判据：
+     * ① replay 后本机有、replay 里没有 → 清
+     * ② **replay 未到时一张卡不清**（红线——网络抖动/延迟绝不能误清还没处理的问题卡）
+     * ③ approval 同族一起治
+     */
+    @Test
+    fun interactionReplayEndReconcilesStalePendingCards() {
+        val store = SharedMobileStore()
+        val questionA = """{"kind":"question-requested","rpcId":"q-stale","sessionId":"s1","replay":false,"questions":[{"id":"x","question":"过期问题","options":[{"label":"a"}]}]}"""
+        val questionB = """{"kind":"question-requested","rpcId":"q-alive","sessionId":"s1","replay":false,"questions":[{"id":"x","question":"活着的问题","options":[{"label":"a"}]}]}"""
+        store.acceptFrame(questionA)
+        store.acceptFrame(questionB)
+        store.acceptFrame("""{"kind":"approval-requested","rpcId":"appr-stale","sessionId":"s1","approvalId":"a1","toolName":"Bash","callId":"call-1","reason":"r","replay":false}""")
+        var snapshot = store.acceptFrame("""{"kind":"approval-requested","rpcId":"appr-alive","sessionId":"s1","approvalId":"a2","toolName":"Bash","callId":"call-2","reason":"r","replay":false}""")
+        assertEquals(2, snapshot.pendingQuestionCount)
+        assertEquals(2, snapshot.pendingApprovalCount)
+
+        // **红线（判据②）**：replay 没到（没有任何 replay:true 帧），此时到达的 end 帧
+        // **一张卡都不清**——绝不能因对账误删还没处理的问题卡。
+        snapshot = store.acceptFrame("""{"kind":"interaction-replay-end"}""")
+        assertEquals(2, snapshot.pendingQuestionCount, "replay 未到 ⇒ 不许对账（红线）")
+        assertEquals(2, snapshot.pendingApprovalCount, "replay 未到 ⇒ 不许对账（红线）")
+
+        // 判据①③：replay 只包含 q-alive / appr-alive（宿主注册表的真实现状），
+        // end 帧到达 ⇒ 不在 replay 里的 q-stale / appr-stale 被清，活着的保留。
+        store.acceptFrame(questionB.replace("\"replay\":false", "\"replay\":true"))
+        store.acceptFrame("""{"kind":"approval-requested","rpcId":"appr-alive","sessionId":"s1","approvalId":"a2","toolName":"Bash","callId":"call-2","reason":"r","replay":true}""")
+        snapshot = store.acceptFrame("""{"kind":"interaction-replay-end"}""")
+        assertEquals(listOf("q-alive"), snapshot.pendingQuestions.map { it.rpcId }, "replay 里没有的过期问题卡必须被清")
+        assertEquals(listOf("appr-alive"), snapshot.pendingApprovals.map { it.rpcId }, "approval 同族一起对账")
+        assertNull(snapshot.lastError)
+    }
 }

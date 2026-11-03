@@ -114,6 +114,16 @@ class SharedMobileStore(
     private var offlineSelectionChanged = false
     private var questionState = QuestionState()
     private var approvalState = ApprovalState()
+    // 76④（2026-11-03 用户报「答完问题卡片一直挂着」）：宿主重启/广播过滤会让
+    // question-resolved / approval-resolved 永远到不了客户端，pending 卡就永远挂着。
+    // 对账机制：网关每次 replay 完整注册表后发 `interaction-replay-end`；
+    // 客户端把「replay 里出现过」的 rpcId 记进 replaySeenRpcIds，收到 end 帧时把
+    // **本机有、replay 里没有**的 pending 就地按 Resolved 清掉（宿主注册表已无此问题
+    // ⇒ 过期卡，清掉是 fail-safe）。
+    // **硬约束（Chief 判据②）**：replay 本身没到（replaySweepActive == false）时
+    // **一张卡都不清**——网络抖动/replay 延迟时绝不能把还没处理的问题卡也清掉。
+    private val replaySeenRpcIds = linkedSetOf<String>()
+    private var replaySweepActive = false
     private val eventsBySession = mutableMapOf<String, List<SessionEvent>>()
     private var workspaces = emptyList<GatewayWorkspace>()
     private var searchResultSessionIds = emptyList<String>()
@@ -487,6 +497,10 @@ class SharedMobileStore(
                     val sessionId = frame.sessionId
                     val questions = frame.questions
                     if (rpcId != null && sessionId != null && !questions.isNullOrEmpty()) {
+                        if (frame.replay == true) {
+                            replaySeenRpcIds += rpcId
+                            replaySweepActive = true
+                        }
                         questionState = QuestionReducer.reduce(
                             questionState,
                             QuestionAction.RequestReceived(
@@ -519,6 +533,10 @@ class SharedMobileStore(
                     val toolName = frame.toolName
                     if (!rpcId.isNullOrBlank() && !sessionId.isNullOrBlank() &&
                         !approvalId.isNullOrBlank() && !toolName.isNullOrBlank()) {
+                        if (frame.replay == true) {
+                            replaySeenRpcIds += rpcId
+                            replaySweepActive = true
+                        }
                         approvalState = ApprovalReducer.reduce(
                             approvalState,
                             ApprovalAction.RequestReceived(GatewayPendingApprovalRequest(
@@ -546,6 +564,25 @@ class SharedMobileStore(
                 }
                 "approval-resolved" -> frame.rpcId?.let { rpcId ->
                     approvalState = ApprovalReducer.reduce(approvalState, ApprovalAction.Resolved(rpcId))
+                }
+                "interaction-replay-end" -> {
+                    // 76④ 对账：只清「replay 里没有」的 pending（宿主注册表已无 ⇒ 过期卡）。
+                    // replay 没到过（replaySweepActive == false）时**一张卡都不清**（红线）。
+                    if (replaySweepActive) {
+                        val seen = replaySeenRpcIds.toSet()
+                        for (pending in questionState.pendingRequests) {
+                            if (pending.rpcId !in seen) {
+                                questionState = QuestionReducer.reduce(questionState, QuestionAction.Resolved(pending.rpcId))
+                            }
+                        }
+                        for (pending in approvalState.pendingRequests) {
+                            if (pending.rpcId !in seen) {
+                                approvalState = ApprovalReducer.reduce(approvalState, ApprovalAction.Resolved(pending.rpcId))
+                            }
+                        }
+                        replaySeenRpcIds.clear()
+                        replaySweepActive = false
+                    }
                 }
             }
         } catch (error: Throwable) {
