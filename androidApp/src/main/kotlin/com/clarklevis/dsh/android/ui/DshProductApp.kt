@@ -251,7 +251,7 @@ internal fun DshProductApp(
     stateHolder.platformError?.let { error ->
         DshAlertDialog(
             title = "DeepSeek Harness",
-            message = appText(error),
+            message = appText(humanizePlatformError(error)),
             onDismissRequest = stateHolder::clearPlatformError,
             dismissLabel = appText("好"),
             onDismissClick = stateHolder::clearPlatformError,
@@ -882,6 +882,30 @@ internal fun LocalChatSearchContent(
             )
             Text(match.snippet, color = homeInk(0.8f), maxLines = 3, fontSize = 13.sp)
         }
+    }
+}
+
+/**
+ * vc60 P1（用户 2026-11-03 深夜批「搜索报错」）：请求失败的平台错误不得把原始码直接抛给用户
+ * ——真机实收「search：gateway-request-failed」+「重新连接」按钮，而该故障的根因是桌面端
+ * 坏会话日志让搜索整体失败，重连根本解决不了。此函数是**显示层钳点**：59 处
+ * `platformError =` 赋值点与 `platformErrorAction` 的文案派生（PAIR/RECONNECT）都不动，
+ * 只有弹窗文案过这里。统一文案与 iOS 对齐（iOSCoder 定稿后只改这两句话）。
+ */
+private val RAW_REQUEST_FAILURE_CODES = setOf(
+    "gateway-request-failed", "transport-failed", "request-busy", "network-lost", "request-coalesced",
+)
+
+internal fun humanizePlatformError(raw: String): String {
+    val text = raw.trim()
+    val code = RAW_REQUEST_FAILURE_CODES.firstOrNull { candidate ->
+        text == candidate || text.endsWith("：$candidate") || text.endsWith(": $candidate") || text.endsWith(":$candidate")
+    } ?: return raw
+    val requestType = text.removeSuffix(code).trimEnd('：', ':', ' ')
+    return if (requestType == "search") {
+        "搜索暂时不可用：桌面端搜索服务报错（可能有会话记录损坏）。请稍后重试；若反复出现，需在桌面端处理损坏的会话记录。"
+    } else {
+        "操作暂时没有完成：与桌面端的连接出现波动。请稍后重试。"
     }
 }
 
