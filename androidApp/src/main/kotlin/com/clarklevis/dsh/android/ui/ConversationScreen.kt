@@ -2078,11 +2078,14 @@ private fun PeerMessageRow(entry: ConversationTimelineEntry.PeerMessage) {
                 modifier = Modifier.padding(bottom = 3.dp)
             )
         }
-        Text(
-            entry.text,
-            color = homeInk(if (entry.role == "user") 0.92f else 0.85f),
-            fontSize = 15.sp,
-            lineHeight = 21.sp
+        // 75③/用户 2026-11-03（群聊粗体不生效）：群聊消息此前是**裸 Text**，完全没走 Markdown——
+        // bot 发的 **粗体** 显示成字面星号。iOS 群聊气泡走 MarkdownUI（ConversationView:4828），
+        // Android 对齐：换 DshMarkdownText（Markwon，与单聊 ASSISTANT 气泡同一渲染器）。
+        // 只修安卓（用户规则：报哪个平台修哪个）；user 自己的气泡两端都是纯文本，不在本条范围。
+        DshMarkdownText(
+            markdown = entry.text,
+            modifier = Modifier.fillMaxWidth(),
+            compact = true // 14sp，贴近原 15sp/21sp 行高的群聊密度
         )
     }
 }
