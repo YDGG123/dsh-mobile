@@ -128,11 +128,17 @@ class ConversationProjector(
     // 这些工具的 call/result 都不生成对话行（2026-11-03 用户报「群聊出现 {} / {"replies":[]} 裸 JSON」）。
     private val internalTools = setOf("group_relay")
     // 内部提醒的 source.kind：宿主插件注入的 user/message（发给模型的上下文），**不该画成对话正文**。
-    // 实证：真数据 fixture room-2a10aef5.jsonl 里就有 2 条（source.kind="repeat-tool-reminder"、
-    // form:"notice"、正文 "Repeated tool call detected…"），原先落 CONTEXT 行上屏（2026-11-03 用户报）。
+    // "repeat-tool-reminder"：宿主插件 dsh-repeat-tool-reminder 的同参重调警告。真数据 fixture
+    // room-2a10aef5.jsonl 里就有 2 条（form:"notice"、正文 "Repeated tool call detected…"），
+    // 原先落 CONTEXT 行上屏（2026-11-03 用户报）。
+    // "runtime-context"：宿主对所有注入上下文的统一 kind（dsh-agent-loop runtime-context 模块
+    // SOURCE="runtime-context"、form:"snapshot"）——mnemon 记忆快照、working-directory 等全走它。
+    // 实测：真会话 39 条、每条整份快照落 CONTEXT 行上屏（2026-11-03 用户截图「MNEMON RUNTIME
+    // MEMORY SNAPSHOT」一大段）。轨迹页**不受影响**：TrajectoryProjection:95-96 独立消费原始
+    // 事件，注入仍以 CONTEXT 节点保留（对话页不显示、轨迹页照常，Chief 判据）。
     // 与 internalTools 同一机制——按 kind 判，不按文本判（"Repeated tool call detected" 这串字
     // 可能出现在正常对话里）。黑名单制：不在名单里的 kind 照旧走原分支（fail-open 同向）。
-    private val internalSourceKinds = setOf("repeat-tool-reminder")
+    private val internalSourceKinds = setOf("repeat-tool-reminder", "runtime-context")
     // callId → 工具名：tool/result 不带 name，判定「是不是内部工具」必须靠 call 帧登记。
     // 有上限防爆表：超过就把较早的一半丢掉（call 帧与其 result 几乎总是相邻到达）。
     private val toolCallNames = linkedMapOf<String, String>()

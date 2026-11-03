@@ -234,4 +234,26 @@ class RoomRelaySenderNameTest {
         assertEquals(ConversationItemKind.USER, withUser.single().kind)
         assertTrue(withUser.single().text.contains("Repeated tool call detected"))
     }
+
+    /**
+     * 75③（2026-11-03 用户截图「MNEMON RUNTIME MEMORY SNAPSHOT」一大段上屏）：
+     * 宿主注入上下文（`source.kind="runtime-context"`、`form:"snapshot"`，dsh-agent-loop 统一打标）
+     * 不出行——mnemon 记忆快照、working-directory 等全是这个 kind，真会话实测 39 条、
+     * 每条整份快照原先都落 CONTEXT 行。轨迹页**不受影响**（TrajectoryProjection 独立消费原始
+     * 事件）；fixture 里该 kind 为 0 条 ⇒ 用例走合成数据。
+     */
+    @Test
+    fun runtimeContextInjectionIsNotRendered() {
+        val snapshotText = "MNEMON RUNTIME MEMORY SNAPSHOT\\nUSER.md (user profile)\\n…（整份快照）"
+        val injection = """{"type":"user/message","seq":94001,"time":1793578891953,"data":{"content":[{"type":"text","text":"$snapshotText"}],"source":{"kind":"runtime-context","form":"snapshot","sections":[{"name":"working-directory:current","text":"x"}]}}}"""
+        val userSaysSame = """{"type":"user/message","seq":94002,"time":1793578891954,"data":{"content":[{"type":"text","text":"$snapshotText"}],"source":{"kind":"user"}}}"""
+
+        // 注入形态 ⇒ 0 行（CONTEXT/正文都不行）
+        assertEquals(0, project(recordsOf(injection, sessionId)).size, "runtime-context 注入不得出行")
+
+        // 反向对照：同文字来自 user 照常渲染 ⇒ 键是 source.kind 不是文本内容
+        val withUser = project(recordsOf("$injection\n$userSaysSame", sessionId))
+        assertEquals(1, withUser.size, "同文字的 user 消息必须照常渲染（黑名单只按 kind 收口）")
+        assertEquals(ConversationItemKind.USER, withUser.single().kind)
+    }
 }
