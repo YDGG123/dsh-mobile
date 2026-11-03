@@ -950,7 +950,9 @@ private fun SessionList(
     onRename: (String, String) -> Unit,
     onArchive: (String) -> Unit,
     folderLabels: Map<String, String> = emptyMap(),
-    maxRows: Int = 12
+    // 75②（Chief 2026-11-03）：**必传**——默认值 12 是折叠时代的残留，
+    // 留着它，下一个调用点忘传参会静默退回 12 条（AndroidTester 复核揪出的坑）。
+    maxRows: Int,
 ) {
     Column(Modifier.background(Color.Transparent)) {
         sessions.take(maxRows).forEach { session ->
