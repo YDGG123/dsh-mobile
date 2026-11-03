@@ -45,6 +45,7 @@ class TeamFeedReducer(initial: TeamFeedState = TeamFeedState()) {
     fun apply(frame: TeamFeedFrame): Outcome {
         return when (frame) {
             is TeamFeedFrame.Ready -> Outcome.Applied(state, changed = false)
+            is TeamFeedFrame.Error -> Outcome.Applied(state, changed = false)
             is TeamFeedFrame.Snapshot -> applySnapshot(frame)
             is TeamFeedFrame.Delta -> applyDelta(frame)
             is TeamFeedFrame.Order -> applyOrder(frame)

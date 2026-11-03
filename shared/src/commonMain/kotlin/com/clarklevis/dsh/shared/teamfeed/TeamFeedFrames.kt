@@ -36,6 +36,11 @@ import kotlinx.serialization.json.longOrNull
 sealed interface TeamFeedFrame {
     data class Ready(val raw: JsonObject) : TeamFeedFrame
 
+    /** `{type:"error", error:{code,message,details}}`（replyControl，`server.mjs:467`）：
+     *  SYNC_* 等控制错误，必须留痕不许静默；SYNC_GAP/UNKNOWN_INSTANCE 之后网关会紧跟新快照，
+     *  **不要**据此断连（iOS `GatewayTeamFeed` 同款 waitForSnapshot）。 */
+    data class Error(val code: String?, val message: String?) : TeamFeedFrame
+
     data class Snapshot(
         val instanceId: String?,
         val seq: Long,
@@ -102,6 +107,19 @@ fun parseTeamFeedFrame(text: String): TeamFeedFrame? = runCatching {
 
 fun parseTeamFeedFrame(element: JsonElement): TeamFeedFrame? {
     val obj = element as? JsonObject ?: return null
+    // 帧判别符是 `type` 不是 `kind`：网关握手帧 = {type:"ready", kind:"team"}（server.mjs:570），
+    // kind 在握手帧里是通道名。iOS GatewayTeamFeed.swift:545 同款：type 在场就按 type 分发并 return，
+    // 认不出的 type 吞掉、不落 kind 分支（vc58 前 KMP 只看 kind，握手帧落 else → null → 永远不到 LIVE）。
+    when (obj.str("type")) {
+        "ready" -> return TeamFeedFrame.Ready(obj)
+        "error" -> {
+            val err = obj["error"] as? JsonObject
+            return TeamFeedFrame.Error(code = err?.str("code"), message = err?.str("message"))
+        }
+        // pong / sync.done 等其余 type：本版吞掉（sync.done 与应用层心跳随 resume 批一起落，别出半套）。
+        null -> Unit
+        else -> return null
+    }
     return when (obj.str("kind")) {
         "ready" -> TeamFeedFrame.Ready(obj)
         "snapshot" -> TeamFeedFrame.Snapshot(

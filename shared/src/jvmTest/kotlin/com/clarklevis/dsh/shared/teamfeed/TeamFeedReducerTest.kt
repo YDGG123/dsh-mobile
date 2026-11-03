@@ -247,6 +247,61 @@ class TeamFeedReducerTest {
         assertEquals(-21.2, eyes[1].tilt, 1e-9)
     }
 
+    // —— vc59 红用例：握手帧是 {type:"ready", kind:"team"}（server.mjs:570），KMP 曾只按 kind
+    //    分发，kind="team" 落 else → null → phase 永远到不了 LIVE（vc56/57/58 三版未闭合的根因）——
+    @Test
+    fun readyHandshakeFrameIsRecognizedViaType() {
+        val frame = parseTeamFeedFrame(
+            """{"type":"ready","kind":"team","serverId":"srv-1","instanceId":"inst-1","seq":5,
+               "cards":true,"degraded":{"team":false,"cards":false}}""",
+        )
+        assertTrue(frame is TeamFeedFrame.Ready, "网关握手帧按 type 分发必须认成 Ready（vc58 前此处返回 null）")
+    }
+
+    // —— vc59 判据 2 反向对照：type 先行分发不得伤及 kind 系帧，snapshot/delta/order/card 照旧 ——
+    @Test
+    fun kindFramesStillParseAfterTypeFirstDispatch() {
+        assertTrue(
+            parseTeamFeedFrame(
+                """{"v":1,"kind":"snapshot","instanceId":"i","seq":1,"degraded":false,"mainBotIds":[],
+                   "bots":[$defaultBot],"rooms":[],"pending":[]}""",
+            ) is TeamFeedFrame.Snapshot,
+        )
+        assertTrue(
+            parseTeamFeedFrame(
+                """{"v":1,"kind":"delta","instanceId":"i","seq":2,"base":1,"degraded":false,
+                   "ops":[{"op":"bot.patch","id":"b1","set":{"activity":"idle"}}]}""",
+            ) is TeamFeedFrame.Delta,
+        )
+        assertTrue(
+            parseTeamFeedFrame(
+                """{"v":1,"kind":"order","instanceId":"i","seq":1,"orderSeq":1,"degraded":false,"sessions":["s1"]}""",
+            ) is TeamFeedFrame.Order,
+        )
+        assertTrue(
+            parseTeamFeedFrame(
+                """{"v":2,"kind":"card-snapshot","instanceId":"i","seq":3,"cards":[]}""",
+            ) is TeamFeedFrame.Cards,
+        )
+    }
+
+    // —— type 在场但认不出：iOS 同款吞掉、不落 kind 分支（pong 随心跳批、sync.done 随 resume 批）——
+    @Test
+    fun unknownTypeFramesAreSwallowedNotKindDispatched() {
+        assertEquals(null, parseTeamFeedFrame("""{"type":"mystery","kind":"snapshot"}"""))
+        assertEquals(null, parseTeamFeedFrame("""{"type":"pong","at":123}"""))
+    }
+
+    // —— error 帧（replyControl）：解析出 code/message 供日志留痕，不许静默 ——
+    @Test
+    fun errorFrameCarriesCodeAndMessage() {
+        val frame = parseTeamFeedFrame(
+            """{"type":"error","error":{"code":"SYNC_GAP","message":"The resume window does not reach back that far","details":{}}}""",
+        ) as TeamFeedFrame.Error
+        assertEquals("SYNC_GAP", frame.code)
+        assertEquals("The resume window does not reach back that far", frame.message)
+    }
+
     // —— 负例：未知 kind / 不合规 op 整帧丢弃，不许混进状态 ——
     @Test
     fun unknownKindAndIllegalOpsAreDropped() {

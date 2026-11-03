@@ -112,6 +112,10 @@ class TeamFeedController(
                 phase = Phase.LIVE
                 attempt = 0
             }
+            is TeamFeedFrame.Error -> android.util.Log.w(
+                "TeamFeedController",
+                "gateway error frame: code=${frame.code} message=${frame.message}",
+            )
             else -> {
                 val outcome = reducer.apply(frame)
                 state = reducer.state
