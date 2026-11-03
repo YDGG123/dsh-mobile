@@ -815,9 +815,29 @@ final class ConversationViewportController: UIViewController, UICollectionViewDe
                 entries: 0, batchEntries: 0, moving: isViewportMoving)
 #endif
             schedulePendingPresentation()
+            bufferDeferredSnapshotWatchdog(snapshot)
             return
         }
         render(snapshot)
+    }
+
+    /// ⑤ 超时兜底（Chief 判据②，2026-11-03）：滑动中到达的快照先缓冲（数据已落库，绝不丢），
+    /// 正常由松手/didEnd 恢复路径应用；但若暂停状态卡住（isUserGestureAwaitingEnd /
+    /// isViewportMoving 迟迟不解除），缓冲的快照必须自己刷出来——300ms 后强制应用最新缓冲。
+    /// 红线（判据③）：滑动中到达的消息，最迟 300ms 必须出现。
+    private var deferredSnapshotWatchdog: DispatchWorkItem?
+
+    private func bufferDeferredSnapshotWatchdog(_ snapshot: ConversationTimeline.Snapshot) {
+        deferredSnapshotWatchdog?.cancel()
+        let item = DispatchWorkItem { [weak self] in
+            guard let self, self.deferredTimelineSnapshot != nil else { return }
+            let buffered = self.deferredTimelineSnapshot
+            self.deferredTimelineSnapshot = nil
+            self.deferredSnapshotWatchdog = nil
+            if let buffered { self.render(buffered) }
+        }
+        deferredSnapshotWatchdog = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: item)
     }
 
     private func render(_ snapshot: ConversationTimeline.Snapshot) {

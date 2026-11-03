@@ -248,6 +248,13 @@ final class BridgeChatEngine: ObservableObject {
         guard !stopped, let token = tokenProvider() else { return }
         let path = "/conversations/\(conversationId)/messages?limit=\(limit)"
         do {
+            // ⑥ 探针（Chief 定，2026-11-03）：先拉 1 条（~1KB）比最新 seq，与本地一致 ⇒ 无新消息，
+            // 跳过整页（~50KB）。活跃群每 8s 轮询的常驻流量从 50KB 降到 1KB；探针解析失败或
+            // 比对不上时保守拉整页（行为退化为原样，绝不静默漏消息）。
+            if let probe = try? await transport.fetch(path: "/conversations/\(conversationId)/messages?limit=1", token: token),
+               let probeSeq = Self.latestSeq(from: probe), probeSeq == latestKnownSeq {
+                return
+            }
             applyLatestPage(try await transport.fetch(path: path, token: token))
         } catch let status as BridgeResponseStatus where status.status == 401 {
             guard await refreshToken(), let fresh = tokenProvider() else { return }
@@ -258,6 +265,16 @@ final class BridgeChatEngine: ObservableObject {
             // 静默：兜底轮询不是主路径，失败不该污染 status/lastError。
         }
     }
+
+    /// 探针/分页共用的「最新 seq」读取：**取 seq 最大值而非末位**——不依赖服务端返回顺序
+    /// （升降序存疑时 max 是唯一不猜的口径）；seq 缺失的条目不计。
+    private static func latestSeq(from body: String) -> Int64? {
+        guard let data = body.data(using: .utf8),
+              let snapshot = try? JSONDecoder().decode(BridgeChatSnapshotView.self, from: data) else { return nil }
+        return snapshot.messages.compactMap(\.seq).max()
+    }
+
+    private var latestKnownSeq: Int64? { messages.compactMap(\.seq).max() }
 
     private func applyLatestPage(_ body: String) {
         let merged = BridgeChatMergeKt.chatMergeHistoryPage(messagesJson: messagesJson, historyJson: body)
