@@ -12070,26 +12070,24 @@
       }
     },
     "search.unavailable" : {
-      "localizations" : [
-        {
-          "language" : "zh-Hans",
+      "localizations" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "搜索暂时不可用：桌面端搜索服务报错（可能有会话记录损坏）。请稍后重试；若反复出现，需在桌面端处理损坏的会话记录。"
           }
         }
-      ]
+      }
     },
     "search.unavailable.title" : {
-      "localizations" : [
-        {
-          "language" : "zh-Hans",
+      "localizations" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "搜索暂时不可用"
           }
         }
-      ]
+      }
     }
   }
 }
