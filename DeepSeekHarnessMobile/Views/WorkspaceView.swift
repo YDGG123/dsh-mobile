@@ -29,10 +29,6 @@ struct WorkspaceView: View {
     /// 团队页（TeamView）走同一个 feed 类型；这次把用户真正会看的 Bot tab 也接上，
     /// 否则「名册混排 / 实时状态」只在没人能打开的团队页里。
     @StateObject private var gatewayTeam = GatewayTeamFeed()
-    @State private var drawerOffset: CGFloat = 0
-    @State private var drawerDragStart: CGFloat?
-    @State private var drawerFeedback = WorkspaceDrawerFeedback()
-    @GestureState private var drawerClosingGestureActive = false
     @FocusState private var sessionSearchIsFocused: Bool
 
     @ViewBuilder
@@ -71,55 +67,19 @@ struct WorkspaceView: View {
     private func workspaceBody(usesVerticalToolbar: Bool) -> some View {
         GeometryReader { geometry in
             let safeArea = geometry.safeAreaInsets
-            let drawerWidth = min(geometry.size.width * 0.76, 360) + safeArea.leading
-            let progress = min(max(drawerOffset / max(drawerWidth, 1), 0), 1)
-            let dimProgress = min(max((progress - 0.45) / 0.55, 0), 1)
-            let dimOpacity = 0.16 * dimProgress * dimProgress * (3 - 2 * dimProgress)
             let topInset = safeArea.top
             let fullHeight = geometry.size.height + topInset + safeArea.bottom
-            let fullWidth = geometry.size.width + safeArea.leading + safeArea.trailing
-
-            // 显式拆成三个局部量：单个 ViewBuilder 表达式过复杂时，
-            // 测试目标（-enable-testing）会触发 "unable to type-check in reasonable time"。
-            let drawerLayer: some View = drawerContent(
-                progress: progress, topInset: topInset, width: drawerWidth
-            )
-                .padding(.leading, safeArea.leading)
-                .frame(width: drawerWidth, height: fullHeight, alignment: .topLeading)
-                .highPriorityGesture(drawerClosingGesture(width: drawerWidth))
-
-            let backdrop: Color = colorScheme == .dark
-                ? Color(red: 36.0 / 255, green: 36.0 / 255, blue: 38.0 / 255)
-                : Color.white
 
             ZStack(alignment: .leading) {
-                backdrop
-                drawerLayer
-
                 contentLayer(
-                    size: geometry.size, safeArea: safeArea, drawerWidth: drawerWidth,
-                    fullHeight: fullHeight, dimOpacity: dimOpacity, progress: progress,
-                    usesVerticalToolbar: usesVerticalToolbar
+                    size: geometry.size, safeArea: safeArea,
+                    fullHeight: fullHeight, usesVerticalToolbar: usesVerticalToolbar
                 )
             }
-            .frame(width: fullWidth, height: fullHeight)
+            .frame(width: geometry.size.width + safeArea.leading + safeArea.trailing, height: fullHeight)
             .offset(x: -safeArea.leading, y: -topInset)
-            .onChangeCompat(of: geometry.size) { _, _ in
-                // 旋转或调整分屏后清理旧拖拽距离，避免侧栏停在半开位置。
-                drawerFeedback.endDrag(cancelled: true)
-                drawerDragStart = nil
-                drawerOffset = progress > 0.5 ? drawerWidth : 0
-            }
-            .onChangeCompat(of: drawerClosingGestureActive) { _, active in
-                if !active {
-                    finishDrawerDrag(translation: 0, velocity: 0, cancelled: true, width: drawerWidth)
-                }
-            }
         }
         .background(DSHColor.navy.ignoresSafeArea())
-        .onChangeCompat(of: drawerOffset) { _, value in
-            if value > 0 { sessionSearchIsFocused = false }
-        }
         .foregroundStyle(palette.ink(1))
         .onAppear {
             StartupTimeline.mark("workspace.appear")
@@ -132,10 +92,6 @@ struct WorkspaceView: View {
             if count > 0 { StartupTimeline.mark("sessions.rendered") }
         }
         .onDisappear { gatewayTeam.stop() }
-        .onDisappear {
-            drawerFeedback.endDrag(cancelled: true)
-            drawerDragStart = nil
-        }
         .onReceive(store.gateway.$state) { connectionIsReady = $0.isConnected }
         .alert("重命名会话", isPresented: Binding(
             get: { renamingSession != nil },
@@ -193,15 +149,12 @@ struct WorkspaceView: View {
     /// "unable to type-check this expression in reasonable time"。
     @ViewBuilder
     private func contentLayer(
-        size: CGSize, safeArea: EdgeInsets, drawerWidth: CGFloat,
-        fullHeight: CGFloat, dimOpacity: Double, progress: CGFloat,
-        usesVerticalToolbar: Bool
+        size: CGSize, safeArea: EdgeInsets,
+        fullHeight: CGFloat, usesVerticalToolbar: Bool
     ) -> some View {
         workspaceContent(
-            openDrawer: { openDrawer(width: drawerWidth) },
             size: size,
             safeArea: safeArea,
-            drawerWidth: drawerWidth,
             usesVerticalToolbar: usesVerticalToolbar
         )
             .frame(width: size.width, height: fullHeight)
@@ -209,32 +162,11 @@ struct WorkspaceView: View {
             .padding(.trailing, safeArea.trailing)
             // 先扩展到窗口四边，再绘制和裁剪背景；正文仍留在安全区内。
             .background { DeepOceanBackground(prefersOpenLightArcs: usesVerticalToolbar) }
-            .overlay {
-                Color.black.opacity(dimOpacity)
-                    .allowsHitTesting(false)
-            }
-            // B4 候选 2：这组「剪裁 + 离屏合成 + 双层实时阴影」会在呈现（push/Menu）
-            // 强制对来源做快照时把主线程拖住；sheet 呈现不走这条快照路径，正好解释
-            // 「sheet 不卡、push 与 Menu 都卡」。诊断开关可整体关掉（进度为 0 时视觉等价）。
-            .modifier(WorkspaceCardComposition(progress: progress))
-            .overlay(alignment: .leading) {
-                if progress > 0.98 || drawerDragStart != nil {
-                    Color.clear
-                        .contentShape(Rectangle())
-                        .onTapGesture { closeDrawer() }
-                        .highPriorityGesture(drawerClosingGesture(width: drawerWidth))
-                        .accessibilityLabel("关闭侧边栏")
-                        .accessibilityAddTraits(.isButton)
-                }
-            }
-            .offset(x: drawerOffset)
     }
 
     private func workspaceContent(
-        openDrawer: @escaping () -> Void,
         size: CGSize,
         safeArea: EdgeInsets,
-        drawerWidth: CGFloat,
         usesVerticalToolbar: Bool
     ) -> some View {
         let usesColumns = AdaptiveLayout.workspaceUsesColumns(
@@ -244,63 +176,47 @@ struct WorkspaceView: View {
             if primaryTab == .settings {
                 settingsTabLayer(safeArea: safeArea)
             } else {
-            Color.clear
-                .contentShape(Rectangle())
-                .onTapGesture { sessionSearchIsFocused = false }
-            ScrollView {
-                VStack(alignment: .leading, spacing: usesColumns ? 40 : 18) {
-                    // 2/5-a：网关行从 header 下方移到工作区卡之后（设计稿 01 顺序：
-                    // 工作区卡 → 网关行 → 运行卡 → 最近会话），见 workspaceActions。
-                    header(openDrawer: openDrawer, usesVerticalToolbar: usesVerticalToolbar)
-                        .id("workspace-header")
-                    if usesColumns {
-                        HStack(alignment: .top, spacing: 48) {
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture { sessionSearchIsFocused = false }
+                ScrollView {
+                    VStack(alignment: .leading, spacing: usesColumns ? 40 : 18) {
+                        // 2/5-a：网关行从 header 下方移到工作区卡之后（设计稿 01 顺序：
+                        // 工作区卡 → 网关行 → 运行卡 → 最近会话），见 workspaceActions。
+                        header(usesVerticalToolbar: usesVerticalToolbar)
+                            .id("workspace-header")
+                        if usesColumns {
+                            HStack(alignment: .top, spacing: 48) {
+                                workspaceActions
+                                    .frame(width: min(440, size.width * 0.38))
+                                recentSessions
+                                    .frame(maxWidth: .infinity)
+                            }
+                        } else {
+                            Spacer(minLength: 44)
                             workspaceActions
-                                .frame(width: min(440, size.width * 0.38))
                             recentSessions
-                                .frame(maxWidth: .infinity)
                         }
-                    } else {
-                        Spacer(minLength: 44)
-                        workspaceActions
-                        recentSessions
                     }
+                    // GeometryReader 给出的宽度已经扣除左右安全区，不能再按 safeArea 补一次，
+                    // 否则右侧有安全区时（如折叠屏侧边的状态栏）会空出一大条，左右不对称。
+                    .padding(.horizontal, usesColumns ? 40 : 22)
+                    .padding(.top, safeArea.top + 18)
+                    .padding(.bottom, safeArea.bottom + 24)
+                    .readableContentWidth(AdaptiveLayout.workspaceWidth)
+                    .background {
+                        // 滚动时暂停背景动画（上游 4582f50）：探针必须落在**滚动容器内部**
+                        // 找得到祖先 UIScrollView；恢复时相位由时钟保证连续，不跳帧。
+                        ScrollPausesBackgroundAnimationProbe()
+                    }
+                    .scrollIndicators(.hidden)
+                    .scrollDismissesKeyboard(.interactively)
                 }
-                // GeometryReader 给出的宽度已经扣除左右安全区，不能再按 safeArea 补一次，
-                // 否则右侧有安全区时（如折叠屏侧边的状态栏）会空出一大条，左右不对称。
-                .padding(.horizontal, usesColumns ? 40 : 22)
-                .padding(.top, safeArea.top + 18)
-                .padding(.bottom, safeArea.bottom + 24)
-                .readableContentWidth(AdaptiveLayout.workspaceWidth)
-                .background {
-                    // 滚动时暂停背景动画（上游 4582f50）：探针必须落在**滚动容器内部**
-                    // 找得到祖先 UIScrollView；恢复时相位由时钟保证连续，不跳帧。
-                    ScrollPausesBackgroundAnimationProbe()
-                    DrawerPanGestureAttachment(
-                        shouldBegin: { translation in
-                            guard abs(translation.x) > abs(translation.y) * 1.2 else { return false }
-                            return drawerOffset > 0 ? translation.x < 0 : translation.x > 0
-                        },
-                        onChanged: { translation in
-                            updateDrawerDrag(translation: translation, width: drawerWidth)
-                        },
-                        onEnded: { translation, velocity, cancelled in
-                            finishDrawerDrag(
-                                translation: translation, velocity: velocity,
-                                cancelled: cancelled, width: drawerWidth
-                            )
-                        }
-                    )
-                }
-            }
-            .scrollIndicators(.hidden)
-            .scrollDismissesKeyboard(.interactively)
-            .scrollDisabled(drawerDragStart == nil && drawerOffset > 0)
             }
         }
         // A tap handled by empty layout content does not reach the background
         // layer. Keep a container-level fallback; controls retain their own
-        // actions and the search field consumes its tap while becoming focused.
+        // actions and the search field consumes their tap while becoming focused.
         .onTapGesture { sessionSearchIsFocused = false }
         // 2/5-a：底部 tab bar（参考实现 S01 ⑥）。三个 tab 平级：工作区 / Bot / 设置，
         // 「设置」是**内容分段**（tab bar 保持可见 + 设置高亮），不再 push 盖住本页。
@@ -319,7 +235,6 @@ struct WorkspaceView: View {
                     primaryTab = .settings
                     // 切到设置必须失焦，否则回来时键盘还挂着
                     sessionSearchIsFocused = false
-                    drawerOffset = 0
                 }
             }
             // ⑤ 用户真机反馈：tab 栏离底边太近，要求上移「tab 栏自身高度的一半」。
@@ -328,7 +243,6 @@ struct WorkspaceView: View {
             .padding(.bottom, DSHSpacing.sm + DSHTabBar.totalHeight / 2)
         }
     }
-
     /// 设置 tab：内嵌设置页（不再 push），tab bar 由外层 `safeAreaInset` 保持可见。
     /// `SettingsView` 在 embedded 模式隐藏系统导航栏、自带页面标题。
     @ViewBuilder
@@ -923,18 +837,12 @@ struct WorkspaceView: View {
         bridgeChat = BridgeChatTarget(row: row, engine: engine)
     }
 
-    private func header(openDrawer: @escaping () -> Void, usesVerticalToolbar: Bool = false) -> some View {
+    private func header(usesVerticalToolbar: Bool = false) -> some View {
         HStack {
-            Button(action: openDrawer) {
-                // B6：品牌字标以前默认 onDarkBackground=true（白字 + 白色反相字标），
-                // 浅色主题下白底白字整块看不见。改为跟随当前主题。
-                HarnessMark(onDarkBackground: colorScheme == .dark,
-                            width: dynamicTypeSize.isAccessibilitySize ? 150 : 216)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-                .layoutPriority(-1)
-                .buttonStyle(.plain)
-                .accessibilityLabel("打开侧边栏")
+            // 81：字标不再可点（首页侧滑抽屉已删）——品牌标仍在此处，纯展示。
+            HarnessMark(onDarkBackground: colorScheme == .dark,
+                        width: dynamicTypeSize.isAccessibilitySize ? 150 : 216)
+                .frame(maxWidth: .infinity, alignment: .leading)
             Spacer()
             // iOS 27.1+ 系统把工具栏排成竖向时，认证菜单/设置已挂到 toolbar 上，
             // header 里不再重复一份；16/17/26 走 else 分支，入口照旧常驻。
@@ -954,150 +862,6 @@ struct WorkspaceView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func drawerContent(progress: CGFloat, topInset: CGFloat, width: CGFloat) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HarnessMark(onDarkBackground: colorScheme == .dark, width: min(width - 48, 216))
-                .padding(.leading, 12)
-                .padding(.bottom, 16)
-
-            drawerItem("插件", icon: {
-                Image("DshPluginPinwheel")
-                    .renderingMode(.template)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 22, height: 22)
-                    .frame(width: 24)
-            }, action: { selectDrawerItem(onPlugins) })
-            drawerItem("定时任务", icon: {
-                Image(systemName: "clock")
-                    .resizable()
-                    .scaledToFit()
-                    .fontWeight(.medium)
-                    .frame(width: 22, height: 22)
-                    .frame(width: 24)
-            }, action: { selectDrawerItem(onScheduledTasks) })
-            // U 单：旧 gateway 连接降级为备用入口，主流程只走 bridge 一次配对。
-            drawerItem("备用主机", icon: {
-                Image(systemName: "externaldrive.connected.to.line.below")
-                    .appFont(.system(size: 20, weight: .medium))
-                    .frame(width: 24)
-            }, action: {
-                closeDrawer()
-                showsQRScanner = true
-            })
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 18)
-        .padding(.top, topInset + 18)
-        .foregroundStyle(Color(uiColor: .label))
-        .opacity(0.6 + 0.4 * progress)
-        .scaleEffect(0.9 + 0.1 * progress, anchor: .leading)
-        .accessibilityHidden(progress == 0)
-    }
-
-    private func drawerItem<Icon: View>(
-        _ title: String,
-        @ViewBuilder icon: () -> Icon,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            HStack(spacing: 10) {
-                icon()
-                Text(title).appFont(.system(size: 17))
-                Spacer(minLength: 0)
-            }
-            .frame(minHeight: 52)
-            .padding(.horizontal, 14)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-
-    private func openDrawer(width: CGFloat) {
-        sessionSearchIsFocused = false
-        settleDrawer(to: width)
-    }
-
-    private func drawerClosingGesture(width: CGFloat) -> some Gesture {
-        DragGesture(minimumDistance: 6, coordinateSpace: .global)
-            .updating($drawerClosingGestureActive) { value, active, _ in
-                active = drawerDragStart != nil || (
-                    drawerOffset > 0 && value.translation.width < 0 &&
-                    abs(value.translation.width) > abs(value.translation.height) * 1.2
-                )
-            }
-            .onChanged { value in
-                // 尚未锁定方向时只接受左滑，拖动开始后允许反向拉回。
-                guard drawerDragStart != nil || (
-                    drawerOffset > 0 && value.translation.width < 0 &&
-                    abs(value.translation.width) > abs(value.translation.height) * 1.2
-                ) else { return }
-                updateDrawerDrag(translation: value.translation.width, width: width)
-            }
-            .onEnded { value in
-                finishDrawerDrag(
-                    translation: value.translation.width, velocity: value.velocity.width,
-                    cancelled: false, width: width
-                )
-            }
-    }
-
-    private func updateDrawerDrag(translation: CGFloat, width: CGFloat) {
-        if drawerDragStart == nil {
-            drawerDragStart = drawerOffset
-            drawerFeedback.beginDrag()
-        }
-        var transaction = Transaction(animation: nil)
-        transaction.disablesAnimations = true
-        withTransaction(transaction) {
-            drawerOffset = min(max((drawerDragStart ?? 0) + translation, 0), width)
-        }
-    }
-
-    private func finishDrawerDrag(translation: CGFloat, velocity: CGFloat, cancelled: Bool, width: CGFloat) {
-        guard let start = drawerDragStart else { return }
-        drawerDragStart = nil
-        drawerFeedback.endDrag(cancelled: cancelled)
-        let open: Bool
-        if cancelled {
-            open = start > width * 0.5
-        } else if start == 0 {
-            open = translation > 24 || velocity > 250
-        } else {
-            open = translation >= -24 && velocity >= -250
-        }
-        settleDrawer(to: open ? width : 0, feedback: false)
-    }
-
-    private func closeDrawer() {
-        settleDrawer(to: 0)
-    }
-
-    private func settleDrawer(to target: CGFloat, feedback: Bool = true) {
-        if feedback { drawerFeedback.tap() }
-        if reduceMotion {
-            var transaction = Transaction(animation: nil)
-            transaction.disablesAnimations = true
-            withTransaction(transaction) { drawerOffset = target }
-        } else {
-            withAnimation(.spring(response: 0.38, dampingFraction: 0.86)) {
-                drawerOffset = target
-            }
-        }
-    }
-
-    private func selectDrawerItem(_ action: @escaping () -> Void) {
-        // Start the destination push immediately. Reset the workspace behind it
-        // without a closing animation so Back reveals the main page.
-        drawerFeedback.tap()
-        action()
-        var transaction = Transaction(animation: nil)
-        transaction.disablesAnimations = true
-        withTransaction(transaction) {
-            drawerOffset = 0
-        }
     }
 
     @ViewBuilder
@@ -1138,7 +902,6 @@ struct WorkspaceView: View {
         Button {
             // 与底部 tab 栏同一行为：切到设置 tab，不再 push
             sessionSearchIsFocused = false
-            drawerOffset = 0
             primaryTab = .settings
         } label: {
             headerButtonLabel(systemName: "gearshape.fill")
@@ -1502,142 +1265,6 @@ private struct WorkspaceVerticalToolbarLayout<Content: View, Toolbar: ToolbarCon
     }
 }
 #endif
-
-/// 拖拽开始预热，松手同步反馈；取消和后续动画均不补震。
-@MainActor
-final class WorkspaceDrawerFeedback {
-    private let prepare: () -> Void
-    private let impact: () -> Void
-    private var dragging = false
-
-    convenience init() {
-        let generator = UIImpactFeedbackGenerator(style: .medium)
-        self.init(prepare: { generator.prepare() }, impact: { generator.impactOccurred(intensity: 1) })
-    }
-
-    init(prepare: @escaping () -> Void, impact: @escaping () -> Void) {
-        self.prepare = prepare
-        self.impact = impact
-    }
-
-    func beginDrag() {
-        guard !dragging else { return }
-        dragging = true
-        prepare()
-    }
-
-    func endDrag(cancelled: Bool) {
-        guard dragging else { return }
-        dragging = false
-        if !cancelled { impact() }
-    }
-
-    func tap() {
-        dragging = false
-        prepare()
-        impact()
-    }
-}
-
-/// Installs a directional pan on the workspace scroll view. A rightward pan
-/// wins over controls and scrolling; a vertical pan fails here and stays with
-/// the scroll view's native recognizer.
-private struct DrawerPanGestureAttachment: UIViewRepresentable {
-    let shouldBegin: (CGPoint) -> Bool
-    let onChanged: (CGFloat) -> Void
-    let onEnded: (_ translation: CGFloat, _ velocity: CGFloat, _ cancelled: Bool) -> Void
-
-    func makeCoordinator() -> Coordinator { Coordinator() }
-
-    func makeUIView(context: Context) -> AttachmentView {
-        let view = AttachmentView()
-        view.isUserInteractionEnabled = false
-        let coordinator = context.coordinator
-        view.onHierarchyChange = { [weak view, weak coordinator] in
-            DispatchQueue.main.async { [weak view, weak coordinator] in
-                guard let view else { return }
-                coordinator?.attach(from: view)
-            }
-        }
-        return view
-    }
-
-    func updateUIView(_ uiView: AttachmentView, context: Context) {
-        context.coordinator.shouldBegin = shouldBegin
-        context.coordinator.onChanged = onChanged
-        context.coordinator.onEnded = onEnded
-        context.coordinator.attach(from: uiView)
-    }
-
-    static func dismantleUIView(_ uiView: AttachmentView, coordinator: Coordinator) {
-        uiView.onHierarchyChange = nil
-        coordinator.detach()
-    }
-
-    final class AttachmentView: UIView {
-        var onHierarchyChange: (() -> Void)?
-
-        override func didMoveToSuperview() {
-            super.didMoveToSuperview()
-            onHierarchyChange?()
-        }
-
-        override func didMoveToWindow() {
-            super.didMoveToWindow()
-            onHierarchyChange?()
-        }
-    }
-
-    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
-        var shouldBegin: ((CGPoint) -> Bool)?
-        var onChanged: ((CGFloat) -> Void)?
-        var onEnded: ((CGFloat, CGFloat, Bool) -> Void)?
-        private weak var scrollView: UIScrollView?
-        private var pan: UIPanGestureRecognizer?
-
-        func attach(from view: UIView) {
-            var ancestor = view.superview
-            while let current = ancestor, !(current is UIScrollView) {
-                ancestor = current.superview
-            }
-            guard let scrollView = ancestor as? UIScrollView, self.scrollView !== scrollView else { return }
-            detach()
-            let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
-            pan.delegate = self
-            pan.cancelsTouchesInView = true
-            scrollView.addGestureRecognizer(pan)
-            scrollView.panGestureRecognizer.require(toFail: pan)
-            self.scrollView = scrollView
-            self.pan = pan
-        }
-
-        func detach() {
-            pan?.isEnabled = false
-            if let pan { scrollView?.removeGestureRecognizer(pan) }
-            pan = nil
-            scrollView = nil
-        }
-
-        func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-            guard let pan = gestureRecognizer as? UIPanGestureRecognizer else { return false }
-            return shouldBegin?(pan.translation(in: pan.view)) ?? false
-        }
-
-        @objc private func handlePan(_ pan: UIPanGestureRecognizer) {
-            let translation = pan.translation(in: pan.view).x
-            switch pan.state {
-            case .began, .changed:
-                onChanged?(translation)
-            case .ended:
-                onEnded?(translation, pan.velocity(in: pan.view).x, false)
-            case .cancelled, .failed:
-                onEnded?(translation, 0, true)
-            default:
-                break
-            }
-        }
-    }
-}
 
 private struct DirectoryBrowserSheet: View {
     @Environment(\.colorScheme) private var colorScheme

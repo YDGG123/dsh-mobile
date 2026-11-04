@@ -265,23 +265,6 @@ private struct RootNavigationHost: View, Equatable {
     }
 }
 
-private struct WorkspaceDrawerDestination: View {
-    let title: String
-    let message: String
-
-    @Environment(\.colorScheme) private var colorScheme
-    private var palette: DSHPalette { DSHPalette.resolve(colorScheme) }
-
-    var body: some View {
-        Text(message)
-            .foregroundStyle(.secondary)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(palette.pageBackground)
-            .navigationTitle(title)
-            .navigationBarTitleDisplayMode(.inline)
-    }
-}
-
 enum ScheduledTaskStatusFilter: String, CaseIterable {
     case all, active, ended
 

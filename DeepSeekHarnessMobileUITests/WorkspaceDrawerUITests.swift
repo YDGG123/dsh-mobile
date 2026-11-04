@@ -126,61 +126,6 @@ final class WorkspaceDrawerUITests: XCTestCase {
         XCTAssertTrue(app.buttons["设置"].waitForExistence(timeout: 10))
     }
 
-    func testRightSwipeFromSettingsOpensDrawerWithoutOpeningSettings() {
-        dragRight(from: app.buttons["设置"])
-        XCTAssertTrue(homeSettings.frame.minX > app.windows.firstMatch.frame.width, "主界面未右移：\(homeSettings.frame)")
-        XCTAssertFalse(app.navigationBars["设置"].exists)
-    }
-
-    func testRightSwipeFromWorkspaceMenuOpensDrawerWithoutOpeningMenu() {
-        let workspace = app.buttons["选择工作区"]
-        XCTAssertTrue(workspace.waitForExistence(timeout: 5))
-        let originalY = workspace.frame.midY
-        dragRight(from: workspace)
-        XCTAssertTrue(homeSettings.frame.minX > app.windows.firstMatch.frame.width, "主界面未右移：\(homeSettings.frame)")
-        XCTAssertEqual(workspace.frame.midY, originalY, accuracy: 2, "右滑同时触发了纵向滚动")
-        XCTAssertFalse(app.buttons["添加工作区"].exists)
-    }
-
-    func testRightSwipeFromHostSwitcherOpensDrawerWithoutOpeningHostList() {
-        let host = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "当前主机：")).firstMatch
-        XCTAssertTrue(host.waitForExistence(timeout: 5))
-        dragRight(from: host)
-        XCTAssertTrue(homeSettings.frame.minX > app.windows.firstMatch.frame.width, "主界面未右移：\(homeSettings.frame)")
-        XCTAssertFalse(app.navigationBars["主机"].exists)
-    }
-
-    func testRightSwipeFromNewSessionOpensDrawerWithoutCreatingSession() {
-        let newSession = app.buttons["新建会话"]
-        XCTAssertTrue(newSession.waitForExistence(timeout: 5))
-        dragRight(from: newSession)
-        XCTAssertTrue(homeSettings.frame.minX > app.windows.firstMatch.frame.width, "主界面未右移：\(homeSettings.frame)")
-        XCTAssertFalse(app.navigationBars["新建会话"].exists)
-    }
-
-    func testRightSwipeFromSearchOpensDrawerWithoutKeyboard() {
-        let search = app.textFields.firstMatch
-        XCTAssertTrue(search.waitForExistence(timeout: 5))
-        dragRight(from: search)
-        XCTAssertTrue(homeSettings.frame.minX > app.windows.firstMatch.frame.width, "主界面未右移：\(homeSettings.frame)")
-        XCTAssertFalse(app.keyboards.firstMatch.exists)
-    }
-
-    func testRightSwipeFromAuthenticationButtonOpensDrawerWithoutMenu() {
-        let authentication = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "设备认证")).firstMatch
-        XCTAssertTrue(authentication.waitForExistence(timeout: 5))
-        dragRight(from: authentication)
-        XCTAssertTrue(homeSettings.frame.minX > app.windows.firstMatch.frame.width, "主界面未右移：\(homeSettings.frame)")
-    }
-
-    func testVerticalSwipeDoesNotOpenDrawer() {
-        let start = app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.45, dy: 0.68))
-        let end = app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.45, dy: 0.35))
-        start.press(forDuration: 0.05, thenDragTo: end)
-        XCTAssertTrue(homeSettings.frame.minX < app.windows.firstMatch.frame.width, "纵向滑动误开侧栏：\(homeSettings.frame)")
-        XCTAssertTrue(app.buttons["设置"].exists)
-    }
-
     func testSettingsTapStillOpensSettings() {
         homeSettings.tap()
         XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 3))
@@ -284,75 +229,7 @@ final class WorkspaceDrawerUITests: XCTestCase {
         XCTAssertTrue(app.sliders["font-size-slider"].exists)
     }
 
-    func testLeftSwipeClosesOpenDrawer() {
-        let workspace = app.buttons["选择工作区"]
-        XCTAssertTrue(workspace.waitForExistence(timeout: 5))
-        dragRight(from: workspace)
-        XCTAssertTrue(homeSettings.frame.minX > app.windows.firstMatch.frame.width)
 
-        let start = app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5))
-        let end = app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5))
-        start.press(forDuration: 0.05, thenDragTo: end)
-        XCTAssertTrue(homeSettings.frame.minX < app.windows.firstMatch.frame.width, "侧栏未关闭：\(homeSettings.frame)")
-    }
-
-    func testDrawerItemRemainsTappableAfterSwipe() {
-        let workspace = app.buttons["选择工作区"]
-        XCTAssertTrue(workspace.waitForExistence(timeout: 5))
-        dragRight(from: workspace)
-        XCTAssertTrue(homeSettings.frame.minX > app.windows.firstMatch.frame.width)
-        app.buttons["插件"].tap()
-        XCTAssertTrue(app.navigationBars["插件"].waitForExistence(timeout: 3))
-    }
-
-    func testLeftSwipeOnDrawerSurfaceClosesWithoutOpeningPlugin() {
-        app.buttons["打开侧边栏"].tap()
-        XCTAssertTrue(homeSettings.frame.minX > app.windows.firstMatch.frame.width)
-
-        let plugin = app.buttons["插件"]
-        XCTAssertTrue(plugin.exists)
-        let start = plugin.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.5))
-        let end = plugin.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.5))
-        start.press(forDuration: 0.05, thenDragTo: end)
-
-        XCTAssertTrue(homeSettings.frame.minX < app.windows.firstMatch.frame.width, "在侧栏上左滑未关闭")
-        XCTAssertFalse(app.navigationBars["插件"].exists, "左滑误触发插件入口")
-    }
-
-    func testSmallSlowLeftDragKeepsDrawerOpenAndAllowsNextClose() {
-        app.buttons["打开侧边栏"].tap()
-        let closeControl = app.buttons["关闭侧边栏"]
-        XCTAssertTrue(closeControl.exists)
-        let openX = closeControl.frame.minX
-        XCTAssertTrue(openX > app.windows.firstMatch.frame.width * 0.7)
-
-        let start = app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.6))
-        let end = start.withOffset(CGVector(dx: -16, dy: 0))
-        start.press(forDuration: 0.05, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 0.5)
-        let returnedToOpen = XCTNSPredicateExpectation(
-            predicate: NSPredicate { _, _ in abs(closeControl.frame.minX - openX) <= 2 },
-            object: nil
-        )
-        let result = XCTWaiter.wait(for: [returnedToOpen], timeout: 3)
-        if result != .completed {
-            let screenshot = XCTAttachment(screenshot: app.screenshot())
-            screenshot.lifetime = .keepAlways
-            add(screenshot)
-        }
-        XCTAssertEqual(result, .completed, "短距离左滑应回到打开位置")
-
-        app.buttons["关闭侧边栏"].tap()
-        XCTAssertTrue(homeSettings.frame.minX < app.windows.firstMatch.frame.width, "拖动后关闭层丢失")
-        homeSettings.tap()
-        XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 3))
-    }
-
-    // 拖到实际窗口边缘，避免平板右上角按钮只移动十余点而未达到开栏阈值。
-    private func dragRight(from element: XCUIElement) {
-        let start = element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-        let end = app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.995, dy: start.screenPoint.y / app.windows.firstMatch.frame.height))
-        start.press(forDuration: 0.05, thenDragTo: end)
-    }
 
     private var homeSettings: XCUIElement { app.buttons["设置"] }
 }

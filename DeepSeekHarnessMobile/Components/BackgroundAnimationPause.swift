@@ -113,7 +113,7 @@ final class HarnessBackgroundAnimationClock: ObservableObject {
 /// **不劫持 SwiftUI ScrollView 自己的 delegate**（iOS 16 上劫持会弄坏
 /// `.scrollDismissesKeyboard` 等内建行为）。
 ///
-/// ⚠️ 放置位置：必须作为**滚动容器内部**的视图（与 `DrawerPanGestureAttachment` 同层，
+/// ⚠️ 放置位置：必须作为**滚动容器内部**的视图（
 /// 例如 `.background { … }` 里）——放在 ScrollView 之外找不到祖先滚动视图。
 struct ScrollPausesBackgroundAnimationProbe: UIViewRepresentable {
     final class ProbeView: UIView {
@@ -166,7 +166,7 @@ struct ScrollPausesBackgroundAnimationProbe: UIViewRepresentable {
         let view = ProbeView(frame: .zero)
         view.isUserInteractionEnabled = false   // 探针自身不参与命中测试
         let coordinator = context.coordinator
-        // 与 DrawerPanGestureAttachment 同款：SwiftUI 层级未必当场就绪，异步一拍再找祖先。
+        // SwiftUI 层级未必当场就绪，异步一拍再找祖先。
         view.onHierarchyChange = { [weak view, weak coordinator] in
             DispatchQueue.main.async { [weak view, weak coordinator] in
                 guard let view, let coordinator else { return }
