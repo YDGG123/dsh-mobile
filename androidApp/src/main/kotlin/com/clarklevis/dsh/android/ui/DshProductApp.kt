@@ -705,10 +705,11 @@ internal fun OrcarnessOrcaIcon(
 
 @Composable
 internal fun GlassCircleButton(iconRes: Int, description: String, onClick: () -> Unit) {
-    // vc60 P3 对齐 iOS 真身（WorkspaceView.swift:944-957，iOSCoder 2026-11-04 00:38 规格表）：
-    // 40×40 圆形纯图标钮、无实心底（52 玻璃底是 iOS 27.1+ toolbar 分支形态，安卓无此分支）、图标 18pt。
+    // vc61 ⑤（用户 2026-11-04 反馈「认证入口的按钮也要有底，不然看着比新建会话的按钮小」）：
+    // 恢复玻璃底（dshLiquidGlass CONTROL＝安卓侧统一入口），尺寸 40、图标 18 沿 vc60 规格。
     Box(
         Modifier.requiredSize(40.dp)
+            .dshLiquidGlass(CircleShape, DshGlassStyle.CONTROL)
             .clickable(role = Role.Button, onClick = onClick)
             .semantics { contentDescription = description },
         contentAlignment = Alignment.Center

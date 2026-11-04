@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 按图层边界比例居中缩放；相当于在 108dp 画布中放置 60dp 原图，避免固定 dp 在不同启动器下放大。 -->
+<!-- vc61 ①：前景 = 品牌矢量（昼档深鲸），透明画布由图像自身承担；边界留白经 inset 控制在 108dp 图层内。
+     夜档由 drawable-night/ic_launcher_foreground_image.xml twin 接管（白鲸 × #171818 底）。 -->
 <inset xmlns:android="http://schemas.android.com/apk/res/android"
-    android:drawable="@drawable/launcher_icon_artwork"
-    android:insetLeft="22.22%"
-    android:insetTop="22.22%"
-    android:insetRight="22.22%"
-    android:insetBottom="22.22%" />
+    android:drawable="@drawable/ic_launcher_foreground_image"
+    android:insetLeft="24%"
+    android:insetTop="24%"
+    android:insetRight="24%"
+    android:insetBottom="24%" />

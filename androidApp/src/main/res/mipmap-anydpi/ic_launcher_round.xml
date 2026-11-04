@@ -1,14 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- vc61 ①：legacy anydpi 层——黑鲸矢量前景直接嵌入（原 launcher_icon_artwork 链已删）。 -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item>
-        <shape android:shape="oval">
+        <shape android:shape="rectangle">
+            <corners android:radius="11dp" />
             <size android:width="48dp" android:height="48dp" />
             <solid android:color="@color/launcher_icon_background" />
         </shape>
     </item>
     <item
-        android:width="29dp"
-        android:height="29dp"
-        android:drawable="@drawable/launcher_icon_artwork"
+        android:width="34dp"
+        android:height="34dp"
+        android:drawable="@drawable/ic_launcher_foreground"
         android:gravity="center" />
 </layer-list>
