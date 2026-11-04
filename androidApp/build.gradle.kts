@@ -22,8 +22,8 @@ android {
         applicationId = "com.clarklevis.dsh.android"
         minSdk = 24
         targetSdk = 36
-        versionCode = 61 // 本批（vc61：用户 2026-11-04 五条反馈——①图标品牌矢量日/夜 twin ③眼睛椭圆tilt ④群聊堆叠glyph ⑤认证钮玻璃底 ⑥名册水合缓存接线）；60 为上一批
-        versionName = "1.7.24"
+        versionCode = 62 // 本批（vc62：删首页侧滑抽屉 + 缓存三洞 + 眨眼眼形胶囊）；61 为上一批
+        versionName = "1.7.25"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
