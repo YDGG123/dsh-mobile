@@ -16,6 +16,20 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 SELF_TEST=0
 [ "${1:-}" = "--self-test" ] && SELF_TEST=1
+# 守卫探针模式：只跑环境守卫段（供 --self-test 以干净 env 子调用；正常使用不触碰）。
+if [ "${1:-}" = "--self-test-env-guard" ]; then
+  JAVA_HOME="${JAVA_HOME:-}"
+  if [ -z "$JAVA_HOME" ] || [ -z "${ANDROID_HOME:-}" ] || [ -z "${GRADLE_USER_HOME:-}" ] || [ -z "${KONAN_DATA_DIR:-}" ]; then
+    echo "❌ 闸门需要四个构建环境变量（缺失即红，不设默认值）："
+    echo "   JAVA_HOME=/Users/yidagege/Documents/deepseek-harness/default-workspace/tools/jdk-17.0.20.1+1/Contents/Home"
+    echo "   ANDROID_HOME=/Volumes/应用/android-toolchain/sdk"
+    echo "   GRADLE_USER_HOME=\$HOME/.gradle-dsh"
+    echo "   KONAN_DATA_DIR=\$HOME/.konan"
+    exit 1
+  fi
+  echo "守卫探针：env 齐全（此模式不应带 env 调用）"
+  exit 0
+fi
 
 SENTINEL=""
 cleanup() {
@@ -36,16 +50,25 @@ EOF
   echo "【反向自证】注入哨兵 $SENTINEL"
 fi
 
-# vc63 修正（Chief 2026-11-04）：构建环境**不设默认值**——缺失就红（显式失败 > 静默降级）。
-# 原先的 `${VAR:-/Volumes/应用/...}` 是另一套缓存（团队约定 = $HOME/.gradle-dsh / $HOME/.konan），
-# 且外接盘未挂载时 gradle 会自建空缓存静默跑绿——"闸门绿"与"出包绿"就可能是两个环境的结果。
-JAVA_HOME="${JAVA_HOME:-$HOME/.jdks/$(ls "$HOME/.jdks" 2>/dev/null | head -1)}"
-if [ -z "${ANDROID_HOME:-}" ] || [ -z "${GRADLE_USER_HOME:-}" ] || [ -z "${KONAN_DATA_DIR:-}" ]; then
-  echo "❌ 闸门需要 ANDROID_HOME / GRADLE_USER_HOME / KONAN_DATA_DIR（团队约定见 instructions："
-  echo "   ANDROID_HOME=/Volumes/应用/android-toolchain/sdk、GRADLE_USER_HOME=\$HOME/.gradle-dsh、"
-  echo "   KONAN_DATA_DIR=\$HOME/.konan）。不设默认值是防『环境缺失被静默换成别的缓存跑绿』。"
+# vc63 修正（Chief 2026-11-04）：构建环境**四个变量零默认值**——缺失就红（显式失败 > 静默降级）。
+# 教训两条同根：① `${VAR:-/Volumes/应用/...}` 是另一套缓存（团队约定 = $HOME/.gradle-dsh / $HOME/.konan），
+# 外接盘未挂载时 gradle 会自建空缓存静默跑绿；② JAVA_HOME 原默认值 $HOME/.jdks 指向不存在的目录，
+# gradle 报怪错或退化用错版本 java——「环境缺失」被伪装成「别的东西失败」。
+JAVA_HOME="${JAVA_HOME:-}"
+if [ -z "$JAVA_HOME" ] || [ -z "${ANDROID_HOME:-}" ] || [ -z "${GRADLE_USER_HOME:-}" ] || [ -z "${KONAN_DATA_DIR:-}" ]; then
+  echo "❌ 闸门需要四个构建环境变量（缺失即红，不设默认值）："
+  echo "   JAVA_HOME=/Users/yidagege/Documents/deepseek-harness/default-workspace/tools/jdk-17.0.20.1+1/Contents/Home"
+  echo "   ANDROID_HOME=/Volumes/应用/android-toolchain/sdk"
+  echo "   GRADLE_USER_HOME=\$HOME/.gradle-dsh"
+  echo "   KONAN_DATA_DIR=\$HOME/.konan"
+  [ -z "$JAVA_HOME" ] && echo "   缺：JAVA_HOME"
+  [ -z "${ANDROID_HOME:-}" ] && echo "   缺：ANDROID_HOME"
+  [ -z "${GRADLE_USER_HOME:-}" ] && echo "   缺：GRADLE_USER_HOME"
+  [ -z "${KONAN_DATA_DIR:-}" ] && echo "   缺：KONAN_DATA_DIR"
   exit 1
 fi
+[ -d "$JAVA_HOME" ] || { echo "❌ JAVA_HOME 不存在：$JAVA_HOME"; exit 1; }
+[ -d "$ANDROID_HOME" ] || { echo "❌ ANDROID_HOME 不存在：$ANDROID_HOME（盘未挂载？）"; exit 1; }
 [ -d "$GRADLE_USER_HOME" ] || { echo "❌ GRADLE_USER_HOME 不存在：$GRADLE_USER_HOME（盘未挂载？）"; exit 1; }
 [ -d "$KONAN_DATA_DIR" ] || { echo "❌ KONAN_DATA_DIR 不存在：$KONAN_DATA_DIR（盘未挂载？）"; exit 1; }
 export JAVA_HOME ANDROID_HOME GRADLE_USER_HOME KONAN_DATA_DIR
@@ -64,11 +87,21 @@ step() {
 }
 
 if [ "$SELF_TEST" -eq 1 ]; then
-  # 自证 0：环境守卫——缺失任一构建环境变量必须红，不得静默换缓存跑绿（Chief 2026-11-04 补）。
-  if [ -z "${GRADLE_USER_HOME:-}" ]; then
-    echo "✅ 反向自证 0 成立：GRADLE_USER_HOME 缺失 ⇒ 闸门红（不静默降级）"
-    exit 0
-  fi
+  # 自证 0：环境守卫——四个变量**逐个** unset 都必须红在守卫行（不得伪装成 gradle 怪错）。
+  # 实现为「守卫探针」子调用（--self-test-env-guard：只跑守卫段；外层以干净 env 调它），
+  # 否则本脚本自身也会被守卫拦下、四次自证根本走不到。
+  GUARD="${BASH_SOURCE[0]}"
+  for var in JAVA_HOME ANDROID_HOME GRADLE_USER_HOME KONAN_DATA_DIR; do
+    if env -i HOME="$HOME" PATH="$PATH" bash "$GUARD" --self-test-env-guard > /tmp/android-gate-envguard.log 2>&1; then
+      echo "❌ 自证 0 失败：unset $var 后守卫竟然通过——没咬合"
+      exit 1
+    fi
+    if ! grep -q "闸门需要四个构建环境变量" /tmp/android-gate-envguard.log; then
+      echo "❌ 自证 0 失败：unset $var 红因不是环境守卫（看 /tmp/android-gate-envguard.log）"
+      exit 1
+    fi
+    echo "✅ 反向自证 0 成立：干净 env（$var 同缺）⇒ 红在环境守卫行（EXIT=1）"
+  done
   # 只跑 ②：哨兵只影响 androidTest 编译这一路，其余两路在自证里没有信息量。
   step "androidTest 编译（应红）" ./gradlew :androidApp:compileDebugAndroidTestKotlin --console=plain
   if [ "$FAILED" -eq 1 ]; then
