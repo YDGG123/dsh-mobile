@@ -5,10 +5,19 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.rotate
 import com.clarklevis.dsh.shared.teamfeed.TeamFeedGlyph
+
+/** vc61 ③：眼睛椭圆尺寸（px）——w/2=h/2 下界 0.5pt（iOS `eyeLayout` 同规），纯函数便于判据。 */
+internal fun teamGlyphEyeSize(rx: Double, ry: Double, scale: Float): Pair<Float, Float> =
+    Pair(
+        maxOf(rx.toFloat() * 2f * scale, 0.5f),
+        maxOf(ry.toFloat() * 2f * scale, 0.5f),
+    )
 
 /**
  * D1 段 3/5：glyph 矢量渲染 —— 电脑端同一份 `path` 数据直接画（方案 C，不做光栅化）。
@@ -43,11 +52,20 @@ fun TeamGlyphCanvas(
             drawSubpaths(paths, origin, scale, fill, stroke = false, alpha = (layer.opacity ?: 1.0).toFloat())
         }
         for (eye in glyph.eyes) {
-            drawCircle(
-                color = backdropColor,
-                radius = eye.rx.toFloat() * scale,
-                center = Offset(origin.x + eye.cx.toFloat() * scale, origin.y + eye.cy.toFloat() * scale),
-            )
+            // vc61 ③：眼睛是**椭圆**——网关五元组 [cx, cy, w, h, tilt]，rx=w/2、ry=h/2，
+            // 画法对齐 iOS `TeamAvatarView`（RoundedRectangle w×h + rotationEffect(tilt)）。
+            // 之前 drawCircle(rx) 忽略 ry/tilt，把高瘦眼画成小圆点（用户 2026-11-04 真机反馈）。
+            // 下界对齐 iOS eyeLayout（max(dim, 0.5)）防 0 尺寸图形不渲染。
+            val cx = origin.x + eye.cx.toFloat() * scale
+            val cy = origin.y + eye.cy.toFloat() * scale
+            val size = teamGlyphEyeSize(eye.rx, eye.ry, scale)
+            rotate(degrees = eye.tilt.toFloat(), pivot = Offset(cx, cy)) {
+                drawOval(
+                    color = backdropColor,
+                    topLeft = Offset(cx - size.first / 2f, cy - size.second / 2f),
+                    size = Size(size.first, size.second),
+                )
+            }
         }
     }
 }

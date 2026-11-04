@@ -71,6 +71,7 @@ internal class AndroidBridgeTeamAdapter(
     private val allowInsecureLoopback: Boolean = false,
 ) {
     private val sessionStore = AndroidBridgeSessionStore(context)
+    private val appContext: Context = context.applicationContext
     private val store = SharedBridgeTeamStore(sessionStore)
     private val httpClient = OkHttpClient.Builder()
         .connectTimeout(CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
@@ -170,8 +171,9 @@ internal class AndroidBridgeTeamAdapter(
      * `origin` 是 http(s) 桥根；WS = 同 host 换 ws(s) scheme + `/mobile/v1/team`（契约）。
      * 无 origin/无 token ⇒ null（上层不连接）。
      */
-    /** D1 段 5：feed 控制器（adapter 单例一份，Bot 页/team sheet 多个实例共享同一条 WS）。 */
-    val teamFeed by lazy { com.clarklevis.dsh.android.teamfeed.TeamFeedController(scope) }
+    /** D1 段 5：feed 控制器（adapter 单例一份，Bot 页/team sheet 多个实例共享同一条 WS）。
+     *  vc61 ⑥：接上名册水合缓存（构造即 hydrate，切 tab/重启立刻有头像）。 */
+    val teamFeed by lazy { com.clarklevis.dsh.android.teamfeed.TeamFeedController(scope, cacheStore = com.clarklevis.dsh.android.teamfeed.AndroidTeamFeedKeyValueStore(appContext)) }
 
     /** feed 未连/断线时由 UI 层调；幂等（同端点+token 不重复连接）。返回是否真的发起了连接。 */
     fun ensureTeamFeedStarted(): Boolean {

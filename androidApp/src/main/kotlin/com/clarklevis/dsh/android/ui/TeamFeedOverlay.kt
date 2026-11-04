@@ -42,6 +42,15 @@ internal object TeamFeedOverlay {
     /** feed live 且非降级才允许 overlay；其余情况整段回落 bridge。 */
     fun overlayActive(phase: TeamFeedPhase, degraded: Boolean): Boolean =
         phase == TeamFeedPhase.LIVE && !degraded
+
+    /**
+     * vc61 ⑥：水合缓存（hydrated）也允许渲染行——iOS `hydrateRosterCacheIfNeeded` 后行照常渲染、
+     * 强制 degraded（GatewayTeamFeed:244-247「缓存不是实时态」）：activity/statusLine 走 degraded
+     * 回落 bridge（statusLine:20 已有），只有**静态头像（glyph）**从缓存渲染。离线也保留缓存行
+     * （iOS 同规：断线不清名册）。
+     */
+    fun overlayActiveWithCache(phase: TeamFeedPhase, degraded: Boolean, hydrated: Boolean): Boolean =
+        overlayActive(phase, degraded) || hydrated
 }
 
 enum class TeamFeedPhase { IDLE, CONNECTING, LIVE, OFFLINE }

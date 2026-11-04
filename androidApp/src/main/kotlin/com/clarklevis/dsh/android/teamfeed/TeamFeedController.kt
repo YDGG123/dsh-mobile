@@ -4,12 +4,15 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.clarklevis.dsh.shared.teamfeed.TeamFeedChunkInbox
+import com.clarklevis.dsh.shared.teamfeed.TeamFeedKeyValueStore
 import com.clarklevis.dsh.shared.teamfeed.TeamFeedTransport
 import com.clarklevis.dsh.shared.teamfeed.TeamFeedChunkReassembler
 import com.clarklevis.dsh.shared.teamfeed.TeamFeedFrame
 import com.clarklevis.dsh.shared.teamfeed.TeamFeedReducer
+import com.clarklevis.dsh.shared.teamfeed.TeamRosterCache
 import com.clarklevis.dsh.shared.teamfeed.parseTeamFeedFrame
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -28,6 +31,8 @@ import kotlinx.coroutines.launch
 class TeamFeedController(
     private val scope: CoroutineScope,
     private val transport: TeamFeedTransport = OkHttpTeamFeedTransport(),
+    /** vc61 ⑥：名册水合缓存落盘层（Android 文件实现）；null = 不接缓存（单测/预览）。 */
+    private val cacheStore: TeamFeedKeyValueStore? = null,
 ) {
     enum class Phase { IDLE, CONNECTING, LIVE, OFFLINE }
 
@@ -38,13 +43,26 @@ class TeamFeedController(
     var state by mutableStateOf(TeamFeedReducer.TeamFeedState())
         private set
 
+    /** vc61 ⑥：true = 当前 state 来自水合缓存（非实时）——UI 渲染行但强制降级语义（iOS 同规）。 */
+    var hydrated by mutableStateOf(false)
+        private set
+
     private val reducer = TeamFeedReducer()
+    private val rosterCache = cacheStore?.let(::TeamRosterCache)
     private val inbox = TeamFeedChunkInbox(TeamFeedChunkReassembler())
     private var endpoint: String? = null
     private var token: String? = null
     private var connectJob: Job? = null
     private var stopped = false
     private var attempt = 0
+    private var cacheSaveInFlight = false
+    private var cacheSavePending = false
+
+    init {
+        // vc61 ⑥：构造即水合——切 tab 回来/重启后**立刻**有头像（iOS `hydrateRosterCacheIfNeeded`
+        // 同规：rows 非空跳过、命中即 degraded=true + phase=CONNECTING、每个 return 点留痕）。
+        hydrateRosterCacheIfNeeded()
+    }
 
     fun start(newEndpoint: String, newToken: String) {
         stopped = false
@@ -120,11 +138,64 @@ class TeamFeedController(
             else -> {
                 val outcome = reducer.apply(frame)
                 state = reducer.state
+                // vc61 ⑥：真快照落地 ⇒ 退出缓存态（iOS 同规：快照静默替换水合行）。
+                if (frame is TeamFeedFrame.Snapshot) hydrated = false
+                if (outcome is TeamFeedReducer.Outcome.Applied) scheduleCacheSave()
                 if (outcome is TeamFeedReducer.Outcome.NeedSnapshot) {
                     // 最朴素的重同步：断开重连，服务端对新 auth 重发整帧快照。
-                    android.util.Log.w("TeamFeedController", "resync: ${outcome.reason}")
+                    android.util.Log.w(TAG, "resync: ${outcome.reason}")
                     reconnect()
                 }
+            }
+        }
+    }
+
+    /**
+     * vc61 ⑥：水合上次名册（含 glyph）——iOS `hydrateRosterCacheIfNeeded` 同规
+     * （GatewayTeamFeed:215-252）：rows 非空跳过；命中即 `degraded = true`（**缓存不是实时态**，
+     * 绝不把旧 activity 显示成当前）+ phase=CONNECTING，行照常渲染（降级横幅沿用）；
+     * 每个 return 点都留痕（iOS 2026-10-27 缓存排障纪律）。
+     */
+    private fun hydrateRosterCacheIfNeeded() {
+        val cache = rosterCache ?: return
+        if (state.rows.isNotEmpty()) {
+            android.util.Log.i(TAG, "roster cache skipped: rows non-empty (${state.rows.size})")
+            return
+        }
+        val cached = cache.hydrate() ?: run {
+            android.util.Log.i(TAG, "roster cache miss")
+            return
+        }
+        state = cached.state.copy(degraded = true)
+        hydrated = true
+        phase = Phase.CONNECTING
+        android.util.Log.i(TAG, "roster cache hydrated rows=${state.rows.size}")
+    }
+
+    /** vc61 ⑥：回写单飞合并（burst 期间至多一个在飞 + 一个挂起），固定 IO 线程（红线：回写不阻塞 UI）。 */
+    private fun scheduleCacheSave() {
+        val cache = rosterCache ?: return
+        val launchNow = synchronized(this) {
+            if (cacheSaveInFlight) {
+                cacheSavePending = true
+                false
+            } else {
+                cacheSaveInFlight = true
+                true
+            }
+        }
+        if (!launchNow) return
+        scope.launch(Dispatchers.IO) {
+            try {
+                cache.save(state)
+            } finally {
+                val again = synchronized(this) {
+                    val pending = cacheSavePending
+                    cacheSavePending = false
+                    cacheSaveInFlight = pending
+                    pending
+                }
+                if (again) scheduleCacheSave()
             }
         }
     }
@@ -141,5 +212,9 @@ class TeamFeedController(
             delay(backoff)
             connect()
         }
+    }
+
+    private companion object {
+        const val TAG = "TeamFeedController"
     }
 }

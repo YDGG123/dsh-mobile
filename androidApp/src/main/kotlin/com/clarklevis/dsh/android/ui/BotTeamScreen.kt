@@ -141,9 +141,12 @@ internal fun BotTeamScreen(
         TeamFeedController.Phase.OFFLINE -> TeamFeedPhase.OFFLINE
         null, TeamFeedController.Phase.IDLE -> TeamFeedPhase.IDLE
     }
-    val feedOverlayOn = TeamFeedOverlay.overlayActive(feedPhase, feed?.state?.degraded ?: false)
+    // vc61 ⑥：LIVE 非降级 → 实时 overlay；水合缓存（hydrated）→ 行照常渲染但强制降级语义
+    // （iOS `hydrateRosterCacheIfNeeded` 同规：缓存不是实时态，activity 回落 bridge，glyph 照画）。
+    val feedHydrated = feed?.hydrated == true
+    val feedOverlayOn = TeamFeedOverlay.overlayActiveWithCache(feedPhase, feed?.state?.degraded ?: false, feedHydrated)
     val feedRowsById = if (feedOverlayOn) overlayRowsByFeedId(feed!!.state) else emptyMap()
-    val feedDegraded = feedPhase == TeamFeedPhase.LIVE && feed?.state?.degraded == true
+    val feedDegraded = feedHydrated || (feedPhase == TeamFeedPhase.LIVE && feed?.state?.degraded == true)
     // 「团队」入口（用户 2026-11-02 指出 iOS 有、Android 没有）：点开 = 底部弹出**完整 Bot 列表**
     // （iOS 是 `.sheet` 里的 `TeamView`，`WorkspaceView.swift:189-199`），内容就是本页同一套渲染。
     // ⚠️ `cards` 在本页只剩两处用途：行内 caution 点（`pending`）与只读预览正文
@@ -315,7 +318,7 @@ internal fun BotTeamScreen(
             if (filteredRooms.isEmpty()) {
                 item { EmptyRosterRow(appText("暂无群聊")) }
             } else {
-                items(filteredRooms, key = { it.id }) { row -> RoomRow(row, bots, onOpenSession) }
+                items(filteredRooms, key = { it.id }) { row -> RoomRow(row, bots, feedRowsById, onOpenSession) }
             }
             // ⑤ 卡片**不在本页成块渲染**（用户 2026-11-02 截图：卡片串到了 Bot 页）。
             // 页面归属按 iOS：08 屏只在**行内**给一句只读预览（`WorkspaceView:719-726`
@@ -482,7 +485,13 @@ private fun RosterStatusDot(busy: Boolean, caution: Boolean, modifier: Modifier 
 
 /** iOS roomCell（TeamView :482）：名字 + 成员串（、分隔，单行截断）。 */
 @Composable
-private fun RoomRow(row: BridgeConversationRow, bots: List<BridgeConversationRow>, onOpenSession: (String) -> Unit) {
+private fun RoomRow(
+    row: BridgeConversationRow,
+    bots: List<BridgeConversationRow>,
+    /** vc61 ④：feed 行（含 glyph）——堆叠成员的头像由此接上 glyph 通道。 */
+    feedRowsById: Map<String, TeamFeedRowUi>,
+    onOpenSession: (String) -> Unit
+) {
     val context = LocalContext.current
     Row(
         Modifier.fillMaxWidth()
@@ -528,6 +537,10 @@ private fun RoomRow(row: BridgeConversationRow, bots: List<BridgeConversationRow
                         size = RoomStackGeometry.AVATAR_SIZE_DP,
                         rowImageHash = member.avatarImageHash, // 38 × 0.72
                         botId = member.id,
+                        // vc61 ④：堆叠成员也走 glyph 通道——vc56 接线时只接了 bot 行，堆叠支路
+                        // 漏传 glyph ⇒ 群聊头像一直字母兜底（用户 2026-11-04 真机反馈）。
+                        glyph = feedRowsById[member.id]?.glyph,
+                        glyphColorKey = feedRowsById[member.id]?.colorKey,
                         stroke = 1.5.dp,
                         modifier = Modifier
                             .align(Alignment.CenterStart) // 同一起点（iOS ZStack leading）
