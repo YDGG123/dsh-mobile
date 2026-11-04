@@ -4600,17 +4600,6 @@
         }
       }
     },
-    "关闭侧边栏" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Close sidebar"
-          }
-        }
-      }
-    },
     "关闭图片预览" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -7148,17 +7137,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Open"
-          }
-        }
-      }
-    },
-    "打开侧边栏" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Open sidebar"
           }
         }
       }

@@ -242,9 +242,13 @@ final class ScheduledTasksToolbarUITests: XCTestCase {
         app.launch()
         let alert = app.alerts.firstMatch
         if alert.waitForExistence(timeout: 2) { alert.buttons.firstMatch.tap() }
-        XCTAssertTrue(app.buttons["打开侧边栏"].waitForExistence(timeout: 10))
-        app.buttons["打开侧边栏"].tap()
-        app.buttons["定时任务"].tap()
+        // 81：首页抽屉已删，定时任务入口 = 底部「设置」tab →「扩展」行 →「定时任务」。
+        app.buttons["设置"].tap()
+        XCTAssertTrue(app.staticTexts["扩展"].waitForExistence(timeout: 10))
+        app.staticTexts["扩展"].tap()
+        let scheduledTasksRow = app.staticTexts["定时任务"]
+        XCTAssertTrue(scheduledTasksRow.waitForExistence(timeout: 10))
+        scheduledTasksRow.tap()
         XCTAssertTrue(app.navigationBars["定时任务"].waitForExistence(timeout: 5))
 
         let search = app.buttons["scheduled-tasks-search"]
@@ -326,14 +330,7 @@ final class WorkspaceSafeAreaUITests: XCTestCase {
             add(image)
         }
 
-        let settingsX = settings.frame.minX
-        app.buttons["打开侧边栏"].tap()
-        let close = app.buttons["关闭侧边栏"]
-        XCTAssertTrue(close.waitForExistence(timeout: 5))
-        close.tap()
-        XCTAssertTrue(NSPredicate { _, _ in
-            abs(settings.frame.minX - settingsX) <= 1
-        }.evaluateAfterWaiting(timeout: 5), "等待抽屉回位后再点击认证入口")
+        // 81：首页抽屉已删，「关闭侧栏后设置页位置不变」失去被测对象——该段随之移除。
         authentication.tap()
         XCTAssertTrue(app.buttons["手动输入配对信息"].waitForExistence(timeout: 5))
         app.buttons["手动输入配对信息"].tap()
@@ -437,13 +434,23 @@ final class TabletAdaptiveLayoutUITests: XCTestCase {
         XCTAssertTrue(settingsBar.waitForExistence(timeout: 5))
         XCTAssertEqual(settingsBar.frame.width, app.frame.width, accuracy: 2)
         settingsBar.buttons.element(boundBy: 0).tap()
-        app.buttons["打开侧边栏"].tap()
-        app.buttons["插件"].tap()
+        // 81：抽屉已删，扩展入口 = 设置页「扩展」聚合行。
+        let extensionsRow = app.staticTexts["扩展"]
+        XCTAssertTrue(extensionsRow.waitForExistence(timeout: 10))
+        extensionsRow.tap()
+        let pluginsRow = app.staticTexts["插件"]
+        XCTAssertTrue(pluginsRow.waitForExistence(timeout: 10))
+        pluginsRow.tap()
         XCTAssertTrue(app.navigationBars["插件"].waitForExistence(timeout: 5))
         XCTAssertEqual(app.navigationBars["插件"].frame.width, app.frame.width, accuracy: 2)
         app.navigationBars["插件"].buttons.element(boundBy: 0).tap()
-        app.buttons["打开侧边栏"].tap()
-        app.buttons["定时任务"].tap()
+        // 返回后重查：页面切换后旧 XCUIElement 可能 stale，不赌惰性解析（Chief 12:5x 提醒）。
+        let extensionsRowAgain = app.staticTexts["扩展"]
+        XCTAssertTrue(extensionsRowAgain.waitForExistence(timeout: 10))
+        extensionsRowAgain.tap()
+        let scheduledRow = app.staticTexts["定时任务"]
+        XCTAssertTrue(scheduledRow.waitForExistence(timeout: 10))
+        scheduledRow.tap()
         XCTAssertTrue(app.navigationBars["定时任务"].waitForExistence(timeout: 5))
         XCTAssertEqual(app.navigationBars["定时任务"].frame.width, app.frame.width, accuracy: 2)
     }
