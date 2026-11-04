@@ -22,8 +22,8 @@ android {
         applicationId = "com.clarklevis.dsh.android"
         minSdk = 24
         targetSdk = 36
-        versionCode = 60 // 本批（vc60：①凭证判死自愈——no-device-session 即触发补发拉取，修「连上网关却说未配对」死锁；②启动图标换黑鲸；③搜索等请求失败弹窗文案净化；④配对/新建按钮对齐 iOS 真身规格）；59 为上一批
-        versionName = "1.7.23"
+        versionCode = 61 // 本批（vc61：用户 2026-11-04 五条反馈——①图标品牌矢量日/夜 twin ③眼睛椭圆tilt ④群聊堆叠glyph ⑤认证钮玻璃底 ⑥名册水合缓存接线）；60 为上一批
+        versionName = "1.7.24"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
