@@ -8402,6 +8402,7 @@ private actor SuspendedFirstGatewayCredentials: GatewayCredentialStoring {
     func deleteToken(for endpoint: URL) {}
 }
 
+@MainActor
 final class GatewayForegroundRecoveryTests: XCTestCase {
     @MainActor
     func testSlowCredentialReadDoesNotBlockMainActorOrReconnectAfterDisconnect() async throws {
@@ -14052,6 +14053,173 @@ final class GatewayProbePolicyTests: XCTestCase {
             .giveUp(4),
             "门限可配，但达到就判死"
         )
+    }
+}
+
+/// 81 前台恢复重连（2026-11-04 用户报「切后台切回经常不自动重连」，网关时间轴实测 23s/29s）：
+/// 病因 = 回前台探测 miss 后只记数不排重试，干等 30s 心跳；两轮探测 + 退避最坏 ~50s。
+/// 修法预算（Chief 12:1x 定）：探测阶段 ≤2s（1s 短超时 × 2 次）+ 重连阶段 ≤1s（跳过退避）。
+/// 三条老红线（判活认数据 / 连续两次才拆 / 日常线 10s 期限）一条都不许破。
+@MainActor
+final class GatewayForegroundProbeBudgetTests: XCTestCase {
+
+    // ① 预算常数：旧链路必须 >20s（复现病因），新链路必须 ≤3s（判据达标）。
+    func testBudgetConstantsPinOldDiseaseAndNewCriterion() {
+        XCTAssertGreaterThan(
+            GatewayClient.legacyForegroundRecoveryBudgetSeconds(), 20,
+            "旧链路最坏预算（10s 探测 + ≤30s 等心跳 + 10s 探测 + 2s 退避）必须 >20s——这是用户实测 23s 的病因"
+        )
+        XCTAssertLessThanOrEqual(
+            GatewayClient.quickForegroundRecoveryBudgetSeconds(), 3,
+            "新链路预算（1s×2 探测 + 0s 退避）必须 ≤3s——用户判据"
+        )
+    }
+
+    // ① 行为级红→绿（注入时钟，不真睡）：两次全 miss 场景下，
+    //    日常线（旧语义）第二次探测必须等心跳（30s 量级）；快速线 1s×2 内 giveUp。
+    @MainActor
+    func testQuickPathReachesGiveUpInTwoShortProbesWithoutHeartbeat() async throws {
+        let gateway = GatewayClient(
+            credentials: RecoveryTestCredentials(),
+            heartbeatInterval: .seconds(3600),           // 心跳被钉死 1 小时：快速线不得依赖它
+            probeTimeout: .seconds(3600),                // 日常线超时也钉死：证明快速线不借它
+            foregroundProbeTimeout: .milliseconds(120)   // 注入短时钟
+        )
+        defer { gateway.disconnect() }
+        let (server, _, _) = try await self.fixtureForProbe(gateway: gateway, repliesToPing: { _ in false }, pongDelay: 0)
+        defer { server.stop() }
+        // fixture 已在 connect() 后等过 $state.isConnected；此时 socket 真实建立。
+        let gaveUp = expectation(description: "快速线两次 miss 后 giveUp")
+        let subscription = gateway.$state.sink { if case .failed = $0 { gaveUp.fulfill() } }
+        defer { subscription.cancel() }
+        let started = Date()
+        gateway.applicationDidBecomeActive()
+        await fulfillment(of: [gaveUp], timeout: 5)
+        let elapsed = Date().timeIntervalSince(started)
+        XCTAssertLessThanOrEqual(elapsed, 3, "两次 120ms 注入探测 + 0 退避，giveUp 必须 ≤3s（生产预算 1s×2 同构）")
+        // giveUp 后跳过退避：schedule-reconnect delaySeconds=0 ⇒ 重连任务立即起，
+        // 服务端在监听 ⇒ 很快重新 connected。
+        let reconnected = expectation(description: "跳过退避后立即重连")
+        let reconnectedSubscription = gateway.$state.sink { if $0.isConnected { reconnected.fulfill() } }
+        defer { reconnectedSubscription.cancel() }
+        await fulfillment(of: [reconnected], timeout: 3)
+    }
+
+    // ② 反向对照（防误杀，当年风暴主因）：探测窗内有入站帧 ⇒ alive，绝不 giveUp。
+    @MainActor
+    func testInboundFramesDuringQuickProbeKeepConnectionAlive() async throws {
+        let gateway = GatewayClient(
+            credentials: RecoveryTestCredentials(),
+            heartbeatInterval: .seconds(3600),
+            probeTimeout: .seconds(3600),
+            foregroundProbeTimeout: .milliseconds(120)
+        )
+        defer { gateway.disconnect() }
+        // 服务端不回 WS ping（pong 永不到），但对客户端的 session-stats 请求回数据帧：
+        // 探测窗内「有入站帧」 ⇒ 判活必须认数据、无视 pong 缺席（风暴主因的反向）。
+        let (server, _, _) = try await self.fixtureForProbe(
+            gateway: gateway, repliesToPing: { _ in false }, pongDelay: 0, respondsToStats: true)
+        // 每 60ms 发一次 stats 请求 ⇒ 探测窗（120ms）内必有服务端数据帧到达。
+        defer { server.stop() }
+        let statsTimer = DispatchSource.makeTimerSource(queue: .main)
+        statsTimer.schedule(deadline: .now(), repeating: 0.06)
+        statsTimer.setEventHandler { [weak gateway] in
+            Task { @MainActor in gateway?.requestSessionStats(sessionId: "stats-session") }
+        }
+        statsTimer.resume()
+        defer { statsTimer.cancel() }
+        gateway.applicationDidBecomeActive()
+        // 快速线两轮探测窗（~0.24s）内有帧进来 ⇒ 不得 giveUp；连接必须一直健在。
+        try await Task.sleep(for: .milliseconds(600))
+        XCTAssertTrue(gateway.state.isConnected, "探测窗内有入站帧 = 活着，短超时也不许误杀")
+        XCTAssertEqual(gateway.recoveryStateForTesting.reconnectAttempt, 0, "没拆连接就不该进入重连计数")
+    }
+
+    // ③ 风暴回归：quick 豁免只作用于当次；后续失败回到常规退避链（2/4/8…s，封顶 30s）。
+    // 调的是产品代码本体（GatewayClient.reconnectDelaySeconds），不是测试里的复制品——
+    // 产品公式改错一个数字这条就必须红（红绿验证见交付输出）。
+    func testQuickExemptionDoesNotPolluteFollowingBackoff() {
+        XCTAssertEqual(
+            GatewayClient.reconnectDelaySeconds(attempt: 1, immediateReconnect: true), 0,
+            "become-active 那一次：0 退避（快速线 giveUp 后立即重连）"
+        )
+        // 常规链与 fail() 原公式逐字节一致：reconnectAttempt 先递增再取值，
+        // 第一次失败 attempt=1 ⇒ 2s，其后 4/8/16，2*(1<<4)=32 起封顶 30s。
+        XCTAssertEqual(
+            GatewayClient.reconnectDelaySeconds(attempt: 1, immediateReconnect: false), 2,
+            "第一次常规失败：2s"
+        )
+        XCTAssertEqual(
+            GatewayClient.reconnectDelaySeconds(attempt: 2, immediateReconnect: false), 4,
+            "下一次失败 4s——quick 豁免不得污染后续退避"
+        )
+        XCTAssertEqual(GatewayClient.reconnectDelaySeconds(attempt: 3, immediateReconnect: false), 8)
+        XCTAssertEqual(GatewayClient.reconnectDelaySeconds(attempt: 4, immediateReconnect: false), 16)
+        XCTAssertEqual(GatewayClient.reconnectDelaySeconds(attempt: 5, immediateReconnect: false), 30, "封顶 30s")
+        XCTAssertEqual(GatewayClient.reconnectDelaySeconds(attempt: 7, immediateReconnect: false), 30, "封顶后维持 30s")
+    }
+
+    // ③ 补：回前台时已知已断（state 非 connected）的分支——必须直接 beginConnection，
+    // 不能卡在 wantsConnection / probeOnly 之类的 guard 上（用户报「没自动重连」的另一半）。
+    @MainActor
+    func testBecomeActiveWhenAlreadyDisconnectedReconnectsImmediately() async throws {
+        let gateway = GatewayClient(credentials: RecoveryTestCredentials())
+        defer { gateway.disconnect() }
+        let server = try LocalRecoveryGateway(repliesToPing: { _ in true })
+        let endpoint = try await server.start()
+        defer { server.stop() }
+        // 先建立一次真实连接，再让服务端掐断（state 落 .failed ⇒ isConnected == false）。
+        let connected = expectation(description: "首连建立")
+        let subscription = gateway.$state.sink { if $0.isConnected { connected.fulfill() } }
+        gateway.connect(to: endpoint)
+        await fulfillment(of: [connected], timeout: 3)
+        subscription.cancel()
+        server.dropConnections(nextGreeting: .hello)
+        let failed = expectation(description: "连接被掐断落入 failed")
+        let failedSubscription = gateway.$state.sink { if case .failed = $0 { failed.fulfill() } }
+        await fulfillment(of: [failed], timeout: 5)
+        failedSubscription.cancel()
+        XCTAssertFalse(gateway.state.isConnected)
+        // 回前台：已知已断 ⇒ 直接 beginConnection（不重探、不退避）。服务端仍在监听 ⇒ 重连成功。
+        let reconnected = expectation(description: "become-active 直连重连成功")
+        let reconnectedSubscription = gateway.$state.sink { if $0.isConnected { reconnected.fulfill() } }
+        defer { reconnectedSubscription.cancel() }
+        let started = Date()
+        gateway.applicationDidBecomeActive()
+        await fulfillment(of: [reconnected], timeout: 5)
+        XCTAssertLessThanOrEqual(Date().timeIntervalSince(started), 5, "已知已断的回前台必须立即重连，不得卡 guard")
+    }
+
+    // ④ 快速线与日常线共享同一判死门限：两次才拆，不因短超时变成一次就拆。
+    func testQuickPathKeepsTwoMissLimit() {
+        XCTAssertEqual(
+            GatewayClient.probeVerdict(inboundSinceProbe: false, consecutiveMisses: 0, limit: GatewayClient.probeMissLimit),
+            .miss(1),
+            "快速线第一次 miss 依旧只记数（红线：连续两次才拆）"
+        )
+        XCTAssertEqual(
+            GatewayClient.probeVerdict(inboundSinceProbe: false, consecutiveMisses: 1, limit: GatewayClient.probeMissLimit),
+            .giveUp(2),
+            "第二次 miss 才 giveUp——短超时改变的只是两次之间的间隔，不是门限"
+        )
+    }
+
+    // 专用 fixture：GatewayClient 先造好（注入时钟），再接本地假网关。
+    @MainActor
+    private func fixtureForProbe(
+        gateway: GatewayClient, repliesToPing: @escaping (String) -> Bool,
+        pongDelay: TimeInterval, respondsToStats: Bool = false
+    ) async throws -> (LocalRecoveryGateway, GatewayClient, Void) {
+        let server = try LocalRecoveryGateway(
+            repliesToPing: repliesToPing, pongDelay: pongDelay, respondsToStats: respondsToStats,
+            respondsToControls: true)
+        let endpoint = try await server.start()
+        let connected = expectation(description: "真实 WebSocket 已就绪")
+        let subscription = gateway.$state.sink { if $0.isConnected { connected.fulfill() } }
+        gateway.connect(to: endpoint)
+        await fulfillment(of: [connected], timeout: 3)
+        subscription.cancel()
+        return (server, gateway, ())
     }
 }
 

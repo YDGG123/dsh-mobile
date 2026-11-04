@@ -7,6 +7,14 @@ import Network
 @MainActor
 final class GatewayClient: ObservableObject {
     private static let presetLogger = Logger(subsystem: "ai.dsh.mobile.ios", category: "agent-presets")
+
+    /// 81 重连退避（纯函数，单测直接钉产品本体）：`immediateReconnect` 当次豁免置 0
+    /// （become-active 快速线 giveUp 后不退避）；常规链 2/4/8/…s，封顶 30s。
+    /// `attempt` 从 1 起（`fail()` 里先递增再取值）。
+    static func reconnectDelaySeconds(attempt: Int, immediateReconnect: Bool) -> Int {
+        guard !immediateReconnect else { return 0 }
+        return min(30, 2 * (1 << min(attempt - 1, 4)))
+    }
     private static let lifecycleLogger = Logger(subsystem: "ai.dsh.mobile.ios", category: "gateway-lifecycle")
     private var backgroundEnteredAt: Date?
 
@@ -100,6 +108,21 @@ final class GatewayClient: ObservableObject {
     private var consecutiveProbeMisses = 0
     /// 判死门限（连续失败次数）。提到类常量，方便和单测对齐。
     static let probeMissLimit = 2
+    /// 日常 30s 心跳那条探测线的超时——2026-10-26 断连风暴防线的地盘，**不改**。
+    static let heartbeatProbeTimeout: Duration = .seconds(10)
+    /// 「回到前台」这一次探测的短超时（81）：用户判据是回前台 ≤3s 连上，
+    /// 10s×2 的旧预算到不了；短超时**只用于这条路径**，两次 miss 才拆的红线不动。
+    static let foregroundReturnProbeTimeout: Duration = .seconds(1)
+
+    /// 旧链路最坏预算（政策常数，供单测钉死）：probe1 + 等下一次心跳 + probe2 + 重连退避。
+    static func legacyForegroundRecoveryBudgetSeconds(
+        probeTimeout: Double = 10, heartbeatInterval: Double = 30, backoff: Double = 2
+    ) -> Double { probeTimeout + heartbeatInterval + probeTimeout + backoff }
+
+    /// 新链路预算：前台恢复探测用 1s 短超时、miss 立即重探、giveUp 后跳过退避直接重连。
+    static func quickForegroundRecoveryBudgetSeconds(quickTimeout: Double = 1, backoff: Double = 0) -> Double {
+        quickTimeout + quickTimeout + backoff
+    }
 
     /// 判活结论（纯函数，单测直接钉）。放在这里而不是写死进 Task：
     /// 这类「多久算死」的决策出过一次错，必须可测。
@@ -124,19 +147,23 @@ final class GatewayClient: ObservableObject {
     private let credentials: any GatewayCredentialStoring
     private let heartbeatInterval: Duration
     private let probeTimeout: Duration
+    /// 「回到前台」探测的短超时（81）：只服务 become-active 那一条路径。
+    private let foregroundProbeTimeout: Duration
     private let subscriptionTimeoutInterval: Duration
 
     init(
         channel: String = "control",
         credentials: (any GatewayCredentialStoring)? = nil,
         heartbeatInterval: Duration = .seconds(30),
-        probeTimeout: Duration = .seconds(10),
+        probeTimeout: Duration = GatewayClient.heartbeatProbeTimeout,
+        foregroundProbeTimeout: Duration = GatewayClient.foregroundReturnProbeTimeout,
         subscriptionTimeoutInterval: Duration = .seconds(15)
     ) {
         self.channel = channel
         self.credentials = credentials ?? SystemGatewayCredentialStore.shared
         self.heartbeatInterval = heartbeatInterval
         self.probeTimeout = probeTimeout
+        self.foregroundProbeTimeout = foregroundProbeTimeout
         self.subscriptionTimeoutInterval = subscriptionTimeoutInterval
     }
 #if DEBUG
@@ -307,7 +334,10 @@ final class GatewayClient: ObservableObject {
         reconnectAttempt = 0
         if state.isConnected {
             conversationClient?.applicationDidBecomeActive()
-            probeForegroundConnection()
+            // 81：回到前台走快速探测线（1s 短超时 + miss 立即重探 + giveUp 跳退避）。
+            // 两条通道各自独立收口：conversation 子客户端的 applicationDidBecomeActive
+            // 会走到同一条快速线，控制通道 pong 成功不再掩盖 conversation 通道已死。
+            probeForegroundConnection(quickTimeout: foregroundProbeTimeout)
             return
         }
         guard let endpoint else { return }
@@ -400,6 +430,8 @@ final class GatewayClient: ObservableObject {
         conversationClient = nil
         failSessionCreations()
         wantsConnection = reconnect
+        // 81 取证：显式断开若不带重连意图，同样关掉自动重连——留痕到事件级。
+        if !reconnect { traceLifecycle("wants-connection-false source=explicit-disconnect") }
         reconnectTask?.cancel()
         reconnectTask = nil
         connectionTimeoutTask?.cancel()
@@ -969,7 +1001,7 @@ final class GatewayClient: ObservableObject {
         if !acceptSessionCreationFrame(frame) { onFrame?(frame) }
     }
 
-    private func handleFailure(_ error: Error, socket: URLSessionWebSocketTask? = nil) async {
+    private func handleFailure(_ error: Error, socket: URLSessionWebSocketTask? = nil, immediateReconnect: Bool = false) async {
         guard wantsConnection else { return }
         let nsError = error as NSError
         let isCurrentSocket = socket == nil || socket === self.socket
@@ -1023,7 +1055,8 @@ final class GatewayClient: ObservableObject {
         fail(
             detail,
             shouldReconnect: shouldReconnect && !isManualPairingAttempt,
-            reportFailure: shouldReportFailure
+            reportFailure: shouldReportFailure,
+            immediateReconnect: immediateReconnect
         )
     }
 
@@ -1048,7 +1081,11 @@ final class GatewayClient: ObservableObject {
         }
     }
 
-    private func fail(_ detail: String, shouldReconnect: Bool, reportFailure: Bool = true) {
+    /// - Parameter immediateReconnect: 81 前台恢复线专用：giveUp 后**跳过 2s 退避**直接重连。
+    ///   只由「回到前台」的快速探测（两次 1s miss）触发；become-active 已把
+    ///   `reconnectAttempt` 清 0，本就不是「反复失败」的语境。网络真断时后续失败
+    ///   走常规退避链（2s→4s→8s…封顶 30s），不会形成紧密循环。
+    private func fail(_ detail: String, shouldReconnect: Bool, reportFailure: Bool = true, immediateReconnect: Bool = false) {
         connectionGeneration = UUID()
         connectionPreparationTask?.cancel()
         connectionPreparationTask = nil
@@ -1074,7 +1111,13 @@ final class GatewayClient: ObservableObject {
         socket = nil
         receiveTask?.cancel()
         receiveTask = nil
-        if !shouldReconnect { wantsConnection = false }
+        if !shouldReconnect {
+            // 81 取证：wantsConnection 被关掉的每个落点都要留痕（become-active 的
+            // guard 会在此标志为 false 时直接 return、零动作——用户报「切回不自动重连」
+            // 的首要嫌疑）。只记来源标记，不写 detail（可能是服务端原因的转述）。
+            traceLifecycle("wants-connection-false source=fail")
+            wantsConnection = false
+        }
         onTransportFailure?(detail, shouldReconnect)
         if reportFailure, lastReportedFailure != detail {
             lastReportedFailure = detail
@@ -1084,8 +1127,9 @@ final class GatewayClient: ObservableObject {
         guard shouldReconnect, channel == "control" else { return }
         guard !probeOnly else { wantsConnection = false; return }
         reconnectAttempt += 1
-        let delay = min(30, 2 * (1 << min(reconnectAttempt - 1, 4)))
-        traceLifecycle("schedule-reconnect attempt=\(reconnectAttempt) delaySeconds=\(delay)")
+        let delay = Self.reconnectDelaySeconds(
+            attempt: reconnectAttempt, immediateReconnect: immediateReconnect)
+        traceLifecycle("schedule-reconnect attempt=\(reconnectAttempt) delaySeconds=\(delay)\(immediateReconnect ? " mode=quick" : "")")
         reconnectTask = Task { [weak self] in
             do { try await Task.sleep(for: .seconds(delay)) } catch { return }
             guard let self, !Task.isCancelled, self.wantsConnection, var endpoint = self.endpoint else { return }
@@ -1135,17 +1179,22 @@ final class GatewayClient: ObservableObject {
     /// 1. **判活也认数据**：超时窗内收到过任何帧就算活着——UI 忙时 pong 回调会被推后，
     ///    只看 pong 会把健康连接判死（这是风暴的主因）；
     /// 2. **连续两次失败才拆**：一次迟到不再等于死亡；
-    /// 3. **期限 10s**（原 5s）且结论由纯函数 `probeVerdict` 给出，可单测。
+    /// 3. **期限**：日常心跳线 10s（原 5s）不变；「回到前台」线用 1s 短超时（81）。
+    ///    结论都由纯函数 `probeVerdict` 给出，可单测。
     /// 观测点：日志里会看到 `probe-skipped-by-inbound-frame` / `probe-miss consecutive=N`
     /// / `foreground-probe-timeout consecutive=N`，真机上能确认防御是否真的生效。
-    private func probeForegroundConnection() {
+    /// - Parameters:
+    ///   - quickTimeout: 传值 = 「回到前台」快速线（81）：短超时、miss 立即重探、giveUp 跳过退避。
+    ///     传 nil = 日常心跳线，行为与 2026-10-26 修复版完全一致（风暴防线所在，不许动）。
+    ///   - immediateRetry: 快速线第二次探测标记；仅影响日志措辞与重连退避豁免。
+    private func probeForegroundConnection(quickTimeout: Duration? = nil, immediateRetry: Bool = false) {
         guard let socket, state.isConnected, foregroundProbeTask == nil else { return }
         onConnectionCheckStarted?()
         foregroundProbeSequence += 1
         let sequence = foregroundProbeSequence
         let probeStartedAt = Date()
-        let timeout = probeTimeout
-        traceLifecycle("foreground-probe-ping")
+        let timeout = quickTimeout ?? probeTimeout
+        traceLifecycle(immediateRetry ? "foreground-probe-ping mode=quick-retry" : "foreground-probe-ping")
         foregroundProbeTask = Task { [weak self, weak socket] in
             do { try await Task.sleep(for: timeout) } catch { return }
             guard let self, let socket, self.socket === socket,
@@ -1161,10 +1210,20 @@ final class GatewayClient: ObservableObject {
             case .miss(let count):
                 self.foregroundProbeTask = nil
                 self.consecutiveProbeMisses = count
-                self.traceLifecycle("probe-miss consecutive=\(count) retryOnNextHeartbeat")
+                if quickTimeout != nil {
+                    // 81：前台快速线 miss 后**立即**重探（不排延迟、不等 30s 心跳）。
+                    // 判据是「这条线是快速线」（quickTimeout 非空），不是「这是第几次」——
+                    // 首探 miss 同样要立即重探，否则回前台永远只探一次就干等心跳
+                    // （行为级用例抓过：immediateRetry 只在重探时为 true ⇒ 首探漏排）。
+                    // 两次门限不变：重探再 miss 就 giveUp（t≈2s）。
+                    self.traceLifecycle("probe-miss consecutive=\(count) retry-immediate")
+                    self.probeForegroundConnection(quickTimeout: quickTimeout, immediateRetry: true)
+                } else {
+                    self.traceLifecycle("probe-miss consecutive=\(count) retryOnNextHeartbeat")
+                }
             case .giveUp(let count):
-                self.traceLifecycle("foreground-probe-timeout consecutive=\(count)")
-                await self.handleFailure(URLError(.timedOut), socket: socket)
+                self.traceLifecycle("foreground-probe-timeout consecutive=\(count)\(immediateRetry ? " mode=quick" : "")")
+                await self.handleFailure(URLError(.timedOut), socket: socket, immediateReconnect: immediateRetry)
             }
         }
         socket.sendPing { [weak self, weak socket] error in
@@ -1181,10 +1240,15 @@ final class GatewayClient: ObservableObject {
                         self.onConnectionReady?()
                     case .miss(let count):
                         self.consecutiveProbeMisses = count
-                        self.traceLifecycle("probe-miss consecutive=\(count) pingError=\(error.localizedDescription)")
+                        if quickTimeout != nil {
+                            self.traceLifecycle("probe-miss consecutive=\(count) pingError=\(error.localizedDescription) retry-immediate")
+                            self.probeForegroundConnection(quickTimeout: quickTimeout, immediateRetry: true)
+                        } else {
+                            self.traceLifecycle("probe-miss consecutive=\(count) pingError=\(error.localizedDescription)")
+                        }
                     case .giveUp(let count):
-                        self.traceLifecycle("foreground-probe-error consecutive=\(count)")
-                        await self.handleFailure(error, socket: socket)
+                        self.traceLifecycle("foreground-probe-error consecutive=\(count)\(immediateRetry ? " mode=quick" : "")")
+                        await self.handleFailure(error, socket: socket, immediateReconnect: immediateRetry)
                     }
                 } else {
                     self.consecutiveProbeMisses = 0
