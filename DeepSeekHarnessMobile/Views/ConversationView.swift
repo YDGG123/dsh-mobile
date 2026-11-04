@@ -1009,6 +1009,17 @@ struct ConversationView: View {
         }
         .task(id: store.selectedSessionId) {
             store.refreshSessionAgentPreset()
+            // 80：视图首次出现时也要恢复草稿——`.onChange(of: selectedSessionId)` 对
+            // 初始值不触发，从会话列表点进来（视图新建）时上面那条恢复不跑，
+            // 这正是用户报的「退出再进草稿没了」（79② 验收不通过的根因）。
+            // 判据 `draft.isEmpty`：用户已输入的内容不能被旧草稿覆盖。
+            // 反向：发送后 draft 已清空 ⇒ 这里存的是空 ⇒ 不会再填回来。
+            if let sessionID = store.selectedSessionId, draft.isEmpty,
+               let saved = store.conversationDrafts[sessionID] {
+                draft = saved
+                pendingImages = store.conversationDraftImages[sessionID] ?? []
+                store.voiceInput.open(context: sessionID, draft: draft)
+            }
             // 每次进入会话先收起历史任务；用户在当前会话手动展开后不会被后续推送重置。
             tasksExpanded = false
             guard let sessionID = store.selectedSessionId else {
