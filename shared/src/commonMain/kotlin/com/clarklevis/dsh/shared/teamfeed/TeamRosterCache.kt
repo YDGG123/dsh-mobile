@@ -62,6 +62,9 @@ class TeamRosterCache(private val store: TeamFeedKeyValueStore) {
             runCatching { store.remove(TeamFeedCacheKeys.ROSTER) }
             return null
         }
+        // vc62：空 rows 的缓存视同 miss（对齐 iOS GatewayTeamFeed:237-241 `cachedRows.isEmpty`）——
+        // 水合空名册渲染不出任何行，还会顶掉 hydrated 的降级语义（用户「列表没有缓存」的形态之一）。
+        if (payload.rows.isEmpty()) return null
         return TeamReducerCacheResult(
             state = TeamFeedReducer.TeamFeedState(
                 instanceId = payload.instanceId,

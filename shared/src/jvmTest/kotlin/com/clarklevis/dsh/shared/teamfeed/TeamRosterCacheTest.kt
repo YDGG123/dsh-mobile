@@ -44,6 +44,14 @@ class TeamRosterCacheTest {
         assertNull(kv.get(TeamFeedCacheKeys.ROSTER), "坏数据要顺手清掉，下次启动别再撞")
     }
 
+    /** vc62：空 rows 的缓存（Ready 空态覆写形态）视同 miss——水合空名册没有意义（iOS :237-241 同规）。 */
+    @Test
+    fun hydrateWithEmptyRowsTreatedAsMiss() {
+        val cache = TeamRosterCache(store())
+        cache.save(TeamFeedReducer.TeamFeedState(instanceId = "inst-1", seq = 9))
+        assertNull(cache.hydrate(), "空 rows 缓存不许当有效水合返回")
+    }
+
     @Test
     fun resumeStoreWritesOnlyOnChange() {
         val kv = store()

@@ -138,8 +138,9 @@ class TeamFeedController(
             else -> {
                 val outcome = reducer.apply(frame)
                 state = reducer.state
-                // vc61 ⑥：真快照落地 ⇒ 退出缓存态（iOS 同规：快照静默替换水合行）。
-                if (frame is TeamFeedFrame.Snapshot) hydrated = false
+                // vc62：真快照落地 ⇒ 退出缓存态——但**非空快照才清**（补充 B）：空快照保持现状
+                // （不清也不置），否则 hydrated 被清后降级横幅语义漂移、界面退化成空。
+                if (frame is TeamFeedFrame.Snapshot && state.rows.isNotEmpty()) hydrated = false
                 if (outcome is TeamFeedReducer.Outcome.Applied) scheduleCacheSave()
                 if (outcome is TeamFeedReducer.Outcome.NeedSnapshot) {
                     // 最朴素的重同步：断开重连，服务端对新 auth 重发整帧快照。
@@ -175,6 +176,9 @@ class TeamFeedController(
     /** vc61 ⑥：回写单飞合并（burst 期间至多一个在飞 + 一个挂起），固定 IO 线程（红线：回写不阻塞 UI）。 */
     private fun scheduleCacheSave() {
         val cache = rosterCache ?: return
+        // vc62：空名册不写盘——Ready/Error 帧 Applied 时 rows 尚空，会把上次的好缓存覆盖成空
+        // （用户「列表没有缓存」的根因：开一下 Bot 页就切走即触发 Ready→断线）。
+        if (state.rows.isEmpty()) return
         val launchNow = synchronized(this) {
             if (cacheSaveInFlight) {
                 cacheSavePending = true
