@@ -22,8 +22,8 @@ android {
         applicationId = "com.clarklevis.dsh.android"
         minSdk = 24
         targetSdk = 36
-        versionCode = 62 // 本批（vc62：删首页侧滑抽屉 + 缓存三洞 + 眨眼眼形胶囊）；61 为上一批
-        versionName = "1.7.25"
+        versionCode = 63 // 本批（vc63：眼睛对比度校正进包）；62 为上一批
+        versionName = "1.7.26"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
