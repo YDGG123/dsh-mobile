@@ -655,6 +655,15 @@ if ! bash "$(dirname "${BASH_SOURCE[0]}")/local-test-typecheck.sh"; then
   exit 1
 fi
 
+# ---- Android 侧总闸门（第六路，2026-11-04 vc63 还债批）----
+# monorepo 同一个闸门入口：androidTest 源集自 11-02 起整体编不过、无人发现（与 iOS 第五路
+# 同根因：闸门不编测试源集）。主 APK + androidTest 编译 + JVM 用例全绿才放行；
+# `--self-test` 反向自证见 local-android-gate.sh。
+if ! bash "$(dirname "${BASH_SOURCE[0]}")/local-android-gate.sh"; then
+  echo "   Android 闸门编不过：先看上面报错（iOS 各路绿 ≠ 安卓能出包）"
+  exit 1
+fi
+
 # ---- 版本一致性闸门（2026-10-26 教训：0548 包主 App 31 / widget 32）----
 # 主 App 的 build/version 取自硬编码的 Resources/Info.plist（该 target 无 CURRENT_PROJECT_VERSION），
 # Widget 走 pbxproj 变量。只改一侧会出"主 App 停在旧 build 号"的包，云端照常构建成功。

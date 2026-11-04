@@ -14,6 +14,7 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.clarklevis.dsh.android.platform.AndroidChatHistoryCache
 import com.clarklevis.dsh.android.ui.ConversationScreen
 import com.clarklevis.dsh.android.ui.DshTheme
@@ -98,7 +99,7 @@ class AndroidOfflineHomeDeviceTest {
                         WorkspaceScreen(graph.stateHolder, {
                             graph.stateHolder.selectSession(it)
                             opened = true
-                        }, {}, {}, {}, {})
+                        }, {}, {}, {}, updateModel = viewModel())
                     }
                 }
             }

@@ -153,7 +153,7 @@ class AdaptiveLayoutDeviceTest {
                     4 -> PluginBundleDetailScreen(holder, "missing", {})
                     5 -> OfficialPluginDetailScreen(holder, "missing", {})
                     6 -> TrajectoryPage(nodes = holder.trajectoryNodes, isActive = true)
-                    else -> FontSizeSettingsScreen {}
+                    else -> FontSizeSettingsScreen(onBack = {})
                 }
             }
         }
@@ -172,7 +172,7 @@ class AdaptiveLayoutDeviceTest {
     fun fontControlsRemainReachableInLowHeightSplitScreen() {
         compose.setContent {
             DshTheme {
-                Box(Modifier.fillMaxWidth().height(360.dp)) { FontSizeSettingsScreen {} }
+                Box(Modifier.fillMaxWidth().height(360.dp)) { FontSizeSettingsScreen(onBack = {}) }
             }
         }
         compose.onNodeWithTag("font-size-value").performScrollTo().assertIsDisplayed()

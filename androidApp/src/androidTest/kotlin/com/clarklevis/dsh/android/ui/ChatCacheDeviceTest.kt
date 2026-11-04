@@ -103,7 +103,11 @@ class ChatCacheDeviceTest {
                 var storageOpen by remember { mutableStateOf(false) }
                 DshTheme {
                     if (storageOpen) StorageSpaceScreen(holder, { storageOpen = false })
-                    else SettingsScreen(holder, {}, {}, {}, {}, onOpenStorage = { storageOpen = true })
+                    else SettingsScreen(
+                        holder,
+                        onBack = {},
+                        onOpenStorage = { storageOpen = true },
+                    )
                 }
             }
             compose.onNodeWithTag("storage-space-settings-row").performScrollTo().assertIsDisplayed().performClick()
