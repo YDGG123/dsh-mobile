@@ -274,6 +274,16 @@ enum BridgeConnectionIssue: Equatable {
     }
 }
 
+/// `/info` `capabilities.botPlugin` 的三态（网关契约 `d174044`，值域 full/legacy/missing）。
+///
+/// `nil` = 网关没下发（旧网关）或值不在已知值域 ⇒ **一切照旧**：
+/// 「不知道」绝不能当「没装」——那会给所有老网关用户误挂「未安装 Bot 插件」横幅。
+enum BotPluginAvailability: String, Equatable {
+    case full
+    case legacy
+    case missing
+}
+
 /// 配对流程状态（§2.8）。
 enum BridgePairingState: Equatable {
     case idle
@@ -296,6 +306,9 @@ final class BridgeTeamAdapter: ObservableObject {
     @Published private(set) var pairingState: BridgePairingState = .idle
     /// 最近一次失败的可读分类（离线态 UI 用来给出「换地址」还是「查网络」）。
     @Published private(set) var connectionIssue: BridgeConnectionIssue?
+    /// `/info` `capabilities.botPlugin`（网关 `d174044`）。`nil` = 网关未下发/值未知 ⇒ 照旧，
+    /// **只有 `.missing` 才触发「未安装 Bot 插件」的横幅与聊天页终态**（2026-11-04 派活单）。
+    @Published private(set) var botPlugin: BotPluginAvailability?
 
     /// effect：进入聊天（sessionId 来自配对端 /state 的 bot/room 行）。
     var onOpenConversation: ((String) -> Void)?
@@ -677,6 +690,7 @@ final class BridgeTeamAdapter: ObservableObject {
         do {
             // 1. /info：校验协议版本与服务器身份（KMP 解码）。
             let infoBody = try await transport.fetchInfo()
+            botPlugin = Self.botPlugin(fromInfoJSON: infoBody)
             let info = try BridgeDtosKt.parseBridgeInfo(raw: infoBody)
             guard info.protocolVersion == 1 else {
                 pairingState = .failed("桌面端 bridge 协议版本不兼容（需要 protocolVersion 1），请升级桌面插件")
@@ -1051,6 +1065,20 @@ final class BridgeTeamAdapter: ObservableObject {
         startTokenRefreshLoop()
     }
 
+    /// 从 `/info` 原始 JSON 读 `capabilities.botPlugin`（纯函数，可单测）。
+    /// 没有该字段（旧网关）/ 不是字符串 / 值不在已知值域 ⇒ **nil（一切照旧，不当「没装」）**。
+    /// 为什么不进 KMP：`TeamCapabilities.fromInfo` 只提取 actions 白名单与布尔 features，
+    /// 字符串形态的 botPlugin 在状态投影里会被丢（2026-11-04 实读 TeamCapabilities.kt:34-46），
+    /// 所以在这里直读 `/info` 原始体——与 `BridgeChunkLimits.update(fromInfo:)` 同款先例。
+    /// `nonisolated`：纯解析无状态，测试（非主线程）也要能直接调。
+    nonisolated static func botPlugin(fromInfoJSON infoJSON: String) -> BotPluginAvailability? {
+        guard let data = infoJSON.data(using: .utf8),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let capabilities = root["capabilities"] as? [String: Any],
+              let raw = capabilities["botPlugin"] as? String else { return nil }
+        return BotPluginAvailability(rawValue: raw.lowercased())
+    }
+
     /// 一次全量刷新：三响应齐才提交（revision 单调由 KMP 保证）。
     func refreshNow() async {
         guard let transport else { return }
@@ -1069,6 +1097,8 @@ final class BridgeTeamAdapter: ObservableObject {
             // 分块上限同样由 /info 公布（capabilities.maxFrameBytes / maxReassembledBytes /
             // maxStreamsPerConnection）；团队 WS 下次建连时读 BridgeChunkLimits.shared。
             BridgeChunkLimits.update(fromInfo: infoBody)
+            // Bot 插件可用性（网关 d174044）：未下发/未知值 ⇒ 保持 nil（照旧）。
+            botPlugin = Self.botPlugin(fromInfoJSON: infoBody)
             // ② 应用层心跳参数同样来自 /info（不公布则用 25/75 兜底）。
             BridgeSessionTuning.update(fromInfo: infoBody)
             // 凭证 TTL 由网关在 /info 里公布（capabilities.accessTokenTtlSeconds），

@@ -392,6 +392,11 @@ struct WorkspaceView: View {
                 if bridgeTeam.connectionIssue != nil || (bridgeListReady && bridgeTeam.mirror?.isOffline == true) {
                     bridgeOfflineBanner
                 }
+                // Bot 插件缺失（网关 d174044 契约）：页内**常驻说明**，用户明确要求不弹窗；
+                // 只占位不阻断——下面的名册/会话列表照常渲染。
+                if bridgeTeam.botPlugin == .missing {
+                    botPluginMissingBanner
+                }
                 // 三档回落（既有能力，不许降级）：网关团队帧 → bridge 镜像 → 诊断卡
                 if gatewayTeamReady {
                     gatewayTeamSection
@@ -458,6 +463,26 @@ struct WorkspaceView: View {
         // caution=「等你动手」的胶囊橙，语义不同不混用）。
         .background(palette.warning.opacity(0.12), in: RoundedRectangle(cornerRadius: DSHRadius.sm))
         .overlay(RoundedRectangle(cornerRadius: DSHRadius.sm).stroke(palette.warning.opacity(0.25)))
+    }
+
+    /// Bot 插件缺失（`/info` `capabilities.botPlugin == "missing"`，网关 `d174044`）的页内常驻说明。
+    /// 手机端装不了插件（装在桌面端）⇒ **没有动作按钮**，不造点了没反应的假按钮；
+    /// 色用 caution（「等你动手」橙，语义注释见 bridgeOfflineBanner 尾注），不与断连的 warning 琥珀混用。
+    private var botPluginMissingBanner: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: "puzzlepiece.exclamationmark")
+                    .foregroundStyle(palette.caution)
+                Text("未检测到 Bot 插件").appFont(.subheadline.weight(.medium))
+                Spacer()
+            }
+            Text("安装 Bot 插件后即可使用 Bot 与群聊功能；普通会话不受影响。")
+                .appFont(.caption)
+                .foregroundStyle(palette.ink(0.6))
+        }
+        .padding(14)
+        .background(palette.caution.opacity(0.12), in: RoundedRectangle(cornerRadius: DSHRadius.sm))
+        .overlay(RoundedRectangle(cornerRadius: DSHRadius.sm).stroke(palette.caution.opacity(0.25)))
     }
 
     // MARK: - Bot tab（网关团队帧）

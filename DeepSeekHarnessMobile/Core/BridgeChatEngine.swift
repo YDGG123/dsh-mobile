@@ -204,18 +204,28 @@ final class BridgeChatEngine: ObservableObject {
             status = .connected
             return
         }
-        if event.type == "error", let code = event.error?.code?.lowercased(),
-           ["unauthorized", "token_expired", "invalid_token"].contains(code) {
-            Task { [weak self] in
-                guard let self else { return }
-                if await self.refreshToken() {
-                    self.socket?.cancel(with: .goingAway, reason: nil)
-                    self.scheduleReconnect()
-                } else {
-                    self.status = .failed("会话已失效，请重新配对")
+        if event.type == "error", let code = event.error?.code?.lowercased() {
+            if ["unauthorized", "token_expired", "invalid_token"].contains(code) {
+                Task { [weak self] in
+                    guard let self else { return }
+                    if await self.refreshToken() {
+                        self.socket?.cancel(with: .goingAway, reason: nil)
+                        self.scheduleReconnect()
+                    } else {
+                        self.status = .failed("会话已失效，请重新配对")
+                    }
                 }
+                return
             }
-            return
+            // Bot 插件缺失（网关 d174044 契约）：redacted 投影没有提供方 ⇒ 这条会话**永远**
+            // 发不出去，继续按退避重连只会 2s→30s 无限循环（2026-11-04 实测卡死三群聊的形态）。
+            // 短路成终态、置 stopped。⚠️ **只停这一种 code**——401 刷新重发与其它错误帧的
+            // 既有行为（落 chatApplyEvent）一律不动。
+            if let failure = Self.pluginMissingFailure(forServerCode: code) {
+                stopped = true
+                status = .failed(failure)
+                return
+            }
         }
         let now = Int64(Date().timeIntervalSince1970 * 1000)
         messagesJson = BridgeChatMergeKt.chatApplyEvent(
@@ -350,9 +360,43 @@ final class BridgeChatEngine: ObservableObject {
             if await recoverTargetAndResend(text: trimmed, requestId: requestId) == false {
                 self.status = .failed(status.localizedDescription)
             }
+        } catch let status as BridgeResponseStatus {
+            // 服务器错误按 **code** 映射中文人话（派活单 2026-11-04）；未映射的 code 走原样回落，
+            // 401/409 的专门分支在上面，先行匹配不受影响。⚠️ `self.` 必须写：catch 绑定的
+            // `status` 遮蔽了引擎同名属性（401/409 分支同款写法）。
+            self.status = .failed(Self.humanMessage(forStatusBody: status.body) ?? status.localizedDescription)
         } catch {
             // 上屏失败态：保留 pending 行，用户可重试。
             status = .failed(error.localizedDescription)
+        }
+    }
+
+    // MARK: - Bot 插件缺失（网关 d174044）的 code → 中文映射
+
+    /// error 帧里**命中即终态**的 code ⇒ 返回中文说明；nil = 按既有逻辑继续。
+    /// 网关 wire 值是 `REDACTED_PROJECTION_REQUIRED`（adapter.mjs textAllowed）——注意与
+    /// `REDACTION_FAILED` / `REDACTION_UNAVAILABLE` 区分，那两个是临时故障，**不能**停。
+    /// 映射一律按 **code**，绝不按 message 文本匹配（派活单 2026-11-04）。
+    nonisolated static func pluginMissingFailure(forServerCode code: String) -> String? {
+        guard code.lowercased() == "redacted_projection_required" else { return nil }
+        return String(localized: "未安装 Bot 插件，无法发送消息")
+    }
+
+    /// HTTP 错误信封（`{"error":{"code":…,"message":…}}`）按 code 映射中文；未映射 ⇒ nil（调用方回落原样）。
+    nonisolated static func humanMessage(forStatusBody body: String) -> String? {
+        guard let data = body.data(using: .utf8),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let error = root["error"] as? [String: Any],
+              let code = error["code"] as? String else { return nil }
+        switch code.lowercased() {
+        case "redacted_projection_required":
+            return String(localized: "未安装 Bot 插件，无法发送消息")
+        case "stable_submit_required":
+            // 三个来源（adapter.mjs:287 / server.mjs:293 / host-service.mjs:113）的共同语义是
+            // 缺「稳定提交扩展」——**legacy 老插件也会缺** ⇒ 文案不能写成「未安装 Bot 插件」。
+            return String(localized: "网关缺少可靠发送扩展，暂时无法发送消息")
+        default:
+            return nil
         }
     }
 

@@ -1,6 +1,5 @@
 {
   "sourceLanguage" : "zh-Hans",
-  "version" : "1.0",
   "strings" : {
     " " : {},
     " 等工具" : {
@@ -3080,6 +3079,26 @@
         }
       }
     },
+    "search.unavailable" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "搜索暂时不可用：桌面端搜索服务报错（可能有会话记录损坏）。请稍后重试；若反复出现，需在桌面端处理损坏的会话记录。"
+          }
+        }
+      }
+    },
+    "search.unavailable.title" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "搜索暂时不可用"
+          }
+        }
+      }
+    },
     "session.blank.title" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5846,6 +5865,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "存储空间读取或清理失败，请稍后重试。"
+          }
+        }
+      }
+    },
+    "安装 Bot 插件后即可使用 Bot 与群聊功能；普通会话不受影响。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Install the Bot plugin to enable Bot and group-chat features; regular chats are unaffected."
           }
         }
       }
@@ -8617,12 +8646,32 @@
         }
       }
     },
+    "未安装 Bot 插件，无法发送消息" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The Bot plugin is not installed; sending messages is unavailable."
+          }
+        }
+      }
+    },
     "未提供" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Not provided"
+          }
+        }
+      }
+    },
+    "未检测到 Bot 插件" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bot plugin not detected"
           }
         }
       }
@@ -10516,6 +10565,16 @@
         }
       }
     },
+    "网关缺少可靠发送扩展，暂时无法发送消息" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The gateway lacks the reliable-send extension; sending is temporarily unavailable."
+          }
+        }
+      }
+    },
     "置顶" : {
       "localizations" : {
         "en" : {
@@ -12046,26 +12105,7 @@
           }
         }
       }
-    },
-    "search.unavailable" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "搜索暂时不可用：桌面端搜索服务报错（可能有会话记录损坏）。请稍后重试；若反复出现，需在桌面端处理损坏的会话记录。"
-          }
-        }
-      }
-    },
-    "search.unavailable.title" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "搜索暂时不可用"
-          }
-        }
-      }
     }
-  }
+  },
+  "version" : "1.0"
 }
