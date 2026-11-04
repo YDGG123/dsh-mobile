@@ -102,6 +102,16 @@ internal class AndroidBridgeTeamAdapter(
     var lastErrorCode: String? by mutableStateOf(null)
         private set
 
+    /**
+     * `/info` 的 `capabilities.botPlugin`（网关契约 `d174044`：full | legacy | missing）。
+     * **只解析这一个字段**，不把整个 capabilities 强类型化（Chief 2026-11-04 派单边界）；
+     * 解析语义在 shared 的 `botPluginCapabilityFromInfo`（纯函数 + commonTest 反向测试）。
+     * null = 旧网关无此字段 / 未知值 / JSON 异常 ⇒ 无契约，保持既有行为（不算 missing）。
+     * 拉取失败保留上次值，不让横幅闪现。
+     */
+    var botPluginCapability: com.clarklevis.dsh.shared.domain.BotPluginCapability? by mutableStateOf(null)
+        private set
+
     var lastRefreshAtMillis: Long by mutableLongStateOf(0L)
         private set
 
@@ -376,6 +386,7 @@ internal class AndroidBridgeTeamAdapter(
                 else -> return@withLock fail("network_error", "/info 传输失败")
             }
             serverInfo = runCatching { parseBridgeInfo(infoJson) }.getOrNull()
+            botPluginCapability = com.clarklevis.dsh.shared.domain.botPluginCapabilityFromInfo(infoJson)
             BridgeTokenTtl.proactiveIntervalSecondsFromInfo(infoJson)?.let { seconds ->
                 val millis = (seconds * 1000).toLong()
                 if (millis != proactiveRefreshIntervalMs) {
@@ -388,6 +399,16 @@ internal class AndroidBridgeTeamAdapter(
                 fail("no-device-session", "本地无移动设备会话")
                 // vc60 P0：判死这一刻就触发自愈拉取（去抖在门里，连续轮询不会刷请求）。
                 onSessionMissing?.invoke()
+                return@withLock
+            }
+            // 网关契约 d174044：botPlugin=missing ⇒ 未装 Bot 插件，团队端点必然 501。
+            // 可选省流量项（Chief 2026-11-04）：省掉 /state /conversations /cards 的注定
+            // 失败请求，只留 /info 心跳；装上插件后下一次 /info 变 legacy/full，
+            // 完整轮询自动恢复（不需要重启或回前台）。配对自愈在上方 token 检查里，不受影响。
+            if (botPluginCapability == com.clarklevis.dsh.shared.domain.BotPluginCapability.MISSING) {
+                lastError = null
+                lastErrorCode = null
+                publishState()
                 return@withLock
             }
             val state = authorizedFetch("$base/mobile/v1/state")

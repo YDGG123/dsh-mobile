@@ -22,7 +22,7 @@ android {
         applicationId = "com.clarklevis.dsh.android"
         minSdk = 24
         targetSdk = 36
-        versionCode = 63 // 本批（vc63：眼睛对比度校正进包）；62 为上一批
+        versionCode = 64 // 本批（vc64：botPlugin 三态 + missing 常驻说明 + 错误码中文化）；63 为上一批
         versionName = "1.7.26"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

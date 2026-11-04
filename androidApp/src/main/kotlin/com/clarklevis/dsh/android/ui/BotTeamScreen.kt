@@ -67,7 +67,9 @@ import com.clarklevis.dsh.android.teamfeed.TeamFeedController
 import com.clarklevis.dsh.android.platform.BotAvatarFileCache
 import android.widget.Toast
 import com.clarklevis.dsh.android.localization.appText
+import com.clarklevis.dsh.shared.domain.BotPluginCapability
 import com.clarklevis.dsh.shared.domain.TeamPhase
+import com.clarklevis.dsh.shared.domain.botPluginMissingErrorText
 import com.clarklevis.dsh.shared.protocol.BridgeInks
 import com.clarklevis.dsh.shared.protocol.BridgeConversationRow
 import kotlinx.serialization.json.JsonPrimitive
@@ -261,6 +263,28 @@ internal fun BotTeamScreen(
                     }
                 }
             }
+            // ①″ Bot 插件缺失（网关契约 d174044：capabilities.botPlugin=missing）：
+            // 页面内**常驻**说明，不弹窗、不阻断普通会话（用户 2026-11-04）。
+            // 容器形态沿用上方凭证卡的样式族；null/legacy/full 不显示（不许改既有行为）。
+            if (adapter?.botPluginCapability == BotPluginCapability.MISSING) {
+                item {
+                    Column(
+                        Modifier.fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.onBackground.copy(alpha = 0.06f), RoundedCornerShape(14.dp))
+                            .padding(14.dp)
+                            .testTag("bot-plugin-missing")
+                    ) {
+                        Text(
+                            appText("未检测到 Bot 插件"),
+                            color = homeInk(0.92f), fontSize = 15.sp, fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            appText("安装后可启用 Bot 与群聊功能。"),
+                            color = homeInk(0.6f), fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp)
+                        )
+                    }
+                }
+            }
             // ② 区标题「Bot」：iOS WorkspaceView:653-655，左对齐 18 semibold（不是居中大标题）。
             item {
                 // 77④（用户 2026-11-03：「这个入口就是 Bot bar 的复制，不要了」，两端都删）：
@@ -334,6 +358,8 @@ internal fun BotTeamScreen(
                         serverName = adapter?.serverInfo?.name,
                         origin = adapter?.origin,
                         error = adapter?.lastError,
+                        errorCode = adapter?.lastErrorCode,
+                        botPlugin = adapter?.botPluginCapability,
                         hasSession = adapter?.hasSession == true,
                         reissuePending = adapter?.reissuePending == true,
                         onRequestPairing = onRequestPairing
@@ -942,6 +968,10 @@ private fun StatusCard(
     serverName: String?,
     origin: String?,
     error: String?,
+    /** 技术错误码：missing 态下交给 botPluginMissingErrorText 按 code 映射人话（不直接上屏）。 */
+    errorCode: String? = null,
+    /** /info capabilities.botPlugin 三态；MISSING 时才做错误码中文化。 */
+    botPlugin: BotPluginCapability? = null,
     hasSession: Boolean,
     /** vc60 P1：判死后自愈重签已发出（区分「从未配对」与「轮换后自动恢复中」）。 */
     reissuePending: Boolean = false,
@@ -989,8 +1019,11 @@ private fun StatusCard(
         }
         // 一屏只允许一条主提示（iOSDev 规则 1）：未配对档已经把原因说清，
         // 再叠一条 error 就是同一件事讲两遍（截图实测出现过三条同义提示）。
-        if (error != null && hasSession) {
-            Text(error, color = DshSemantic.danger, style = DshType.footnote)
+        // missing 态按 **code** 映射中文人话（Chief 2026-11-04）：不上屏服务器英文原文，
+        // 不按 message 字符串匹配；非 missing 态返回 null ⇒ 原样回落（legacy/full 保持既有行为）。
+        val errorText = botPluginMissingErrorText(errorCode, botPlugin) ?: error
+        if (errorText != null && hasSession) {
+            Text(errorText, color = DshSemantic.danger, style = DshType.footnote)
         }
     }
 }
