@@ -25,9 +25,13 @@ if [ "${1:-}" = "--self-test-env-guard" ]; then
     echo "   ANDROID_HOME=/Volumes/应用/android-toolchain/sdk"
     echo "   GRADLE_USER_HOME=\$HOME/.gradle-dsh"
     echo "   KONAN_DATA_DIR=\$HOME/.konan"
+    [ -z "$JAVA_HOME" ] && echo "   缺：JAVA_HOME"
+    [ -z "${ANDROID_HOME:-}" ] && echo "   缺：ANDROID_HOME"
+    [ -z "${GRADLE_USER_HOME:-}" ] && echo "   缺：GRADLE_USER_HOME"
+    [ -z "${KONAN_DATA_DIR:-}" ] && echo "   缺：KONAN_DATA_DIR"
     exit 1
   fi
-  echo "守卫探针：env 齐全（此模式不应带 env 调用）"
+  echo "守卫探针：env 齐全"
   exit 0
 fi
 
@@ -91,17 +95,52 @@ if [ "$SELF_TEST" -eq 1 ]; then
   # 实现为「守卫探针」子调用（--self-test-env-guard：只跑守卫段；外层以干净 env 调它），
   # 否则本脚本自身也会被守卫拦下、四次自证根本走不到。
   GUARD="${BASH_SOURCE[0]}"
+  TEAM_JAVA="/Users/yidagege/Documents/deepseek-harness/default-workspace/tools/jdk-17.0.20.1+1/Contents/Home"
+  TEAM_ANDROID="/Volumes/应用/android-toolchain/sdk"
   for var in JAVA_HOME ANDROID_HOME GRADLE_USER_HOME KONAN_DATA_DIR; do
-    if env -i HOME="$HOME" PATH="$PATH" bash "$GUARD" --self-test-env-guard > /tmp/android-gate-envguard.log 2>&1; then
-      echo "❌ 自证 0 失败：unset $var 后守卫竟然通过——没咬合"
+    # 真·单缺：其余三个带团队约定真值，只让 $var 缺席（env -i 是全清，之前四次测的是同一件事）
+    args=(env -i HOME="$HOME" PATH="$PATH")
+    [ "$var" != "JAVA_HOME" ]        && args+=("JAVA_HOME=$TEAM_JAVA")
+    [ "$var" != "ANDROID_HOME" ]     && args+=("ANDROID_HOME=$TEAM_ANDROID")
+    [ "$var" != "GRADLE_USER_HOME" ] && args+=("GRADLE_USER_HOME=$HOME/.gradle-dsh")
+    [ "$var" != "KONAN_DATA_DIR" ]   && args+=("KONAN_DATA_DIR=$HOME/.konan")
+    if "${args[@]}" bash "$GUARD" --self-test-env-guard > /tmp/android-gate-envguard.log 2>&1; then
+      echo "❌ 自证 0 失败：只缺 $var 时守卫竟然通过——没咬合"
       exit 1
     fi
-    if ! grep -q "闸门需要四个构建环境变量" /tmp/android-gate-envguard.log; then
-      echo "❌ 自证 0 失败：unset $var 红因不是环境守卫（看 /tmp/android-gate-envguard.log）"
+    # 红因必须点对名：缺谁报谁，不许混（今天两次事故的本质 = 缺 A 报成 B）
+    if ! grep -q "缺：$var" /tmp/android-gate-envguard.log; then
+      echo "❌ 自证 0 失败：只缺 $var 但守卫没有点名它（看 /tmp/android-gate-envguard.log）"
       exit 1
     fi
-    echo "✅ 反向自证 0 成立：干净 env（$var 同缺）⇒ 红在环境守卫行（EXIT=1）"
+    # 反向：其余三个不许被点名（点名了就是 A/B 混报）
+    for other in JAVA_HOME ANDROID_HOME GRADLE_USER_HOME KONAN_DATA_DIR; do
+      [ "$other" = "$var" ] && continue
+      if grep -q "缺：$other" /tmp/android-gate-envguard.log; then
+        echo "❌ 自证 0 失败：只缺 $var 却误报缺 $other——A/B 混报"
+        exit 1
+      fi
+    done
+    echo "✅ 反向自证 0 成立：只缺 $var ⇒ 红在守卫行且点名正确（EXIT=1，无混报）"
   done
+  # 自证 0b：四个全缺 → 四行点名全出；四个全在 → 探针绿
+  if env -i HOME="$HOME" PATH="$PATH" bash "$GUARD" --self-test-env-guard > /tmp/android-gate-envguard.log 2>&1; then
+    echo "❌ 自证 0b 失败：四缺时守卫竟然通过"
+    exit 1
+  fi
+  for var in JAVA_HOME ANDROID_HOME GRADLE_USER_HOME KONAN_DATA_DIR; do
+    grep -q "缺：$var" /tmp/android-gate-envguard.log || { echo "❌ 自证 0b 失败：四缺时未点名 $var"; exit 1; }
+  done
+  echo "✅ 反向自证 0b 成立：四缺 ⇒ 四行点名全出"
+  if env -i HOME="$HOME" PATH="$PATH" \
+      JAVA_HOME="$TEAM_JAVA" ANDROID_HOME="$TEAM_ANDROID" \
+      GRADLE_USER_HOME="$HOME/.gradle-dsh" KONAN_DATA_DIR="$HOME/.konan" \
+      bash "$GUARD" --self-test-env-guard > /tmp/android-gate-envguard.log 2>&1; then
+    echo "✅ 反向自证 0c 成立：四全 ⇒ 探针绿"
+  else
+    echo "❌ 自证 0c 失败：四全时守卫竟然红（看 /tmp/android-gate-envguard.log）"
+    exit 1
+  fi
   # 只跑 ②：哨兵只影响 androidTest 编译这一路，其余两路在自证里没有信息量。
   step "androidTest 编译（应红）" ./gradlew :androidApp:compileDebugAndroidTestKotlin --console=plain
   if [ "$FAILED" -eq 1 ]; then
