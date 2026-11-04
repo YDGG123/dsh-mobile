@@ -62,6 +62,41 @@ class SharedSessionListStoreTest {
         assertEquals("s", completed.selectedSessionId)
     }
 
+    /** 81（2026-11-04 用户报「鲸尾+用时消失、回复同步后又回来」）：
+     *  实时 turn/start(seq 100) 之后，历史同步带回**上一轮**的 turn/end(seq 50)——
+     *  旧 reducer 直接把 isRunning 翻成 false（红）；修复后 stale turn/end 不盖新一轮（绿）。
+     *  反向：真·新 turn/end(seq 120) 仍然要能停掉尾巴（不能修成永远停不下来）。 */
+    @Test
+    fun staleHistoryTurnEndDoesNotStopNewerRunningTurn() {
+        val store = makeStore()
+        val initial = SharedSessionListSnapshot(
+            sessions = listOf(SharedSessionSummarySnapshot("s", "原标题", 500.0, true, true)),
+            selectedSessionId = "s"
+        )
+        store.restore(wireJson.encodeToString(initial))
+        // 实时通道收到新一轮 turn/start（seq 100）
+        store.receiveEvent(
+            """{"sessionId":"s","seq":100,"time":200,"event":{"type":"turn/start"}}""",
+            insertedAtEpochSeconds = 200.0
+        )
+        // 状态未变时 snapshotJson 为 null（契约）：用 snapshot() 读当前态判 isRunning
+        store.receiveHistory(
+            "s",
+            """[{"sessionId":"s","seq":50,"time":150,"event":{"type":"turn/end"}}]"""
+        )
+        assertEquals(true, store.snapshot().snapshotJson?.let(::decode)?.sessions?.single()?.isRunning ?: true,
+            "上一轮的 turn/end（seq 更小）不得盖掉实时 turn/start（旧代码必红）")
+
+        // 反向对照：真正的收尾（seq 120 >= 100）必须停掉（状态变化 ⇒ snapshotJson 非空）
+        val finished = decode(
+            store.receiveHistory(
+                "s",
+                """[{"sessionId":"s","seq":120,"time":300,"event":{"type":"turn/end"}}]"""
+            ).snapshotJson ?: error("收尾必须产生新快照")
+        )
+        assertEquals(false, finished.sessions.single().isRunning, "新 turn/end 必须正常收尾")
+    }
+
     @Test
     fun oldTurnEndDoesNotStopNewerRunningTurnAndMissingBoundaryDoesNotGuessIdle() {
         for (records in listOf(

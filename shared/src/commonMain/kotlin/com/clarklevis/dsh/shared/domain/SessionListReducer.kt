@@ -35,7 +35,9 @@ data class SessionListState(
     val sessions: List<SessionSummary> = emptyList(),
     val archivedSessionIds: Set<String> = emptySet(),
     val selectedSessionId: String? = null,
-    val titleSequences: Map<String, Int> = emptyMap()
+    val titleSequences: Map<String, Int> = emptyMap(),
+    /** 81：最近一次实时 `turn/start` 的 seq（按会话）。历史同步的旧 turn/end 不得盖掉新一轮。 */
+    val lastTurnStartSequences: Map<String, Int> = emptyMap()
 )
 
 sealed interface SessionListAction {
@@ -113,7 +115,18 @@ object SessionListReducer {
                 .filter { it.event.type == "user/message" || it.event.type == "turn/start" || it.event.type == "turn/end" }
                 .maxByOrNull { it.seq }
             // 历史 start 不能证明主机仍在运行（例如主机异常退出）；明确的 end 可以补齐漏收的终态。
-            if (boundary?.event?.type != "turn/end") {
+            // 81：**只有比已知实时 turn/start 更新（seq >=）的 turn/end 才能证明这一轮真的结束**——
+            // 思考期间历史同步会带回上一轮的 turn/end（seq 更小），旧逻辑把它当成"跑完了"，
+            // 症状是「鲸尾 + 用时消失、回复同步后又回来」（2026-11-04 用户报，双端同源）。
+            // 没有实时 turn/start 记录时保持原行为（漏收终态的兜底）。
+            val lastTurnStart = state.lastTurnStartSequences[action.sessionId]
+            val boundarySeq = boundary?.seq
+            // seq 相等 ⇒ 按 stale 保守处理（保持运行）：turn/start 与 turn/end 是宿主里
+            // 两个独立事件，同一会话内 seq 唯一，同轮的 end 不可能与 start 同 seq；
+            // 相等只可能是异常/乱序形态，误判「跑完」比多显示一会儿鲸尾更伤。
+            val staleTurnEnd = boundary?.event?.type == "turn/end" &&
+                lastTurnStart != null && boundarySeq != null && boundarySeq <= lastTurnStart
+            if (boundary?.event?.type != "turn/end" || staleTurnEnd) {
                 state
             } else {
                 state.copy(
@@ -206,7 +219,16 @@ object SessionListReducer {
                 hasUnread = state.selectedSessionId != record.sessionId
             )
         }.sortedByDescending(SessionSummary::lastActivityEpochSeconds)
-        return state.copy(sessions = sessions)
+        // 81：实时 turn/start 记下 seq——历史同步的旧 turn/end（seq 更小）不得盖掉新一轮。
+        return if (event.type == "turn/start" && record.seq != null) {
+            state.copy(
+                sessions = sessions,
+                lastTurnStartSequences = state.lastTurnStartSequences +
+                    (record.sessionId to record.seq)
+            )
+        } else {
+            state.copy(sessions = sessions)
+        }
     }
 
     private fun upsert(
