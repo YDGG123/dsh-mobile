@@ -3328,6 +3328,9 @@ self.bumpAttachmentRenderEpoch(id)
         gateway.subscribe(sessionId: sessionID)
     }
 
+    /// 81 判据③：历史同步对「运行中」标记的翻转逐条可念（鲸尾消失/复现的现场读数）。
+    private static let sessionListLog = Logger(subsystem: "ai.dsh.mobile.ios", category: "session-list")
+
     private func handle(_ frame: GatewayFrame) {
         if frame.kind == "error", frame.code == "subscription-timeout",
            frame.sessionId == nil || frame.sessionId != selectedSessionId || preparedConversationActivationKey == nil {
@@ -3511,7 +3514,13 @@ self.bumpAttachmentRenderEpoch(id)
                     historySyncEngine.finish(sessionID: id)
                     let records = (frame.events ?? []).map { $0.normalized(sessionId: id) }
                     if assistantStreamState.activeAttemptId() == nil {
+                        let historyBoundary = records.filter {
+                            $0.event.type == "user/message" || $0.event.type == "turn/start" || $0.event.type == "turn/end"
+                        }.max(by: { $0.seq < $1.seq })
+                        let runningBefore = self.sessions.first(where: { $0.id == id })?.isRunning == true
                         dispatchSessionListIntent(.historyReceived(sessionID: id, events: records))
+                        let runningAfter = self.sessions.first(where: { $0.id == id })?.isRunning == true
+                        Self.sessionListLog.notice("sessionlist-history-received session=\(id, privacy: .public) boundary=\(historyBoundary?.event.type ?? "none", privacy: .public) seq=\(historyBoundary?.seq ?? -1) running_before=\(runningBefore ? 1 : 0) running_after=\(runningAfter ? 1 : 0)")
                     }
                     let replaced = try kmpHistoryStore.installSnapshot(sessionID: id,
                         events: records,
@@ -4603,8 +4612,15 @@ self.bumpAttachmentRenderEpoch(id)
                 self.drainKMPEventDeliveries()
                 // 使用合并后的历史，避免旧分页中的 end 误停较新的实时 turn/start。
                 if self.assistantStreamState.activeAttemptId() == nil {
-                    self.dispatchSessionListIntent(.historyReceived(sessionID: id, events: self.events[id] ?? [],
+                    let historyEvents = self.events[id] ?? []
+                    let historyBoundary = historyEvents.filter {
+                        $0.event.type == "user/message" || $0.event.type == "turn/start" || $0.event.type == "turn/end"
+                    }.max(by: { $0.seq < $1.seq })
+                    let runningBefore = self.sessions.first(where: { $0.id == id })?.isRunning == true
+                    self.dispatchSessionListIntent(.historyReceived(sessionID: id, events: historyEvents,
                         snapshot: self.kmpHistoryStore.projectionSnapshot(for: id)))
+                    let runningAfter = self.sessions.first(where: { $0.id == id })?.isRunning == true
+                    Self.sessionListLog.notice("sessionlist-history-received session=\(id, privacy: .public) boundary=\(historyBoundary?.event.type ?? "none", privacy: .public) seq=\(historyBoundary?.seq ?? -1) running_before=\(runningBefore ? 1 : 0) running_after=\(runningAfter ? 1 : 0)")
                 }
             } catch {
                 let primaryError = error.localizedDescription
