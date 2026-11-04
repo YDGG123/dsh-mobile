@@ -1,6 +1,10 @@
 import SwiftUI
 import UIKit
 import ChatLayout
+import OSLog
+
+/// 80① 诊断：底部对齐动作计数日志（≥16 字节 ASCII 标记，不在 #if DEBUG；iOSTester 判①用）。
+private let bottomAlignApplyLog = Logger(subsystem: "com.ydgg123.orcarness", category: "BottomAlign")
 import class DeepSeekHarnessShared.FileIconCatalog
 #if DEBUG
 import os.signpost
@@ -312,6 +316,7 @@ final class ConversationViewportController: UIViewController, UICollectionViewDe
         return layout
     }()
     private lazy var collectionView = UICollectionView(frame: .zero, collectionViewLayout: chatLayout)
+
     private var dataSource: UICollectionViewDiffableDataSource<Int, String>!
     private var entriesByID: [String: ConversationViewportEntry] = [:]
     private var displayedSupplementalIDs: Set<String> = []
@@ -722,6 +727,14 @@ final class ConversationViewportController: UIViewController, UICollectionViewDe
     private var lastApproachTopSignpostTime: CFTimeInterval = 0
 #endif
 
+    /// 80①（C 底锚）：贴底态下 contentSize 变化（自尺寸 cell 高度晚到）不做滚动命令，
+    /// 而是把 offset 按 delta 反向吸收——内容从上方长出来、底部原地不动。
+    /// 红线：tracking/dragging/decelerating（用户手势）与程序滚动（isProgrammaticScroll）不吸收；
+    /// 非贴底（isPinnedToBottom == false）不吸收——上滑阅读绝不被拉回。
+    private var contentSizeObservation: NSKeyValueObservation?
+    /// 80① 诊断计数（iOSTester 判①用）：非用户触发的对齐动作逐条记账。
+    private var bottomAlignApplyCount = 0
+
     init(
         onContentAvailabilityChanged: @escaping (String?, Bool) -> Void,
         onPinnedToBottomChanged: @escaping (Bool) -> Void,
@@ -970,6 +983,10 @@ final class ConversationViewportController: UIViewController, UICollectionViewDe
         collectionView.keyboardDismissMode = .interactive
         collectionView.backgroundColor = .clear
         collectionView.delegate = self
+        // 80①（C 底锚）：监听 contentSize 变化，贴底态把高度增量吸收进 offset（无动画、无滚动命令）。
+        contentSizeObservation = collectionView.observe(\.contentSize, options: [.old, .new]) { [weak self] _, change in
+            self?.absorbContentSizeDeltaIfNeeded(old: change.oldValue ?? .zero, new: change.newValue ?? .zero)
+        }
         collectionView.contentInsetAdjustmentBehavior = .never
         if #available(iOS 26.0, *) {
             // 原生软边缘做渐进模糊；不要再叠整块 material，避免正文被灰色带吞掉。
@@ -2400,6 +2417,16 @@ final class ConversationViewportController: UIViewController, UICollectionViewDe
         guard !dataSource.snapshot().itemIdentifiers.isEmpty,
               collectionView.bounds.height > 0 else { return }
         needsBottomAlignment = false
+        // 80①（A）：已在底部 ⇒ 只消费标记，不做 invalidate/scrollToItem/setContentOffset
+        // （判据①：非用户触发的对齐动作 = 0；旧实现即使分毫不差也硬跳一次 = 「闪一下」）。
+        let targetBefore = max(
+            -collectionView.adjustedContentInset.top,
+            collectionView.contentSize.height - collectionView.bounds.height + collectionView.adjustedContentInset.bottom
+        )
+        if abs(collectionView.contentOffset.y - targetBefore) <= 0.5 {
+            setPinned(true)
+            return
+        }
         isProgrammaticScroll = true
         collectionView.collectionViewLayout.invalidateLayout()
         collectionView.layoutIfNeeded()
@@ -2415,9 +2442,25 @@ final class ConversationViewportController: UIViewController, UICollectionViewDe
             -collectionView.adjustedContentInset.top,
             collectionView.contentSize.height - collectionView.bounds.height + collectionView.adjustedContentInset.bottom
         )
+        let appliedDelta = bottomOffset - collectionView.contentOffset.y
         collectionView.setContentOffset(CGPoint(x: 0, y: bottomOffset), animated: false)
         isProgrammaticScroll = false
         setPinned(true)
+        bottomAlignApplyCount += 1
+        bottomAlignApplyLog.notice("bottomalign-apply n=\(self.bottomAlignApplyCount, privacy: .public) reason=align delta=\(appliedDelta, format: .fixed(precision: 1))")
+    }
+
+    /// 80①（C 底锚）：贴底态下自尺寸 cell 高度晚到 ⇒ contentSize 变化不做滚动命令，
+    /// 把增量反向吸收进 offset（内容从上方长出来、底部原地不动）——两段式位移的第二段消失。
+    /// 红线：用户手势 / 程序滚动 / 非贴底（上滑阅读）一律不吸收。
+    private func absorbContentSizeDeltaIfNeeded(old: CGSize, new: CGSize) {
+        let delta = new.height - old.height
+        guard delta != 0, isPinnedToBottom,
+              !collectionView.isTracking, !collectionView.isDragging, !collectionView.isDecelerating,
+              !isProgrammaticScroll else { return }
+        bottomAlignApplyCount += 1
+        bottomAlignApplyLog.notice("bottomalign-apply n=\(self.bottomAlignApplyCount, privacy: .public) reason=absorb delta=\(delta, format: .fixed(precision: 1))")
+        collectionView.contentOffset.y += delta
     }
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
