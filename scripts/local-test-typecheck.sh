@@ -102,6 +102,14 @@ fi
 run_check() {
   local src="${1:-$SOURCES}"
   local log="$TEST_DEPS/tests.log"
+  # 81：零文件守卫——find 返回 0 个文件时 swiftc 对空输入返回 0 = **假绿**（最阴的形态）。
+  # 2026-11-04 Chief 指派：空目录/路径写错必须红，不能静默通过。
+  local file_count
+  file_count=$(find "$src" -name "*.swift" 2>/dev/null | wc -l | tr -d ' ')
+  if [ "$file_count" -eq 0 ]; then
+    echo "❌ 测试目标类型检查失败：源码目录 0 个 .swift 文件（$src）——路径写错或目录为空，闸门不能当作通过"
+    return 1
+  fi
   "$TC/swiftc" -typecheck -D DEBUG \
     -sdk "$SDK" -target "x86_64-apple-ios${TEST_TARGET_OS}-simulator" -swift-version 5 \
     -F "$FW" -F "$DEPS" -F "$XCT_FW" \
@@ -166,6 +174,21 @@ final class DSHGateProbeTests: XCTestCase {
 }
 SWIFT
 
+  # 反例 4（81 新增）：**空目录走 UI 路径**——不设防时 find 0 文件 + swiftc 空输入 = 假绿。
+  # 这是第六路（UITests）最阴的失败形态，必须红。
+  mkdir -p "$BASE/case4" "$BASE/case5"
+  # 反例 5（81 新增）：**UITests 专属错走 UI 路径**——XCUIApplication 拼错，
+  # 只有第六路的源码目录里才会出现这种错（Tests target 不用 XCUIApplication）。
+  cat > "$BASE/case5/Probe.swift" <<'SWIFT'
+import XCTest
+final class UITestGateProbe: XCTestCase {
+    func testProbe() {
+        let app = XCUIApplicaton()
+        app.launch()
+    }
+}
+SWIFT
+
   rc=0
   for n in 1 2 3; do
     echo "→ [反例 $n] $BASE/case$n"
@@ -177,9 +200,25 @@ SWIFT
     fi
   done
 
+  # 反例 4/5：显式走第六路（UI_SOURCES），证明 UITests 那一路真的被调用、真的能抓错
+  echo "→ [反例 4] 空目录走 UI 路径"
+  if run_check "$BASE/case4"; then
+    echo "  ❌ 反例 4 竟然绿了——空目录假绿，退出码 $?"
+    rc=1
+  else
+    echo "  ✅ 反例 4 按预期变红（exit 1）"
+  fi
+  echo "→ [反例 5] UITests 专属错走 UI 路径"
+  if run_check "$BASE/case5"; then
+    echo "  ❌ 反例 5 竟然绿了——UITests 错没抓到，退出码 $?"
+    rc=1
+  else
+    echo "  ✅ 反例 5 按预期变红（exit 1）"
+  fi
+
   if [ "$rc" -eq 0 ]; then
     echo
-    echo "✅ 反向自证通过：基线绿 + 三个反例全红"
+    echo "✅ 反向自证通过：基线绿 + 五个反例全红"
   else
     echo
     echo "❌ 反向自证失败：有反例没变红，闸门不可信"
@@ -188,8 +227,19 @@ SWIFT
 fi
 
 echo "→ 类型检查测试目标（iOS ${TEST_TARGET_OS}, -D DEBUG）..."
-if run_check; then
-  echo "✅ 测试目标类型检查通过（$(find "$SOURCES" -name '*.swift' | wc -l | tr -d ' ') 个文件 0 错误）"
-  exit 0
+if ! run_check; then
+  exit 1
 fi
-exit 1
+echo "✅ 测试目标类型检查通过（Tests，$(find "$SOURCES" -name '*.swift' | wc -l | tr -d ' ') 个文件 0 错误）"
+
+# ---- 第六路（2026-11-04）：UITests 源码 typecheck ----
+# 背景：81④ 改了三个 UI 用例的入口后，闸门（第五路）只编 DeepSeekHarnessMobileTests，
+# **完全不编 DeepSeekHarnessMobileUITests** —— 改完的用例没人验，与 androidTest
+# 烂两周的根因同型（Chief 2026-11-04 指派）。App 模块已就绪，这里只换源码目录。
+UI_SOURCES="${DSH_UITEST_SOURCES:-DeepSeekHarnessMobileUITests}"
+echo "→ 类型检查 UITests 目标（iOS ${TEST_TARGET_OS}, -D DEBUG）..."
+if ! run_check "$UI_SOURCES"; then
+  exit 1
+fi
+echo "✅ 测试目标类型检查通过（UITests，$(find "$UI_SOURCES" -name '*.swift' | wc -l | tr -d ' ') 个文件 0 错误）"
+exit 0
