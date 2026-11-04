@@ -1405,9 +1405,13 @@ struct ConversationView: View {
                 Spacer(minLength: 2)
 
                 if !store.isViewingTeamMember {
-                    modelControl
-                    // 03 composer：思考等级从模型 chip 的紫标拆成独立胶囊
-                    effortControl
+                    if !selectedSessionIsBotDomain {
+                        modelControl
+                        // 03 composer：思考等级从模型 chip 的紫标拆成独立胶囊
+                        effortControl
+                    }
+                    // Bot 域（Bot 的会话 / 群聊 room）：与桌面端一致（ds-bot index.js:916），
+                    // 输入框**不提供**模型/思考档选择，也**不做只读展示**——这正是桌面端语义。
                 } else {
                     Text(store.selectedSession?.title ?? "成员会话").appFont(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
@@ -2079,6 +2083,20 @@ struct ConversationView: View {
         } else {
             permissionMenu
         }
+    }
+
+    /// 2026-11-04：Bot 域会话（**Bot 自己的会话 / 群聊 room**）⇒ 隐藏输入框的模型/思考档选择。
+    /// 桌面端同语义：ds-bot `src/client/index.js:916` 把 `conversation.input.model` 置 `Nothing`
+    /// （"a Bot's model lives in its details panel"）。手机端此前漏了，用户在群聊切模型把
+    /// 三个群聊全部卡死（每轮 `MODEL_SWITCH_COMPACTION_FAILED`、用户消息被丢）。
+    ///
+    /// **fail-closed 且不闪**：bridge 镜像未到（`mirror == nil`，冷启动首帧的 transient——
+    /// KMP `SharedBridgeTeamStore.subscribe` 会立刻补发当前状态，窗口极短）时**先隐藏**，
+    /// 等镜像给出确定结论；镜像 READY 后按 `bots`/`rooms` 的 sessionId 命中判定；
+    /// 未配对（IDLE/NEEDS_PAIRING）时两表为空 ⇒ 普通会话照常显示，不受影响。
+    private var selectedSessionIsBotDomain: Bool {
+        guard !store.isViewingTeamMember else { return false }
+        return BridgeTeamMirror.modelControlsHidden(sessionId: store.selectedSessionId, mirror: hosts.bridgeTeam.mirror)
     }
 
     @ViewBuilder

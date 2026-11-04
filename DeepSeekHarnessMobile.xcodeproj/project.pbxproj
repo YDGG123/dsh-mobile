@@ -15,6 +15,7 @@
 		CF2020000000000000000001 /* ChatSessionPrefetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF2020000000000000000002 /* ChatSessionPrefetcher.swift */; };
 		CF2010000000000000000003 /* ChatHistoryCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF2010000000000000000004 /* ChatHistoryCacheTests.swift */; };
 		CF9000000000000000000003 /* RoomChatMergePlanTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF9000000000000000000004 /* RoomChatMergePlanTests.swift */; };
+		CF31B0700000000000000001 /* BotDomainComposerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF31B0700000000000000002 /* BotDomainComposerTests.swift */; };
 		CF2010000000000000000001 /* ChatHistoryCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF2010000000000000000002 /* ChatHistoryCache.swift */; };
 		CF9000000000000000000001 /* RoomChatMergePlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF9000000000000000000002 /* RoomChatMergePlan.swift */; };
 		AF19C0000000000000000001 /* WorkspaceLoadingLogo.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF19C0000000000000000002 /* WorkspaceLoadingLogo.swift */; };
@@ -167,6 +168,7 @@
 		CF2020000000000000000002 /* ChatSessionPrefetcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatSessionPrefetcher.swift; sourceTree = "<group>"; };
 		CF2010000000000000000004 /* ChatHistoryCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatHistoryCacheTests.swift; sourceTree = "<group>"; };
 		CF9000000000000000000004 /* RoomChatMergePlanTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomChatMergePlanTests.swift; sourceTree = "<group>"; };
+		CF31B0700000000000000002 /* BotDomainComposerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BotDomainComposerTests.swift; sourceTree = "<group>"; };
 		CF2010000000000000000002 /* ChatHistoryCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatHistoryCache.swift; sourceTree = "<group>"; };
 		CF9000000000000000000002 /* RoomChatMergePlan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomChatMergePlan.swift; sourceTree = "<group>"; };
 		AF19C0000000000000000002 /* WorkspaceLoadingLogo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceLoadingLogo.swift; sourceTree = "<group>"; };
@@ -376,6 +378,7 @@
 				AF18C0000000000000000004 /* WorkspacePreviewCacheTests.swift */,
 				CF2010000000000000000004 /* ChatHistoryCacheTests.swift */,
 				CF9000000000000000000004 /* RoomChatMergePlanTests.swift */,
+				CF31B0700000000000000002 /* BotDomainComposerTests.swift */,
 				5D3FFEFFB831B9A6454ECA0E /* AdaptiveLayoutTests.swift */,
 				CF2270000000000000000020 /* TrajectoryOverviewLayoutTests.swift */,
 				CF2280000000000000000080 /* MarkdownMathTests.swift */,
@@ -780,6 +783,7 @@
 				AF18C0000000000000000003 /* WorkspacePreviewCacheTests.swift in Sources */,
 				CF2010000000000000000003 /* ChatHistoryCacheTests.swift in Sources */,
 				CF9000000000000000000003 /* RoomChatMergePlanTests.swift in Sources */,
+				CF31B0700000000000000001 /* BotDomainComposerTests.swift in Sources */,
 				EAAE88B94CBECC20963D9646 /* AdaptiveLayoutTests.swift in Sources */,
 				CF2270000000000000000010 /* TrajectoryOverviewLayoutTests.swift in Sources */,
 				CF2290000000000000000030 /* CodeSyntaxHighlighterTests.swift in Sources */,
@@ -1128,7 +1132,7 @@
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CLANG_ENABLE_OBJC_WEAK = NO;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 75;
+				CURRENT_PROJECT_VERSION = 76;
 				DEVELOPMENT_TEAM = "$(LOCAL_DEVELOPMENT_TEAM)";
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = AgentLiveActivityWidget/Info.plist;
@@ -1156,7 +1160,7 @@
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CLANG_ENABLE_OBJC_WEAK = NO;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 75;
+				CURRENT_PROJECT_VERSION = 76;
 				DEVELOPMENT_TEAM = T58RY5HUA7;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = AgentLiveActivityWidget/Info.plist;

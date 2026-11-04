@@ -40,6 +40,29 @@ struct BridgeTeamMirror: Decodable {
     func supportsAction(_ action: String) -> Bool {
         capabilities?.actionsWhitelist?.contains(action) == true
     }
+
+    /// **Bot 域会话判定**（纯函数，可单测）：`sessionId` 命中 **bots 或 rooms 任一行** ⇒ Bot 域。
+    ///
+    /// 依据 = 桌面端同语义（ds-bot `src/client/index.js:916`：Bot 会话输入框
+    /// `conversation.input.model = Nothing`，"a Bot's model lives in its details panel"）。
+    /// 2026-11-04 真实事故：手机端群聊漏了这条，用户在群聊切模型 ⇒ 每轮
+    /// `MODEL_SWITCH_COMPACTION_FAILED`、用户消息被丢。
+    ///
+    /// 两条边界都**不在这里**处理，由调用方负责：
+    /// - 「镜像还没到」（`mirror == nil`）⇒ 调用方 fail-closed 先隐藏（不许先显示再隐藏）；
+    /// - 未配对（phase IDLE/NEEDS_PAIRING）时 bots/rooms 为空 ⇒ 这里自然返回 false（普通会话）。
+    func isBotDomainSession(_ sessionId: String?) -> Bool {
+        guard let sessionId, !sessionId.isEmpty else { return false }
+        return bots.contains { $0.sessionId == sessionId } || rooms.contains { $0.sessionId == sessionId }
+    }
+
+    /// 视图层入口（**含 fail-closed**，可单测）：镜像未到（`nil`）⇒ **隐藏**。
+    /// 「先隐藏、镜像到了再揭示」是唯一安全的闪法——反过来（先显示后隐藏）正是
+    /// 用户能在群聊里切到模型的那条事故路径。返回 true = 隐藏模型/思考档 chip。
+    static func modelControlsHidden(sessionId: String?, mirror: BridgeTeamMirror?) -> Bool {
+        guard let mirror else { return true }
+        return mirror.isBotDomainSession(sessionId)
+    }
 }
 
 struct BridgeTeamModelRow: Decodable, Hashable, Identifiable {
