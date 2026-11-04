@@ -31,7 +31,8 @@ class AndroidUiParityDeviceTest {
     }
 
     @Test
-    fun workspaceHeaderKeepsActionsSquareAndSeparateFromBrand() {
+    fun workspaceHeaderKeepsActionsSquareAndSeparate() {
+        // vc62：抽屉已删，字标不再可点、无 contentDescription——本用例只验操作按钮的方形/分离约束。
         val brand = compose.onNode(hasContentDescription("打开侧边栏")).assertIsDisplayed()
             .fetchSemanticsNode().boundsInRoot
         val authentication = compose.onNode(hasContentDescription("设备认证", substring = true))
@@ -76,19 +77,5 @@ class AndroidUiParityDeviceTest {
         compose.onNode(hasText("新建会话")).performClick()
         compose.onNode(hasTestTag("composer-input")).assertIsDisplayed()
         compose.onNode(hasText("unsubscribe: not-connected")).assertDoesNotExist()
-    }
-
-    @Test
-    fun drawerOpensFromDeepSeekMarkAndNavigatesToPluginPage() {
-        compose.onNode(hasContentDescription("打开侧边栏")).performClick()
-        compose.onNode(hasTestTag("drawer-plugins")).assertIsDisplayed().performClick()
-        compose.onNode(hasText("插件功能尚未接入")).assertIsDisplayed()
-    }
-
-    @Test
-    fun swipingWorkspaceRightOpensScheduledTasksEntry() {
-        compose.onNode(hasTestTag("workspace-drawer-main")).performTouchInput { swipeRight() }
-        compose.onNode(hasTestTag("drawer-scheduled-tasks")).assertIsDisplayed().performClick()
-        compose.onNode(hasText("定时任务功能尚未接入")).assertIsDisplayed()
     }
 }

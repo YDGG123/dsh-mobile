@@ -135,14 +135,11 @@ internal fun DshProductApp(
         }
         onNotificationRouteOpened(route)
     }
-    val backStackEntry by navController.currentBackStackEntryAsState()
-    val isWorkspace = backStackEntry?.destination?.route == null ||
-        backStackEntry?.destination?.route == ROUTE_WORKSPACE
     val systemDark = isSystemInDarkTheme()
     val view = LocalView.current
     SideEffect {
-        // 首页系统栏随抽屉阈值变化，由 WorkspaceDrawer 管理，避免网关刷新时覆盖。
-        if (isWorkspace) return@SideEffect
+        // vc62：抽屉删除后系统栏明暗**全页随主题**——原先首页由 WorkspaceDrawer 按抽屉阈值接管
+        // （抽屉开 >50% 浅色主题切深字），其余页这里管；现在两处合一，避免停在抽屉时代的残留状态。
         val window = (view.context as? Activity)?.window ?: return@SideEffect
         WindowCompat.getInsetsController(window, view).apply {
             isAppearanceLightStatusBars = !systemDark
@@ -384,16 +381,10 @@ internal fun WorkspaceScreen(
         }
     }
 
-    WorkspaceDrawer(
-        onPlugins = onPlugins,
-        onScheduledTasks = onScheduledTasks,
-        // iOSTester 21:55：原来这里走 `navigate(ROUTE_BOT_TEAM)` 推入整页，而 `homeTab` 仍是 WORKSPACE
-        // → 底栏 pill 停在工作区、内容却是团队页（两套导航各管一半，不变量被破坏）。
-        // iOS 的团队页是 **tab 内容分段**（WorkspaceView 注释：不再 push 盖住本页），所以侧栏入口改为切 tab。
-        onBotTeam = { homeTab = DshHomeTab.BOTS }
-    ) { openDrawer, canScrollVertically ->
-        val backgroundAnimationEnabled by remember(canScrollVertically, workspaceListState) {
-            derivedStateOf { canScrollVertically && !workspaceListState.isScrollInProgress }
+        // vc62：首页侧滑抽屉已删（用户 2026-11-04：插件/定时任务走设置页、配对走 header、
+        // Bot 团队走 tab bar——抽屉三项全是重复入口）。背景动画使能只剩滚动状态判断。
+        val backgroundAnimationEnabled by remember(workspaceListState) {
+            derivedStateOf { !workspaceListState.isScrollInProgress }
         }
         // **host 上提到这一层**（材质批）：原先只包 WORKSPACE 分支 → tab bar 是它的**兄弟节点**，
         // `LocalDshBackdrop` 对栏恒为 null，栏只走 fallback（无模糊、只能垫白）。
@@ -424,7 +415,6 @@ internal fun WorkspaceScreen(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = workspaceListPadding,
                 horizontalAlignment = Alignment.CenterHorizontally,
-                userScrollEnabled = canScrollVertically,
                 state = workspaceListState
             ) {
                 item {
@@ -442,7 +432,6 @@ internal fun WorkspaceScreen(
                                     stateHolder.clearPlatformError()
                                     showManualPairing = true
                                 },
-                                onOpenDrawer = openDrawer,
                                 onNewSession = onNewSession
                             )
                         },
@@ -539,7 +528,6 @@ internal fun WorkspaceScreen(
                             stateHolder.clearPlatformError()
                             showManualPairing = true
                         },
-                        onOpenDrawer = openDrawer,
                         onNewSession = onNewSession
                     )
                 }
@@ -584,7 +572,6 @@ internal fun WorkspaceScreen(
                 .padding(bottom = DshTabBarBottomRise)
         )
         } // DshLiquidGlassHost（内容 + tab bar 同层 → 栏有 backdrop）
-    }
 
     if (showQrScanner) {
         GatewayQrScannerScreen(
@@ -615,12 +602,11 @@ private fun WorkspaceHeader(
     state: GatewayRuntimeState,
     onScan: () -> Unit,
     onManualEntry: () -> Unit,
-    onOpenDrawer: () -> Unit,
     onNewSession: () -> Unit
 ) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         // Row 先测量无权重的操作按钮，品牌只使用剩余宽度，避免窄屏压缩按钮。
-        HarnessMark(onClick = onOpenDrawer, modifier = Modifier.weight(1f))
+        HarnessMark(modifier = Modifier.weight(1f))
         Spacer(Modifier.width(8.dp))
         GatewayAuthenticationMenu(
             state = state,
@@ -660,18 +646,17 @@ private fun NewSessionButton(onClick: () -> Unit) {
 }
 
 @Composable
-private fun HarnessMark(onClick: () -> Unit, modifier: Modifier = Modifier) {
+private fun HarnessMark(modifier: Modifier = Modifier) {
     val dark = LocalDshIsDark.current
     BoxWithConstraints(
-        modifier = modifier.heightIn(min = 52.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .clickable(role = Role.Button, onClick = onClick)
-            .semantics { contentDescription = appText("打开侧边栏") },
+        modifier = modifier.heightIn(min = 52.dp),
         contentAlignment = Alignment.CenterStart
     ) {
         // B1 + A2：对齐 iOS `HarnessMark`（Components/Glass.swift:186-203）
         // ① 鲸鱼已删 —— iOS 按用户 2026-10-26 真机反馈（「字的左右还有原版的图标在」）移除，Android 跟删；
-        // ② 字标宽 **216**（iOS `.frame(maxWidth: 216)` 的基准值）、高 29，点按开侧栏；
+        // ② 字标宽 **216**（iOS `.frame(maxWidth: 216)` 的基准值）、高 29；
+        //    vc62：抽屉已删（用户 2026-11-04）——字标**不可点**、无障碍不再播报「打开侧边栏」
+        //    （iOS WorkspaceView:926-957 同步删 openDrawer 按钮，字标本体保留）。
         // ③ **一张图 + 按主题反相**（iOS `colorInvertIfNeeded(onDarkBackground: colorScheme == .dark)`）：
         //    不再「挑 light/dark 变体」——那正是之前硬编码 `_dark` 白字、浅色下字标变白的坑。
         //    反相用 4×5 颜色矩阵（RGB 取负 + 255 偏移，alpha 不动），等价 iOS 的 colorInvert。
