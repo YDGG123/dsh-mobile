@@ -126,6 +126,25 @@ class AndroidSharedStateHolder(
     val teamSessionTitle get() = snapshot.sessions.firstOrNull { it.id == teamLeadSessionId }?.title ?: "Lead 会话"
     val isViewingTeamMember get() = snapshot.selectedSessionId?.let(teamStore::isChild) == true
     val selectedMemberCanSend get() = snapshot.selectedSessionId?.let(teamStore::canSend) != false
+
+    /**
+     * Bot 域会话（① Bot 自己的会话 ② 群聊 room，均按 bridge 名册 sessionId 命中）：
+     * 输入框不显示模型/思考 chip——桌面端 `ds-bot/src/client/index.js:916` 语义，
+     * 群聊里切模型会触发 MODEL_SWITCH_COMPACTION_FAILED 卡死（2026-11-03 事故）。
+     * 判定本体在 shared 的 isBotDomainSession（纯函数，反向测试在 commonTest）：
+     * LOADING（已配对、名册未达）fail-closed 按可能在 Bot 域隐藏；IDLE/未配对按普通会话。
+     */
+    val isBotDomainSession: Boolean
+        get() {
+            val team = bridgeTeam ?: return false
+            val teamState = team.state
+            return com.clarklevis.dsh.shared.domain.isBotDomainSession(
+                sessionId = snapshot.selectedSessionId,
+                bridgePhase = teamState.phase,
+                botSessionIds = teamState.bots.mapTo(mutableSetOf()) { it.sessionId },
+                roomSessionIds = teamState.rooms.mapTo(mutableSetOf()) { it.sessionId },
+            )
+        }
     val selectedSessionIsRunning get() = teamSnapshot.members.firstOrNull { it.id == snapshot.selectedSessionId }?.running
         ?: (snapshot.sessions.firstOrNull { it.id == snapshot.selectedSessionId }?.isRunning == true)
 
