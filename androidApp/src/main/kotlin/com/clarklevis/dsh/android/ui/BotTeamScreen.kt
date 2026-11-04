@@ -821,6 +821,7 @@ private fun RosterAvatar(
                 inkColor = ink,
                 backdropColor = MaterialTheme.colorScheme.background,
                 modifier = Modifier.fillMaxSize(),
+                eyeSquash = blinkSquash.value, // vc62 ③：glyph 分支接眨眼——此前只有 Icon 分支压（压整只符号）
             )
         } else if (shapeRes != null) {
             Icon(

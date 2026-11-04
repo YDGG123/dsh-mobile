@@ -4,6 +4,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -12,12 +13,23 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.rotate
 import com.clarklevis.dsh.shared.teamfeed.TeamFeedGlyph
 
-/** vc61 ③：眼睛椭圆尺寸（px）——w/2=h/2 下界 0.5pt（iOS `eyeLayout` 同规），纯函数便于判据。 */
-internal fun teamGlyphEyeSize(rx: Double, ry: Double, scale: Float): Pair<Float, Float> =
-    Pair(
-        maxOf(rx.toFloat() * 2f * scale, 0.5f),
-        maxOf(ry.toFloat() * 2f * scale, 0.5f),
+/** vc62 ③：眼睛胶囊几何（JVM 可钉）——逐项对齐 iOS **视图路径** `eyeLayout`（TeamAvatarView.swift:159-165）：
+ *  团队头像实际渲染走视图不走 path（TeamGlyph.swift:170 明写 Canvas 画眼已关），下界以视图为准：
+ *  width/height 下界 **0.5**（max(dim×scale, 0.5)，squash **之前**做——iOS 先夹 frame 再 scaleEffect）；
+ *  cornerRadius 下界 **0.25**（max(eye.radius×scale, 0.25)，eye.radius = min(w,h)/2）；
+ *  squash 夹 **[0.01,1]**（eyePath:230，眨眼眯到近闭但不消失）；squash 乘在未旋转的 h 上（变换序 :229-233）。 */
+internal data class TeamGlyphEyeRect(val width: Float, val height: Float, val cornerRadius: Float)
+
+internal fun teamGlyphEyeRect(rx: Double, ry: Double, scale: Float, eyeSquash: Float = 1f): TeamGlyphEyeRect {
+    val w = maxOf((rx * 2.0 * scale).toFloat(), 0.5f)
+    val hFull = maxOf((ry * 2.0 * scale).toFloat(), 0.5f)
+    val squash = eyeSquash.coerceIn(0.01f, 1f)
+    return TeamGlyphEyeRect(
+        width = w,
+        height = hFull * squash,
+        cornerRadius = maxOf(minOf(w, hFull) / 2f, 0.25f),
     )
+}
 
 /**
  * D1 段 3/5：glyph 矢量渲染 —— 电脑端同一份 `path` 数据直接画（方案 C，不做光栅化）。
@@ -35,6 +47,8 @@ fun TeamGlyphCanvas(
     inkColor: Color,
     backdropColor: Color,
     modifier: Modifier = Modifier,
+    /** vc62 ③：眨眼压缩系数（iOS `scaleEffect(y: squash)` 作用于未旋转的胶囊高度，再 rotate）。 */
+    eyeSquash: Float = 1f,
 ) {
     val body = remember(glyph.body) { TeamGlyphParser.toSubpaths(glyph.body) }
     val layers = remember(glyph.layers) {
@@ -52,18 +66,19 @@ fun TeamGlyphCanvas(
             drawSubpaths(paths, origin, scale, fill, stroke = false, alpha = (layer.opacity ?: 1.0).toFloat())
         }
         for (eye in glyph.eyes) {
-            // vc61 ③：眼睛是**椭圆**——网关五元组 [cx, cy, w, h, tilt]，rx=w/2、ry=h/2，
-            // 画法对齐 iOS `TeamAvatarView`（RoundedRectangle w×h + rotationEffect(tilt)）。
-            // 之前 drawCircle(rx) 忽略 ry/tilt，把高瘦眼画成小圆点（用户 2026-11-04 真机反馈）。
-            // 下界对齐 iOS eyeLayout（max(dim, 0.5)）防 0 尺寸图形不渲染。
+            // vc62 ③：眼睛 = **胶囊**（圆角矩形，cornerRadius=min(w,h)/2）+ tilt 旋转——
+            // 逐项对齐 iOS TeamGlyph.swift:216-218；vc61 的 drawOval 是误读（iOS 不是纯椭圆）。
+            // 之前 drawCircle(rx) 更早一代的错（忽略 ry/tilt，高瘦眼画成圆点，用户 2026-11-04 真机反馈）。
+            // 变换序对齐 iOS eyePath（:229-235）：未旋转尺寸 × squash → rotate → translate。
             val cx = origin.x + eye.cx.toFloat() * scale
             val cy = origin.y + eye.cy.toFloat() * scale
-            val size = teamGlyphEyeSize(eye.rx, eye.ry, scale)
+            val rect = teamGlyphEyeRect(eye.rx, eye.ry, scale, eyeSquash)
             rotate(degrees = eye.tilt.toFloat(), pivot = Offset(cx, cy)) {
-                drawOval(
+                drawRoundRect(
                     color = backdropColor,
-                    topLeft = Offset(cx - size.first / 2f, cy - size.second / 2f),
-                    size = Size(size.first, size.second),
+                    topLeft = Offset(cx - rect.width / 2f, cy - rect.height / 2f),
+                    size = Size(rect.width, rect.height),
+                    cornerRadius = CornerRadius(rect.cornerRadius),
                 )
             }
         }

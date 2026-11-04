@@ -5,30 +5,52 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** vc61 ③⑥ 判据：眼睛椭圆几何 + 水合缓存渲染门。 */
+/** vc61③⑥ + vc62③ 判据：眼睛胶囊几何 / 眨眼压缩 / 水合缓存渲染门。 */
 class TeamGlyphRenderTest {
 
-    /** ③ 眼睛 = 椭圆（w=2rx, h=2ry）+ 0.5pt 下界；之前 drawCircle(rx) 把高瘦眼画成圆点（真机反馈）。 */
+    /** ③ 眼睛 = **胶囊**（w=2rx、h=2ry、cornerRadius=min(w,h)/2）——vc62 对齐 iOS TeamGlyph.swift:216-218。 */
     @Test
-    fun eyeSizeUsesFullWidthAndHeightWithFloor() {
-        // w=4,h=8 的眼（rx=2,ry=4），scale=3 ⇒ 宽 12、高 24——宽高不等是关键断言
-        val (w, h) = teamGlyphEyeSize(rx = 2.0, ry = 4.0, scale = 3f)
-        assertEquals(12f, w)
-        assertEquals(24f, h)
+    fun eyeCapsuleUsesFullWidthAndHeight() {
+        // w=10、h=4 的眼（rx=5,ry=2），scale=1 ⇒ 10×4、圆角 2（胶囊）
+        val rect = teamGlyphEyeRect(rx = 5.0, ry = 2.0, scale = 1f)
+        assertEquals(10f, rect.width)
+        assertEquals(4f, rect.height)
+        assertEquals(2f, rect.cornerRadius)
     }
 
+    /** ① 判据（Chief 2026-11-04）：eye(w=10,h=4)、squash=0.1 ⇒ **高度变 0.4、宽度不变**——压短轴不是压整只。 */
     @Test
-    fun tinyEyeHitsFloorNotZero() {
-        val (w, h) = teamGlyphEyeSize(rx = 0.0001, ry = 0.0001, scale = 1f)
-        assertEquals(0.5f, w)
-        assertEquals(0.5f, h)
+    fun squashShrinksHeightOnly() {
+        val rect = teamGlyphEyeRect(rx = 5.0, ry = 2.0, scale = 1f, eyeSquash = 0.1f)
+        assertEquals("宽度不受眨眼影响", 10f, rect.width)
+        assertEquals(0.4f, rect.height)
+        assertEquals("圆角沿用未压尺寸（capsule 随 scaleY 整体压扁，iOS 同构）", 2f, rect.cornerRadius)
     }
 
-    /** 反向：正圆眼（rx==ry）尺寸相等（回归护栏：不得又变成只有半径一边）。 */
+    /** ② 反向对照：squash=1 尺寸与未压一致；squash 夹 [0.01,1]（iOS eyePath:230——眯到近闭但不消失）。 */
     @Test
-    fun roundEyeStaysRound() {
-        val (w, h) = teamGlyphEyeSize(rx = 3.0, ry = 3.0, scale = 2f)
-        assertEquals(w, h)
+    fun squashOneIsIdentityAndClamped() {
+        val idle = teamGlyphEyeRect(rx = 5.0, ry = 2.0, scale = 1f, eyeSquash = 1f)
+        assertEquals(idle, teamGlyphEyeRect(rx = 5.0, ry = 2.0, scale = 1f))
+        assertEquals("0 输入夹到 0.01", 0.04f, teamGlyphEyeRect(rx = 5.0, ry = 2.0, scale = 1f, eyeSquash = 0f).height)
+        assertEquals(">1 输入夹到 1", 4f, teamGlyphEyeRect(rx = 5.0, ry = 2.0, scale = 1f, eyeSquash = 7f).height)
+    }
+
+    /** 反向：scale 参与宽高（iOS path 缩放后在视图层画）；tilt 不在尺寸函数里（旋转由 rotate 块承担）。 */
+    @Test
+    fun scaleMultipliesBothDimensions() {
+        val rect = teamGlyphEyeRect(rx = 5.0, ry = 2.0, scale = 2f)
+        assertEquals(20f, rect.width)
+        assertEquals(8f, rect.height)
+    }
+
+    /** 反向：极小眼下界 0.5/0.25 生效（对齐 iOS 视图路径 eyeLayout——Chief 2026-11-04 纠正后恢复）。 */
+    @Test
+    fun tinyEyeHitsFloors() {
+        val rect = teamGlyphEyeRect(rx = 0.0001, ry = 0.0001, scale = 1f)
+        assertEquals(0.5f, rect.width)
+        assertEquals("下界在 squash 之前：0.5×squash(1)=0.5", 0.5f, rect.height)
+        assertEquals(0.25f, rect.cornerRadius)
     }
 
     /** ⑥ 水合缓存也允许渲染行（切 tab 回来立刻有头像）；LIVE+非降级照旧允许。 */
