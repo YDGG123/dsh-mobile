@@ -816,10 +816,25 @@ private fun RosterAvatar(
             val ink = BridgeInks.resolve(glyphColorKey, dark)
                 ?.let { parseBridgeHexColor(it, Color.White) }
                 ?: homeInk(0.85f)
+            // vc63：眼洞填色对比度校正（共享层 TeamAvatarEyeColor，iOS TeamGlyph.swift:450-475 同源）——
+            // 车身色 ≈ 页面底色时眼睛会糊掉（iOS 实测 charcoal 1.02:1）；resolve 保证 ≥3:1。
+            // Compose Color 在主题组合后已是解析实色（sRGB），直接取分量进共享层。
+            val backdrop = MaterialTheme.colorScheme.background
+            val eyeFillRgb = com.clarklevis.dsh.shared.teamfeed.TeamAvatarEyeColor.resolve(
+                backdrop = com.clarklevis.dsh.shared.teamfeed.RgbColor(
+                    backdrop.red.toDouble(), backdrop.green.toDouble(), backdrop.blue.toDouble(),
+                ),
+                body = com.clarklevis.dsh.shared.teamfeed.RgbColor(
+                    ink.red.toDouble(), ink.green.toDouble(), ink.blue.toDouble(),
+                ),
+            )
+            val eyeFill = Color(
+                eyeFillRgb.red.toFloat(), eyeFillRgb.green.toFloat(), eyeFillRgb.blue.toFloat(),
+            )
             TeamGlyphCanvas(
                 glyph = glyph!!,
                 inkColor = ink,
-                backdropColor = MaterialTheme.colorScheme.background,
+                backdropColor = eyeFill,
                 modifier = Modifier.fillMaxSize(),
                 eyeSquash = blinkSquash.value, // vc62 ③：glyph 分支接眨眼——此前只有 Icon 分支压（压整只符号）
             )
