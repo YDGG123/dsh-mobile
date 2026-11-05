@@ -60,3 +60,8 @@ build-output/
 tsnetgo/.state/
 tsnetgo/*.aar
 tsnetgo/*.sources.jar
+
+# 出包交付归档（APK/IPA + DELIVERABLES.md，每版一个目录）——本机归档，不入仓库。
+# 2026-11-06 补：此前无规则，主仓 releases/ 已积到 889M 且处于"未跟踪但可被 git add -A 带走"状态，
+# 一次误提交就会把仓库撑爆。归档仍留在磁盘，只是不进版本控制。
+/releases/
