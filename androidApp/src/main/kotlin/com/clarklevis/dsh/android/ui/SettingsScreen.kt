@@ -28,6 +28,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -66,7 +67,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.clarklevis.dsh.android.AndroidSharedStateHolder
+import com.clarklevis.dsh.android.DshAndroidApplication
 import com.clarklevis.dsh.android.R
+import com.clarklevis.dsh.android.platform.TunnelUiStage
 import com.clarklevis.dsh.android.localization.appText
 import com.clarklevis.dsh.shared.gateway.GatewayConnectionState
 import com.clarklevis.dsh.shared.protocol.GatewayAgentPreset
@@ -87,6 +90,12 @@ internal fun SettingsScreen(
     onOpenStorage: () -> Unit = {},
     onOpenPlugins: () -> Unit = {},
     onOpenScheduledTasks: () -> Unit = {},
+    // 上游 1.7.15 新增入口（合入 2026-11-06）：日志导出 / 网络检测 / Tailscale 内嵌隧道。
+    // 这三页在 Android 是**独立整页**（有自带顶栏），因此走 sheet 之外的路由，与 B4「设置内选择弹 sheet」不冲突：
+    // 那条纪律针对**选择类**（预设/模型/字号），这三页是只读工具页。
+    onOpenLogs: () -> Unit = {},
+    onOpenNetworkDiagnostics: () -> Unit = {},
+    onOpenTunnel: () -> Unit = {},
     updateModel: com.clarklevis.dsh.android.update.AppUpdateViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
     bottomInset: androidx.compose.ui.unit.Dp = androidx.compose.ui.unit.Dp(0f),
     /** tab 内嵌形态（iOSDev 裁定 2026-11-01，对齐 iOS SettingsView embedded:）：
@@ -183,6 +192,10 @@ internal fun SettingsScreen(
                         LanguageSettingsRow()
                         SettingsDivider()
                         FontSizeSettingsRow { activeSelectionSheet = SettingsSelectionSheet.FONT_SIZE }
+                        // 上游 1.7.15：UI 降级开关（停止主页背景动画 + 降毛玻璃）。我方的
+                        // `LocalUiEffectsReduced` 已在 DshLiquidGlass 侧消费，这里补上用户入口。
+                        SettingsDivider()
+                        UiEffectsSettingsRow()
                     }
                     // ② 新会话
                     SettingsSection(
@@ -246,6 +259,22 @@ internal fun SettingsScreen(
                         GatewayStatusRow(stateHolder)
                         SettingsDivider()
                         SettingsActionRow(appText("Ping 网关"), enabled = isConnected(stateHolder), onClick = stateHolder::pingGateway)
+                        // 上游 1.7.15：网络检测（实时延迟/丢包）。我方已有同源数据面，入口是新增的。
+                        SettingsDivider()
+                        SettingsValueRow(
+                            appText("网络检测"),
+                            appText("实时延迟与丢包"),
+                            modifier = Modifier.testTag("network-diagnostics-entry"),
+                            onClick = onOpenNetworkDiagnostics
+                        )
+                    }
+                    // 上游 1.7.15：Tailscale 内嵌隧道（独立一组，与「连接」分开——它是可选增强，不是连接方式）
+                    SettingsSection(appText("Tailscale 内嵌隧道")) {
+                        TailscaleTunnelRow(onOpenTunnel)
+                    }
+                    // 上游 1.7.15：日志导出与分享
+                    SettingsSection(appText("日志")) {
+                        SettingsValueRow(appText("日志导出与分享"), "", onClick = onOpenLogs)
                     }
                     // **平台必需差异**（Chief 2026-11-01 裁定）：Android 特有的连接信息
                     // （版本 / 已连接会话 / cwd），iOS 的对应信息在「连接」组内，语义等价，保留。
@@ -965,6 +994,53 @@ internal fun FontSizeSettingsRow(onClick: () -> Unit) {
         value = if (appearance.fontFollowsSystem) appText("跟随系统") else "${(appearance.fontScale * 100).roundToInt()}%",
         onClick = onClick
     )
+}
+
+/** 上游 1.7.15 合入：Tailscale 内嵌隧道入口行（值 = 隧道阶段，未启用显示「未启用」）。 */
+@Composable
+internal fun TailscaleTunnelRow(onClick: () -> Unit) {
+    val settings = LocalTailscaleTunnelSettings.current
+    val flow = (LocalContext.current.applicationContext as? DshAndroidApplication)?.tunnel?.state
+    val state = flow?.collectAsStateWithLifecycle()?.value
+    SettingsValueRow(
+        title = appText("内嵌隧道"),
+        value = if (settings.enabled) tailscaleStageLabel(state?.stage ?: TunnelUiStage.DISABLED) else appText("未启用"),
+        onClick = onClick,
+        modifier = Modifier.testTag("tailscale-tunnel-settings-row")
+    )
+}
+
+/** 上游 1.7.15 合入：UI 降级开关（停止主页背景动画 + 降毛玻璃）。
+ *  我方的 `LocalUiEffectsReduced` 早已在 DshLiquidGlass 侧消费，此前缺的是用户入口。 */
+@Composable
+internal fun UiEffectsSettingsRow() {
+    val appearance = LocalAppearanceSettings.current
+    Row(
+        Modifier.fillMaxWidth()
+            .testTag("ui-effects-reduced-switch")
+            .toggleable(
+                value = appearance.uiEffectsReduced,
+                role = Role.Switch,
+                onValueChange = appearance::selectUiEffectsReduced
+            )
+            .heightIn(min = 54.dp)
+            .padding(vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(appText("UI 降级"), style = SettingsTypography.item)
+            Text(
+                appText("停止主页背景动画，降低毛玻璃效果"),
+                style = SettingsTypography.description,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        DshSwitch(
+            checked = appearance.uiEffectsReduced,
+            onCheckedChange = null
+        )
+    }
 }
 
 /** B4 §2：主题 = **三档分段控件**（跟随系统 / 浅色 / 深色），宽 232（iOS 06-settings 实测形态）。

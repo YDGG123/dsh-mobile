@@ -107,6 +107,9 @@ private const val ROUTE_WORKSPACE = "workspace"
 private const val ROUTE_CONVERSATION = "conversation"
 private const val ROUTE_SETTINGS = "settings"
 private const val ROUTE_SETTINGS_STORAGE = "settings/storage"
+private const val ROUTE_SETTINGS_LOGS = "settings/logs"
+private const val ROUTE_SETTINGS_NETWORK = "settings/network-diagnostics"
+private const val ROUTE_SETTINGS_TUNNEL = "settings/tailscale-tunnel"
 private const val ROUTE_PLUGINS = "plugins"
 private const val ROUTE_PLUGIN_BUNDLE = "plugins/bundle/{bundleName}"
 private const val ROUTE_PLUGIN_OFFICIAL = "plugins/official/{pluginId}"
@@ -186,7 +189,10 @@ internal fun DshProductApp(
                 onScheduledTasks = { navController.navigate(ROUTE_SCHEDULED_TASKS) },
                 updateModel = updateModel,
                 // B4 §4：设置内的选择（预设/模型/字体大小）已改 sheet，不再有对应路由
-                onOpenStorage = { navController.navigate(ROUTE_SETTINGS_STORAGE) }
+                onOpenStorage = { navController.navigate(ROUTE_SETTINGS_STORAGE) },
+                onOpenLogs = { navController.navigate(ROUTE_SETTINGS_LOGS) },
+                onOpenNetworkDiagnostics = { navController.navigate(ROUTE_SETTINGS_NETWORK) },
+                onOpenTunnel = { navController.navigate(ROUTE_SETTINGS_TUNNEL) }
             )
         }
         composable(ROUTE_CONVERSATION) {
@@ -203,11 +209,24 @@ internal fun DshProductApp(
                 stateHolder = stateHolder,
                 onBack = navController::popBackStack,
                 // B4 §4：设置内的选择（预设/模型/字体大小）已改 sheet，不再有对应路由
-                onOpenStorage = { navController.navigate(ROUTE_SETTINGS_STORAGE) }
+                onOpenStorage = { navController.navigate(ROUTE_SETTINGS_STORAGE) },
+                onOpenLogs = { navController.navigate(ROUTE_SETTINGS_LOGS) },
+                onOpenNetworkDiagnostics = { navController.navigate(ROUTE_SETTINGS_NETWORK) },
+                onOpenTunnel = { navController.navigate(ROUTE_SETTINGS_TUNNEL) }
             )
         }
         composable(ROUTE_SETTINGS_STORAGE) {
             StorageSpaceScreen(stateHolder, navController::popBackStack)
+        }
+        // 上游 1.7.15 三页（日志导出 / 网络检测 / Tailscale 隧道）：独立整页，自带顶栏。
+        composable(ROUTE_SETTINGS_LOGS) {
+            LogExportScreen(navController::popBackStack)
+        }
+        composable(ROUTE_SETTINGS_NETWORK) {
+            NetworkDiagnosticsScreen(stateHolder, navController::popBackStack)
+        }
+        composable(ROUTE_SETTINGS_TUNNEL) {
+            TailscaleTunnelScreen(navController::popBackStack)
         }
         composable(ROUTE_PLUGINS) {
             PluginsScreen(
@@ -303,7 +322,11 @@ internal fun WorkspaceScreen(
     onOpenAgentPresets: () -> Unit = {},
     onOpenDefaultModel: () -> Unit = {},
     onOpenFontSize: () -> Unit = {},
-    onOpenStorage: () -> Unit = {}
+    onOpenStorage: () -> Unit = {},
+    // 上游 1.7.15 三页入口（合入 2026-11-06）：设置 tab 内也要能进这三页。
+    onOpenLogs: () -> Unit = {},
+    onOpenNetworkDiagnostics: () -> Unit = {},
+    onOpenTunnel: () -> Unit = {}
 ) {
     val window = adaptiveWindowSize()
     val workspaceListState = rememberLazyListState()
@@ -394,8 +417,9 @@ internal fun WorkspaceScreen(
             background = { backdropModifier ->
                 HarnessAnimatedBackground(
                     backdropModifier,
-                    animationEnabled = backgroundAnimationEnabled,
-                    isLight = !LocalDshIsDark.current // 背景跟主题（Tester 返工 1，方案 B 裁决）
+                    animationEnabled = backgroundAnimationEnabled
+                    // 上游 1.7.15 已去掉 isLight 形参：背景改为鲸鱼粒子方案，明暗由主题 token 内部取，
+                    // 不再由调用点传入。我方 Tester 返工 1 的「背景跟主题」语义由上游实现本身满足。
                 )
             }
         ) {
@@ -539,6 +563,9 @@ internal fun WorkspaceScreen(
                 onOpenStorage = onOpenStorage,
                 onOpenPlugins = onPlugins,
                 onOpenScheduledTasks = onScheduledTasks,
+                onOpenLogs = onOpenLogs,
+                onOpenNetworkDiagnostics = onOpenNetworkDiagnostics,
+                onOpenTunnel = onOpenTunnel,
                 bottomInset = tabClearance,
                 embedded = true // iOSDev 裁定：设置 tab 撤顶栏 + 页顶自绘「设置」大标题（对齐 iOS embedded:）
             )

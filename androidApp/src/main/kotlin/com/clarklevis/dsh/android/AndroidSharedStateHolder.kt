@@ -68,6 +68,7 @@ class AndroidSharedStateHolder(
     voiceContext: android.content.Context? = graph?.application
 ) {
     private val teamStore = com.clarklevis.dsh.shared.facade.SharedTeamStore()
+    private val agentExecutionNotifications = AndroidAgentExecutionNotifications()
     var teamSnapshot by mutableStateOf(com.clarklevis.dsh.shared.facade.TeamSnapshot())
         private set
     private var teamLeadSessionId: String? = null
@@ -81,43 +82,6 @@ class AndroidSharedStateHolder(
                 .filter { it.parentSessionId != null }.mapTo(mutableSetOf()) { it.sessionId }
         }
 
-    /**
-     * C1：Mobile Bridge 团队适配层（HTTP 执行在平台层，状态合流在 shared 的
-     * `SharedBridgeTeamStore`）。与会话级 `teamStore` 是两条链路，别混用。
-     */
-    /** 后台停预取 / 回前台恢复（iOS：chatPrefetcher.stop("background") ↔ .active 重启）。 */
-    fun pausePrefetch(reason: String) {
-        chatPrefetcher?.stop(reason)
-    }
-
-    fun resumePrefetch() {
-        chatPrefetcher?.resume("foreground")
-    }
-
-    /** true = token 密文解不开：与「从没配对」区分开（Chief 2026-11-02）。 */
-    val tokenUnreadable: Boolean
-        get() = (graph?.credentialStore as? com.clarklevis.dsh.android.platform.AndroidGatewayCredentialStore)
-            ?.tokenUnreadable == true
-
-    /** true = 设备身份密文解不开（Keystore 失效）：Bot 页据此提示「可能为临时故障」。 */
-    val deviceIdentityUnreadable: Boolean
-        get() = (graph?.credentialStore as? com.clarklevis.dsh.android.platform.AndroidGatewayCredentialStore)
-            ?.deviceIdentityUnreadable == true
-
-    internal val bridgeTeam: AndroidBridgeTeamAdapter? =
-        graph?.let {
-            AndroidBridgeTeamAdapter(
-                it.application,
-                it.applicationScope,
-                // Chief 拍板（2026-11-01）：对齐 iOS 生产 https-only；debug 源集才放行 loopback 明文。
-                allowInsecureLoopback = BRIDGE_ALLOW_INSECURE_LOOPBACK
-            ).apply {
-                // vc60 P0：轮询判死也触发自愈拉取——原先只有 hello 一个触发点，判死后控制通道
-                // 不重连就没有 hello，死锁到重启（vc59 真机「尚未配对」根因）。
-                onSessionMissing = { requestBridgeSessionIfMissing() }
-            }
-        }
-
     fun isSubagentSession(sessionId: String): Boolean =
         sessionId in childSessionIds || snapshot.sessions.any { it.id == sessionId && it.isSubagent }
     private var persistedTeamAvatars = "[]"
@@ -126,25 +90,6 @@ class AndroidSharedStateHolder(
     val teamSessionTitle get() = snapshot.sessions.firstOrNull { it.id == teamLeadSessionId }?.title ?: "Lead 会话"
     val isViewingTeamMember get() = snapshot.selectedSessionId?.let(teamStore::isChild) == true
     val selectedMemberCanSend get() = snapshot.selectedSessionId?.let(teamStore::canSend) != false
-
-    /**
-     * Bot 域会话（① Bot 自己的会话 ② 群聊 room，均按 bridge 名册 sessionId 命中）：
-     * 输入框不显示模型/思考 chip——桌面端 `ds-bot/src/client/index.js:916` 语义，
-     * 群聊里切模型会触发 MODEL_SWITCH_COMPACTION_FAILED 卡死（2026-11-03 事故）。
-     * 判定本体在 shared 的 isBotDomainSession（纯函数，反向测试在 commonTest）：
-     * LOADING（已配对、名册未达）fail-closed 按可能在 Bot 域隐藏；IDLE/未配对按普通会话。
-     */
-    val isBotDomainSession: Boolean
-        get() {
-            val team = bridgeTeam ?: return false
-            val teamState = team.state
-            return com.clarklevis.dsh.shared.domain.isBotDomainSession(
-                sessionId = snapshot.selectedSessionId,
-                bridgePhase = teamState.phase,
-                botSessionIds = teamState.bots.mapTo(mutableSetOf()) { it.sessionId },
-                roomSessionIds = teamState.rooms.mapTo(mutableSetOf()) { it.sessionId },
-            )
-        }
     val selectedSessionIsRunning get() = teamSnapshot.members.firstOrNull { it.id == snapshot.selectedSessionId }?.running
         ?: (snapshot.sessions.firstOrNull { it.id == snapshot.selectedSessionId }?.isRunning == true)
 
@@ -199,46 +144,6 @@ class AndroidSharedStateHolder(
     private val workspaceFileStore = SharedWorkspaceFileStore()
     private val slashCommandStore = SharedSlashCommandStore()
     val voiceInput = com.clarklevis.dsh.android.platform.AndroidVoiceInputAdapter(voiceContext, ::sendVoiceRequest, voiceStore)
-    /** 上次「补发桥接会话」请求的时刻（去抖：一次连接只请求一次，失败等下一次连接）。 */
-    private var bridgeSessionRequestedAtMillis: Long = 0L
-
-    /**
-     * 自愈（2026-11-02）：网关已连上、但本地没有 bridge 会话时，主动要一次补发。
-     *
-     * 只在**确实缺会话**时发，因为网关侧签发会轮换 token（`auth.mjs:60-66`）——
-     * 不缺也发会造成 401 风暴（ReleaseBot 查出、Chief 定的拉取式）。
-     */
-    private fun requestBridgeSessionIfMissing() {
-        val appGraph = graph ?: return
-        if (bridgeTeam?.hasSession == true) return
-        // **区分「丢了」与「解不开」**（iOSTester 2026-11-02）：
-        // 密文还在、只是这次解不开（Keystore 临时不可用 / 密文被写坏）时**不得自动补发**——
-        // 否则会把"瞬时解不开"静默升级成"换了一份新凭证"，与本项目「非销毁式失败（保留密文）」
-        // 的原则直接冲突，而且顺手把权限从「配对码 ⇒ bridge 会话」扩成「网关 token ⇒ 可铸造 bridge 会话」。
-        // 这种情形应停在「设备凭证无法读取，需要重新配对」那一档，由用户决定。
-        if (bridgeTeam?.restoreFailed == true) {
-            android.util.Log.i(
-                "DshBridgeTeam",
-                "bridge session present-but-undecryptable -> no auto re-issue (needs explicit re-pair)"
-            )
-            return
-        }
-        val now = System.currentTimeMillis()
-        // 60 秒内不重复请求：避免重连抖动时刷请求（网关每次都会轮换 token）
-        if (now - bridgeSessionRequestedAtMillis < 60_000L) return
-        bridgeSessionRequestedAtMillis = now
-        android.util.Log.i("DshBridgeTeam", "bridge session missing -> requesting re-issue from gateway")
-        appGraph.gatewayScope.launch {
-            val sent = appGraph.gatewayRuntime.sendRequest(
-                com.clarklevis.dsh.shared.gateway.GatewayRequests.bridgeSessionRequest(
-                    "bridge-session-${now}"
-                )
-            )
-            if (!sent) android.util.Log.w("DshBridgeTeam", "bridge-session request not sent (gateway not ready)")
-            else bridgeTeam?.markReissueRequested() // vc60 P1：重签已发出，UI 进「自动重新获取」态
-        }
-    }
-
     private fun sendVoiceRequest(request: com.clarklevis.dsh.shared.gateway.GatewayRequest) {
         val appGraph = graph ?: return
         appGraph.gatewayScope.launch {
@@ -274,7 +179,9 @@ class AndroidSharedStateHolder(
         })
     }
     private val projectionActor = AndroidProjectionActor(
-        projection = AndroidGatewayProjection(store, onResubscribe = { sessionId ->
+        projection = AndroidGatewayProjection(store, nowMonotonicSeconds = {
+            if (graph == null) System.nanoTime() / 1e9 else android.os.SystemClock.elapsedRealtimeNanos() / 1e9
+        }, onResubscribe = { sessionId ->
             graph?.let { appGraph ->
                 appGraph.gatewayScope.launch {
                     if (appGraph.gatewayRuntime.state.value.connection == GatewayConnectionState.CONNECTED) {
@@ -386,6 +293,18 @@ class AndroidSharedStateHolder(
     var snapshot: SharedMobileSnapshot by mutableStateOf(projectionActor.initialSnapshot)
         private set
     var wirePayload: String by mutableStateOf(DEFAULT_WIRE_PAYLOAD)
+    internal fun observeNetworkDiagnostics(): kotlinx.coroutines.flow.Flow<com.clarklevis.dsh.shared.diagnostics.NetworkDiagnosticsSnapshot> {
+        val appGraph = graph ?: return kotlinx.coroutines.flow.flowOf(
+            com.clarklevis.dsh.shared.diagnostics.NetworkDiagnosticsSnapshot()
+        )
+        return appGraph.gatewayRuntime.monitorNetworkDiagnostics { appGraph.connectionMethod.value }
+    }
+
+    internal val connectionMethod get() = graph?.connectionMethod
+        ?: kotlinx.coroutines.flow.MutableStateFlow("WebSocket")
+    internal val connectionPaths get() = graph?.connectionPaths
+        ?: kotlinx.coroutines.flow.MutableStateFlow(emptyMap<String, com.clarklevis.dsh.shared.transport.RtcSelectedPath>())
+
     var gatewayState: GatewayRuntimeState by mutableStateOf(GatewayRuntimeState())
         private set
     var scheduledTasks: List<MobileScheduledTask> by mutableStateOf(emptyList())
@@ -470,6 +389,8 @@ class AndroidSharedStateHolder(
     private var trajectoryIsActive = false
     private var trajectoryPublishJob: Job? = null
     private var trajectoryPublishPending = false
+    var messageSelectionStart: Int = Int.MAX_VALUE
+    var messageSelectionEnd: Int = Int.MAX_VALUE
     private var messageDraftState: String by mutableStateOf("")
     private var pendingCommandSubmission: MessageSubmission? = null
     var messageDraft: String
@@ -508,9 +429,7 @@ class AndroidSharedStateHolder(
     /**
      * 错误弹窗的主行动（AndroidTester 2026-11-02 指出：文案说「请重新扫码配对」，
      * 但弹窗只有一个固定的「重新连接」按钮 ⇒ 指向的动作不可达）。
-     */
-    /**
-     * 凭证失效的两条文案——**单一来源常量**（AndroidTester B8：原先文案在集合与赋值处各写一遍、
+     * 凭证失效的两条文案是**单一来源常量**（AndroidTester B8：原先文案在集合与赋值处各写一遍、
      * 共三份拷贝，任一处改字就会让 PAIR 静默派生不出来 ⇒ B6 缺陷回归，且无编译错误）。
      * 现在集合与赋值点都引用同一个常量，想改必须改一处。
      */
@@ -518,19 +437,10 @@ class AndroidSharedStateHolder(
 
     /**
      * **派生**，不是第二个可变状态（Chief 2026-11-02 要的"两者不可能不同步"）：
-     * 动作由文案唯一决定，新增 59 处 `platformError =` 的任何一处都不会造成不一致。
+     * 动作由文案唯一决定，59 处 `platformError =` 的任何一处都不会造成不一致。
      */
     val platformErrorAction: PlatformErrorAction
         get() = if (platformError in credentialErrorMessages) PlatformErrorAction.PAIR else PlatformErrorAction.RECONNECT
-
-    /** 请求打开扫码配对（app 级弹窗 → 工作区页的配对 UI 之间的事件计数）。 */
-    var pairingRequestTick: Int by mutableStateOf(0)
-        private set
-
-    fun requestPairing() {
-        pairingRequestTick += 1
-    }
-
     var successfulMessageSendCount: Long by mutableLongStateOf(0L)
         private set
     var defaultConfigurationLoadingKinds: Set<String> by mutableStateOf(emptySet())
@@ -576,8 +486,6 @@ class AndroidSharedStateHolder(
     }
 
     private var pendingMessageSubmission: MessageSubmission? by mutableStateOf(null)
-    /** #14：投递身份（超时不撤，迟到确认仍可认领）；见 [MessageAckGate]。 */
-    private val messageAck = MessageAckGate<MessageSubmission>()
     var queueDraftRestoreCount by mutableLongStateOf(0L)
         private set
 
@@ -750,7 +658,35 @@ class AndroidSharedStateHolder(
         }
     }
 
-    fun refreshScheduledTasks() {
+    private var scheduleActiveFilter: Boolean? = null
+    private var scheduleListRequestId: String? = null
+    private var scheduleListOffset = 0
+    var scheduledTasksTotal: Int by mutableStateOf(0)
+        private set
+    var scheduleHistory: JsonValue? by mutableStateOf(null)
+        private set
+    private var scheduleHistoryRequestId: String? = null
+
+    fun loadScheduleHistory(task: MobileScheduledTask, before: String? = null) {
+        val appGraph = graph ?: return
+        val id = UUID.randomUUID().toString()
+        scheduleHistoryRequestId = id
+        if (before == null) scheduleHistory = null
+        appGraph.gatewayScope.launch { appGraph.gatewayRuntime.sendRequest(GatewayRequests.hostScheduleHistory(id, task.id, before = before)) }
+    }
+
+    fun filterScheduledTasks(active: Boolean?) {
+        scheduleActiveFilter = active
+        refreshScheduledTasks()
+    }
+
+    fun loadMoreScheduledTasks() {
+        if (!scheduledTasksLoading && scheduledTasks.size < scheduledTasksTotal) loadScheduledTasks(scheduledTasks.size)
+    }
+
+    fun refreshScheduledTasks() = loadScheduledTasks(0)
+
+    private fun loadScheduledTasks(offset: Int) {
         val appGraph = graph
         if (appGraph == null || gatewayState.connection != GatewayConnectionState.CONNECTED) {
             scheduledTasksLoading = false
@@ -759,8 +695,13 @@ class AndroidSharedStateHolder(
         }
         scheduledTasksLoading = true
         scheduledTasksError = null
+        scheduleListOffset = offset
+        val id = UUID.randomUUID().toString()
+        scheduleListRequestId = id
+        val request = if ("schedule-management-v2" in gatewayState.capabilities) GatewayRequests.hostScheduleList(id, active = scheduleActiveFilter, offset = offset)
+            else GatewayRequests.scheduleCatalog()
         appGraph.gatewayScope.launch {
-            val sent = appGraph.gatewayRuntime.sendRequest(GatewayRequests.scheduleCatalog())
+            val sent = appGraph.gatewayRuntime.sendRequest(request)
             if (!sent) withContext(Dispatchers.Main.immediate) {
                 scheduledTasksLoading = false
                 scheduledTasksError = appText("定时任务请求未发送，请重试")
@@ -801,7 +742,7 @@ class AndroidSharedStateHolder(
     fun setPluginEnabled(name: String, enabled: Boolean, entryId: String? = null) {
         val appGraph = graph ?: return
         if (gatewayState.connection != GatewayConnectionState.CONNECTED ||
-            pluginCatalog?.managementAvailable != true || pluginToggleRequestId != null) return
+            pluginCatalog?.managementAvailable != true || pluginToggleRequestId != null || pluginUpdateRequestId != null) return
         val requestId = UUID.randomUUID().toString()
         pluginToggleRequestId = requestId
         pluginPendingName = name
@@ -830,10 +771,117 @@ class AndroidSharedStateHolder(
         }
     }
 
+    var pluginVersions: JsonValue? by mutableStateOf(null)
+        private set
+    var pluginDetail: JsonValue? by mutableStateOf(null)
+        private set
+    var pluginUpdateResult: JsonValue? by mutableStateOf(null)
+        private set
+    var pluginUpdateLogs: List<String> by mutableStateOf(emptyList())
+        private set
+    var pluginUpdateStep: String? by mutableStateOf(null)
+        private set
+    private var pluginInformationName: String? = null
+    private var pluginVersionsRequestId: String? = null
+    private var pluginDetailRequestId: String? = null
+    private var pluginUpdateRequestId: String? = null
+
+    fun loadPluginInformation(name: String, versions: Boolean = false) {
+        if ("plugin-updates-v1" !in gatewayState.capabilities) return
+        val appGraph = graph ?: return
+        if (pluginInformationName != name) {
+            pluginInformationName = name
+            pluginVersions = null
+            pluginDetail = null
+            pluginVersionsRequestId = null
+            pluginDetailRequestId = null
+            pluginUpdateResult = null
+        }
+        val id = UUID.randomUUID().toString()
+        val request = if (versions) {
+            pluginVersions = null
+            pluginVersionsRequestId = id
+            GatewayRequests.pluginVersions(id, name)
+        } else {
+            pluginDetail = null
+            pluginDetailRequestId = id
+            GatewayRequests.pluginDetail(id, name, java.util.Locale.getDefault().toLanguageTag())
+        }
+        appGraph.gatewayScope.launch {
+            if (!appGraph.gatewayRuntime.sendRequest(request)) withContext(Dispatchers.Main.immediate) {
+                pluginNotice = appText("请求未发送，请重试")
+            }
+        }
+    }
+
+    fun updatePlugin(name: String, version: String) {
+        if ("plugin-updates-v1" !in gatewayState.capabilities || pluginUpdateRequestId != null ||
+            pluginToggleRequestId != null || gatewayState.connection != GatewayConnectionState.CONNECTED) return
+        val appGraph = graph ?: return
+        val id = UUID.randomUUID().toString()
+        pluginUpdateRequestId = id
+        pluginPendingName = name
+        pluginUpdateStep = "checking"
+        pluginUpdateLogs = emptyList()
+        pluginUpdateResult = null
+        pluginNotice = null
+        scope?.launch {
+            delay(600_000)
+            if (pluginUpdateRequestId == id) {
+                pluginUpdateRequestId = null
+                pluginPendingName = null
+                pluginUpdateStep = "unverified"
+                pluginNotice = "更新及恢复结果待核实，请刷新目录并检查 Host 日志"
+                refreshPlugins()
+            }
+        }
+        appGraph.gatewayScope.launch {
+            val sent = appGraph.gatewayRuntime.sendRequest(GatewayRequests.pluginUpdate(id, name, version,
+                pluginVersions?.get("registry")?.stringValue))
+            if (!sent) withContext(Dispatchers.Main.immediate) {
+                pluginUpdateRequestId = null
+                pluginPendingName = null
+                pluginUpdateStep = null
+                pluginNotice = appText("更新未发送，请重试")
+            }
+        }
+    }
+
     fun clearPluginNotice() { pluginNotice = null }
 
     private fun acceptPluginFrame(frame: GatewayFrame) {
         when {
+            frame.requestId != null && frame.requestId == pluginVersionsRequestId && frame.kind in setOf("plugin-versions", "error") -> {
+                pluginVersions = frame.result
+                if (frame.kind == "error") pluginNotice = frame.message
+                pluginVersionsRequestId = null
+            }
+            frame.requestId != null && frame.requestId == pluginDetailRequestId && frame.kind in setOf("plugin-detail", "error") -> {
+                pluginDetail = frame.result
+                if (frame.kind == "error") pluginNotice = frame.message
+                pluginDetailRequestId = null
+            }
+            frame.requestId != null && frame.requestId == pluginUpdateRequestId -> {
+                when (frame.kind) {
+                    "plugin-update-state", "plugin-install-state" -> pluginUpdateStep = frame.step ?: pluginUpdateStep
+                    "plugin-install-log" -> {
+                        pluginUpdateLogs = (pluginUpdateLogs + frame.text.orEmpty().takeLast(16_384).lines()).takeLast(200)
+                    }
+                    "plugin-update-result", "error" -> {
+                        pluginUpdateResult = frame.result
+                        pluginNotice = when {
+                            frame.result?.get("restore")?.get("application")?.stringValue == "failed" -> "更新失败，旧版本恢复失败。请刷新目录并检查 Host 日志。"
+                            frame.result?.get("result")?.get("application")?.stringValue == "restart-required" -> "请重启 DSH 后刷新目录确认实际版本"
+                            frame.result?.get("result")?.get("application")?.stringValue in setOf("failed", "cancelled", "overridden") -> "目标版本更新未生效，请检查更新及恢复结果"
+                            else -> frame.message
+                        }
+                        pluginUpdateRequestId = null
+                        pluginPendingName = null
+                        pluginUpdateStep = null
+                        refreshPlugins()
+                    }
+                }
+            }
             frame.kind == "plugin-catalog" && frame.requestId == pluginCatalogRequestId -> {
                 pluginCatalog = MobilePluginCatalog(
                     managementAvailable = frame.managementAvailable == true,
@@ -876,19 +924,72 @@ class AndroidSharedStateHolder(
         }
     }
 
+    fun createScheduledTask(title: String, prompt: String, timingJson: String, targetKind: String, sessionId: String?): String? {
+        if ("schedule-management-v2" !in gatewayState.capabilities || scheduledTaskPendingId != null) return null
+        val timing = runCatching { JsonValue.fromJsonElement(kotlinx.serialization.json.Json.parseToJsonElement(timingJson)) }.getOrNull()
+            ?: run { scheduledTaskMutationError = "执行规则 JSON 无效"; return null }
+        val target = mutableMapOf<String, JsonValue>("kind" to JsonValue.StringValue(targetKind))
+        if (targetKind == "session") {
+            if (sessionId.isNullOrBlank()) { scheduledTaskMutationError = "请选择目标会话"; return null }
+            target["sessionId"] = JsonValue.StringValue(sessionId)
+        }
+        val id = UUID.randomUUID().toString()
+        val request = runCatching { GatewayRequests.scheduleCreate(id, title, prompt, timing, JsonValue.ObjectValue(target)) }
+            .getOrElse { scheduledTaskMutationError = "标题或任务内容无效"; return null }
+        scheduledTaskMutationRequestId = id
+        scheduledTaskMutationKind = "schedule-create"
+        scheduledTaskPendingId = "creating"
+        scheduledTaskMutationError = null
+        sendScheduleMutation(request)
+        return id
+    }
+
+    fun setScheduledTaskActive(task: MobileScheduledTask, active: Boolean) {
+        val id = beginScheduledTaskMutation(task, "schedule-edit") ?: return
+        sendScheduleMutation(GatewayRequests.scheduleEdit(id, task.id, task.raw["updatedAt"],
+            JsonValue.ObjectValue(mapOf("active" to JsonValue.BooleanValue(active)))))
+    }
+
+    fun runScheduledTask(task: MobileScheduledTask) {
+        val id = beginScheduledTaskMutation(task, "schedule-run") ?: return
+        sendScheduleMutation(GatewayRequests.scheduleRun(id, task.id))
+    }
+
+    fun clearEndedScheduledTasks() {
+        if (scheduledTaskPendingId != null) return
+        val id = UUID.randomUUID().toString()
+        scheduledTaskMutationRequestId = id
+        scheduledTaskMutationKind = "schedule-delete-inactive"
+        scheduledTaskPendingId = "clearing"
+        sendScheduleMutation(GatewayRequests.scheduleDeleteInactive(id, confirmed = true))
+    }
+
+    private fun sendScheduleMutation(request: com.clarklevis.dsh.shared.gateway.GatewayRequest) {
+        val appGraph = graph ?: return
+        appGraph.gatewayScope.launch {
+            if (!appGraph.gatewayRuntime.sendRequest(request)) withContext(Dispatchers.Main.immediate) {
+                if (request.correlationId == scheduledTaskMutationRequestId) finishScheduledTaskMutation("操作未发送，请重试")
+            }
+        }
+    }
+
     fun updateScheduledTask(
         task: MobileScheduledTask,
         title: String,
         prompt: String,
         change: JsonValue?
     ): String? {
-        val requestId = beginScheduledTaskMutation(task, "schedule-update") ?: return null
+        val requestId = beginScheduledTaskMutation(task, if ("schedule-management-v2" in gatewayState.capabilities) "schedule-edit" else "schedule-update") ?: return null
         val appGraph = graph ?: return null
         appGraph.gatewayScope.launch {
-            val sent = appGraph.gatewayRuntime.sendRequest(GatewayRequests.scheduleUpdate(
-                task.sessionId, task.id, task.raw,
-                title = title.trim(), prompt = prompt.trim(), change = change, requestId = requestId
-            ))
+            val request = if ("schedule-management-v2" in gatewayState.capabilities) {
+                val patch = mutableMapOf<String, JsonValue>("title" to JsonValue.StringValue(title.trim()),
+                    "prompt" to JsonValue.StringValue(prompt.trim()))
+                change?.let { patch["timing"] = it }
+                GatewayRequests.scheduleEdit(requestId, task.id, task.raw["updatedAt"], JsonValue.ObjectValue(patch))
+            } else GatewayRequests.scheduleUpdate(task.sessionId, task.id, task.raw,
+                title = title.trim(), prompt = prompt.trim(), change = change, requestId = requestId)
+            val sent = appGraph.gatewayRuntime.sendRequest(request)
             if (!sent) withContext(Dispatchers.Main.immediate) {
                 if (scheduledTaskMutationRequestId == requestId) finishScheduledTaskMutation(appText("操作未发送，请重试"))
             }
@@ -897,12 +998,13 @@ class AndroidSharedStateHolder(
     }
 
     fun deleteScheduledTask(task: MobileScheduledTask): String? {
-        val requestId = beginScheduledTaskMutation(task, "schedule-delete") ?: return null
+        val requestId = beginScheduledTaskMutation(task, if ("schedule-management-v2" in gatewayState.capabilities) "schedule-edit" else "schedule-delete") ?: return null
         val appGraph = graph ?: return null
         appGraph.gatewayScope.launch {
-            val sent = appGraph.gatewayRuntime.sendRequest(GatewayRequests.scheduleDelete(
-                task.sessionId, task.id, requestId
-            ))
+            val request = if ("schedule-management-v2" in gatewayState.capabilities) {
+                GatewayRequests.scheduleEdit(requestId, task.id, task.raw["updatedAt"], delete = true)
+            } else GatewayRequests.scheduleDelete(task.sessionId, task.id, requestId)
+            val sent = appGraph.gatewayRuntime.sendRequest(request)
             if (!sent) withContext(Dispatchers.Main.immediate) {
                 if (scheduledTaskMutationRequestId == requestId) finishScheduledTaskMutation(appText("操作未发送，请重试"))
             }
@@ -948,6 +1050,10 @@ class AndroidSharedStateHolder(
     private var preparingNewSession = false
 
     suspend fun prepareNewSession(): Boolean {
+        if (selectedWorkspaceId == ALL_WORKSPACES_ID) {
+            platformError = appText("请先选择一个具体工作区，再创建新会话。")
+            return false
+        }
         teamLeadSessionId = null
         teamSnapshot = com.clarklevis.dsh.shared.facade.TeamSnapshot()
         if (preparingNewSession) return false
@@ -1300,16 +1406,6 @@ class AndroidSharedStateHolder(
         }
     }
 
-    /** 首页「运行中会话卡」的数据源：按会话取一份 stats（结果落 `snapshot.statsBySessionSnapshot`）。
-     *  与 `requestSessionControls` 走的同一条 `session-stats` 请求；不选中该会话也能拿到。 */
-    fun requestRunningSessionStats(sessionId: String) {
-        val appGraph = graph ?: return
-        if (gatewayState.connection != GatewayConnectionState.CONNECTED) return
-        appGraph.gatewayScope.launch {
-            appGraph.gatewayRuntime.sendRequest(GatewayRequests.sessionControl("session-stats", sessionId))
-        }
-    }
-
     fun pingGateway() {
         val appGraph = graph ?: return
         if (gatewayState.connection != GatewayConnectionState.CONNECTED) return
@@ -1471,7 +1567,7 @@ class AndroidSharedStateHolder(
             projectionActor.loadHistoryImmediate(sessionId, older = true)
             return true
         }
-        android.util.Log.d("HistoryPresentation", "stage=request-start rows=${snapshot.conversation.size}")
+        com.clarklevis.dsh.android.platform.LocalAppLog.d("HistoryPresentation", "stage=request-start rows=${snapshot.conversation.size}")
         appGraph.gatewayScope.launch {
             try {
                 projectionActor.loadHistory(sessionId, older = true, offline = offlineBrowsing) {
@@ -1488,7 +1584,7 @@ class AndroidSharedStateHolder(
                     historyPagingSessionIds = historyPagingSessionIds - sessionId
                     platformError = appText("历史记录加载失败")
                 }
-                android.util.Log.w("HistoryPresentation", "stage=request-failed type=${error.javaClass.simpleName}")
+                com.clarklevis.dsh.android.platform.LocalAppLog.w("HistoryPresentation", "stage=request-failed type=${error.javaClass.simpleName}")
             }
         }
         return true
@@ -1936,8 +2032,6 @@ class AndroidSharedStateHolder(
             applySessionAgentPresetTransition(sessionAgentPresetStore.beginMessage())
         }
         pendingMessageSubmission = submission
-        // #14：身份单独记账 —— 超时只撤「还在等」，身份留到确认/失败为止。
-        messageAck.begin(submission.requestId, submission)
         appGraph.diagnostics.intent(
             GatewayDiagnosticAction.SEND_MESSAGE,
             hasSession = submission.sessionId != null,
@@ -1976,9 +2070,9 @@ class AndroidSharedStateHolder(
                     clientTimeZone = TimeZone.getDefault().id,
                     mode = mode,
                     receipts = submission.receipts,
-                    // #14：纯文本也带 requestId（Chief 定：与 iOS 同一形状，不另造本地标识）——
-                    // 迟到确认靠它认领；网关 `lib/index.mjs:609` 会把它原样回显进 sent/error。
-                    requestId = submission.requestId
+                    requestId = submission.requestId,
+                    textParts = if ("message-quotes-v1" in gatewayState.capabilities)
+                        com.clarklevis.dsh.shared.protocol.GatewayQuoteTextParts.parse(submission.draft) else null
                 )
                 if (!sent) withContext(Dispatchers.Main.immediate) {
                     pendingMessageSubmission = null
@@ -2121,6 +2215,9 @@ class AndroidSharedStateHolder(
         drainAttachmentQueue()
     }
 
+    suspend fun imageAttachmentData(sessionId: String, attachmentId: String): ByteArray? =
+        graph?.gatewayRuntime?.readCachedAttachment(sessionId, attachmentId)
+
     fun retryAttachment(attachmentId: String) {
         val key = cacheKeyForCurrentSession(attachmentId) ?: return
         if (key !in visibleAttachmentKeys) return
@@ -2231,9 +2328,21 @@ class AndroidSharedStateHolder(
     }
 
     private fun notifyUserForAgentFrame(appGraph: AndroidAppGraph, frame: GatewayFrame) {
-        if (frame.kind != "approval-requested" &&
-            (frame.kind != "event" || frame.event?.type != "turn/end")
-        ) return
+        val monitoredSessionIds = appGraph.gatewayRuntime.state.value.activeTurnSessionIds +
+            listOfNotNull(snapshot.selectedSessionId)
+        val runningSessionIds = snapshot.sessions.filter { it.isRunning && it.id in monitoredSessionIds }
+            .mapTo(mutableSetOf()) { it.id }
+        agentExecutionNotifications.accept(frame, runningSessionIds)?.let { ended ->
+            appGraph.agentNotifications.notifyExecutionEnded(
+                gatewayId = appGraph.gatewayLocalId,
+                sessionId = ended.sessionId,
+                eventId = ended.eventId,
+                sessionTitle = snapshot.sessions.firstOrNull { it.id == ended.sessionId }
+                    ?.title?.takeIf(String::isNotBlank) ?: "DeepSeek Harness",
+                failed = ended.failed
+            )
+        }
+        if (frame.kind !in setOf("approval-requested", "question-requested")) return
         val sessionId = frame.sessionId?.takeIf(String::isNotBlank) ?: return
         val sessionTitle = snapshot.sessions.firstOrNull { it.id == sessionId }
             ?.title?.takeIf(String::isNotBlank) ?: "DeepSeek Harness"
@@ -2250,23 +2359,26 @@ class AndroidSharedStateHolder(
                     detail = request.localizedReason(Locale.getDefault().toLanguageTag()) ?: request.toolName
                 )
             }
-            frame.kind == "event" && frame.event?.type == "turn/end" -> {
-                val sequence = frame.seq ?: return
-                if (frame.time == null) return
-                val event = frame.event ?: return
-                val failed = event.isError == true || event.interrupted == true ||
-                    !event.error.isNullOrBlank() ||
-                    event.reason?.lowercase(Locale.ROOT) in setOf(
-                        "error", "failed", "cancelled", "canceled", "interrupted", "aborted"
-                    )
-                appGraph.agentNotifications.notifyExecutionEnded(
+            frame.kind == "question-requested" -> {
+                val request = snapshot.pendingQuestions.firstOrNull {
+                    it.sessionId == sessionId && it.rpcId == frame.rpcId &&
+                        it.rpcId.isNotBlank() && it.questions.isNotEmpty()
+                } ?: return
+                appGraph.agentNotifications.notifyQuestionRequired(
                     gatewayId = appGraph.gatewayLocalId,
+                    requestId = request.rpcId,
                     sessionId = sessionId,
-                    sequence = sequence,
                     sessionTitle = sessionTitle,
-                    failed = failed
+                    prompt = request.questions.first().question
                 )
             }
+        }
+    }
+
+    internal fun notifyPendingAgentRequests() {
+        val appGraph = graph ?: return
+        for (frame in pendingAgentNotificationFrames(snapshot)) {
+            notifyUserForAgentFrame(appGraph, frame)
         }
     }
 
@@ -2885,12 +2997,6 @@ class AndroidSharedStateHolder(
     // 所有实例状态初始化完成后才启动异步观察；回调可在构造线程返回前到达。
     init {
         graph?.let { appGraph ->
-            bridgeTeam?.apply {
-                android.util.Log.i("GatewayEndpoint", "init: endpoint=$endpoint (默认值，真实地址走 preferences 异步)")
-                updateGatewayEndpoint(endpoint)
-                // 落盘会话存在则直接进入 8s 轮询；没有则等 paired 帧下发 bridgeSession。
-                start()
-            }
             val holderScope = requireNotNull(scope)
             runtimeCollection = appGraph.gatewayScope.launch {
                 launch {
@@ -2927,8 +3033,6 @@ class AndroidSharedStateHolder(
                     appGraph.preferences.snapshots.collect { value ->
                         withContext(Dispatchers.Main.immediate) {
                             endpoint = value.endpoint
-                            android.util.Log.i("GatewayEndpoint", "preferences: endpoint=${value.endpoint}")
-                            bridgeTeam?.updateGatewayEndpoint(value.endpoint)
                             if (!workspaceSelectedByUser) selectedWorkspaceId = value.selectedWorkspaceId ?: selectedWorkspaceId
                             workspacePreferenceLoaded = true
                             if (hasReceivedWorkspaces) reconcileWorkspaceSelection()
@@ -2958,8 +3062,6 @@ class AndroidSharedStateHolder(
                                 remoteSearchResultQuery = null
                                 applySessionAgentPresetTransition(sessionAgentPresetStore.disconnected())
                                 pendingMessageSubmission = null
-                                // #14：断连只是「我们这边不等了」，投递可能已经落地 ⇒ 身份不撤。
-                                messageAck.timedOut()
                                 cancellingSessionIds = emptySet()
                             }
                             if (state.connection != GatewayConnectionState.CONNECTED &&
@@ -2982,6 +3084,12 @@ class AndroidSharedStateHolder(
                                 sessionIdToRefresh = snapshot.selectedSessionId?.takeIf { teamLeadSessionId != null }
                                 shouldCatchUpSelectedHistory = sessionIdToRefresh != null
                                 if (pluginPageVisited) refreshPlugins()
+                            }
+                            if (state.connection != GatewayConnectionState.CONNECTED && pluginUpdateRequestId != null) {
+                                pluginNotice = appText("连接中断，更新及恢复结果待核实，请重连后检查实际版本")
+                                pluginUpdateRequestId = null
+                                pluginPendingName = null
+                                pluginUpdateStep = "unverified"
                             }
                             if (state.connection != GatewayConnectionState.CONNECTED && pluginToggleRequestId != null) {
                                 pluginNotice = if (pluginPendingName == "dsh-plugin-mobile-gateway") {
@@ -3034,38 +3142,6 @@ class AndroidSharedStateHolder(
                             if (chatPrefetcher?.interceptTerminal(event) == true) return@collect
                             when (event) {
                                 is GatewayRuntimeEvent.Frame -> {
-                                    // C1：U5 对称配对 —— 网关在 paired 帧顺带下发团队会话，收到即接上桥接轮询。
-                                    //
-                                    // **自愈（2026-11-02 用户报障）**：也接受 `hello` 帧里带的 bridgeSession。
-                                    // 理由：网关只在「配对那一刻」发 paired（issueSessionForDevice 只有那一处调用），
-                                    // 而 hello 每次连接都会来——本地会话一旦丢失，只有 hello 能把它补回来，
-                                    // 否则用户每次覆盖安装都得重新扫码。
-                                    // 注意：**不能**反过来让网关伪造 paired 来补发（paired 有 token 语义：
-                                    // SplitGatewayTransport.kt:48 会把 bearerToken 置成帧里的 token，空 token 反而搞坏鉴权）。
-                                    // **三种 kind 都接**（Chief 2026-11-02 定：网关发哪个都认，不押契约）：
-                                    //   paired          —— 配对那一刻网关主动下发（原有路径）
-                                    //   bridge-session  —— 自愈拉取请求的响应（拉取式主路径）
-                                    //   hello           —— 兼容网关将来在 hello 里携带（hello 不涉及 token 语义，接它无害）
-                                    // 注意：**网关不得在每次 hello 里新签发**——`issueSession` 会轮换 token
-                                    // （mobile-v1/auth.mjs:60-66，TTL 15 分钟），那会造成 401 风暴；那侧的闸门在网关。
-                                    if (event.frame.kind == "paired" ||
-                                        event.frame.kind == "bridge-session" ||
-                                        event.frame.kind == "hello"
-                                    ) {
-                                        // 诊断：区分「网关没下发 bridgeSession」与「下发了但落盘失败」——
-                                        // 这两者在 UI 上都表现为"尚未配对"，没有日志就查不出来。
-                                        android.util.Log.i(
-                                            "DshBridgeTeam",
-                                            "${event.frame.kind} frame: bridgeSession=" +
-                                                (event.frame.bridgeSession?.let { "device=${it.deviceId.take(8)}" } ?: "null")
-                                        )
-                                        event.frame.bridgeSession?.let { session ->
-                                            withContext(Dispatchers.Main.immediate) {
-                                                // 已有可用会话时不重复写入（hello 比 paired 频繁，幂等但不必空转）
-                                                if (bridgeTeam?.hasSession != true) bridgeTeam?.adoptSession(session)
-                                            }
-                                        }
-                                    }
                                     if (event.frame.kind.startsWith("file-upload-") || event.frame.requestType?.startsWith("file-upload-") == true) {
                                         withContext(Dispatchers.Main.immediate) { fileUploads.accept(event.frame) }
                                         return@collect
@@ -3095,10 +3171,7 @@ class AndroidSharedStateHolder(
                                                     persistedTeamRouting = routing
                                                     scheduleOfflineCatalogSave()
                                                 }
-                                                if (event.frame.kind == "hello") {
-                                                    refreshTeam()
-                                                    requestBridgeSessionIfMissing()
-                                                }
+                                                if (event.frame.kind == "hello") refreshTeam()
                                                 if (event.frame.kind in setOf("session-snapshot", "subagent-identity-updated")) {
                                                     snapshot.selectedSessionId?.let { selected ->
                                                         val address = teamStore.targetJson(selected)
@@ -3120,7 +3193,6 @@ class AndroidSharedStateHolder(
                                                 }?.let {
                                                     if (event.frame.code == "session/attachment-invalid") fileUploads.invalidReceipts()
                                                     pendingMessageSubmission = null
-                                                    messageAck.abandon() // 明确错误帧 = 这条投递没成
                                                 }
                                             }
                                         }
@@ -3150,6 +3222,8 @@ class AndroidSharedStateHolder(
                                         ) {
                                             val succeeded = if (event.frame.kind == "schedule-update") {
                                                 event.frame.updated == true
+                                            } else if (event.frame.kind in setOf("schedule-edit", "schedule-create", "schedule-run", "schedule-delete-inactive")) {
+                                                event.frame.code == null
                                             } else event.frame.deleted == true
                                             finishScheduledTaskMutation(
                                                 if (succeeded) null else scheduledTaskFailureMessage(event.frame.code, event.frame.message)
@@ -3161,23 +3235,29 @@ class AndroidSharedStateHolder(
                                             finishScheduledTaskMutation(scheduledTaskFailureMessage(event.frame.code, event.frame.message))
                                         }
                                         when (event.frame.kind) {
-                                            "schedule-catalog" -> {
-                                                scheduledTasks = event.frame.items.orEmpty().mapNotNull(MobileScheduledTask::from)
+                                            "schedule-history" -> if (event.frame.requestId == scheduleHistoryRequestId) {
+                                                scheduleHistory = JsonValue.fromJsonElement(kotlinx.serialization.json.Json.parseToJsonElement(event.rawJson))
+                                            }
+                                            "schedule-list", "schedule-catalog" -> {
+                                                if (event.frame.kind == "schedule-list" && event.frame.requestId != scheduleListRequestId) return@withContext
+                                                val previous = if (event.frame.kind == "schedule-list" && scheduleListOffset > 0) scheduledTasks else emptyList()
+                                                scheduledTasks = (previous + event.frame.items.orEmpty().mapNotNull(MobileScheduledTask::from)).distinctBy { it.id }
                                                     .sortedWith(compareBy<MobileScheduledTask> { it.status != "active" }.thenBy { it.scheduledAt })
+                                                scheduledTasksTotal = event.frame.total ?: scheduledTasks.size
                                                 scheduledTasksLoading = false
                                                 scheduledTasksError = null
                                             }
                                             "schedule-changed" -> refreshScheduledTasks()
-                                            "error" -> if (event.frame.requestType == "schedule-catalog") {
+                                            "error" -> if (event.frame.requestType == "schedule-history" && event.frame.requestId == scheduleHistoryRequestId) {
+                                                scheduleHistory = JsonValue.ObjectValue(mapOf("records" to JsonValue.StringValue(event.frame.message ?: "执行记录加载失败")))
+                                            } else if (event.frame.requestType in setOf("schedule-catalog", "schedule-list") &&
+                                                (event.frame.requestId == null || event.frame.requestId == scheduleListRequestId)) {
                                                 scheduledTasksLoading = false
                                                 scheduledTasksError = event.frame.message ?: appText("定时任务加载失败")
                                             }
                                         }
                                         if (event.frame.kind == "sent") {
-                                            // #14：接受条件从「还在等」改为「有在途投递 + requestId 匹配」——
-                                            // 迟到的成功确认也能清空输入框；命中即清身份，重复帧不会再认领一次。
-                                            val hadNoFiles = messageAck.payload?.fileIds.isNullOrEmpty()
-                                            messageAck.accept(event.frame.requestId, submissionHadNoFiles = hadNoFiles)?.let {
+                                            pendingMessageSubmission?.takeIf { event.frame.requestId == it.requestId || (it.fileIds.isEmpty() && event.frame.requestId == null) }?.let {
                                                 applyMessageSendResult(it, true)
                                                 pendingMessageSubmission = null
                                             }
@@ -3305,10 +3385,7 @@ class AndroidSharedStateHolder(
                                             event.requestType, event.targetSessionId, event.correlationId, appText("请求未完成，请重试")
                                         ))
                                         handleSessionCancellationFailure(event.requestType, event.targetSessionId)
-                                        if (event.requestType == "message") {
-                                            pendingMessageSubmission = null
-                                            messageAck.abandon() // 取消 = 确定没发出去
-                                        }
+                                        if (event.requestType == "message") pendingMessageSubmission = null
                                         if (event.requestType == "queue-update") {
                                             queueState = queueStore.failPending(appText("队列操作未完成，请检查最新状态后重试"))
                                             platformError = queueState.lastError
@@ -3369,7 +3446,7 @@ class AndroidSharedStateHolder(
                                     ) withContext(Dispatchers.Main.immediate) {
                                         finishScheduledTaskMutation(appText("操作超时，请刷新任务后重试"))
                                     }
-                                    if (event.requestType == "schedule-catalog") {
+                                    if (event.requestType in setOf("schedule-catalog", "schedule-list")) {
                                         withContext(Dispatchers.Main.immediate) {
                                             scheduledTasksLoading = false
                                             scheduledTasksError = appText("定时任务请求超时，请重试")
@@ -3380,11 +3457,7 @@ class AndroidSharedStateHolder(
                                             event.requestType, event.targetSessionId, event.correlationId, appText("请求未完成，请重试")
                                         ))
                                         handleSessionCancellationFailure(event.requestType, event.targetSessionId)
-                                        if (event.requestType == "message") {
-                                            // #14：超时只撤「还在等」，**身份留着** —— 迟到的 sent 仍能认领。
-                                            pendingMessageSubmission = null
-                                            messageAck.timedOut()
-                                        }
+                                        if (event.requestType == "message") pendingMessageSubmission = null
                                         if (event.requestType == "queue-update") {
                                             queueState = queueStore.failPending(appText("队列操作未完成，请检查最新状态后重试"))
                                             platformError = queueState.lastError
@@ -3453,10 +3526,7 @@ class AndroidSharedStateHolder(
                                             event.requestType, event.targetSessionId, event.correlationId, appText("请求未完成，请重试")
                                         ))
                                         handleSessionCancellationFailure(event.requestType, event.targetSessionId)
-                                        if (event.requestType == "message") {
-                                            pendingMessageSubmission = null
-                                            messageAck.abandon() // 被拒 = 确定没成，草稿留着让用户重发
-                                        }
+                                        if (event.requestType == "message") pendingMessageSubmission = null
                                         if (event.requestType == "queue-update") {
                                             queueState = queueStore.failPending(appText("队列操作未完成，请检查最新状态后重试"))
                                             platformError = queueState.lastError
@@ -3484,7 +3554,9 @@ class AndroidSharedStateHolder(
                                         defaultConfigurationLoadingKinds =
                                             defaultConfigurationLoadingKinds - event.requestType
                                         clearWorkspaceRequestLoading(event.requestType)
-                                        platformError = "${event.requestType}: ${event.reason}"
+                                        platformError = if (event.reason == "transport/ws-required") {
+                                            appText("正在切换到 WebSocket 以发送大消息，草稿已保留，请连接后重新发送。")
+                                        } else "${event.requestType}: ${event.reason}"
                                         if (event.requestType == "history") {
                                             event.targetSessionId?.let {
                                                 historyPagingSessionIds = historyPagingSessionIds - it
@@ -3525,23 +3597,109 @@ class AndroidSharedStateHolder(
                     }
                 }
                 launch {
-                    // 失败**不许静默**（Chief 2026-11-02 / AndroidTester :230 读数）：
-                    // connectStoredIfPaired 在 token 为空时只 return false，界面拿不到任何原因——
-                    // 「从没配对」与「密文解不开」于是对用户完全同形（都是空白 + 不自动连）。
-                    val connected = runCatching { appGraph.gatewayRuntime.connectStoredIfPaired() }
-                        .getOrElse {
+                    runCatching { appGraph.gatewayRuntime.connectStoredWhenReady(appGraph.storedConnectionPrerequisite) }
+                        .onFailure {
+                            if (it is CancellationException) throw it
                             withContext(Dispatchers.Main.immediate) {
-                                platformError = CREDENTIAL_ERROR_RESTORE
+                                platformError = "stored-connect-failed"
                             }
-                            false
                         }
-                    if (!connected && tokenUnreadable) {
-                        withContext(Dispatchers.Main.immediate) {
-                            platformError = CREDENTIAL_ERROR_GATEWAY
-                        }
-                    }
                 }
             }
+        }
+    }
+
+    internal val bridgeTeam: AndroidBridgeTeamAdapter? =
+        graph?.let {
+            AndroidBridgeTeamAdapter(
+                it.application,
+                it.applicationScope,
+                // Chief 拍板（2026-11-01）：对齐 iOS 生产 https-only；debug 源集才放行 loopback 明文。
+                allowInsecureLoopback = BRIDGE_ALLOW_INSECURE_LOOPBACK
+            ).apply {
+                // vc60 P0：轮询判死也触发自愈拉取——原先只有 hello 一个触发点，判死后控制通道
+                // 不重连就没有 hello，死锁到重启（vc59 真机「尚未配对」根因）。
+                onSessionMissing = { requestBridgeSessionIfMissing() }
+            }
+        }
+
+    /**
+     * Bot 域会话（① Bot 自己的会话 ② 群聊 room，均按 bridge 名册 sessionId 命中）：
+     * 输入框不显示模型/思考 chip——桌面端 `ds-bot/src/client/index.js:916` 语义，
+     * 群聊里切模型会触发 MODEL_SWITCH_COMPACTION_FAILED 卡死（2026-11-03 事故）。
+     * 判定本体在 shared 的 isBotDomainSession（纯函数，反向测试在 commonTest）：
+     * LOADING（已配对、名册未达）fail-closed 按可能在 Bot 域隐藏；IDLE/未配对按普通会话。
+     */
+    val isBotDomainSession: Boolean
+        get() {
+            val team = bridgeTeam ?: return false
+            val teamState = team.state
+            return com.clarklevis.dsh.shared.domain.isBotDomainSession(
+                sessionId = snapshot.selectedSessionId,
+                bridgePhase = teamState.phase,
+                botSessionIds = teamState.bots.mapTo(mutableSetOf()) { it.sessionId },
+                roomSessionIds = teamState.rooms.mapTo(mutableSetOf()) { it.sessionId },
+            )
+        }
+    private var bridgeSessionRequestedAtMillis: Long = 0L
+    var pairingRequestTick: Int by mutableStateOf(0)
+    fun pausePrefetch(reason: String) {
+        chatPrefetcher?.stop(reason)
+    }
+
+    fun resumePrefetch() {
+        chatPrefetcher?.resume("foreground")
+    }
+
+    /** true = token 密文解不开：与「从没配对」区分开（Chief 2026-11-02）。 */
+    val tokenUnreadable: Boolean
+        get() = (graph?.credentialStore as? com.clarklevis.dsh.android.platform.AndroidGatewayCredentialStore)
+            ?.tokenUnreadable == true
+
+    /** true = 设备身份密文解不开（Keystore 失效）：Bot 页据此提示「可能为临时故障」。 */
+    val deviceIdentityUnreadable: Boolean
+        get() = (graph?.credentialStore as? com.clarklevis.dsh.android.platform.AndroidGatewayCredentialStore)
+            ?.deviceIdentityUnreadable == true
+
+    private fun requestBridgeSessionIfMissing() {
+        val appGraph = graph ?: return
+        if (bridgeTeam?.hasSession == true) return
+        // **区分「丢了」与「解不开」**（iOSTester 2026-11-02）：
+        // 密文还在、只是这次解不开（Keystore 临时不可用 / 密文被写坏）时**不得自动补发**——
+        // 否则会把"瞬时解不开"静默升级成"换了一份新凭证"，与本项目「非销毁式失败（保留密文）」
+        // 的原则直接冲突，而且顺手把权限从「配对码 ⇒ bridge 会话」扩成「网关 token ⇒ 可铸造 bridge 会话」。
+        // 这种情形应停在「设备凭证无法读取，需要重新配对」那一档，由用户决定。
+        if (bridgeTeam?.restoreFailed == true) {
+            android.util.Log.i(
+                "DshBridgeTeam",
+                "bridge session present-but-undecryptable -> no auto re-issue (needs explicit re-pair)"
+            )
+            return
+        }
+        val now = System.currentTimeMillis()
+        // 60 秒内不重复请求：避免重连抖动时刷请求（网关每次都会轮换 token）
+        if (now - bridgeSessionRequestedAtMillis < 60_000L) return
+        bridgeSessionRequestedAtMillis = now
+        android.util.Log.i("DshBridgeTeam", "bridge session missing -> requesting re-issue from gateway")
+        appGraph.gatewayScope.launch {
+            val sent = appGraph.gatewayRuntime.sendRequest(
+                com.clarklevis.dsh.shared.gateway.GatewayRequests.bridgeSessionRequest(
+                    "bridge-session-${now}"
+                )
+            )
+            if (!sent) android.util.Log.w("DshBridgeTeam", "bridge-session request not sent (gateway not ready)")
+            else bridgeTeam?.markReissueRequested() // vc60 P1：重签已发出，UI 进「自动重新获取」态
+        }
+    }
+
+    fun requestPairing() {
+        pairingRequestTick += 1
+    }
+    fun requestRunningSessionStats(sessionId: String) {
+        val appGraph = graph ?: return
+        if (gatewayState.connection != GatewayConnectionState.CONNECTED) return
+        appGraph.gatewayScope.launch {
+            appGraph.gatewayRuntime.sendRequest(GatewayRequests.sessionControl("session-stats", sessionId))
         }
     }
 

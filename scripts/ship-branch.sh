@@ -1,4 +1,22 @@
 #!/bin/bash
+
+
+# ── 本机构建环境头（ReleaseBot 2026-11-06 补：合并树起每次 iOS 构建都要过它）────────
+# ① xcrun -f ld 在本机必崩（dyld 坏页）；DEVELOPER_DIR 指向 shim 绕过（11-03 README 方案）。
+# ② Tsnetgo 阶段需要 Go/gomobile（tools/go/bin + tools/gopath/bin）。
+if [ -z "${DEVELOPER_DIR:-}" ]; then
+  if [ -d /tmp/FakeXcode.app/Contents/Developer ]; then
+    export DEVELOPER_DIR=/tmp/FakeXcode.app/Contents/Developer
+  else
+    echo "ERROR: /tmp/FakeXcode.app 不存在——本机 xcrun -f ld 必崩，需按 11-03 README 重建：" >&2
+    echo "       /Volumes/应用/dsh-workspace/tools/xcode-shim/rebuild-xcode-shim.sh" >&2
+    exit 69
+  fi
+fi
+for _d in /Volumes/应用/dsh-workspace/tools/go/bin /Volumes/应用/dsh-workspace/tools/gopath/bin; do
+  [ -d "$_d" ] && case ":${PATH:-}:" in *_d:*) ;; *) export PATH="$_d:$PATH" ;; esac
+done
+export GOPATH="${GOPATH:-/Volumes/应用/dsh-workspace/tools/gopath}"
 # 出包：把当前 HEAD 的 App 代码送进 `build/u6-batch2` 并触发唯一一次 workflow_dispatch。
 #
 # 为什么不是 `git push`：
@@ -21,6 +39,11 @@
 # 产出两个"看起来都成功"的包（0044/0051 那次就是这样）。要并行出包请先换 BRANCH。
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
+# ── Tsnetgo 预置（2026-11-06）：Xcode 阶段改为「产物在即跳过 gomobile bind」，
+#    缺产物时报错指路（避免 153M 入库，gitignore 已覆盖 build/）。
+if [ -f scripts/ensure-tsnetgo.sh ]; then
+  ./scripts/ensure-tsnetgo.sh || exit 1
+fi
 
 REPO="${REPO:-YDGG123/dsh-mobile}"
 BRANCH="${BRANCH:-build/u6-batch2}"

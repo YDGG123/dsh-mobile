@@ -361,6 +361,7 @@ internal fun makeConversationDisplayEntries(
             }
 
             ConversationItemKind.USER,
+            ConversationItemKind.GENERATED_IMAGES,
             ConversationItemKind.ASSISTANT,
             ConversationItemKind.SYSTEM -> {
                 flushProcess()

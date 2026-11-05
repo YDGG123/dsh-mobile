@@ -22,6 +22,7 @@ private struct KMPConversationItemSnapshot: Decodable {
     /// 群聊发言者名（**只来自服务端 author.name / source.senderName**，KMP `ConversationItem.senderName`，
     /// 2026-11-02 群聊"看不到 Bot 回复"修复的一部分；缺失键解码为 nil ⇒ 渲染层不显示名字，向后兼容）。
     let senderName: String?
+    let textParts: [GatewayTextPart]?
 
     var item: ConversationItem? {
         guard !id.isEmpty,
@@ -38,7 +39,8 @@ private struct KMPConversationItemSnapshot: Decodable {
             files: files ?? [],
             knownFiles: knownFiles ?? [],
             seq: seq,
-            senderName: senderName
+            senderName: senderName,
+            textParts: textParts
         )
     }
 }
@@ -53,6 +55,7 @@ private extension ConversationItem.Kind {
         case "TOOL": self = .tool
         case "JSON_TOOL": self = .jsonTool
         case "TOOL_RESULT": self = .toolResult
+        case "GENERATED_IMAGES": self = .generatedImages
         case "STATUS": self = .status
         case "SYSTEM": self = .system
         default: return nil
@@ -505,7 +508,8 @@ final class KMPConversationStoreAdapter {
                         knownFiles: old.knownFiles,
                         // 这里是**重建**而不是 `old.copy` ⇒ 不显式带上就会把 seq 丢掉，
                         // 导致流式追加后的条目退化成"从 id 拆 seq"那条兜底路径。
-                        seq: old.seq
+                        seq: old.seq,
+                        textParts: old.textParts
                     )
                 case "replace":
                     guard let item = operation.item?.item,
@@ -1350,7 +1354,7 @@ final class KMPHistoryStoreAdapter {
         let previousRevision = replacementRevision
         try dispatch(.page(sessionID: sessionID)) {
             shared.installSnapshot(sessionId: sessionID, eventsJson: try encode(events), hasMore: hasMore,
-                nextBeforeSequence: nextBeforeSequence.map { KotlinInt(int: Int32($0)) })
+                nextBeforeSequence: nextBeforeSequence.map { KotlinInt(int: Int32($0)) }, loadRecentPages: true)
         }
         return replacementRevision != previousRevision
     }
@@ -1643,7 +1647,7 @@ final class KMPHistoryStoreAdapter {
                     guard validReplacement(replacement, sessionID: sessionID) else {
                         throw KMPHistoryStoreError.invalidEvent("history reference fallback snapshot is invalid")
                     }
-                    NSLog("history-reference-mirror-recovered sequence=%lld", baseEventSequence + 1)
+                    appLog("history-reference-mirror-recovered sequence=%lld", baseEventSequence + 1)
                     records = replacement
                     return
                 }

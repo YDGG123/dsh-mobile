@@ -211,6 +211,7 @@ struct WorkspaceView: View {
                     }
                     .scrollIndicators(.hidden)
                     .scrollDismissesKeyboard(.interactively)
+                    .accessibilityIdentifier("workspace-session-list")
                 }
             }
         }

@@ -218,7 +218,7 @@ internal class AppUpdateViewModel(application: Application) : AndroidViewModel(a
                     } ?: error(appText("更新配置为空"))
                 }
                 parseUpdateManifest(json, context.packageName, currentVersion,
-                    PackageInfoCompat.getLongVersionCode(installed))
+                    PackageInfoCompat.getLongVersionCode(installed), android.os.Build.SUPPORTED_ABIS.toList())
             },
         )
         val visibleRelease = release?.takeUnless {

@@ -113,6 +113,14 @@ object GatewayWireDecoder {
         if ((normalized["kind"] as? JsonPrimitive)?.contentOrNull in setOf("speech-catalog", "speech-state")) {
             normalized = JsonObject(normalized - "selection")
         }
+        val kind = (normalized["kind"] as? JsonPrimitive)?.contentOrNull
+        // 新管理响应平铺完整任务，target 为对象，与旧设置响应的字符串 target 不同。
+        if (kind in setOf("schedule-view", "schedule-create", "schedule-edit", "schedule-run")) {
+            normalized = JsonObject((normalized - "target") + ("schedule" to normalized))
+        }
+        if (kind == "schedule-delete-inactive") {
+            normalized = JsonObject((normalized - "deleted") + ("deletedCount" to (normalized["deleted"] ?: JsonPrimitive(0))))
+        }
         val presets = normalized["presets"] as? JsonArray
         if (presets != null) {
             normalized = JsonObject(normalized + ("presets" to JsonArray(presets.map { item ->
@@ -123,6 +131,15 @@ object GatewayWireDecoder {
                     "brokenReason" to broken
                 )) else preset
             })))
+        }
+        // 图片是可选增强：单张元数据损坏不能丢掉整条工具结果/助手回复。
+        val event = normalized["event"] as? JsonObject
+        if (event != null && "images" in event) {
+            val images = (event["images"] as? JsonArray).orEmpty().filter { value ->
+                runCatching { wireJson.decodeFromJsonElement<GatewayImageAttachment>(value) }
+                    .getOrNull()?.isValidToolImage() == true
+            }
+            normalized = JsonObject(normalized + ("event" to JsonObject(event + ("images" to JsonArray(images)))))
         }
         return wireJson.decodeFromJsonElement(GatewayFrame.serializer(), normalized)
     }

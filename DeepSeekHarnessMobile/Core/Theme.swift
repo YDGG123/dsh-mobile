@@ -77,6 +77,14 @@ struct AppFont {
     }
 }
 
+/// 设置主页与子页共用的文字层级（上游 1.7.15 移植）；所有角色沿用应用字号与 Dynamic Type 缩放。
+enum SettingsTypography {
+    static let title = AppFont.body.weight(.semibold)
+    static let item = AppFont.body
+    static let description = AppFont.caption
+    static let section = description
+}
+
 private struct AppFontModifier: ViewModifier {
     @AppStorage(AppFontScale.key) private var scale = 1.0
     @AppStorage(AppFontScale.followsSystemKey) private var followsSystem = false
@@ -161,6 +169,13 @@ enum DSHColor {
             : UIColor(red: 0.72, green: 0.12, blue: 0.10, alpha: 1)
     })
     static let success = Color(red: 0.18, green: 0.72, blue: 0.36)
+
+    /// 插件与设置开关共用的开启底色，分别适配浅色和深色外观。（上游 1.7.15 移植）
+    static func switchTint(for scheme: ColorScheme) -> Color {
+        scheme == .dark
+            ? Color(red: 29.0 / 255, green: 68.0 / 255, blue: 127.0 / 255)
+            : Color(red: 36.0 / 255, green: 90.0 / 255, blue: 196.0 / 255)
+    }
 }
 
 /// 主题感知色板：主页所有前景/容器色都从它取，禁止再写死 `.white.opacity(…)`。

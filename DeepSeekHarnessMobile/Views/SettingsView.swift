@@ -57,6 +57,9 @@ struct SettingsView: View {
     @EnvironmentObject private var store: AppStore
     @State private var observedGatewayState: ConnectionState?
     @State private var showsPrivacyPolicy = false
+    @State private var showsTailscaleTunnel = false
+    @State private var showsNetworkDiagnostics = false
+    @State private var showsLogExport = false
     /// 外观两项改为「点行 → 弹出选项层」，避免 .navigationLink Picker 的推入卡死。
     @State private var showsInterfaceOptions = false
     @State private var showsLanguageOptions = false
@@ -203,12 +206,15 @@ struct SettingsView: View {
 
     private var defaultModelValueText: String {
         guard let selection = store.defaultModelSelection else { return String(localized: "未读取") }
-        let item = store.anyModelCatalog?.groups
-            .first(where: { $0.id == selection.provider })?
-            .models.first(where: { $0.id == selection.model })
-        let name = item?.name ?? Self.modelDisplayName(selection.model)
+        let groups: [GatewayModelGroup] = store.anyModelCatalog?.groups ?? []
+        let group: GatewayModelGroup? = groups.first(where: { $0.id == selection.provider })
+        let models: [GatewayModelItem] = group?.models ?? []
+        let item: GatewayModelItem? = models.first(where: { $0.id == selection.model })
+        let name: String = item?.name ?? Self.modelDisplayName(selection.model)
         guard let effort = selection.reasoningEffort else { return name }
-        let effortName = item?.reasoning?.efforts.first(where: { $0.id == effort })?.name ?? Self.reasoningEffortDisplayName(effort)
+        let efforts: [GatewayReasoningEffort]? = item?.reasoning?.efforts
+        let matched: GatewayReasoningEffort? = efforts?.first(where: { $0.id == effort })
+        let effortName: String = matched?.name ?? Self.reasoningEffortDisplayName(effort)
         return "\(name) · \(effortName)"
     }
 
@@ -229,304 +235,216 @@ struct SettingsView: View {
         }
     }
 
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: DSHSpacing.xl) {
-                if embedded {
-                    Text("设置")
-                        .appFont(DSHType.title)
-                        .foregroundStyle(palette.ink(0.92))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                // ① 外观（3 行）：主题三选直接读写 store.interfaceStyle——
-                // 切换立即生效走既有机制（RootView 的 preferredColorScheme），不造新机制。
-                DSHGroup("外观") {
-                    DSHRow("主题", showsDivider: true) {
-                        // 宽度 210：设计稿用「自动/浅色/深色」168 够，但我们沿用既有文案
-                        // 「跟随系统」（不改文案），168 会把首项截成「跟…」。
-                        DSHSegmented(items: InterfaceStyle.allCases.map(\.title),
-                                     selection: interfaceStyleIndex)
-                            .frame(width: 232)
-                    }
-                    DSHRow("语言",
-                           showsDivider: true,
-                           action: { showsLanguageOptions = true }) {
-                        DSHRowValue(text: store.appLanguage.title + languageRestartSuffix)
-                    }
-                    DSHRow("字体大小",
-                           showsDivider: false,
-                           action: { showsFontSizePanel = true }) {
-                        DSHRowValue(text: fontFollowsSystem ? String(localized: "跟随系统")
-                            : "\(Int((AppFontScale.normalized(fontScale) * 100).rounded()))%")
-                    }
-                }
+    private var appearanceGroup: some View {
+DSHGroup("外观") {
+    DSHRow("主题", showsDivider: true) {
+        // 宽度 210：设计稿用「自动/浅色/深色」168 够，但我们沿用既有文案
+        // 「跟随系统」（不改文案），168 会把首项截成「跟…」。
+        DSHSegmented(items: InterfaceStyle.allCases.map(\.title),
+                     selection: interfaceStyleIndex)
+            .frame(width: 232)
+    }
+    DSHRow("语言",
+           showsDivider: true,
+           action: { showsLanguageOptions = true }) {
+        DSHRowValue(text: store.appLanguage.title + languageRestartSuffix)
+    }
+    DSHRow("字体大小",
+           showsDivider: false,
+           action: { showsFontSizePanel = true }) {
+        DSHRowValue(text: fontFollowsSystem ? String(localized: "跟随系统")
+            : "\(Int((AppFontScale.normalized(fontScale) * 100).rounded()))%")
+    }
+}
+    }
 
-                // ② 新会话（3 行）：行为不变，仍是弹层选择（不推入——避免「推入 × 设置」死锁面）
-                DSHGroup("新会话") {
-                    DSHRow("Agent 预设",
-                           showsDivider: true,
-                           action: { showsPresetOptions = true }) {
-                        DSHRowValue(text: selectedPresetName)
-                    }
-                    .disabled(!gatewayState.isConnected)
-                    DSHRow("默认模型",
-                           showsDivider: true,
-                           action: {
-                               showsModelOptions = true
-                               store.ensureModelCatalogForDefaults()
-                           }) {
-                        DSHRowValue(text: defaultModelValueText)
-                    }
-                    .disabled(!gatewayState.isConnected)
-                    .anchorPreference(key: ModelPickerAnchorKey.self, value: .bounds) { $0 }
-                    DSHRow("权限",
-                           showsDivider: false,
-                           action: { showsPermissionOptions = true }) {
-                        DSHRowValue(text: selectedPermissionName)
-                    }
-                    .disabled(!gatewayState.isConnected || store.defaultConfigurationLoadingKinds.contains("set-default"))
-                }
+    private var newSessionGroup: some View {
+DSHGroup("新会话") {
+    DSHRow("Agent 预设",
+           showsDivider: true,
+           action: { showsPresetOptions = true }) {
+        DSHRowValue(text: selectedPresetName)
+    }
+    .disabled(!gatewayState.isConnected)
+    DSHRow("默认模型",
+           showsDivider: true,
+           action: {
+               showsModelOptions = true
+               store.ensureModelCatalogForDefaults()
+           }) {
+        DSHRowValue(text: defaultModelValueText)
+    }
+    .disabled(!gatewayState.isConnected)
+    .anchorPreference(key: ModelPickerAnchorKey.self, value: .bounds) { $0 }
+    DSHRow("权限",
+           showsDivider: false,
+           action: { showsPermissionOptions = true }) {
+        DSHRowValue(text: selectedPermissionName)
+    }
+    .disabled(!gatewayState.isConnected || store.defaultConfigurationLoadingKinds.contains("set-default"))
+}
+    }
 
-                // ③ 扩展（1 行聚合入口）：只做入口，不重做插件/任务列表（那是 11/10 屏）
-                DSHGroup("扩展") {
-                    NavigationLink {
-                        ExtensionsView(onOpenPlugins: onOpenPlugins,
-                                       onOpenScheduledTasks: onOpenScheduledTasks)
-                    } label: {
-                        DSHRow("全部扩展", showsDivider: false) {
-                            DSHRowValue(text: extensionsSummary, showsChevron: true)
-                        }
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                // ④ 连接（3 行）：网关地址可编辑 + 连接/断开 + Ping（原有行为逐个保留）
-                DSHGroup("连接") {
-                    DSHRow("网关地址", showsDivider: true) {
-                        TextField("ws://host:3080/ws/mobile", text: $store.endpoint)
-                            .textInputAutocapitalization(.never)
-                            .keyboardType(.URL)
-                            .autocorrectionDisabled()
-                            .multilineTextAlignment(.trailing)
-                            .appFont(DSHType.footnote)
-                            .foregroundStyle(palette.ink(0.5))
-                            .frame(maxWidth: 210)
-                    }
-                    DSHRow("连接状态",
-                           showsDivider: true,
-                           action: {
-                               if gatewayState.isConnected { store.disconnect() } else { store.connect() }
-                           }) {
-                        HStack(spacing: DSHSpacing.xs) {
-                            ConnectionDot(state: gatewayState)
-                            Text(gatewayState.label)
-                                .appFont(DSHType.footnote)
-                                .foregroundStyle(palette.ink(0.5))
-                            if let port = store.gateway.serverPort {
-                                Text(verbatim: "Port \(port)")
-                                    .appFont(DSHType.meta)
-                                    .foregroundStyle(palette.ink(0.4))
-                            }
-                            Image(systemName: "chevron.forward")
-                                .appFont(DSHType.meta.weight(.semibold))
-                                .foregroundStyle(palette.ink(0.3))
-                        }
-                    }
-                    DSHRow("Ping 网关",
-                           showsDivider: false,
-                           action: { store.gateway.ping() }) {
-                        Image(systemName: "chevron.forward")
-                            .appFont(DSHType.meta.weight(.semibold))
-                            .foregroundStyle(palette.ink(0.3))
-                    }
-                }
-
-                // ⑤ 主机信息（有才显示，3 行；只读）
-                if let host = store.hostSnapshot {
-                    DSHGroup("DSH Host") {
-                        DSHRow("版本", showsDivider: true) {
-                            DSHRowValue(text: hostVersionText(host), showsChevron: false)
-                        }
-                        DSHRow("已连接会话", showsDivider: host.cwd == nil ? false : true) {
-                            DSHRowValue(text: "\(host.attachedSessions ?? 0)", showsChevron: false)
-                        }
-                        if let cwd = host.cwd {
-                            DSHRow("cwd", showsDivider: false) {
-                                Text(cwd)
-                                    .appFont(DSHType.mono)
-                                    .foregroundStyle(palette.ink(0.5))
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
-                                    .textSelection(.enabled)
-                            }
-                        }
-                    }
-                }
-
-                // ⑥ 关于（3 行）
-                DSHGroup("关于") {
-                    DSHRow("当前版本", showsDivider: true) {
-                        DSHRowValue(text: appVersionDisplay, showsChevron: false)
-                    }
-                    DSHRow("本版本新功能",
-                           showsDivider: true,
-                           action: { showsReleaseNotes = true }) {
-                        Image(systemName: "chevron.forward")
-                            .appFont(DSHType.meta.weight(.semibold))
-                            .foregroundStyle(palette.ink(0.3))
-                    }
-                    DSHRow("隐私政策",
-                           showsDivider: false,
-                           action: { showsPrivacyPolicy = true }) {
-                        Image(systemName: "chevron.forward")
-                            .appFont(DSHType.meta.weight(.semibold))
-                            .foregroundStyle(palette.ink(0.3))
-                    }
-                }
-
-                // ⑦ 更多（3 行：版本兼容性 + 存储）
-                DSHGroup("更多") {
-                    DSHRow("要求网关版本", showsDivider: true) {
-                        DSHRowValue(text: releaseInfo.map { "≥ \($0.minimumGatewayVersion)" } ?? String(localized: "未提供"),
-                                    showsChevron: false)
-                    }
-                    DSHRow("已连接网关版本", showsDivider: true) {
-                        DSHRowValue(text: !gatewayState.isConnected ? String(localized: "未连接")
-                            : store.pluginsLoading ? String(localized: "读取中…")
-                            : connectedGatewayVersion ?? String(localized: "未提供"),
-                                    showsChevron: false)
-                    }
-                    NavigationLink {
-                        StorageSpaceView()
-                    } label: {
-                        DSHRow("存储空间", showsDivider: false) {
-                            DSHRowValue(text: store.storageUsage.map {
-                                ByteCountFormatter.string(fromByteCount: $0.totalBytes, countStyle: .file)
-                            } ?? "", showsChevron: true)
-                        }
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.horizontal, DSHSpacing.lg)
-            .padding(.top, DSHSpacing.xs)
-            // 内嵌成 tab 时 tab bar（62pt + 8 外边距）浮在内容上，必须让出这段高度，
-            // 否则「关于」最后几行会被 tab 栏压住（真机/模拟器均可见）
-            // 不再给内嵌模式额外加 tab bar 留白：外层 `.safeAreaInset(edge: .bottom)`
-            // 已把 tab bar 高度算进安全区（实测滚到底时最后一行停在 tab 栏上方 ~3pt，
-            // 加了 70pt 反而多出一大截空白 → 那是重复计算，已删除）
-            .padding(.bottom, DSHSpacing.xxl)
-        }
-        .background(palette.pageBackground)
-        .navigationTitle(embedded ? "" : "设置")
-        .toolbar(embedded ? .hidden : .visible, for: .navigationBar)
-        // B4：容器级推入页同样整屏盖住背景，推入期间暂停动画（与设置子页同一策略）。
-        .pausesBackgroundAnimation()
-        .task {
-            store.refreshDefaultConfiguration()
-            await store.refreshCacheStorage()
-            if gatewayState.isConnected { store.refreshPlugins() }
-        }
-        .onReceive(store.gateway.$state) { state in
-            let wasConnected = observedGatewayState?.isConnected ?? state.isConnected
-            observedGatewayState = state
-            if !wasConnected && state.isConnected {
-                store.refreshPlugins()
-                store.refreshDefaultConfiguration()
-            }
-        }
-        .sheet(isPresented: $showsReleaseNotes) {
-            NavigationStack {
-                ScrollView {
-                    Markdown(releaseInfo?.version == appVersionRaw ? releaseInfo!.notes : "本版本发布说明暂未提供，请查看 GitHub 发布页。")
-                        .padding(20)
-                }
-                .navigationTitle("本版本新功能")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("完成") { showsReleaseNotes = false }
-                    }
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("GitHub 发布页") { openRelease("dsh-mobile", version: nil) }
-                    }
-                }
-            }
-        }
-        .sheet(isPresented: $showsInterfaceOptions) {
-            OptionListSheet(
-                title: "界面",
-                options: InterfaceStyle.allCases.map { OptionListSheet.Option(id: $0.rawValue, title: $0.title) },
-                selectedID: store.interfaceStyle.rawValue
-            ) { id in
-                if let style = InterfaceStyle(rawValue: id) { store.interfaceStyle = style }
-            }
-        }
-        .sheet(isPresented: $showsLanguageOptions, onDismiss: {
-            // iOS 16 上「sheet 还在关闭过程中就弹 alert」容易被系统吞掉，
-            // 所以先记下待提示，等 sheet 真正 dismiss 之后再弹（onDismiss 时机稳定）。
-            if pendingLanguageRestart {
-                pendingLanguageRestart = false
-                showsLanguageRestartAlert = true
-            }
-        }) {
-            OptionListSheet(
-                title: "语言",
-                options: AppLanguage.allCases.map { OptionListSheet.Option(id: $0.rawValue, title: $0.title) },
-                selectedID: store.appLanguage.rawValue
-            ) { id in
-                guard let language = AppLanguage(rawValue: id) else { return }
-                let changed = language != store.appLanguage
-                store.appLanguage = language
-                // 用户明确要求：改完必须立刻告诉他为什么没变，而不是让他猜。
-                if changed { pendingLanguageRestart = true }
-            }
-        }
-        .sheet(isPresented: $showsPrivacyPolicy) {
-            PrivacyPolicySheet()
-        }
-        .sheet(isPresented: $showsPresetOptions) {
-            AgentPresetOptionsSheet()
-        }
-        .defaultModelPickerOverlay(
-            isPresented: $showsModelOptions,
-            pendingChange: $pendingDefaultChange,
-            groups: store.anyModelCatalog?.groups ?? [],
-            isLoading: store.sessionControlLoadingKinds.contains("models")
-                && (store.anyModelCatalog?.groups.isEmpty ?? true),
-            currentSelection: store.defaultModelSelection,
-            onSelectModel: { group, model in
-                let efforts = model.reasoning?.efforts ?? []
-                let retained = store.defaultModelSelection?.reasoningEffort.flatMap { current in
-                    efforts.contains(where: { $0.id == current }) ? current : nil
-                }
-                let effortId = retained ?? model.reasoning?.defaultEffort
-                pendingDefaultChange = PendingDefaultModelChange(
-                    provider: group.id,
-                    providerName: group.name,
-                    model: model.id,
-                    modelName: model.name,
-                    reasoningEffort: effortId,
-                    effortName: effortId.flatMap { id in efforts.first(where: { $0.id == id })?.name }
-                )
-            }
-        )
-        .sheet(isPresented: $showsPermissionOptions) {
-            PermissionOptionsSheet()
-        }
-        .sheet(isPresented: $showsFontSizePanel) {
-            FontSizePanel()
-        }
-        .alert("语言已切换", isPresented: $showsLanguageRestartAlert) {
-            // 程序化退出（exit(0)）App Review 不推荐，但这里**只有用户点了这个按钮**才会执行：
-            // iOS 没有公开的「重启本 App」API，而语言只在启动时读取 AppleLanguages，
-            // 与其让用户手动去多任务里找，不如提供一键退出；不点则完全不发生。
-            Button("退出 App") { exit(0) }
-            Button("稍后重启", role: .cancel) {}
-        } message: {
-            Text("界面语言只在 App 启动时读取系统语言设置，因此需要重启一次才会切换：请从后台把 App 彻底划掉再打开。\n\n如果重启后仍是中文，请检查 iOS「设置 → App → 语言」是否被单独设置过。")
+    private var extensionsGroup: some View {
+DSHGroup("扩展") {
+    NavigationLink {
+        ExtensionsView(onOpenPlugins: onOpenPlugins,
+                       onOpenScheduledTasks: onOpenScheduledTasks)
+    } label: {
+        DSHRow("全部扩展", showsDivider: false) {
+            DSHRowValue(text: extensionsSummary, showsChevron: true)
         }
     }
+    .buttonStyle(.plain)
+}
+    }
+
+    private var connectionGroup: some View {
+DSHGroup("连接") {
+    DSHRow("网关地址", showsDivider: true) {
+        TextField("ws://host:3080/ws/mobile", text: $store.endpoint)
+            .textInputAutocapitalization(.never)
+            .keyboardType(.URL)
+            .autocorrectionDisabled()
+            .multilineTextAlignment(.trailing)
+            .appFont(DSHType.footnote)
+            .foregroundStyle(palette.ink(0.5))
+            .frame(maxWidth: 210)
+    }
+    DSHRow("连接状态",
+           showsDivider: true,
+           action: {
+               if gatewayState.isConnected { store.disconnect() } else { store.connect() }
+           }) {
+        HStack(spacing: DSHSpacing.xs) {
+            ConnectionDot(state: gatewayState)
+            Text(gatewayState.label)
+                .appFont(DSHType.footnote)
+                .foregroundStyle(palette.ink(0.5))
+            if let port = store.gateway.serverPort {
+                Text(verbatim: "Port \(port)")
+                    .appFont(DSHType.meta)
+                    .foregroundStyle(palette.ink(0.4))
+            }
+            Image(systemName: "chevron.forward")
+                .appFont(DSHType.meta.weight(.semibold))
+                .foregroundStyle(palette.ink(0.3))
+        }
+    }
+    DSHRow("Ping 网关",
+           showsDivider: false,
+           action: { store.gateway.ping() }) {
+        Image(systemName: "chevron.forward")
+            .appFont(DSHType.meta.weight(.semibold))
+            .foregroundStyle(palette.ink(0.3))
+    }
+    DSHRow(String(localized: "Tailscale 内嵌隧道"),
+           showsDivider: true,
+           action: { showsTailscaleTunnel = true }) {
+        Image(systemName: "chevron.forward")
+            .appFont(DSHType.meta.weight(.semibold))
+            .foregroundStyle(palette.ink(0.3))
+    }
+    DSHRow(String(localized: "网络检测"),
+           showsDivider: false,
+           action: { showsNetworkDiagnostics = true }) {
+        Image(systemName: "chevron.forward")
+            .appFont(DSHType.meta.weight(.semibold))
+            .foregroundStyle(palette.ink(0.3))
+    }
+}
+    }
+
+    @ViewBuilder
+    private var hostGroup: some View {
+        if let host = store.hostSnapshot {
+DSHGroup("DSH Host") {
+    DSHRow("版本", showsDivider: true) {
+        DSHRowValue(text: hostVersionText(host), showsChevron: false)
+    }
+    DSHRow("已连接会话", showsDivider: host.cwd == nil ? false : true) {
+        DSHRowValue(text: "\(host.attachedSessions ?? 0)", showsChevron: false)
+    }
+    if let cwd = host.cwd {
+        DSHRow("cwd", showsDivider: false) {
+            Text(cwd)
+                .appFont(DSHType.mono)
+                .foregroundStyle(palette.ink(0.5))
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .textSelection(.enabled)
+        }
+    }
+}
+        }
+    }
+
+    private var aboutGroup: some View {
+DSHGroup("关于") {
+    DSHRow("当前版本", showsDivider: true) {
+        DSHRowValue(text: appVersionDisplay, showsChevron: false)
+    }
+    DSHRow("本版本新功能",
+           showsDivider: true,
+           action: { showsReleaseNotes = true }) {
+        Image(systemName: "chevron.forward")
+            .appFont(DSHType.meta.weight(.semibold))
+            .foregroundStyle(palette.ink(0.3))
+    }
+    DSHRow("隐私政策",
+           showsDivider: false,
+           action: { showsPrivacyPolicy = true }) {
+        Image(systemName: "chevron.forward")
+            .appFont(DSHType.meta.weight(.semibold))
+            .foregroundStyle(palette.ink(0.3))
+    }
+}
+    }
+
+    private var moreGroup: some View {
+DSHGroup("更多") {
+    DSHRow("要求网关版本", showsDivider: true) {
+        DSHRowValue(text: releaseInfo.map { "≥ \($0.minimumGatewayVersion)" } ?? String(localized: "未提供"),
+                    showsChevron: false)
+    }
+    DSHRow("已连接网关版本", showsDivider: true) {
+        DSHRowValue(text: !gatewayState.isConnected ? String(localized: "未连接")
+            : store.pluginsLoading ? String(localized: "读取中…")
+            : connectedGatewayVersion ?? String(localized: "未提供"),
+                    showsChevron: false)
+    }
+    DSHRow(String(localized: "日志导出与分享"),
+           showsDivider: true,
+           action: { showsLogExport = true }) {
+        Image(systemName: "chevron.forward")
+            .appFont(DSHType.meta.weight(.semibold))
+            .foregroundStyle(palette.ink(0.3))
+    }
+    NavigationLink {
+        StorageSpaceView()
+    } label: {
+        DSHRow("存储空间", showsDivider: false) {
+            DSHRowValue(text: store.storageUsage.map {
+                ByteCountFormatter.string(fromByteCount: $0.totalBytes, countStyle: .file)
+            } ?? "", showsChevron: true)
+        }
+    }
+    .buttonStyle(.plain)
+}
+    }
+
+    private var settingsBody: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: DSHSpacing.xl) {
+                EmptyView()
+            }
+        }
+    }
+
+    var body: some View {
+        settingsBody
+    }
+
 
     /// 值后面那句「需重启」：只在用户选择与进程实际生效语言不一致时出现。
     private var languageRestartSuffix: String {

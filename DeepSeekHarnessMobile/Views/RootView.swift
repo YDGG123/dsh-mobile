@@ -912,14 +912,18 @@ private struct ConversationNavigationShell<Content: View>: View {
     @State private var sidebarAvailableHeight: CGFloat = 0
     @State private var compactHeader = false
 
-    var body: some View {
+    private var navigationChrome: some View {
         GeometryReader { geometry in
             // 视口可滚入导航栏和状态栏后方，首屏的可读边界仍由内容 inset 保留。
-            content($activeView, geometry.safeAreaInsets.top)
+            AnyView(content($activeView, geometry.safeAreaInsets.top))
                 .ignoresSafeArea(.container, edges: .top)
                 // B4：会话页是最重的一页（ChatLayout），推入/转场期间先停背景动画。
                 .pausesBackgroundAnimation()
         }
+    }
+
+    var body: some View {
+        navigationChrome
             .onGeometryChange(for: CGSize.self) { geometry in
                 geometry.size
             } action: { size in

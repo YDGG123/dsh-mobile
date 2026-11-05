@@ -51,6 +51,16 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      - name: 安装 Go + gomobile（Tsnetgo 构建阶段需要）
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.27'
+      - name: 安装 gomobile 并初始化
+        run: |
+          go install golang.org/x/mobile/cmd/gomobile@latest
+          "$(go env GOPATH)/bin/gomobile init"
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          echo "GOPATH=$(go env GOPATH)" >> "$GITHUB_ENV"
       - name: 配置 Android SDK（shared 模块含 android 目标，Gradle 配置期需要）
         run: |
           SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Library/Android/sdk}}"

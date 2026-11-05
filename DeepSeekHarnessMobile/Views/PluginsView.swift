@@ -15,35 +15,9 @@ struct PluginsView: View {
             LazyVStack(alignment: .leading, spacing: 26) {
                 Text("安装、启用和配置插件")
                     .appFont(.subheadline).foregroundStyle(.secondary)
-                if !store.gateway.state.isConnected {
-                    Text("网关已断开，插件状态待重新连接确认")
-                        .appFont(.subheadline).foregroundStyle(.orange)
-                }
-                if let notice = store.pluginNotice {
-                    Text(notice).appFont(.subheadline).foregroundStyle(.orange)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                if let error = store.pluginsError {
-                    DshEmptyState(error, systemImage: "puzzlepiece.extension",
-                        description: Text("请检查网关连接后重试"))
-                        .frame(maxWidth: .infinity)
-                }
-                if store.pluginsLoading && store.pluginCatalog == nil {
-                    ProgressView().frame(maxWidth: .infinity).padding(.top, 80)
-                }
+                connectionStatusSection
                 if let catalog = store.pluginCatalog, catalog.managementAvailable {
-                    pluginSection(String(localized: "官方"), count: catalog.officialBundles.count + catalog.officialItems.count) {
-                        ForEach(catalog.officialBundles) { bundle in bundleRow(bundle) }
-                        ForEach(catalog.officialItems) { item in
-                            NavigationLink { OfficialPluginDetailView(item: item) } label: {
-                                PluginLine(icon: nil, fallback: item.id, title: item.title,
-                                    subtitle: item.description, detail: false, experimental: false)
-                            }.buttonStyle(.plain).frame(minHeight: 68)
-                        }
-                    }
-                    pluginSection(String(localized: "已安装"), count: catalog.installedBundles.count) {
-                        ForEach(catalog.installedBundles) { bundle in bundleRow(bundle) }
-                    }
+                    catalogSections
                 }
             }
             .padding(.horizontal, 20).padding(.vertical, 20)
@@ -89,6 +63,45 @@ struct PluginsView: View {
         }
     }
 
+    /// 断开/通知/错误/加载四个状态条。
+    /// （body 原本 78 行嵌套视图，solver 预算全量编译时不够用——按语义拆出，Chief 05:5x 实测 :13 耗时 11.1s。）
+    @ViewBuilder private var connectionStatusSection: some View {
+        if !store.gateway.state.isConnected {
+            Text("网关已断开，插件状态待重新连接确认")
+                .appFont(.subheadline).foregroundStyle(.orange)
+        }
+        if let notice = store.pluginNotice {
+            Text(notice).appFont(.subheadline).foregroundStyle(.orange)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        if let error = store.pluginsError {
+            DshEmptyState(error, systemImage: "puzzlepiece.extension",
+                description: Text("请检查网关连接后重试"))
+                .frame(maxWidth: .infinity)
+        }
+        if store.pluginsLoading && store.pluginCatalog == nil {
+            ProgressView().frame(maxWidth: .infinity).padding(.top, 80)
+        }
+    }
+
+    /// 官方/已安装两个分区。
+    @ViewBuilder private var catalogSections: some View {
+        if let catalog = store.pluginCatalog, catalog.managementAvailable {
+            pluginSection(String(localized: "官方"), count: catalog.officialBundles.count + catalog.officialItems.count) {
+                ForEach(catalog.officialBundles) { bundle in bundleRow(bundle) }
+                ForEach(catalog.officialItems) { item in
+                    NavigationLink { OfficialPluginDetailView(item: item) } label: {
+                        PluginLine(icon: nil, fallback: item.id, title: item.title,
+                            subtitle: item.description, detail: false, experimental: false)
+                    }.buttonStyle(.plain).frame(minHeight: 68)
+                }
+            }
+            pluginSection(String(localized: "已安装"), count: catalog.installedBundles.count) {
+                ForEach(catalog.installedBundles) { bundle in bundleRow(bundle) }
+            }
+        }
+    }
+
     private func pluginSection<Content: View>(
         _ title: String, count: Int, @ViewBuilder content: () -> Content
     ) -> some View {
@@ -131,7 +144,7 @@ struct PluginsView: View {
                 }
             ))
             .labelsHidden()
-            .tint(pluginSwitchTint(for: colorScheme))
+            .tint(DSHColor.switchTint(for: colorScheme))
             .disabled(!store.gateway.state.isConnected || bundle.readOnlyReason != nil ||
                 store.pluginCatalog?.managementAvailable != true)
             .allowsHitTesting(store.pluginPendingName == nil)
@@ -150,6 +163,32 @@ private struct PluginDetailView: View {
 
     private var bundle: MobilePluginBundle? { store.pluginCatalog?.bundles.first { $0.name == name } }
 
+    /// 更新子系统区块（检查更新/版本列表/进度/详情 Markdown）。
+    /// （body 原本 125 行，-enable-testing 全量编译时 solver 超预算——按语义拆出。）
+    @ViewBuilder private func pluginUpdateSection(name: String, bundle: MobilePluginBundle) -> some View {
+        if store.supportsPluginUpdates {
+            if bundle.raw["updatable"]?.boolValue == true {
+                Button("检查更新") { store.loadPluginInformation(name, versions: true) }
+                    .disabled(store.pluginPendingName != nil)
+            }
+            if let versions = store.pluginVersions {
+                if versions["status"]?.stringValue != "listed" { Text(versions.displayText).appFont(.footnote) }
+                ForEach(Array((versions["versions"]?.arrayValue ?? []).enumerated()), id: \.offset) { _, entry in
+                    if let version = entry["version"]?.stringValue ?? entry.stringValue {
+                        Button("更新到 \(version)") { store.updatePlugin(name, version: version) }
+                            .disabled(store.pluginPendingName != nil || entry["selectable"]?.boolValue == false || entry["compatible"]?.boolValue == false)
+                    }
+                }
+            }
+            if let step = store.pluginUpdateStep { Text("更新进度 · \(step)").foregroundStyle(.secondary) }
+            if let result = store.pluginUpdateResult { Text(result.displayText).appFont(.footnote.monospaced()) }
+            if !store.pluginUpdateLogs.isEmpty { Text(store.pluginUpdateLogs.joined(separator: "\n")).appFont(.caption.monospaced()) }
+            if let markdown = store.pluginDetail?["markdown"]?.stringValue {
+                MarkdownContent(markdown.replacingOccurrences(of: #"!\[([^]]*)]\([^)]*\)"#, with: "[图片 · $1]", options: .regularExpression))
+            }
+        }
+    }
+
     var body: some View {
         ScrollView {
             if let bundle {
@@ -166,7 +205,7 @@ private struct PluginDetailView: View {
                             }
                         ))
                         .labelsHidden()
-                        .tint(pluginSwitchTint(for: colorScheme))
+                        .tint(DSHColor.switchTint(for: colorScheme))
                         .disabled(!store.gateway.state.isConnected || bundle.readOnlyReason != nil)
                         .allowsHitTesting(store.pluginPendingName == nil)
                     }
@@ -187,6 +226,7 @@ private struct PluginDetailView: View {
                         Text("网关已断开，插件状态待重新连接确认")
                             .appFont(.footnote).foregroundStyle(.orange)
                     }
+                    pluginUpdateSection(name: name, bundle: bundle)
                     let entries = bundle.rows.map { row -> MobilePluginRow in
                         let entryID = row["entryId"]?.stringValue
                         let live = store.pluginCatalog?.plugins.first { $0.id == entryID }
@@ -225,7 +265,7 @@ private struct PluginDetailView: View {
                                     get: { entry.enabled },
                                     set: { store.setPluginEnabled(name: bundle.name, enabled: $0, entryID: entryID) }
                                 )).labelsHidden()
-                                    .tint(pluginSwitchTint(for: colorScheme))
+                                    .tint(DSHColor.switchTint(for: colorScheme))
                                     .disabled(!store.gateway.state.isConnected || entry.readOnlyReason != nil)
                                     .allowsHitTesting(store.pluginPendingName == nil)
                             }
@@ -244,6 +284,7 @@ private struct PluginDetailView: View {
                 .readableContentWidth()
             }
         }
+        .task(id: name) { store.loadPluginInformation(name) }
         .navigationTitle("插件详情").navigationBarTitleDisplayMode(.inline)
         // B4：推入页覆盖背景期间暂停背景动画。
         .pausesBackgroundAnimation()
@@ -303,12 +344,6 @@ private struct PluginComponentSheet: View {
             Text(value).appFont(.subheadline.monospaced()).textSelection(.enabled)
         }
     }
-}
-
-private func pluginSwitchTint(for scheme: ColorScheme) -> Color {
-    scheme == .dark
-        ? Color(red: 29.0 / 255, green: 68.0 / 255, blue: 127.0 / 255)
-        : Color(red: 36.0 / 255, green: 90.0 / 255, blue: 196.0 / 255)
 }
 
 private struct OfficialPluginDetailView: View {

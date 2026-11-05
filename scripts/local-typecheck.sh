@@ -103,6 +103,14 @@ fi
 
 mkdir -p "$DEPS"
 
+# ---- Tsnetgo 框架（上游 1.7.15 Tailscale：Core/TsnetTunnel.swift 裸 import Tsnetgo）----
+# 不用桩——真产物就在仓库外预置（scripts/ensure-tsnetgo.sh 拷贝，153M 双切片），
+# 对着真 gomobile API 做类型检查比手写桩可信。缺产物 = 明确报错指路，不静默降级。
+TSNETGO_FW_SLICE="tsnetgo/build/tsnetgo/Tsnetgo.xcframework/ios-arm64_x86_64-simulator"
+if [ ! -d "$TSNETGO_FW_SLICE" ]; then
+  fail "缺少 Tsnetgo 模拟器切片：$TSNETGO_FW_SLICE —— 先跑 scripts/ensure-tsnetgo.sh 预置产物（见 Docs/release-feasibility-20261106.md）"
+fi
+
 # ---- 准备 ChatLayout 模块 ----
 if [ ! -f "$DEPS/ChatLayout.swiftmodule" ]; then
   echo "→ 准备 ChatLayout 模块..."
@@ -487,6 +495,128 @@ if [ ! -f "$DEPS/MarkdownUI.swiftmodule" ] || [ "$DEPS/MarkdownUI.swift" -nt "$D
     "$DEPS/MarkdownUI.swift" >/dev/null 2>&1 || fail "生成 MarkdownUI 桩失败"
 fi
 
+# ---- 准备 WebRTC 桩模块（上游 1.7.15 新增依赖，GatewayRtcLink.swift 用）----
+# webrtc 154.0.0 是 SPM 二进制 xcframework 工件（SourcePackages/artifacts），
+# 本地零缓存且网络不通时拿不到真模块。类型检查只需要 API 表面——按
+# GatewayRtcLink.swift 实际用到的类型/协议出桩（与 MarkdownUI 桩同款先例）。
+# 边界如实：桩保证「本仓调用 WebRTC 的代码类型正确」，不保证 WebRTC 本体行为；
+# 协议只列本仓实现的必需方法，真包到位（联网/云端）后以真包为准。
+# 桩源码每次都重写（幂等），模块只在源码比 .swiftmodule 新时重建（同 MarkdownUI 教训）。
+cat > "$DEPS/WebRTC.swift" <<'STUB'
+import Foundation
+
+public enum RTCSdpSemantics { case unifiedPlan, planB }
+public enum RTCContinualGatheringPolicy { case gatherOnce, gatherContinually }
+public enum RTCSdpType { case offer, pranswer, answer, rollback }
+public enum RTCSignalingState { case stable, haveLocalOffer, haveRemoteOffer, haveLocalPrAnswer, haveRemotePrAnswer, closed }
+public enum RTCIceConnectionState { case new, checking, connected, completed, failed, disconnected, closed, count }
+public enum RTCPeerConnectionState { case new, connecting, connected, disconnected, failed, closed }
+public enum RTCIceGatheringState { case new, gathering, complete }
+public enum RTCDataChannelState { case connecting, open, closing, closed }
+
+public class RTCPeerConnectionFactory {
+    public init() {}
+    public func peerConnection(with configuration: RTCConfiguration, constraints: RTCMediaConstraints,
+                               delegate: RTCPeerConnectionDelegate?) -> RTCPeerConnection? { nil }
+}
+
+public class RTCConfiguration {
+    public init() {}
+    public var sdpSemantics: RTCSdpSemantics = .unifiedPlan
+    public var continualGatheringPolicy: RTCContinualGatheringPolicy = .gatherOnce
+    public var iceServers: [RTCIceServer] = []
+}
+
+public class RTCIceServer {
+    public init(urlStrings: [String]) {}
+}
+
+public class RTCMediaConstraints {
+    public init(mandatoryConstraints: [String: String]?, optionalConstraints: [String: String]?) {}
+}
+
+public class RTCDataChannelConfiguration {
+    public init() {}
+    public var isOrdered: Bool = true
+}
+
+public class RTCSessionDescription {
+    public init(type: RTCSdpType, sdp: String) {}
+    public var sdp: String { "" }
+}
+
+public class RTCIceCandidate {
+    public init(sdp: String, sdpMLineIndex: Int32, sdpMid: String?) {}
+    public var sdp: String { "" }
+    public var sdpMid: String? { nil }
+    public var sdpMLineIndex: Int32 { 0 }
+}
+
+public struct RTCDataBuffer {
+    public init(data: Data, isBinary: Bool) {}
+    public var data: Data { Data() }
+    public var isBinary: Bool { false }
+}
+
+public class RTCStatistics {
+    public var id: String { "" }
+    public var type: String { "" }
+    public var values: [String: Any] { [:] }
+}
+
+public class RTCStatisticsReport {
+    public var statistics: [String: RTCStatistics] { [:] }
+}
+
+public class RTCMediaStream {}
+
+public class RTCPeerConnection {
+    public weak var delegate: RTCPeerConnectionDelegate?
+    public func dataChannel(forLabel label: String, configuration: RTCDataChannelConfiguration) -> RTCDataChannel? { nil }
+    public func offer(for constraints: RTCMediaConstraints,
+                      completionHandler: @escaping (RTCSessionDescription?, Error?) -> Void) {}
+    public func setLocalDescription(_ description: RTCSessionDescription,
+                                    completionHandler: @escaping (Error?) -> Void) {}
+    public func setRemoteDescription(_ description: RTCSessionDescription,
+                                     completionHandler: @escaping (Error?) -> Void) {}
+    public func add(_ candidate: RTCIceCandidate, completionHandler: @escaping (Error?) -> Void) {}
+    public func statistics(completionHandler: @escaping (RTCStatisticsReport) -> Void) {}
+    public func close() {}
+}
+
+public class RTCDataChannel {
+    public weak var delegate: RTCDataChannelDelegate?
+    public var readyState: RTCDataChannelState { .closed }
+    public var bufferedAmount: UInt64 { 0 }
+    @discardableResult public func sendData(_ buffer: RTCDataBuffer) -> Bool { false }
+    public func close() {}
+}
+
+public protocol RTCPeerConnectionDelegate: AnyObject {
+    func peerConnection(_ peerConnection: RTCPeerConnection, didChange stateChanged: RTCSignalingState)
+    func peerConnection(_ peerConnection: RTCPeerConnection, didAdd stream: RTCMediaStream)
+    func peerConnection(_ peerConnection: RTCPeerConnection, didRemove stream: RTCMediaStream)
+    func peerConnectionShouldNegotiate(_ peerConnection: RTCPeerConnection)
+    func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceConnectionState)
+    func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCPeerConnectionState)
+    func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceGatheringState)
+    func peerConnection(_ peerConnection: RTCPeerConnection, didGenerate candidate: RTCIceCandidate)
+    func peerConnection(_ peerConnection: RTCPeerConnection, didRemove candidates: [RTCIceCandidate])
+    func peerConnection(_ peerConnection: RTCPeerConnection, didOpen dataChannel: RTCDataChannel)
+}
+
+public protocol RTCDataChannelDelegate: AnyObject {
+    func dataChannelDidChangeState(_ dataChannel: RTCDataChannel)
+    func dataChannel(_ dataChannel: RTCDataChannel, didReceiveMessageWith buffer: RTCDataBuffer)
+}
+STUB
+if [ ! -f "$DEPS/WebRTC.swiftmodule" ] || [ "$DEPS/WebRTC.swift" -nt "$DEPS/WebRTC.swiftmodule" ]; then
+  echo "→ 生成 WebRTC 桩模块..."
+  "$TC/swiftc" -emit-module -sdk "$SDK" -target x86_64-apple-ios16.0-simulator -swift-version 5 \
+    -module-name WebRTC -emit-module-path "$DEPS/WebRTC.swiftmodule" \
+    "$DEPS/WebRTC.swift" >/dev/null 2>&1 || fail "生成 WebRTC 桩失败"
+fi
+
 # ---- 模块缓存：KMP 框架一更新就清空 ----
 # 否则 swiftc 会复用旧的 ObjC 头缓存，新加的共享类型表现为「cannot find type」。
 CACHE="$DEPS/module-cache"
@@ -504,7 +634,7 @@ echo "→ 类型检查 App 源码 (iOS 16.0)..."
 LOG=$(mktemp)
 "$TC/swiftc" -typecheck \
   -sdk "$SDK" -target x86_64-apple-ios16.0-simulator -swift-version 5 \
-  -F "$FW" -F "$DEPS" -I "$DEPS" -module-cache-path "$CACHE" \
+  -F "$FW" -F "$DEPS" -F "$TSNETGO_FW_SLICE" -I "$DEPS" -module-cache-path "$CACHE" \
   $(find DeepSeekHarnessMobile -name "*.swift") > "$LOG" 2>&1
 APP_ERRORS=$(grep -c "error:" "$LOG" 2>/dev/null | head -1)
 APP_ERRORS=${APP_ERRORS:-0}
@@ -519,7 +649,7 @@ echo "→ 类型检查 App 源码 (iOS 16.0, -D DEBUG)..."
 DLOG=$(mktemp)
 "$TC/swiftc" -typecheck -D DEBUG \
   -sdk "$SDK" -target x86_64-apple-ios16.0-simulator -swift-version 5 \
-  -F "$FW" -F "$DEPS" -I "$DEPS" -module-cache-path "$CACHE" \
+  -F "$FW" -F "$DEPS" -F "$TSNETGO_FW_SLICE" -I "$DEPS" -module-cache-path "$CACHE" \
   $(find DeepSeekHarnessMobile -name "*.swift") > "$DLOG" 2>&1
 DEBUG_ERRORS=$(grep -c "error:" "$DLOG" 2>/dev/null | head -1)
 DEBUG_ERRORS=${DEBUG_ERRORS:-0}

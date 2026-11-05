@@ -1,5 +1,7 @@
 package com.clarklevis.dsh.android.ui
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -16,6 +18,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.pager.HorizontalPager
@@ -27,6 +30,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -34,8 +38,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.dropShadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.shadow.Shadow
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -54,24 +60,13 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.clarklevis.dsh.android.localization.appText
+import com.kyant.backdrop.backdrops.layerBackdrop
+import com.kyant.backdrop.backdrops.rememberLayerBackdrop
+import kotlinx.coroutines.delay
 
-/**
- * 会话页骨架，**逐层对齐 iOS `ConversationView.swift:416-457`**：
- *
- * ```
- * 导航栏（透明、标题进 principal）        ← topBar 覆盖层，占位 spacer 与页面同底色
- * 副行（模式 · 状态 · 轮次）              ← 由调用方经 subtitle 注入
- * 分段「对话 | 轨迹」                     ← 整宽胶囊 DSHSegmented（Theme.swift:1276-1312）
- * 正文 / 轨迹（分页）
- * ```
- *
- * **与 vc38 之前的差别（用户 2026-11-02 指出）**：
- * ① 分段原本是 `align(TopCenter)` 的**浮动蓝胶囊**，压在正文第一行上；iOS 的它在**流内**，
- *    正文从它下方开始（`ConversationView.swift:440` 是 VStack 里的第三个元素，不是 overlay）。
- * ② 顶栏原本靠 `conversationTopGlass` 半透明渐隐盖住穿透的正文，整条栏看起来"是透明的"；
- *    改成**顶部占位与页面同底色（不透明）**，正文不再钻到状态栏下面。
- * ③ 原瞬态圆点指示器（`conversation-page-indicator`）是上游自造件，iOS 无此物，随本次删除。
- */
+/** 两页常驻：页头「两者都要」（用户 2026-11-05 拍板）——
+ *  **流内**：顶栏占位 → 副行（subtitle 插槽）→ 分段「对话|轨迹」（我方 vc38 形态，正文从分段下方开始）；
+ *  **overlay**：上游 `ConversationPageIndicator` 瞬态圆点（TopCenter，不占布局高度）与顶栏玻璃。 */
 @Suppress("LongParameterList") // Compose 容器显式接收状态、修饰符及两个内容插槽。
 @Composable
 internal fun ConversationPagerChrome(
@@ -86,6 +81,7 @@ internal fun ConversationPagerChrome(
     val density = LocalDensity.current
     val initialTopInset = with(density) { WindowInsets.statusBars.getTop(this).toDp() } + 64.dp
     var topInset by remember(density) { mutableStateOf(initialTopInset) }
+    val backdrop = rememberLayerBackdrop()
     val currentPage = pagerState.currentPage
     val pageName = appText(if (currentPage == 0) "对话" else "轨迹")
     val switchLabel = appText(if (currentPage == 0) "切换到轨迹" else "切换到对话")
@@ -97,7 +93,7 @@ internal fun ConversationPagerChrome(
                 .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
         ) {
             Column(Modifier.fillMaxSize()) {
-                // 顶栏占位：与页面同底色，正文从分段下方开始，不再穿到栏下。
+                // 顶栏占位：与页面同底色（我方 vc38 裁决：正文不穿到栏下）。
                 Spacer(Modifier.fillMaxWidth().height(topInset))
                 subtitle?.invoke()
                 ConversationPageSwitch(
@@ -110,7 +106,7 @@ internal fun ConversationPagerChrome(
                 HorizontalPager(
                     state = pagerState,
                     beyondViewportPageCount = 1,
-                    modifier = Modifier.fillMaxSize().weight(1f)
+                    modifier = Modifier.fillMaxSize().weight(1f).layerBackdrop(backdrop)
                         .testTag("conversation-pager")
                         .semantics {
                             contentDescription = pagerLabel
@@ -128,14 +124,30 @@ internal fun ConversationPagerChrome(
                             if (index != currentPage) hideFromAccessibility()
                         }
                     ) {
-                        // 正文不再为顶栏让位：分段已在流内。
+                        // 正文不再为顶栏让位：分段已在流内（vc38）。
                         page(index, 0.dp)
                     }
                 }
             }
+            val glassProtectedHeight = topInset
+            // 消息从顶栏下方 8dp 开始，渐隐必须在这段留白内结束，避免覆盖首条气泡。
+            val glassFadeHeight = 8.dp
+            Box(
+                Modifier.fillMaxWidth().height(glassProtectedHeight + glassFadeHeight)
+                    .clipToBounds()
+                    .conversationTopGlass(backdrop, glassProtectedHeight, glassFadeHeight)
+                    .semantics { hideFromAccessibility() }
+                    .testTag("conversation-top-glass")
+            )
             Box(Modifier.fillMaxWidth().onSizeChanged { topInset = with(density) { it.height.toDp() } }) {
                 topBar()
             }
+            // 上游指示条保留（overlay，不占布局）：页头「两者都要」的另一半。
+            ConversationPageIndicator(
+                sessionId,
+                currentPage,
+                Modifier.align(Alignment.TopCenter).padding(top = topInset + 4.dp)
+            )
         }
     }
 }
@@ -162,6 +174,35 @@ internal fun ConversationPageTitle(title: String, selectedPage: Int, status: (@C
     }
 }
 
+@Composable
+private fun ConversationPageIndicator(sessionId: String?, selectedPage: Int, modifier: Modifier) {
+    val alpha = remember { Animatable(0f) }
+    LaunchedEffect(sessionId, selectedPage) {
+        alpha.snapTo(1f)
+        delay(2_000)
+        alpha.animateTo(0f, tween(300))
+    }
+    if (alpha.value > 0f) {
+        Row(
+            modifier.graphicsLayer { this.alpha = alpha.value }
+                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f), RoundedCornerShape(50))
+                .padding(horizontal = 8.dp, vertical = 6.dp)
+                .testTag("conversation-page-indicator")
+                .semantics { hideFromAccessibility() },
+            horizontalArrangement = Arrangement.spacedBy(5.dp)
+        ) {
+            repeat(2) { index ->
+                Box(
+                    Modifier.size(5.dp).background(
+                        MaterialTheme.colorScheme.onSurface.copy(alpha = if (index == selectedPage) 0.65f else 0.2f),
+                        CircleShape
+                    )
+                )
+            }
+        }
+    }
+}
+
 /** iOS `DSHPalette.cardFill`（Theme.swift:425）：浅色白 0.55 / 深色白 0.06。 */
 @Composable
 private fun segmentedSelectedFill(): Color =
@@ -176,7 +217,8 @@ private fun segmentedSelectedFill(): Color =
  * 选中底 = RoundedRectangle(12) 填 cardFill + 阴影（浅色 0.08 / 半径 3 / y 1）
  * ```
  *
- * vc38 之前是「surface@0.85 + 品牌蓝选中 + 白字」，且浮动在正文之上（用户与 iOSTester 均判为形态不同）。
+ * vc62 合并漏项（Chief 2026-11-06 派回）：上游解冲突时把我方实现解没了、只剩注释，
+ * 而我方设备测试还在断言它存在。自 2007de4 原样取回；与上游指示条并存（页头「两者都要」）。
  */
 @Composable
 private fun ConversationPageSwitch(selectedPage: Int, onSelectPage: (Int) -> Unit, modifier: Modifier = Modifier) {

@@ -1,5 +1,11 @@
 package com.clarklevis.dsh.android.ui
 
+import android.os.Build
+import android.content.pm.PackageManager
+import android.widget.Toast
+import androidx.core.content.ContextCompat
+import androidx.compose.foundation.gestures.detectTapGestures
+import com.clarklevis.dsh.android.platform.saveImageToPhotos
 import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -35,7 +41,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.scrollBy
@@ -74,8 +79,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
@@ -195,8 +200,39 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
+internal val LocalMessageQuote = androidx.compose.runtime.staticCompositionLocalOf<((String) -> Unit)?> { null }
+
 @Composable
 internal fun ConversationScreen(
+    stateHolder: AndroidSharedStateHolder,
+    onPickImage: () -> Unit,
+    onBack: () -> Unit,
+    onPickFile: () -> Unit = {},
+    onPlugins: () -> Unit = {},
+    onScheduledTasks: () -> Unit = {},
+    onSettings: () -> Unit = {}
+) {
+    val quote: ((String) -> Unit)? = if ("message-quotes-v1" in stateHolder.gatewayState.capabilities) {
+        { selected ->
+            if (selected.isNotBlank()) {
+                val block = selected.replace("\r\n", "\n").split("\n").joinToString("\n") { "> $it" }
+                val draft = stateHolder.messageDraft
+                val start = minOf(stateHolder.messageSelectionStart, stateHolder.messageSelectionEnd).coerceIn(0, draft.length)
+                val end = maxOf(stateHolder.messageSelectionStart, stateHolder.messageSelectionEnd).coerceIn(start, draft.length)
+                val inserted = (if (start > 0) "\n\n" else "") + block + "\n\n"
+                stateHolder.messageDraft = draft.replaceRange(start, end, inserted)
+                stateHolder.messageSelectionStart = start + inserted.length
+                stateHolder.messageSelectionEnd = stateHolder.messageSelectionStart
+            }
+        }
+    } else null
+    androidx.compose.runtime.CompositionLocalProvider(LocalMessageQuote provides quote) {
+        ConversationScreenContent(stateHolder, onPickImage, onBack, onPickFile, onPlugins, onScheduledTasks, onSettings)
+    }
+}
+
+@Composable
+private fun ConversationScreenContent(
     stateHolder: AndroidSharedStateHolder,
     onPickImage: () -> Unit,
     onBack: () -> Unit,
@@ -295,9 +331,8 @@ internal fun ConversationScreen(
             sessionId = stateHolder.snapshot.selectedSessionId,
             onSelectPage = selectPage,
             modifier = backdropModifier.testTag("conversation-screen"),
-            subtitle = {
-                // iOS 副行（ConversationView.swift:550-568）：预设名 · 场景状态 · 第 N 轮，
-                // 「 · 」连接、任一缺失跳过、全空则整行不出现（此时分段自己吃 inset）。
+            topBar = {
+                // iOS 副行（ConversationView.swift:550-568）：预设名 · 场景状态 · 第 N 轮
                 ConversationSubtitle(
                     text = conversationSubtitleText(
                         stateHolder = stateHolder,
@@ -310,8 +345,6 @@ internal fun ConversationScreen(
                         }
                     )
                 )
-            },
-            topBar = {
                 ConversationTopBar(
                     title = {
                         ConversationPageTitle(title, pagerState.currentPage, status = if (compactHeader) headerMode else null)
@@ -325,7 +358,6 @@ internal fun ConversationScreen(
                                     dismissInput()
                                     onBack()
                                 },
-                                plain = true,
                                 modifier = Modifier.padding(start = 8.dp, end = 8.dp)
                             )
                             if (!compactHeader) {
@@ -339,8 +371,8 @@ internal fun ConversationScreen(
                             Box(Modifier.padding(start = 4.dp, end = 8.dp)) { headerMode() }
                         }
                         if (stateHolder.teamSnapshot.visible) {
-                            TeamEntryButton(stateHolder, plain = true)
-                            Spacer(Modifier.width(16.dp))
+                            TeamEntryButton(stateHolder)
+                            Spacer(Modifier.width(8.dp))
                         }
                         if (compactHeader) {
                             sidebarEntry()
@@ -353,8 +385,7 @@ internal fun ConversationScreen(
                             onBrowseFiles = {
                                 workspaceInitialPath = null
                                 showWorkspaceFiles = true
-                            },
-                            plain = true
+                            }
                         )
                         Spacer(Modifier.width(8.dp))
                     }
@@ -437,7 +468,7 @@ internal fun TopBarCircleButton(
             painter = painterResource(iconRes),
             contentDescription = null,
             modifier = Modifier.size(22.dp),
-            tint = MaterialTheme.colorScheme.onSurface
+            tint = dshGlassForeground()
         )
     }
 }
@@ -489,6 +520,7 @@ internal fun TopBarCircleButton(
     ) {
         content()
     }
+    DshGlassButton(description, onClick, modifier.size(44.dp), content = content)
 }
 
 /**
@@ -819,6 +851,7 @@ private fun ConversationPage(
         ConversationImagePreviewDialog(
             request = request,
             thumbnails = stateHolder.attachmentThumbnails,
+            loadOriginal = { attachment -> sessionId?.let { stateHolder.imageAttachmentData(it, attachment.attachmentId) } },
             onDismiss = { imagePreview = null }
         )
     }
@@ -1002,7 +1035,7 @@ private fun ConversationTimeline(
                 onPinnedToBottomChanged(false)
                 if (stateHolder.loadOlderHistory()) {
                     historyReadBatch = batch
-                    android.util.Log.d("HistoryPresentation", "stage=read-batch-start")
+                    com.clarklevis.dsh.android.platform.LocalAppLog.d("HistoryPresentation", "stage=read-batch-start")
                 }
             }
         }
@@ -1055,13 +1088,13 @@ private fun ConversationTimeline(
                     if (stopReason == null) {
                         historyReadBatch = batch.copy(beforeSequence = requireNotNull(targetState.earliestSequence), pages = batch.pages + 1)
                         if (stateHolder.loadOlderHistory()) {
-                            android.util.Log.d("HistoryPresentation", "stage=read-batch-continue pages=${batch.pages + 1} " +
+                            com.clarklevis.dsh.android.platform.LocalAppLog.d("HistoryPresentation", "stage=read-batch-continue pages=${batch.pages + 1} " +
                                 "messages=${window.messages} heightDp=${window.estimatedHeightDp.toInt()}")
                             return@collect
                         }
                     }
                     historyReadBatch = null
-                    android.util.Log.d("HistoryPresentation", "stage=read-batch-ready pages=${batch.pages + 1} " +
+                    com.clarklevis.dsh.android.platform.LocalAppLog.d("HistoryPresentation", "stage=read-batch-ready pages=${batch.pages + 1} " +
                         "messages=${window.messages} heightDp=${window.estimatedHeightDp.toInt()} reason=${stopReason ?: "unavailable"}")
                 }
                 if (targetState.moving) {
@@ -1073,7 +1106,7 @@ private fun ConversationTimeline(
                         }
                         warmReadingWindow(target)
                         preparedWhileMoving = target
-                        android.util.Log.d("HistoryPresentation", "stage=background-ready entries=${target.entries.size} moving=true")
+                        com.clarklevis.dsh.android.platform.LocalAppLog.d("HistoryPresentation", "stage=background-ready entries=${target.entries.size} moving=true")
                     }
                     return@collect
                 }
@@ -1092,7 +1125,7 @@ private fun ConversationTimeline(
                 } == true
                 val began = android.os.SystemClock.elapsedRealtime()
                 presentingHistory = older
-                if (older) android.util.Log.d("HistoryPresentation", "stage=prepare-start rows=${source.conversation.size}")
+                if (older) com.clarklevis.dsh.android.platform.LocalAppLog.d("HistoryPresentation", "stage=prepare-start rows=${source.conversation.size}")
                 try {
                     val target = preparedWhileMoving?.takeIf { it.items === source.conversation &&
                         it.running == running && it.earliestSequence == source.selectedHistoryEarliestSequence }
@@ -1103,7 +1136,7 @@ private fun ConversationTimeline(
                     if (older) {
                         // 只预热即将进入阅读窗口的几行，不等待整页Markdown都渲染完。
                         warmReadingWindow(target)
-                        android.util.Log.d("HistoryPresentation", "stage=prepare-ready entries=${target.entries.size} " +
+                        com.clarklevis.dsh.android.platform.LocalAppLog.d("HistoryPresentation", "stage=prepare-ready entries=${target.entries.size} " +
                             "elapsedMs=${android.os.SystemClock.elapsedRealtime() - began}")
                         withFrameNanos { }
                     }
@@ -1132,7 +1165,7 @@ private fun ConversationTimeline(
                             previous = geometry
                         }
                         val actual = anchor?.let { saved -> listState.layoutInfo.visibleItemsInfo.firstOrNull { it.key == saved.id } }
-                        android.util.Log.d("HistoryPresentation", "stage=presented inserted=${revealIds.size} " +
+                        com.clarklevis.dsh.android.platform.LocalAppLog.d("HistoryPresentation", "stage=presented inserted=${revealIds.size} " +
                             "elapsedMs=${android.os.SystemClock.elapsedRealtime() - began} " +
                             "anchorValid=${actual != null} anchorErrorPx=${actual?.let { it.offset - requireNotNull(anchor).offset }} " +
                             "interrupted=${generation != interactionGeneration}")
@@ -1278,8 +1311,14 @@ private fun ConversationTimeline(
                     interactionGeneration += 1
                     revealIds = emptySet()
                     latestOnUserInteraction()
-                    try { waitForUpOrCancellation(pass = PointerEventPass.Initial) }
-                    finally { touchingTimeline = false }
+                    try {
+                        // 观察实际按压生命周期；列表消费拖动事件不代表手指已经抬起。
+                        do {
+                            val event = awaitPointerEvent(PointerEventPass.Initial)
+                        } while (event.changes.any { it.pressed })
+                    } finally {
+                        touchingTimeline = false
+                    }
                 }
             }
     ) {
@@ -1412,14 +1451,8 @@ private fun ConversationTimeline(
             }
             if (selectedSessionIsRunning) {
                 item(key = "deep-search-progress", contentType = "deep-search-progress") {
-                    val previousReplyIndex = items.indexOfLast {
-                        it.kind == ConversationItemKind.ASSISTANT && it.id != activeStreamingMessageId
-                    }
-                    val turnItems = items.drop(previousReplyIndex + 1)
                     DeepSearchProgressRow(
-                        startEpochSeconds = turnItems.firstOrNull { it.kind == ConversationItemKind.USER }
-                            ?.epochSeconds
-                            ?: items.lastOrNull { it.kind == ConversationItemKind.USER }?.epochSeconds,
+                        timing = stateHolder.snapshot.activeTurnTiming,
                         cues = items.drop(items.indexOfLast { it.kind == ConversationItemKind.USER } + 1)
                             .filter { it.kind != ConversationItemKind.SYSTEM }
                             .map { DeepSearchProgressCue(it.kind, it.epochSeconds, it.isError) }
@@ -1432,20 +1465,16 @@ private fun ConversationTimeline(
 
 @Composable
 private fun DeepSearchProgressRow(
-    startEpochSeconds: Double?,
+    timing: com.clarklevis.dsh.shared.facade.SharedTurnTimingSnapshot?,
     cues: List<DeepSearchProgressCue>
 ) {
-    val startMilliseconds = remember(startEpochSeconds) {
-        startEpochSeconds?.takeIf { it > 0.0 }?.times(1_000)?.toLong()
-            ?: System.currentTimeMillis()
-    }
-    var elapsedSeconds by remember(startMilliseconds) { mutableIntStateOf(0) }
-    LaunchedEffect(startMilliseconds) {
+    val startMilliseconds = ((timing?.startEpochSeconds ?: 0.0) * 1_000).toLong()
+    var elapsedSeconds by remember(timing) { mutableIntStateOf(0) }
+    LaunchedEffect(timing) {
+        if (timing == null) return@LaunchedEffect
         while (true) {
-            elapsedSeconds = ((System.currentTimeMillis() - startMilliseconds) / 1_000)
-                .coerceAtLeast(0)
-                .coerceAtMost(Int.MAX_VALUE.toLong())
-                .toInt()
+            elapsedSeconds = timing.elapsedSeconds(android.os.SystemClock.elapsedRealtimeNanos() / 1e9)
+                .coerceAtMost(Int.MAX_VALUE.toDouble()).toInt()
             delay(1_000)
         }
     }
@@ -1517,7 +1546,8 @@ private fun DeepSearchProgressRow(
                 )
             }
             Text(
-                text = appText("%1\$s，用时 %2\$s 秒…", appText(phrase), elapsedSeconds),
+                text = if (timing == null) appText("正在同步执行状态…")
+                    else appText("%1\$s，用时 %2\$s 秒…", appText(phrase), elapsedSeconds),
                 modifier = Modifier.onSizeChanged { textWidth = it.width.coerceAtLeast(1) },
                 style = TextStyle(brush = shimmerBrush, fontSize = 14.sp, fontWeight = FontWeight.Medium),
                 maxLines = 1
@@ -1556,7 +1586,7 @@ private fun deepSearchActivityAt(cues: List<DeepSearchProgressCue>, cutoff: Doub
             }
             ConversationItemKind.ASSISTANT -> DeepSearchActivity.COMPOSING
             ConversationItemKind.STATUS -> DeepSearchActivity.WORKING
-            ConversationItemKind.USER, ConversationItemKind.SYSTEM -> activity
+            ConversationItemKind.USER, ConversationItemKind.GENERATED_IMAGES, ConversationItemKind.SYSTEM -> activity
         }
     }
     return activity
@@ -1633,45 +1663,15 @@ internal fun shouldPublishPinnedState(
 
 @Composable
 internal fun ScrollToBottomButton(isGenerating: Boolean, onClick: () -> Unit) {
-    val shape = CircleShape
-    Surface(
+    DshGlassButton(
+        description = if (isGenerating) appText("正在生成，滚动到最新消息") else appText("滚动到最新消息"),
         onClick = onClick,
-        modifier = Modifier.padding(bottom = 4.dp).size(48.dp)
-            .dropShadow(
-                shape = shape,
-                shadow = Shadow(
-                    radius = 12.dp,
-                    spread = 0.dp,
-                    color = Color.Black.copy(alpha = 0.10f),
-                    offset = DpOffset(0.dp, 4.dp)
-                )
-            )
-            .semantics {
-                contentDescription = if (isGenerating) appText("正在生成，滚动到最新消息") else appText("滚动到最新消息")
-            }
-            .testTag("scroll-to-bottom"),
-        shape = shape,
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
-        border = androidx.compose.foundation.BorderStroke(
-            0.7.dp,
-            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.07f)
-        )
+        modifier = Modifier.padding(bottom = 4.dp).size(48.dp).testTag("scroll-to-bottom"),
     ) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            if (isGenerating) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(20.dp),
-                    strokeWidth = 2.dp,
-                    color = DshColors.Ocean
-                )
-            } else {
-                Icon(
-                    painter = painterResource(R.drawable.ic_arrow_down),
-                    contentDescription = null,
-                    modifier = Modifier.size(20.dp),
-                    tint = MaterialTheme.colorScheme.onSurface
-                )
-            }
+        if (isGenerating) {
+            CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp, color = DshColors.Ocean)
+        } else {
+            Icon(painterResource(R.drawable.ic_arrow_down), null, Modifier.size(20.dp), tint = dshGlassForeground())
         }
     }
 }
@@ -1767,6 +1767,10 @@ private fun Composer(
     //   iOS 2026-10-29 真机回归注释写明两者不能互替；② 描边 = cardStroke 1pt；③ 圆角 = DSHRadius.lg 20。
     val composerFill = if (isDark) DshColors.NavyRaised else Color.White
     val composerStroke = if (isDark) homeStroke(0.12f) else homeStroke(0.17f)
+    val glassEdge = dshGlassEdge(isDark)
+    val draftQuotes = remember(stateHolder.messageDraft) {
+        com.clarklevis.dsh.shared.protocol.GatewayQuoteTextParts.parse(stateHolder.messageDraft)
+    }
     val composerHasContent = stateHolder.messageDraft.trim().isNotEmpty() || stateHolder.preparedImages.isNotEmpty() || stateHolder.fileUploads.drafts.isNotEmpty() || stateHolder.fileUploads.preparing
     val voiceDividerColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)
     LaunchedEffect(stateHolder.preparedImages.isNotEmpty()) {
@@ -1805,7 +1809,7 @@ private fun Composer(
         if (inputValue.text != stateHolder.messageDraft) {
             inputValue = TextFieldValue(
                 text = stateHolder.messageDraft,
-                selection = TextRange(stateHolder.messageDraft.length)
+                selection = TextRange(stateHolder.messageSelectionStart.coerceIn(0, stateHolder.messageDraft.length))
             )
         }
     }
@@ -1864,6 +1868,14 @@ private fun Composer(
                         }
                     }
                 }
+                if ("message-quotes-v1" in stateHolder.gatewayState.capabilities) {
+                    draftQuotes.orEmpty().forEachIndexed { index, part ->
+                        if (part.type == "quote") Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(part.text, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                            TextButton(onClick = { stateHolder.messageDraft = com.clarklevis.dsh.shared.protocol.GatewayQuoteTextParts.removeQuote(stateHolder.messageDraft, index) }) { Text("移除引用") }
+                        }
+                    }
+                }
                 val commandToken = stateHolder.slashCommands.commandToken
                 val commandHint = stateHolder.slashCommands.argumentHint
                 if (voice.state.voiceMode) {
@@ -1875,6 +1887,8 @@ private fun Composer(
                     onValueChange = {
                         inputValue = it
                         stateHolder.messageDraft = it.text
+                        stateHolder.messageSelectionStart = it.selection.start
+                        stateHolder.messageSelectionEnd = it.selection.end
                     },
                     modifier = Modifier
                         .fillMaxWidth()
@@ -2942,6 +2956,9 @@ private fun ConversationRow(
             onRetryAttachment,
             onPreviewImages
         )
+        ConversationItemKind.GENERATED_IMAGES -> Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterStart) {
+            UserAttachmentPreview(item.images, thumbnails, attachmentStates, onRetryAttachment, onPreviewImages, stacked = false)
+        }
         ConversationItemKind.ASSISTANT -> AssistantMessage(item, thumbnails, attachmentStates, onRetryAttachment)
         ConversationItemKind.STATUS -> StatusRow(item)
         ConversationItemKind.SYSTEM -> SystemRow(item)
@@ -3291,7 +3308,19 @@ private fun UserMessage(
                 horizontalAlignment = Alignment.End,
                 verticalArrangement = Arrangement.spacedBy(5.dp)
             ) {
-                Text(
+                if (!item.textParts.isNullOrEmpty()) {
+                    Column(Modifier.background(bubbleFill, RoundedCornerShape(15.dp)).padding(12.dp)) {
+                        item.textParts.orEmpty().forEach { part ->
+                            if (part.type == "quote") {
+                                var expanded by remember(item.id, part) { mutableStateOf(false) }
+                                Text(part.text, maxLines = if (expanded) Int.MAX_VALUE else 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded }
+                                        .background(bubbleEdge, RoundedCornerShape(8.dp)).padding(8.dp))
+                            } else Text(part.text, fontSize = 16.sp)
+                        }
+                    }
+                } else Text(
                     text = item.text,
                     modifier = Modifier
                         .background(bubbleFill, RoundedCornerShape(15.dp))
@@ -3334,7 +3363,8 @@ private fun UserAttachmentPreview(
     thumbnails: Map<String, ImageBitmap>,
     states: Map<String, AttachmentLoadState>,
     onRetry: (String) -> Unit,
-    onPreviewImages: (List<GatewayImageAttachment>, Int) -> Unit
+    onPreviewImages: (List<GatewayImageAttachment>, Int) -> Unit,
+    stacked: Boolean = true
 ) {
     if (attachments.isEmpty()) return
     BoxWithConstraints(Modifier.testTag("user-image-bubble")) {
@@ -3352,9 +3382,28 @@ private fun UserAttachmentPreview(
                 onRetry = onRetry,
                 onPreview = { onPreviewImages(attachments, 0) },
                 modifier = Modifier.size(previewSize.width, previewSize.height),
-                cornerRadius = 11.dp,
+                cornerRadius = 12.dp,
                 borderWidth = 0.dp
             )
+        } else if (!stacked) {
+            val columnWidth = minOf(180.dp, (maxWidth - 6.dp) / 2)
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                attachments.chunked(2).forEachIndexed { rowIndex, row ->
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        row.forEachIndexed { columnIndex, attachment ->
+                            val previewSize = userSingleAttachmentPreviewSize(attachment.width, attachment.height, columnWidth)
+                            Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                                UserAttachmentImage(
+                                    attachment, thumbnails[attachment.attachmentId], states[attachment.attachmentId],
+                                    onRetry, { onPreviewImages(attachments, rowIndex * 2 + columnIndex) },
+                                    Modifier.size(previewSize.width, previewSize.height), 12.dp, 0.dp
+                                )
+                            }
+                        }
+                        if (row.size == 1) Spacer(Modifier.weight(1f))
+                    }
+                }
+            }
         } else {
             val visibleAttachments = attachments.take(3)
             val cardOffset = 12.dp
@@ -3458,9 +3507,39 @@ internal fun imagePreviewInitialPage(imageCount: Int, requestedIndex: Int): Int 
 internal fun ConversationImagePreviewDialog(
     request: ConversationImagePreviewRequest,
     thumbnails: Map<String, ImageBitmap>,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    loadOriginal: suspend (GatewayImageAttachment) -> ByteArray? = { null }
 ) {
     if (request.attachments.isEmpty()) return
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var saving by remember { mutableStateOf(false) }
+    var saveTarget by remember { mutableStateOf<GatewayImageAttachment?>(null) }
+    var saveMenuPosition by remember { mutableStateOf<IntOffset?>(null) }
+    var permissionTarget by remember { mutableStateOf<GatewayImageAttachment?>(null) }
+    fun save(attachment: GatewayImageAttachment) {
+        if (saving) return
+        saving = true
+        scope.launch {
+            try {
+                val bytes = loadOriginal(attachment) ?: error(appText("图片尚未加载，请重试"))
+                saveImageToPhotos(context, bytes, attachment.mediaType)
+                Toast.makeText(context, appText("已保存到相册"), Toast.LENGTH_SHORT).show()
+            } catch (error: kotlinx.coroutines.CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                Toast.makeText(context, appText("保存失败，请重试"), Toast.LENGTH_LONG).show()
+            } finally {
+                saving = false
+            }
+        }
+    }
+    val storagePermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        val attachment = permissionTarget
+        permissionTarget = null
+        if (granted && attachment != null) save(attachment)
+        else Toast.makeText(context, appText("请允许存储权限后重试"), Toast.LENGTH_LONG).show()
+    }
     val pagerState = rememberPagerState(
         initialPage = imagePreviewInitialPage(request.attachments.size, request.initialIndex),
         pageCount = request.attachments::size
@@ -3486,8 +3565,26 @@ internal fun ConversationImagePreviewDialog(
                     val attachment = request.attachments[page]
                     ZoomablePreviewImage(
                         image = thumbnails[attachment.attachmentId],
-                        contentDescription = attachment.name ?: appText("图片")
+                        contentDescription = attachment.name ?: appText("图片"),
+                        onLongPress = { position ->
+                            saveTarget = attachment
+                            saveMenuPosition = IntOffset(position.x.toInt(), position.y.toInt())
+                        }
                     )
+                }
+                DshPointMenu(point = saveMenuPosition, onDismiss = { saveMenuPosition = null; saveTarget = null }) {
+                    DshMenuItem(text = { Text(appText("保存到相册")) }, enabled = !saving, onClick = {
+                        val attachment = saveTarget
+                        saveTarget = null
+                        saveMenuPosition = null
+                        if (attachment != null) {
+                            if (Build.VERSION.SDK_INT <= 28 && ContextCompat.checkSelfPermission(context,
+                                    Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+                                permissionTarget = attachment
+                                storagePermission.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                            } else save(attachment)
+                        }
+                    })
                 }
                 Row(
                     modifier = Modifier
@@ -3496,22 +3593,8 @@ internal fun ConversationImagePreviewDialog(
                         .padding(horizontal = 16.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Surface(
-                        onClick = onDismiss,
-                        modifier = Modifier
-                            .size(38.dp)
-                            .semantics { contentDescription = appText("关闭图片预览") },
-                        shape = RoundedCornerShape(19.dp),
-                        color = Color.White.copy(alpha = 0.16f)
-                    ) {
-                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Icon(
-                                painter = painterResource(R.drawable.ic_close),
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp),
-                                tint = Color.White
-                            )
-                        }
+                    DshGlassButton(appText("关闭图片预览"), onDismiss, Modifier.size(38.dp)) {
+                        Icon(painterResource(R.drawable.ic_close), null, Modifier.size(16.dp), tint = dshGlassForeground())
                     }
                     Text(
                         text = "${pagerState.currentPage + 1} / ${request.attachments.size}",
@@ -3529,15 +3612,19 @@ internal fun ConversationImagePreviewDialog(
 }
 
 @Composable
-private fun ZoomablePreviewImage(
+internal fun ZoomablePreviewImage(
     image: ImageBitmap?,
-    contentDescription: String
+    contentDescription: String,
+    onLongPress: ((Offset) -> Unit)? = null
 ) {
     var scale by remember(image) { mutableFloatStateOf(1f) }
     var translation by remember(image) { mutableStateOf(Offset.Zero) }
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .pointerInput(image, onLongPress) {
+                detectTapGestures(onLongPress = { onLongPress?.invoke(it) })
+            }
             .pointerInput(image) {
                 awaitEachGesture {
                     var event = awaitPointerEvent()

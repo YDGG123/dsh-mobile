@@ -5,7 +5,8 @@ import UIKit
 struct ConversationItem: Identifiable, Sendable, Equatable {
     /// `switchNotice` 是纯展示条目（S27 切换提示，细线 + 文案）：由视图层在渲染前注入，
     /// 不来自事件流、不写回 store、不进 KMP 轨迹/轮次统计。
-    enum Kind: Equatable, Sendable { case user, context, assistant, reasoning, tool, jsonTool, toolResult, status, system, switchNotice }
+    /// `generatedImages` 为上游 1.7.15 的图片批次条目（dsh-image-gen）。
+    enum Kind: Equatable, Sendable { case user, context, assistant, reasoning, tool, jsonTool, toolResult, generatedImages, status, system, switchNotice }
     let id: String
     let kind: Kind
     let title: String
@@ -26,6 +27,7 @@ struct ConversationItem: Identifiable, Sendable, Equatable {
     /// 渲染规则（2026-11-02 定）：`senderName != nil` ⇒ 显示名字；
     /// `nil && kind == .user` ⇒ 「我」；**`nil && assistant` ⇒ 不显示任何名字（绝不回落成「我」）**。
     let senderName: String?
+    let textParts: [GatewayTextPart]?
 
     init(
         id: String,
@@ -38,7 +40,8 @@ struct ConversationItem: Identifiable, Sendable, Equatable {
         files: [PresentedFile] = [],
         knownFiles: [PresentedFile] = [],
         seq: Int? = nil,
-        senderName: String? = nil
+        senderName: String? = nil,
+        textParts: [GatewayTextPart]? = nil
     ) {
         self.id = id
         self.kind = kind
@@ -48,6 +51,7 @@ struct ConversationItem: Identifiable, Sendable, Equatable {
         self.isError = isError
         self.files = files
         self.knownFiles = knownFiles
+        self.textParts = textParts
         self.date = date
         self.seq = seq
         self.senderName = senderName

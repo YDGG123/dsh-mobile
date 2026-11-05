@@ -6,6 +6,7 @@ import com.clarklevis.dsh.shared.protocol.JsonValue
 import com.clarklevis.dsh.shared.protocol.failureText
 import com.clarklevis.dsh.shared.protocol.GatewayEvent
 import com.clarklevis.dsh.shared.protocol.GatewayImageAttachment
+import com.clarklevis.dsh.shared.protocol.toolImages
 import com.clarklevis.dsh.shared.protocol.SessionEvent
 import com.clarklevis.dsh.shared.sync.AssistantChunk
 import com.clarklevis.dsh.shared.sync.expandAssistantStream
@@ -15,7 +16,7 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.Serializable
 
 @Serializable
-enum class ConversationItemKind { USER, CONTEXT, ASSISTANT, REASONING, TOOL, JSON_TOOL, TOOL_RESULT, STATUS, SYSTEM }
+enum class ConversationItemKind { USER, CONTEXT, ASSISTANT, REASONING, TOOL, JSON_TOOL, TOOL_RESULT, GENERATED_IMAGES, STATUS, SYSTEM }
 
 @Serializable
 data class ConversationProjectionLabels(
@@ -96,7 +97,9 @@ data class ConversationItem(
      * 纪律：**禁止本地推断**（不拿会话标题凑、不写「未知/成员」）——假身份比空更糟；
      * `role == user` 一律不显示名字，否则会与网关侧那条用户条目重复显示自己的名字。
      */
-    val senderName: String? = null
+    val senderName: String? = null,
+    val textParts: List<com.clarklevis.dsh.shared.protocol.GatewayTextPart>? = null,
+    val requestId: String? = null
 )
 
 /** 高频 token 流只发送有序操作，不重复发送已经累计的完整消息文本。 */
@@ -115,6 +118,9 @@ class ConversationProjector(
     private val mutableItems = mutableListOf<ConversationItem>()
     private val filesByTurn = mutableMapOf<Int, LinkedHashMap<String, PresentedFile>>()
     private val presentedSequences = mutableSetOf<Int>()
+    private val toolImagesByCall = mutableMapOf<String, MutableSet<String>>()
+    private val injectedImageCalls = mutableMapOf<String, Set<String>>()
+    private val imageWindowBySession = mutableMapOf<String, Int>()
     private val streamIndexes = mutableMapOf<String, Int>()
     private val finalizedKeys = mutableSetOf<String>()
     private val commandItemIds = mutableMapOf<String, String>()
@@ -176,6 +182,9 @@ class ConversationProjector(
         mutableItems.clear()
         filesByTurn.clear()
         presentedSequences.clear()
+        toolImagesByCall.clear()
+        injectedImageCalls.clear()
+        imageWindowBySession.clear()
         streamIndexes.clear()
         finalizedKeys.clear()
         commandItemIds.clear()
@@ -300,6 +309,7 @@ class ConversationProjector(
         val date = normalizeEpoch(record.time)
         when {
             event.type == "user/message" && (event.source == null || event.source == "user") -> {
+                imageWindowBySession[record.sessionId] = record.seq
                 if (!event.text.isNullOrEmpty() || !event.images.isNullOrEmpty() || !event.files.isNullOrEmpty()) {
                     val messageId = event.raw?.get("id")?.stringValue
                     // 旧网关未转发消息 ID 时，只按到达顺序匹配一条临时消息；不能按正文全局去重。
@@ -314,6 +324,8 @@ class ConversationProjector(
                         kind = ConversationItemKind.USER,
                         title = labels.userMessage,
                         text = event.text.orEmpty(),
+                        textParts = event.textParts,
+                        requestId = event.requestId,
                         images = event.images.orEmpty(),
                         files = event.files.orEmpty(),
                         epochSeconds = date,
@@ -380,6 +392,28 @@ class ConversationProjector(
                         // 系统事件/上下文注入 ⇒ 一律不署名（不是 Bot 发言）。
                         senderName = null
                     ), operations)
+                }
+            }
+            event.type == "user/message" -> {
+                // 内部工具上下文仍保留原文字；图片独立展示，按调用关联去重。
+                val internalTool = event.source == "tool"
+                if (!event.text.isNullOrEmpty()) insert(ConversationItem(
+                    id = eventId(record), kind = ConversationItemKind.CONTEXT,
+                    title = labels.context + contextSourceName(event), text = event.text,
+                    images = if (internalTool) emptyList() else event.images.orEmpty(),
+                    epochSeconds = date
+                ), operations)
+                if (internalTool) {
+                    // 旧实时协议只给 source=tool，无 callId；只在当前用户轮次内合并。
+                    val calls = imageCallKeys(record).ifEmpty { setOf(imageWindowKey(record)) }
+                    val existing = calls.flatMap { toolImagesByCall[it].orEmpty() }.toSet()
+                    val images = event.images.orEmpty().filter { it.attachmentId !in existing }
+                    if (images.isNotEmpty()) {
+                        val id = "${eventId(record)}-images"
+                        injectedImageCalls[id] = calls
+                        insert(ConversationItem(id, ConversationItemKind.GENERATED_IMAGES, "", "",
+                            images = images, epochSeconds = date), operations)
+                    }
                 }
             }
             event.type == "assistant/chunk" && event.chunkType == "text-delta" && key !in finalizedKeys ->
@@ -547,13 +581,63 @@ class ConversationProjector(
                             epochSeconds = date
                         ), operations)
                     }
+                // 上游（origin/main）新增：工具结果里的生成图片独立成条（与上面的卡片合并逻辑并存）
+                insertToolImages(record, operations)
             }
+            event.type == "tool/ptc-dispatch" || event.type == "tool/code-dispatch" ->
+                insertToolImages(record, operations)
             event.type == "command/run" -> commandStarted(record, date, operations)
             event.type == "compaction/start" -> compactionStarted(record, date, operations)
             event.type == "compaction/summary" -> compactionSummarized(record, date, operations)
             event.type == "compaction/end" -> compactionEnded(record, date, operations)
             event.type == "command/done" -> commandFinished(record, date, operations)
         }
+    }
+
+    private fun imageWindowKey(record: SessionEvent): String =
+        "${record.sessionId}:image-window:${imageWindowBySession[record.sessionId] ?: -1}"
+
+    private fun imageCallKeys(record: SessionEvent): Set<String> {
+        val event = record.event
+        val source = event.raw?.get("source")
+        return listOfNotNull(event.callId, event.rootCallId, event.parentCallId, event.subCallId,
+            source?.get("callId")?.stringValue, source?.get("toolCallId")?.stringValue)
+            .map { "${record.sessionId}:$it" }.toSet()
+    }
+
+    private fun insertToolImages(record: SessionEvent, operations: MutableList<ConversationProjectionOperation>) {
+        val calls = imageCallKeys(record)
+        val existing = calls.flatMap { toolImagesByCall[it].orEmpty() }.toSet()
+        val images = record.event.toolImages().filter { it.attachmentId !in existing }
+        if (images.isEmpty()) return
+        val imageIds = images.map { it.attachmentId }.toSet()
+        val injectionCalls = calls + imageWindowKey(record)
+        injectionCalls.forEach { toolImagesByCall.getOrPut(it) { mutableSetOf() }.addAll(imageIds) }
+        // 分页重建或较晚到达的工具结果优先于内部注入图片，绝不处理真实用户上传。
+        injectedImageCalls.filterValues { it.intersect(injectionCalls).isNotEmpty() }.keys.toList().forEach { injectedId ->
+            val index = mutableItems.indexOfFirst { it.id == injectedId }
+            if (index >= 0) {
+                val old = mutableItems[index]
+                val remaining = old.images.filter { it.attachmentId !in imageIds }
+                if (remaining.isEmpty()) {
+                    mutableItems.removeAt(index)
+                    injectedImageCalls.remove(injectedId)
+                    streamIndexes.entries.forEach { if (it.value > index) it.setValue(it.value - 1) }
+                    operations += ConversationProjectionOperation("remove", itemId = injectedId)
+                } else if (remaining != old.images) {
+                    val updated = old.copy(images = remaining)
+                    mutableItems[index] = updated
+                    operations += ConversationProjectionOperation("replace", item = updated, itemId = injectedId)
+                }
+            }
+        }
+        val id = "${eventId(record)}-images"
+        if (mutableItems.any { it.id == id }) return
+        insert(ConversationItem(
+            id = id, kind = ConversationItemKind.GENERATED_IMAGES,
+            title = "", text = "", images = images,
+            epochSeconds = normalizeEpoch(record.time), turn = record.event.turn
+        ), operations)
     }
 
     private fun commandStarted(

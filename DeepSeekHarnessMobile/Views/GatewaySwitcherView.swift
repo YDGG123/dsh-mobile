@@ -16,21 +16,11 @@ struct GatewaySwitcherBar: View {
     var body: some View {
         let connected = hosts.activeStore.gateway.state.isConnected
         return Button { showsHosts = true } label: {
-            HStack(spacing: DSHSpacing.sm) {
-                DSHStatus(kind: connected ? .online : .failed, text: hosts.activeStore.gateway.state.label)
-                if let hostLabel {
-                    Text("·").appFont(DSHType.footnote).foregroundStyle(palette.ink(0.3))
-                    Text(hostLabel)
-                        .appFont(DSHType.mono)
-                        .foregroundStyle(palette.ink(0.5))
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
-                Spacer(minLength: DSHSpacing.sm)
-                // 断网时参考实现显示「重连中」（S01 gatewayLine）；连接时显示相对时长。
-                Text(trailingText)
-                    .appFont(DSHType.meta)
-                    .foregroundStyle(palette.ink(0.4))
+            HStack(spacing: 8) {
+                // 内嵌隧道的标记：只在开关打开时出现；未连上时叠一个转圈，连上后静止点亮。
+                TailscaleTunnelIndicator()
+                Image(systemName: hosts.activeProfile?.deviceKind ?? "desktopcomputer")
+                Text(hosts.activeProfile?.displayName ?? String(localized: "选择主机"))
                     .lineLimit(1)
                 Image(systemName: "chevron.forward")
                     .appFont(DSHType.meta.weight(.semibold))
@@ -42,7 +32,7 @@ struct GatewaySwitcherBar: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("当前主机：\(hosts.activeProfile?.displayName ?? String(localized: "未选择"))，切换主机")
-        .sheet(isPresented: $showsHosts) { GatewaySwitcherSheet() }
+        .sheet(isPresented: $showsHosts) { GatewaySwitcherSheet(hosts: hosts) }
     }
 
     private var trailingText: String {
@@ -75,8 +65,8 @@ struct GatewaySwitcherBar: View {
     }
 }
 
-private struct GatewaySwitcherSheet: View {
-    @EnvironmentObject private var hosts: MultiGatewayStore
+struct GatewaySwitcherSheet: View {
+    @ObservedObject var hosts: MultiGatewayStore
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     @State private var editMode: EditMode = .inactive

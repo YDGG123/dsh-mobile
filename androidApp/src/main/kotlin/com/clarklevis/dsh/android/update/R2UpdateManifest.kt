@@ -16,7 +16,8 @@ internal fun parseUpdateManifest(
     source: String,
     packageName: String,
     installedVersion: String,
-    installedBuild: Long
+    installedBuild: Long,
+    supportedAbis: List<String> = emptyList()
 ): AndroidRelease? {
     val manifest = Json.parseToJsonElement(source).jsonObject
     require(manifest.getValue("schemaVersion").jsonPrimitive.int == 1) { appText("不支持的更新配置格式") }
@@ -24,10 +25,16 @@ internal fun parseUpdateManifest(
     val version = manifest.getValue("version").jsonPrimitive.content
     require(Regex("\\d+\\.\\d+\\.\\d+").matches(version)) { appText("无效的更新版本") }
     val build = manifest.getValue("versionCode").jsonPrimitive.long
-    val size = manifest.getValue("size").jsonPrimitive.long
-    val hash = manifest.getValue("sha256").jsonPrimitive.content.lowercase()
+    val variants = manifest["abiApks"]?.jsonObject
+    val selected = supportedAbis.firstNotNullOfOrNull { variants?.get(it)?.jsonObject } ?: manifest
+    val size = selected.getValue("size").jsonPrimitive.long
+    val hash = selected.getValue("sha256").jsonPrimitive.content.lowercase()
     require(build > 0 && size > 0 && Regex("[0-9a-f]{64}").matches(hash)) { appText("无效的安装包校验信息") }
-    val url = manifest.getValue("downloadUrl").jsonPrimitive.content.toHttpUrl()
+    // 合入上游 abiApks（2026-11-06）：**sha256 / downloadUrl / githubDownloadUrl 三者必须都取自
+    // 选中的那个变体**，不能只取 sha 而 url 仍读顶层——那会让校验和与下载地址指向不同的包
+    // （上游原实现即 `selected.getValue("downloadUrl")`，我方的合并版把 url 读回顶层 = 真 bug，
+    //  R2UpdateManifestTest.selectsPreferredCompatibleAbiAndUsesItsOwnChecksum 抓出）。
+    val url = selected.getValue("downloadUrl").jsonPrimitive.content.toHttpUrl()
     // 白名单放宽（68 批，Chief 裁定）：旧站兜底 manifest 允许旧域名，也允许 GitHub 资产域
     // （github.com 仓库 releases 路径 / objects.githubusercontent.com / release-assets.githubusercontent.com）。
     // 仍是显式白名单 + https + 无凭据 + .apk 结尾，未放宽到任意域。
@@ -37,7 +44,7 @@ internal fun parseUpdateManifest(
             (url.host == "github.com" && url.encodedPath.startsWith("/Clarklevis1995/dsh-mobile/releases/download/")) ||
             url.host == "objects.githubusercontent.com" ||
             url.host == "release-assets.githubusercontent.com")) { appText("不可信的 APK 下载地址") }
-    val fallback = manifest["githubDownloadUrl"]?.jsonPrimitive?.contentOrNull?.toHttpUrl()
+    val fallback = selected["githubDownloadUrl"]?.jsonPrimitive?.contentOrNull?.toHttpUrl()
     require(fallback == null || (fallback.scheme == "https" && fallback.host == "github.com" &&
         fallback.username.isEmpty() && fallback.password.isEmpty() &&
         fallback.encodedPath.startsWith("/Clarklevis1995/dsh-mobile/releases/download/v$version/") &&

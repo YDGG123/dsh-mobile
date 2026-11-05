@@ -28,6 +28,7 @@ XCT_FW="$D/Platforms/iPhoneSimulator.platform/Developer/Library/Frameworks"
 FW="shared/build/bin/iosX64/debugFramework"
 DEPS="${TYPECHECK_DEPS:-/tmp/dsh-typecheck-deps}"
 TEST_DEPS="${TEST_TYPECHECK_DEPS:-/tmp/dsh-test-typecheck-deps}"
+TSNETGO_FW_SLICE="${TSNETGO_FW_SLICE:-tsnetgo/build/tsnetgo/Tsnetgo.xcframework/ios-arm64_x86_64-simulator}"
 MOD="$TEST_DEPS/module"
 CACHE="$DEPS/module-cache"
 SOURCES="${DSH_TEST_SOURCES:-DeepSeekHarnessMobileTests}"
@@ -53,8 +54,10 @@ mkdir -p "$TEST_DEPS" "$MOD" "$CACHE"
 # App 模块带 -enable-testing 编出后，测试侧 import 会连带要求它依赖的模块也可测，
 # 否则报 “module 'MarkdownUI' was not compiled for testing”。这里单独编一份，-I 排前面。
 if [ ! -f "$TEST_DEPS/MarkdownUI.swiftmodule" ] || [ "$DEPS/MarkdownUI.swift" -nt "$TEST_DEPS/MarkdownUI.swiftmodule" ]; then
+  # 目标必须与 App 模块一致（16.0）：17.0 编出的桩会让 App 模块 import 报
+  # "module 'MarkdownUI' has a minimum deployment target of iOS 17.0"（合流踩到）。
   "$TC/swiftc" -emit-module -enable-testing -D DEBUG \
-    -sdk "$SDK" -target "x86_64-apple-ios${TEST_TARGET_OS}-simulator" -swift-version 5 \
+    -sdk "$SDK" -target x86_64-apple-ios16.0-simulator -swift-version 5 \
     -module-name MarkdownUI -emit-module-path "$TEST_DEPS/MarkdownUI.swiftmodule" \
     "$DEPS/MarkdownUI.swift" >/dev/null 2>&1 || fail "生成可测试版 MarkdownUI 桩失败"
 fi
@@ -72,10 +75,19 @@ build_app_module() {
       -module-name MarkdownUI -emit-module-path "$TEST_DEPS/MarkdownUI.swiftmodule" \
       "$DEPS/MarkdownUI.swift" >/dev/null 2>&1 || fail "生成可测试版 MarkdownUI 桩失败"
   fi
-  echo "→ 编 App 测试模块（-enable-testing -D DEBUG）..."
-  "$TC/swiftc" -emit-module -enable-testing -D DEBUG \
+  echo "→ 编 App 测试模块（-enable-testing -D DEBUG，frontend 模式 + solver 阈值 600s）..."
+  # 上游 1.7.15 合并后 SwiftUI 大 body 在默认 solver 阈值下误报「类型检查超时」
+  # （与 81 时代 WorkspaceView.contentLayer 同款，但改阈值才是根治——拆 body 只是绕）。
+  # 该参数只在前端模式接受：swiftc -frontend -emit-module ... -solver-expression-time-threshold=600
+  # 实测 2026-11-06 05:5x：TailscaleTunnelView/SettingsView/RootView 的超时全部消失。
+  # 05:5x 进一步实测：阈值 120 仍不够（PluginsView.swift:153 的 Toggle+Binding 仍报超时），
+  # 单文件对比 120 报错 / 180 通过 / 300 通过 / 600 通过，且单文件实际只用 20 秒编完
+  # ⇒ 不是表达式真复杂，是 solver 预算分配保守。取 600 留足余量（全量一次编 100+ 文件时
+  # 各表达式会挤同一份预算）。这是上限不是实际耗时。
+  "$TC/swiftc" -frontend -emit-module -enable-testing -D DEBUG \
+    -solver-expression-time-threshold=600 \
     -sdk "$SDK" -target "x86_64-apple-ios${TEST_TARGET_OS}-simulator" -swift-version 5 \
-    -F "$FW" -F "$DEPS" -I "$TEST_DEPS" -I "$DEPS" -module-cache-path "$CACHE" \
+    -F "$FW" -F "$DEPS" -F "$TSNETGO_FW_SLICE" -I "$TEST_DEPS" -I "$DEPS" -module-cache-path "$CACHE" \
     -module-name DeepSeekHarnessMobile \
     -emit-module-path "$MOD/DeepSeekHarnessMobile.swiftmodule" \
     $(find DeepSeekHarnessMobile -name "*.swift") > "$TEST_DEPS/appmod.log" 2>&1
@@ -110,9 +122,10 @@ run_check() {
     echo "❌ 测试目标类型检查失败：源码目录 0 个 .swift 文件（$src）——路径写错或目录为空，闸门不能当作通过"
     return 1
   fi
-  "$TC/swiftc" -typecheck -D DEBUG \
+  "$TC/swiftc" -frontend -typecheck -D DEBUG \
+    -solver-expression-time-threshold=600 \
     -sdk "$SDK" -target "x86_64-apple-ios${TEST_TARGET_OS}-simulator" -swift-version 5 \
-    -F "$FW" -F "$DEPS" -F "$XCT_FW" \
+    -F "$FW" -F "$DEPS" -F "$XCT_FW" -F "$TSNETGO_FW_SLICE" \
     -I "$TEST_DEPS" -I "$DEPS" -I "$MOD" -I "$XCT_OVERLAY" \
     -module-cache-path "$CACHE" \
     $(find "$src" -name "*.swift") > "$log" 2>&1

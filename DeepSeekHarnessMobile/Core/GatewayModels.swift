@@ -4,7 +4,7 @@ import ImageIO
 @inline(__always)
 func gatewayApprovalTrace(_ message: @autoclosure () -> String) {
 #if DEBUG
-    print("[DshApproval] \(message())")
+    appPrint("[DshApproval] \(message())")
 #endif
 }
 
@@ -48,6 +48,17 @@ enum JSONValue: Codable, Hashable, Sendable {
         case .object(let item): try value.encode(item)
         case .array(let item): try value.encode(item)
         case .null: try value.encodeNil()
+        }
+    }
+
+    var foundationValue: Any {
+        switch self {
+        case .string(let v): return v
+        case .number(let v): return v
+        case .bool(let v): return v
+        case .object(let v): return v.mapValues { $0.foundationValue }
+        case .array(let v): return v.map { $0.foundationValue }
+        case .null: return NSNull()
         }
     }
 
@@ -184,6 +195,10 @@ struct GatewayBridgeSession: Codable, Sendable {
         return String(data: data, encoding: .utf8)
     }
 }
+struct GatewayTextPart: Codable, Hashable, Sendable {
+    var type: String
+    var text: String
+}
 
 struct GatewayFrame: Codable, Sendable {
     var kind: String
@@ -226,6 +241,7 @@ struct GatewayFrame: Codable, Sendable {
     var event: GatewayEvent?
     var code: String?
     var message: String?
+    var text: String?
     var mode: String?
     var command: JSONValue?
     var line: String?
@@ -236,6 +252,12 @@ struct GatewayFrame: Codable, Sendable {
     var id: String?
     var record: JSONValue?
     var records: [JSONValue]?
+    var shown: Int?
+    var total: Int?
+    var limit: Int?
+    var deletedCount: Int?
+    var step: String?
+    var schedule: JSONValue?
     var updated: Bool?
     var deleted: Bool?
     var earlierRecordsUnavailable: Bool?
@@ -704,9 +726,22 @@ enum GatewayWireDecoder {
         return "\(path.isEmpty ? "$" : path): \(context.debugDescription)"
     }
 
+    private struct ManagementHeader: Decodable { let kind: String }
+
     static func decode(_ data: Data) throws -> GatewayFrame {
         // 带 kind 的控制响应和大 history 页直接解码，避免先完整解析、
         // 再序列化整个 JSON。只为旧版无 kind 的实时事件走兼容路径。
+        if let header = try? JSONDecoder().decode(ManagementHeader.self, from: data),
+           ["schedule-view", "schedule-create", "schedule-edit", "schedule-run", "schedule-delete-inactive"].contains(header.kind),
+           var object = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            if header.kind == "schedule-delete-inactive" {
+                object["deletedCount"] = object.removeValue(forKey: "deleted")
+            } else {
+                object["schedule"] = object
+                object.removeValue(forKey: "target")
+            }
+            return try JSONDecoder().decode(GatewayFrame.self, from: JSONSerialization.data(withJSONObject: object))
+        }
         do {
             return try JSONDecoder().decode(GatewayFrame.self, from: data)
         } catch DecodingError.keyNotFound(let key, let context)
@@ -1006,7 +1041,9 @@ struct RawSessionEvent: Codable, Hashable, Sendable {
                     guard block["type"]?.stringValue == "file", let file = block["attachment"],
                           let id = file["attachmentId"]?.stringValue else { return nil }
                     return PresentedFile(attachmentId: id, name: file["name"]?.stringValue, bytes: file["bytes"]?.doubleValue.map(Int64.init))
-                }
+                },
+                textParts: data["textParts"]?.decode([GatewayTextPart].self),
+                requestId: data["source"]?["rpcId"]?.stringValue
             )
         case "assistant/chunk":
             let chunk = data["chunk"]
@@ -1053,7 +1090,8 @@ struct RawSessionEvent: Codable, Hashable, Sendable {
         case "tool/result":
             let content = data["message"]?["content"]?.arrayValue ?? []
             return GatewayEvent(type: type, turn: turn, step: step,
-                callId: data["message"]?["toolCallId"]?.stringValue ?? data["message"]?["source"]?["callId"]?.stringValue,
+                images: toolImageReferences(data),
+                callId: data["callId"]?.stringValue ?? data["message"]?["toolCallId"]?.stringValue ?? data["message"]?["source"]?["callId"]?.stringValue,
                 isError: (data["error"] != nil && data["error"] != .null && data["error"] != .bool(false)) ||
                     data["message"]?["isError"]?.boolValue == true ||
                     content.contains { $0["type"]?.stringValue == "tool-result" && $0["isError"]?.boolValue == true },
@@ -1075,9 +1113,10 @@ struct RawSessionEvent: Codable, Hashable, Sendable {
                 subCallId: data["subCallId"]?.stringValue,
                 raw: data
             )
-        case "tool/code-dispatch":
+        case "tool/code-dispatch", "tool/ptc-dispatch":
             return GatewayEvent(
                 type: type,
+                images: toolImageReferences(data),
                 name: data["name"]?.stringValue,
                 arguments: data["arguments"],
                 isError: data["isError"]?.boolValue,
@@ -1200,6 +1239,8 @@ struct GatewayEvent: Codable, Hashable, Sendable, Identifiable {
     var delayMs: Double?
     var failure: JSONValue?
     var files: [PresentedFile]?
+    var textParts: [GatewayTextPart]?
+    var requestId: String?
 
     init(
         type: String,
@@ -1243,12 +1284,16 @@ struct GatewayEvent: Codable, Hashable, Sendable, Identifiable {
         maxRetries: Int? = nil,
         delayMs: Double? = nil,
         failure: JSONValue? = nil,
-        files: [PresentedFile]? = nil
+        files: [PresentedFile]? = nil,
+        textParts: [GatewayTextPart]? = nil,
+        requestId: String? = nil
     ) {
         self.type = type
         self.turn = turn
         self.step = step
         self.text = text
+        self.textParts = textParts
+        self.requestId = requestId
         self._source = GatewayEventSource(wrappedValue: source)
         self.chunkType = chunkType
         self.tool = tool
@@ -1323,7 +1368,7 @@ struct SessionEvent: Codable, Hashable, Sendable, Identifiable {
     var date: Date { Date(timeIntervalSince1970: time > 10_000_000_000 ? time / 1000 : time) }
 }
 
-struct SessionSummary: Codable, Hashable, Identifiable {
+struct SessionSummary: Codable, Hashable, Sendable, Identifiable {
     var id: String
     var title: String
     var lastActivity: Date
@@ -1338,6 +1383,11 @@ struct SessionSummary: Codable, Hashable, Identifiable {
 }
 
 struct ScheduledTask: Identifiable, Hashable {
+    var everySeconds: Double? { raw["every_seconds"]?.doubleValue ?? raw["everySeconds"]?.doubleValue }
+    var expression: String? { raw["cron"]?["expression"]?.stringValue ?? raw["expression"]?.stringValue }
+    var clock: String? { raw[kind]?["time"]?.stringValue ?? raw["time"]?.stringValue }
+    var timeZone: String? { raw[kind]?["time_zone"]?.stringValue ?? raw["timeZone"]?.stringValue }
+    var weekdays: JSONValue? { raw["weekly"]?["weekdays"] ?? raw["weekdays"] }
     let id: String
     let sessionID: String
     let title: String
@@ -1350,19 +1400,17 @@ struct ScheduledTask: Identifiable, Hashable {
 
     init?(_ raw: JSONValue) {
         guard let id = raw["id"]?.stringValue,
-              let sessionID = raw["sessionId"]?.stringValue,
               let title = raw["title"]?.stringValue,
               let prompt = raw["prompt"]?.stringValue,
-              let kind = raw["kind"]?.stringValue,
-              let status = raw["status"]?.stringValue,
-              let scheduledAt = raw["scheduledAt"]?.stringValue else { return nil }
+              let status = raw["status"]?.stringValue else { return nil }
         self.id = id
-        self.sessionID = sessionID
+        self.sessionID = raw["target"]?["sessionId"]?.stringValue ?? raw["sessionId"]?.stringValue
+            ?? raw["involvedSessionIds"]?.arrayValue?.first?.stringValue ?? ""
         self.title = title
         self.prompt = prompt
-        self.kind = kind
+        self.kind = raw["kind"]?.stringValue ?? raw["timing"]?["kind"]?.stringValue ?? "unknown"
         self.status = status
-        self.scheduledAt = scheduledAt
+        self.scheduledAt = raw["scheduledAt"]?.stringValue ?? ""
         self.raw = raw
         self.lastDelivery = raw["lastDelivery"]
     }
@@ -1474,4 +1522,47 @@ struct MobileConversationTarget: Codable {
     var sessionId: String
     var parentSessionId: String?
     var subagentMode: String?
+}
+
+// 可选图片字段逐项容错，不能让插件元数据损坏中断 Agent 正文解码。
+extension KeyedDecodingContainer {
+    func decodeIfPresent(_ type: [GatewayImageAttachment].Type, forKey key: Key) throws -> [GatewayImageAttachment]? {
+        guard let value = try? decodeIfPresent(JSONValue.self, forKey: key) else { return nil }
+        return value.arrayValue?.compactMap { $0.decode(GatewayImageAttachment.self) }.filter { $0.isValidToolImage }
+    }
+}
+
+extension GatewayImageAttachment {
+    var isValidToolImage: Bool {
+        !attachmentId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            ["image/png", "image/jpeg", "image/webp", "image/gif"].contains(mediaType) &&
+            bytes > 0 && width > 0 && height > 0
+    }
+}
+
+func toolImageReferences(_ data: JSONValue) -> [GatewayImageAttachment] {
+    guard data["isError"]?.boolValue != true, data["message"]?["isError"]?.boolValue != true,
+          data["error"] == nil || data["error"] == .null || data["error"] == .bool(false) else { return [] }
+    var images: [GatewayImageAttachment] = []
+    var seen: Set<String> = []
+    func add(_ value: JSONValue?) {
+        guard let image = value?.decode(GatewayImageAttachment.self), image.isValidToolImage,
+              seen.insert(image.id).inserted else { return }
+        images.append(image)
+    }
+    func visit(_ value: JSONValue?, depth: Int = 0) {
+        guard depth < 16 else { return }
+        for block in value?.arrayValue ?? [] {
+            if block["type"]?.stringValue == "image" { add(block["attachment"]) }
+            else if block["type"]?.stringValue == "tool-result", block["isError"]?.boolValue != true {
+                visit(block["content"], depth: depth + 1)
+            }
+        }
+    }
+    for value in data["images"]?.arrayValue ?? [] { add(value) }
+    visit(data["message"]?["content"] ?? data["content"])
+    let meta = data["meta"]
+    let candidates = meta?["kind"]?.stringValue == "dsh-image-gen-batch" ? meta?["images"]?.arrayValue ?? [] : [meta].compactMap { $0 }
+    for value in candidates where value["kind"]?.stringValue == "dsh-image-gen" { add(value["attachment"]) }
+    return images
 }

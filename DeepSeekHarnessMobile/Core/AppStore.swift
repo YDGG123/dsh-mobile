@@ -970,6 +970,7 @@ final class AppStore: ObservableObject {
         approvalEffectExecutor: (any GatewayApprovalEffectExecuting)? = nil,
         sessionControlEffectExecutor: (any GatewaySessionControlEffectExecuting)? = nil,
         backgroundExecutionController: AgentBackgroundExecutionController? = nil,
+        agentNotifications: AgentUserNotificationManager? = nil,
         historyRequestTimeout: Duration = .seconds(20),
         filePreviewTimeout: Duration = .seconds(20),
         sessionControlRequestTimeout: Duration = .seconds(12),
@@ -978,6 +979,7 @@ final class AppStore: ObservableObject {
         offlineCatalogRestoreBarrier: (@Sendable () async -> Void)? = nil
     ) {
         gateway = gatewayClient ?? GatewayClient()
+        self.agentNotifications = agentNotifications ?? .shared
         self.voiceInput = voiceInput ?? VoiceInputAdapter()
         self.filePreviewTimeout = filePreviewTimeout
         self.historyRequestTimeout = historyRequestTimeout
@@ -5982,6 +5984,91 @@ self.bumpAttachmentRenderEpoch(id)
     private func persistSessions() {
         preferences.saveSessions(sessions)
     }
+
+// ===== 上游 1.7.15 子系统移植（iOSCoder 编译驱动 grafting）=====
+
+// 图片加载错误缓存（按 网关:会话:附件 键控）。
+    private var imageAttachmentErrors: [String: String] = [:]
+    private let agentNotifications: AgentUserNotificationManager
+    private let turnTiming = SharedTurnTimingStore()
+
+    // 上游 1.7.15：插件详情/更新子系统（随 PluginsView 移植）
+@Published private(set) var pluginInformationName: String?
+@Published private(set) var pluginVersions: JSONValue?
+@Published private(set) var pluginDetail: JSONValue?
+@Published private(set) var pluginVersionsRequestID: String?
+@Published private(set) var pluginDetailRequestID: String?
+@Published private(set) var pluginUpdateResult: JSONValue?
+@Published private(set) var supportsPluginUpdates = false
+@Published private(set) var pluginUpdateRequestID: String?
+@Published private(set) var pluginUpdateStep: String?
+@Published private(set) var pluginUpdateLogs: [String] = []
+
+    private func sendManagement(_ payload: [String: Any]) {
+        guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
+        gateway.sendRequestPayload(String(decoding: data, as: UTF8.self))
+    }
+
+    func loadPluginInformation(_ name: String, versions: Bool = false) {
+        guard supportsPluginUpdates, gateway.state.isConnected else { return }
+        if pluginInformationName != name {
+            pluginInformationName = name
+            pluginVersions = nil
+            pluginDetail = nil
+            pluginVersionsRequestID = nil
+            pluginDetailRequestID = nil
+            pluginUpdateResult = nil
+        }
+        let id = UUID().uuidString
+        if versions { pluginVersions = nil; pluginVersionsRequestID = id }
+        else { pluginDetail = nil; pluginDetailRequestID = id }
+        var payload: [String: Any] = ["type": versions ? "plugin-versions" : "plugin-detail", "name": name, "requestId": id]
+        if !versions { payload["language"] = Locale.current.identifier.replacingOccurrences(of: "_", with: "-") }
+        sendManagement(payload)
+    }
+
+    func updatePlugin(_ name: String, version: String) {
+        guard supportsPluginUpdates, gateway.state.isConnected, pluginPendingName == nil else { return }
+        let id = UUID().uuidString
+        pluginUpdateRequestID = id
+        pluginPendingName = name
+        pluginUpdateStep = "checking"
+        pluginUpdateLogs = []
+        pluginUpdateResult = nil
+        pluginNotice = nil
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(600))
+            guard let self, self.pluginUpdateRequestID == id else { return }
+            self.pluginUpdateRequestID = nil
+            self.pluginPendingName = nil
+            self.pluginUpdateStep = "unverified"
+            self.pluginNotice = "更新及恢复结果待核实，请刷新实际版本并检查 Host 日志"
+            self.refreshPlugins()
+        }
+        sendManagement(["type": "plugin-update", "requestId": id, "name": name, "version": version,
+            "registry": pluginVersions?["registry"]?.foundationValue ?? NSNull()])
+    }
+
+
+
+func imageData(for attachmentId: String, sessionID: String? = nil) -> Data? {
+        guard let sessionID = sessionID ?? selectedSessionId else { return nil }
+        return imageAttachmentCache.data(for: imageCacheKey(attachmentId, sessionID: sessionID))
+    }
+    @Published private(set) var supportsMessageQuotes = false
+
+private func imageCacheKey(_ attachmentID: String, sessionID: String) -> String {
+        "\(gatewayLocalID):\(sessionID.count):\(sessionID):\(attachmentID)"
+    }
+
+func imageLoadError(for attachmentID: String, sessionID: String) -> String? {
+        imageAttachmentErrors[imageCacheKey(attachmentID, sessionID: sessionID)]
+    }
+
+var selectedTurnTiming: SharedTurnTimingSnapshot? {
+        selectedSessionId.flatMap { turnTiming.snapshot(sessionId: $0) }
+    }
+
 }
 
 /// 旧网关未回显 query 时仍能把响应归属唯一请求；超时请求消化前不再发新请求。
@@ -6000,5 +6087,15 @@ struct RemoteSearchGate {
         inFlight = nil
         blocked = false
         return requested == desiredQuery && !desiredQuery.isEmpty
+    }
+}
+
+// 上游 1.7.15：轮次计时用单调时钟（随引用回复/轮次计时一并移植）。
+enum AgentTurnMonotonicClock {
+    private static let clock = ContinuousClock()
+    private static let origin = clock.now
+    static var now: Double {
+        let elapsed = origin.duration(to: clock.now).components
+        return Double(elapsed.seconds) + Double(elapsed.attoseconds) / 1e18
     }
 }
