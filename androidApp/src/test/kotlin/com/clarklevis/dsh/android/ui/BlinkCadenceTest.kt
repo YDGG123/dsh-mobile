@@ -62,17 +62,52 @@ class BlinkCadenceTest {
     @Test
     fun blinkStepsAreSaneAndWorkingIsFaster() {
         for (working in listOf(false, true)) {
-            val steps = blinkStepsFor(working)
-            assertTrue("档位为空", steps.isNotEmpty())
-            assertTrue("压扁系数越界", steps.all { it.squash in 0.5f..1.1f })
-            assertTrue("保持时长为非正", steps.all { it.holdMillis > 0 })
-            // 一轮结束后必须回稳到 1，否则头像会一直歪着。
-            assertEquals(1.0f, steps.last().squash)
+            for (glyph in listOf(false, true)) {
+                val steps = blinkStepsFor(working, glyphBranch = glyph)
+                assertTrue("档位为空", steps.isNotEmpty())
+                assertTrue("压扁系数越界", steps.all { it.squash in 0.03f..1.1f })
+                assertTrue("保持时长为非正", steps.all { it.holdMillis > 0 })
+                // 一轮结束后必须回稳到 1，否则头像会一直歪着。
+                assertEquals(1.0f, steps.last().squash)
+            }
         }
         assertTrue(
-            "干活时的眨眼间隔应比空闲短",
-            blinkPeriodMillis(working = true) < blinkPeriodMillis(working = false)
+            "干活时的眨眼间隔应比空闲短（Icon 分支）",
+            blinkPeriodMillis(working = true, glyphBranch = false) < blinkPeriodMillis(working = false, glyphBranch = false)
         )
-        assertEquals(blinkStepsFor(false).sumOf { it.holdMillis }, blinkPeriodMillis(false))
+        assertEquals(blinkStepsFor(false, glyphBranch = false).sumOf { it.holdMillis }, blinkPeriodMillis(false, glyphBranch = false))
+    }
+
+    /** vc63 ②判据（用户：幅度太小）：glyph 分支照 iOS 逐值——压到 0.03、一周期眨两次（9 档）、周期恰 5s。 */
+    @Test
+    fun glyphIdleStepsMatchIosRhythm() {
+        val steps = blinkStepsFor(working = false, glyphBranch = true)
+        assertEquals("iOS 空闲一周期眨两次 = 9 档", 9, steps.size)
+        assertEquals("bt-blink-idle 周期 5s", 5000L, blinkPeriodMillis(working = false, glyphBranch = true))
+        assertEquals("眯到 0.03（iOS 同值）", 0.03f, steps.minOf { it.squash })
+        assertEquals("回弹过冲 1.06 保留", 1.06f, steps.maxOf { it.squash })
+        // 两次闭眼的档位下标：iOS 序列的第 2 档与第 6 档
+        assertEquals(listOf(1, 5), steps.withIndex().filter { it.value.squash == 0.03f }.map { it.index })
+    }
+
+    /** vc63 ②判据：glyph 干活档 = iOS bt-blink 2.4s（5 档），仍是 0.03。 */
+    @Test
+    fun glyphWorkingStepsMatchIosRhythm() {
+        val steps = blinkStepsFor(working = true, glyphBranch = true)
+        assertEquals("iOS 干活 5 档", 5, steps.size)
+        assertEquals("bt-blink 周期 2.4s", 2400L, blinkPeriodMillis(working = true, glyphBranch = true))
+        assertEquals(0.03f, steps.minOf { it.squash })
+    }
+
+    /** vc63 有意差异：Icon 分支（整只符号）保持轻压 0.80——0.03 会把符号压成一条线。 */
+    @Test
+    fun iconBranchKeepsLightSquash() {
+        for (working in listOf(false, true)) {
+            val steps = blinkStepsFor(working, glyphBranch = false)
+            assertTrue(
+                "Icon 分支整只符号不得压到 0.03",
+                steps.all { it.squash >= 0.5f },
+            )
+        }
     }
 }

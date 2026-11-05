@@ -789,6 +789,7 @@ private fun RosterAvatar(
             1f
         ) > 0f
     }
+    val showGlyph = glyph != null && glyph.body.isNotBlank()
     val blinkActive = shouldBlink(blink, systemAnimationsOn)
     val blinkSquash = remember { Animatable(1f) }
     LaunchedEffect(botId, blinkActive, blinkWorking) {
@@ -797,7 +798,7 @@ private fun RosterAvatar(
             return@LaunchedEffect
         }
         delay(blinkPhaseMillis(botId))
-        val steps = blinkStepsFor(working = blinkWorking)
+        val steps = blinkStepsFor(working = blinkWorking, glyphBranch = showGlyph)
         while (true) {
             for (step in steps) {
                 blinkSquash.animateTo(step.squash, tween(durationMillis = step.holdMillis.toInt()))
@@ -822,7 +823,6 @@ private fun RosterAvatar(
     val color = remember(rowColor, avatarHex, effectiveLook, dark, fallback) {
         rosterAvatarColor(rowColor, avatarHex, effectiveLook.second, dark, fallback)
     }
-    val showGlyph = glyph != null && glyph.body.isNotBlank()
     Box(
         modifier.size(size.dp)
             .then(if (showGlyph) Modifier else Modifier.background(color, CircleShape))
