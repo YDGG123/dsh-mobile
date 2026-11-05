@@ -88,7 +88,7 @@
 1. **Gradle 升级**：上游 `9.1.0` → `9.3.1`（AGP 9.1.1 要求），本机需重新下载（官方源慢，走镜像）
 2. **SPM 新依赖**：`webrtc 154.0.0`、`swiftmath 1.7.3` 需下载
 3. **出包脚本要加 env**：`gradlew buildTsnetXcframework` 必须带 shim PATH，否则 iOS 编不出
-4. **合并后未编译验证**：冲突解决完成，但 Android/iOS 闸门尚未全绿
+4. ~~**合并后未编译验证**~~ → **已收口**：全量闸门 GATE_EXIT=0（2026-11-06 06:58，`/tmp/merge-gate-final4.log`；Chief 07:05 独立复跑同绿）。
 
 ## 上游提交逐条清单（merge-base `747939e8` → `3bf35b7`）
 
@@ -168,6 +168,12 @@
 
 **⑥ README / Info.plist**：README 保留我方（品牌 Orcarness、中文为主）；`Info.plist` build 77 保留我方（上游是 build 38）。
 
+## 已知非问题（查过、判过，明确不动）
+
+**`PluginsView` body 编译期 solver 耗时 ~10.8s**：`PluginsView.swift:13` 的 `var body` 是几十行嵌套视图，全量模块编译时该 getter 的 solver 耗时最高（2026-11-06 05:5x，Chief `-debug-time-function-bodies` 实测 11142ms；被报错的 `:153` 本身只 60ms，是预算被 `:13` 挤占后连累的）。按语义拆成 section 属性后复测仍 ~10.8s。**Chief 裁决（2026-11-06）：不上 `AnyView`**——AnyView 换掉的是 SwiftUI diffing 的视图 identity，代价真实且退化无声（日后往那块加状态就变掉帧问题）；10.8s 是 solver 编译期内部耗时，不是运行时卡顿，用户感知不到，闸门已绿非阻断。「拆到 1 秒内」当初只是判断拆分效果的参考值，对 opaque `some View` 本就不适用。**拆分保留、`-solver-expression-time-threshold=600` 保留**（上限非实际耗时，单文件实测 20s 编完）。下次看到 10.8s 不要再去折腾。
+
+**`TailscaleTunnelView.swift` 不再拆 body**：同因 solver 超时，合并中途曾被脚本写坏（682 行 vs 上游 672 行），已恢复上游原版逐字节一致（2026-11-06 05:4x，iOSDev 复核：`diff /tmp/ttv-upstream.swift` 为空 + `swiftc -parse` EXIT=0）。Chief 裁决：solver 阈值是根治、拆 body 是绕，该文件保持上游原版不再动。
+
 ## R2UpdateManifest 真 bug（本次合并抓住并修复）
 
 上游 `fdab38f` 引入 `abiApks` 多 ABI 变体：清单顶层之外多了按 ABI（arm64-v8a 等）的变体条目，`selected` 选中变体后：
@@ -177,19 +183,23 @@
 
 修复（`androidApp/.../update/R2UpdateManifest.kt:33-37`，2026-11-06）：`sha256` / `downloadUrl` / `githubDownloadUrl` **三者都取自 `selected`**（上游原实现即 `selected.getValue("downloadUrl")`，我方合并版读回顶层才是 bug——上游注释原话如此，合并时以合并树注释为准）。抓它的用例：`R2UpdateManifestTest.selectsPreferredCompatibleAbiAndUsesItsOwnChecksum`。
 
-## 验证状态（截至 2026-11-06 01:4x，不写「已完成」——见待办）
+## 验证状态（截至 2026-11-06 07:0x，全量闸门全绿）
 
 | 项 | 状态 | 读数 |
 |---|---|---|
-| Android 闸门 | **全绿** | `local-android-gate.sh` GATE_EXIT=0（2026-11-06 01:2x） |
-| KMP iOS 框架 | **未过**（进行中，iOSCoder） | `linkDebugFrameworkIosX64` 失败 3m14s，根因疑似 xcrun shim 未进 Gradle 环境 |
-| iOS Swift 类型检查 | **未跑**（等框架） | `local-typecheck.sh`（swiftc -typecheck，**不用 xcodebuild**——本机 Bus error） |
+| 全量闸门（合并树） | **全绿** | GATE_EXIT=0：`/tmp/merge-gate-final4.log`（11-06 06:58，iOSCoder 跑），Chief 07:05 独立复跑同绿（`/tmp/gate-verify.log`）。**注意**：`/tmp/merge-ios-gate-final2.log`（06:43）是测试调用点修复前的中间态（测试目标 8 错）、06:50 final3 卡安卓 buildTsnetAar，均已被 final4 取代，读旧日志勿误判 |
+| iOS 四路 typecheck | **全绿** | App / App(-D DEBUG) / Widget / Widget(-D DEBUG) 各 0 错误（final4） |
+| 第五路测试目标 | **全绿** | `-enable-testing -D DEBUG`（frontend + `-solver-expression-time-threshold=600`）：Tests 22 文件 0 错误、UITests 2 文件 0 错误（final4 :29/:31） |
+| Android 闸门 | **全绿** | assembleDebug + compileDebugAndroidTestKotlin + testDebugUnitTest + shared:jvmTest（final4；01:2x 首绿，06:58 合并树终验） |
+| 版本一致 | **绿** | 主 App 1.7.15 (82) ↔ Widget 1.7.15 (82)（final4） |
+| 工程收录 / xcstrings / i18n | **绿** | 102/102 挂对 target；xcstrings 1076 条全字典；调用点本地化新增 0（final4） |
+| KMP iOS 框架 | **全绿** | `:shared:linkDebugFrameworkIosX64` BUILD SUCCESSFUL（11-06 07:1x，gradle 终端，LINK_EXIT=0；compile/link 均 UP-TO-DATE＝当前源与上次成功构建输入一致，产物有效；此前 01:4x 失败 3m14s 的根因已由 `DEVELOPER_DIR=/tmp/FakeXcode.app/Contents/Developer` 修复） |
 | R2UpdateManifest 修复 | **绿**（单测） | `selectsPreferredCompatibleAbiAndUsesItsOwnChecksum` |
 | 设备级验收 | **未开始** | 真机装包后 |
 
 ## 待办 / 风险（承接骨架，补充）
 
-1. **KMP iOS 框架编译**（iOSCoder 进行中）：`xcrun` shim PATH 需进 Gradle 环境（`/tmp/xcrun-shim` 拦 Bus error）。
+1. ~~**KMP iOS 框架编译**~~ → **已收口**（2026-11-06 07:1x）：`DEVELOPER_DIR=/tmp/FakeXcode.app/Contents/Developer` 进 Gradle 环境即过，`linkDebugFrameworkIosX64` BUILD SUCCESSFUL（无 shim PATH 也行）。
 2. **Gradle 升级**：上游 9.1.0 → 9.3.1（AGP 9.1.1 要求），本机需重新下载（走镜像）。
 3. **SPM 新依赖**：`webrtc 154.0.0`、`swiftmath 1.7.3` 需下载；网络不通时 `-disableAutomaticPackageResolution` 走本地已解析包。
 4. **出包脚本要加 env**：`gradlew buildTsnetXcframework` 必须带 shim PATH，否则 iOS 编不出（每台构建机都要装 Go 1.27+ + gomobile）。
