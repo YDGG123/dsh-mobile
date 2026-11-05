@@ -111,8 +111,24 @@ internal fun interleavePeerEntries(
 ): List<ConversationTimelineEntry> =
     com.clarklevis.dsh.shared.domain.interleaveByTime(
         existing = entries.map { it.epochMillisOrNull() to it },
-        inserted = peers.map { it.dateMillis to it }
+        inserted = peers.map { it.dateMillis to it },
+        // vc63：seq 才是真序（宿主事件序），毫秒只是辅助——终序重排按 (seq, 原相对顺序)，
+        // 无 seq 殿后（iOS 04b84c0 同源修复；iOS 走 Swift twin，此处为安卓消费的 Kotlin 实现）。
+        seqOf = { entry -> entry.timelineSeqOrNull() }
     )
+
+/** 条目的宿主事件 seq（排序真序的来源）；拿不到 = null（终序殿后，保持原相对顺序）。 */
+private fun ConversationTimelineEntry.timelineSeqOrNull(): Long? = when (this) {
+    is ConversationTimelineEntry.PeerMessage -> seq
+    is ConversationTimelineEntry.AssistantHeader -> item.seq?.toLong()
+    is ConversationTimelineEntry.Display -> when (val display = entry) {
+        is com.clarklevis.dsh.android.ui.ConversationDisplayEntry.Message -> display.item.seq?.toLong()
+        is com.clarklevis.dsh.android.ui.ConversationDisplayEntry.Process ->
+            display.group.items.firstNotNullOfOrNull { it.seq?.toLong() }
+        else -> null
+    }
+    else -> null
+}
 
 /** 条目时间（毫秒）；拿不到返回 null（无时间的条目不参与时序比较）。 */
 private fun ConversationTimelineEntry.epochMillisOrNull(): Long? = when (this) {

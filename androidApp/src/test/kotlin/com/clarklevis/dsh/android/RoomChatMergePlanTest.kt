@@ -286,6 +286,57 @@ class RoomChatMergePlanTest {
         assertTrue(result.bubbles.isEmpty())
         assertEquals(listOf("room-1:7:9"), result.withoutSeq.map { it.id })
     }
+
+/** vc63 ①判据（红→绿）：同毫秒、seq 递增的乱序插入（模拟 reply:0/reply:1 同毫秒、或快速连发乱序送达）
+ *  ——终序必须按 **seq**（宿主事件序才是真序），不由毫秒精度/插入先后决定（iOS 04b84c0 同款修复）。
+ *  此用例在旧代码（无终序重排）上必须红：输出会是 [s100, s102, s101]。 */
+@Test
+fun mergeOrderFollowsSeqNotMillis() {
+    val existing = listOf<Pair<Long?, String>>(5_000L to "s100")
+    // 同毫秒 5_000，插入顺序故意 seq 降序（102 先于 101 送达）
+    val inserted = listOf<Pair<Long?, String>>(
+        5_000L to "s102",
+        5_000L to "s101",
+    )
+    val seqOf: (String) -> Long? = { it.removePrefix("s").toLongOrNull() }
+    assertEquals(
+        "同毫秒时 seq 决定终序，插入先后不决定",
+        listOf("s100", "s101", "s102"),
+        interleaveByTime(existing, inserted, seqOf),
+    )
+}
+
+/** ②判据（反向）：无 seq 的条目殿后、组内保持原相对顺序；有 seq 的不被它们插队。 */
+@Test
+fun noSeqEntriesGoLastInOriginalOrder() {
+    val existing = listOf<Pair<Long?, String>>(5_000L to "s100")
+    val inserted = listOf<Pair<Long?, String>>(
+        null to "n1",
+        6_000L to "s200",
+        null to "n2",
+    )
+    val seqOf: (String) -> Long? = { it.removePrefix("s").toLongOrNull() }
+    assertEquals(
+        listOf("s100", "s200", "n1", "n2"),
+        interleaveByTime(existing, inserted, seqOf),
+    )
+}
+
+/** ③判据（稳定）：seq 相同的两条保持原相对顺序（装饰排序，不赌 sortedBy 的稳定性）。 */
+@Test
+fun equalSeqKeepsOriginalRelativeOrder() {
+    val existing = emptyList<Pair<Long?, String>>()
+    val inserted = listOf<Pair<Long?, String>>(
+        1_000L to "a-first",
+        2_000L to "b-second",
+    )
+    val seqOf: (String) -> Long? = { 7L } // 全部同 seq
+    assertEquals(
+        "seq 相同 ⇒ 保持原相对顺序",
+        listOf("a-first", "b-second"),
+        interleaveByTime(existing, inserted, seqOf),
+    )
+}
 }
 
 // 合并快照的用例放在文件末尾（另一个类）

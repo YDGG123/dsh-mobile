@@ -134,12 +134,22 @@ private fun key(sessionId: String, seq: Long): String = "$sessionId|$seq"
  * - 时间是**毫秒**；`null` 或非正视为"无时间"（NaN/≤0 一律不参与排序，避免实现间排序漂移）；
  * - 稳定：`existing` 内部顺序不变，`inserted` 中有时按时间升序插到正确位置；
  * - 无时间的 `inserted` 条目**追加到末尾**（不得插到最前）。
+ *
+ * vc63（用户报「进对话页聊天记录顺序有些不对」，iOS 04b84c0 同源同 bug）：毫秒只是**辅助**，
+ * 宿主事件 `seq` 才是真序——同毫秒的多条（reply:0/reply:1、快速连发）由插入先后决定就会排错。
+ * 故 [seqOf] 非空时，交错的**结果**再做一次终序重排：(seq 升序, 原相对顺序) 稳定排序
+ * （下标装饰，不赌 sortedWith 的稳定性）；无 seq 的条目**殿后**、组内保持原相对顺序。
+ * 幂等性：对已按 seq 排好的列表再排一遍结果不变（iOS 已有终序排序，共享层再排一次不改序）。
+ * 默认 `seqOf = { null }` ⇒ 全体殿后但顺序不变 = 恒等变换，旧调用点行为不变。
  */
 fun <T> interleaveByTime(
     existing: List<Pair<Long?, T>>,
-    inserted: List<Pair<Long?, T>>
+    inserted: List<Pair<Long?, T>>,
+    seqOf: (T) -> Long? = { null }
 ): List<T> {
-    if (inserted.isEmpty()) return existing.map { it.second }
+    if (inserted.isEmpty() && seqOf(existing.firstOrNull()?.second ?: inserted.firstOrNull()?.second ?: return emptyList()) == null) {
+        return existing.map { it.second }
+    }
     val timed = inserted.filter { (it.first ?: 0L) > 0L }.sortedBy { it.first }
     val untimed = inserted.filter { (it.first ?: 0L) <= 0L }
     val out = ArrayList<T>(existing.size + inserted.size)
@@ -157,5 +167,10 @@ fun <T> interleaveByTime(
         next++
     }
     out += untimed.map { it.second }
+    // vc63 终序重排（见上）：有 seq 的升序在前（同 seq 保原相对序），无 seq 的殿后（组内原序）。
+    if (out.none { seqOf(it) != null }) return out
     return out
+        .mapIndexed { index, value -> Triple(seqOf(value), index, value) }
+        .sortedWith(compareBy({ it.first == null }, { it.first ?: 0L }, { it.second }))
+        .map { it.third }
 }
