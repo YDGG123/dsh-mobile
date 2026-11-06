@@ -37,7 +37,10 @@ struct WorkspaceView: View {
         // 当前 Xcode 26.3 / SDK 26.2 里没有 `toolbarVerticalEdge` / `axisBehavior` 符号，
         // 所以这段必须用编译器版本隔离——代码保留，等升到 Xcode 27+ 自动启用。
         // 详见 Docs/ios-27.1-api-pending.md。
-        #if compiler(>=6.3)
+        // 【2026-11-06 修】门槛原为 compiler(>=6.3)：云端 Xcode 26.6 的 Swift 已达 6.3+ 但 SDK 仅 26.5，
+        // 该条件成立却编不出 iOS 27.1 符号 ⇒ 云端 archive 必红（run 42156322145）。
+        // 编译器版本不等于 SDK 版本；抬到 6.4（Xcode 27 才带 SDK 27）才是真实门槛。
+        #if compiler(>=6.4)
         if #available(iOS 27.1, *) {
             WorkspaceVerticalToolbarLayout { usesVerticalToolbar in
                 workspaceBody(usesVerticalToolbar: usesVerticalToolbar)
@@ -924,7 +927,7 @@ struct WorkspaceView: View {
         .accessibilityLabel(String(localized: "新建会话"))
     }
 
-    #if compiler(>=6.3)
+    #if compiler(>=6.4)
     @available(iOS 27.1, *)
     private var toolbarSettingsButton: some View {
         Button {
@@ -1275,7 +1278,7 @@ struct WorkspaceView: View {
 }
 
 /// 根据系统栏的方向选择入口位置，不按设备型号或横竖屏推测。
-#if compiler(>=6.3)
+#if compiler(>=6.4)
 @available(iOS 27.1, *)
 private struct WorkspaceVerticalToolbarLayout<Content: View, Toolbar: ToolbarContent>: View {
     @Environment(\.toolbarVerticalEdge) private var verticalEdge
