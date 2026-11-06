@@ -347,3 +347,22 @@ git show <基线>:<file> | sed -n '<body范围>p' | grep -E "^        \.[a-z]"
 
 *文档建立：2026-11-06。对应 iOS build 82→87 的合并修复全过程。*
 *相关文档：`upstream-merge-20261105.md`（功能来源）、`ios-merge-acceptance-20261106.md`（验收预案）、`ios-27.1-api-pending.md`（SDK 门槛）。*
+
+
+---
+
+## 安卓版本次合并（vc62/vc63）实际踩到的三处（2026-11-06 补，AndroidCoder）
+
+这次安卓吃同样的上游合并，三类机制**逐一复现**，另有安卓特有的第四类：
+
+### A1 内容被掏空（Compose 版）
+分段按钮 `ConversationPageSwitch` 在解冲突时被解成上游版——实现没了、**注释还在**，而我方设备测试仍在断言 `conversation-page-switch` 存在。「测试在断言、代码却缺」就是合并漏项的信号。自查命令：`grep -c "fun ConversationPageSwitch"` 对着测试引用数核。
+
+### A2 逻辑变死代码（Compose 版）
+`bot 列表`（feedRowsById）与上游 `ConversationPageIndicator` 并存后，我方残留的 `assertDoesNotExist("conversation-page-indicator")` 断言与新需求冲突——**测试断言也是「逻辑」**，合并后测试与实现各说一套时，先裁决语义再改断言，别默认测试就是对的。
+
+### A3 伪版本门槛（Compose/Gradle 版）
+`defaultConfig` 里 `versionCode = 64` 与上游 `versionCode = 38` 并排——Kotlin DSL **不报错**，后一条静默覆盖前一条（`:androidApp:tasks` EXIT=0 照绿）。**只有装包才看得出版本倒退**。自查命令：`grep -c "versionCode =" androidApp/build.gradle.kts` 必须是 1。iOS 的 pbxproj 同类（重复 `CURRENT_PROJECT_VERSION` / `DEVELOPMENT_TEAM` / `PRODUCT_BUNDLE_IDENTIFIER`）同样后值覆盖，且 `DEVELOPMENT_TEAM` 被覆盖会**直接改签名身份**，比版本号更危险。
+
+### A4 安卓特有：buildTsnetAar/buildTsnetXcframework 把 Go 工具链变成编译依赖
+上游把 Tailscale 以 gomobile 形式接入后，Android `buildTsnetAar` 与 iOS `Build Tsnetgo XCFramework` 都在构建链上——**Go/gomobile/NDK 缺一，androidApp 整体编译失败**（不是跳过）。闸门跑 androidTest 编译时同样会撞上。过墙记录：Go 1.27.3 官方 tarball（brew 在 Tier 3 机型无 bottle）、GOPROXY=goproxy.cn（proxy.golang.org 被墙）、NDK 27、goroutine 产物放 tools/ 不进 git。

@@ -125,6 +125,28 @@
 
 ---
 
+## 安卓侧修复（AndroidCoder）
+
+### 2026-11-05 · vc63 · 群聊合流终序错乱（前一条消息出现在后面）
+
+- **症状**（用户视角，原话）：「进对话页聊天记录顺序有些不对，前一条信息出现在后面了，这个问题当时 iOS 那边遇到过的」
+- **根因**（机制级）：`shared/domain/RoomChatMergePlan.kt` 的 `interleaveByTime` 只按毫秒时间交错、全程无 seq 参与——同毫秒的多条（reply:0/reply:1 同 seq 拆分、快速连发）排错；且交错条件用 `<=`，同毫秒的插入项**全部插到 existing 条目之前**，乱序送达时输出就是插入序
+- **怎么查**：用户报现象 → 对照 iOS 04b84c0（同源同 bug）→ 读 Kotlin 侧 `RoomChatMergePlan`：`mergeRoomChat` 只去重不排序、`interleaveByTime` 只比毫秒；先怀疑 shared 的 `SessionListReducer.sortedBy(seq)`（那层是对的），再落到合流插入层
+- **修法**：`07a5dd4`——`interleaveByTime` 加 `seqOf: (T) -> Long?` 参数（默认 `{ null }` = 恒等，旧调用点零影响）；交错结果再做终序重排：(seq 升序, 原相对顺序) 下标装饰稳定排序（不赌 sortedWith 稳定性），无 seq 殿后组内原序；调用方 `RoomChatMergeUi.interleavePeerEntries` 传 `timelineSeqOrNull()`（PeerMessage.seq / item.seq / Process 组取首条非空 seq）
+- **判据**：红→绿实证——红阶段（旧签名旧代码）`mergeOrderFollowsSeqNotMillis` FAILED，实际输出 `[s102, s101, s100]`；绿后同用例过。②无 seq 殿后组内原序 ③同 seq 保原相对序（装饰排序）④既有用例全绿；组合树 1008 例 0 失败
+- **踩过的弯路**：① 红用例第一版用 `cat >>` 追加到了**类的闭合括号之外**——JUnit4 不发现类外 @Test，24 例全绿、BUILD SUCCESSFUL，红证据是假的（同「自证式假绿」家族：形式对、没测到）；② 断言三参写错参数序（JUnit4 message 必须在前），编译红掩盖了运行红；③ 最先怀疑 shared 的 `SessionListReducer.sortedBy`，白查一层——先对照 iOS 同源修过的位置再下手会快一步
+
+### 2026-11-05 · vc63 · Bot 头像眨眼幅度太小（几乎看不见）
+
+- **症状**（用户视角）：「头像会眨眼了但是幅度很小，不明显」
+- **根因**（机制级）：`BlinkCadence.kt` 的 IDLE/WORKING 步骤压到 **0.80**（20%），iOS 压到 **0.03**（97%）——差 26 倍；且 iOS 一周期眨**两次**（空闲 9 档 5s、干活 5 档 2.4s），安卓只眨一次
+- **怎么查**：Chief 对照 iOS `TeamAvatarView.blinkSteps` 给出逐档数值 → 核对 `BlinkCadence.kt` 现表 → 确认眨眼接线本身没断（BotTeamScreen 已传 `eyeSquash = blinkSquash.value`）
+- **修法**：`2007de4`——glyph 分支（`TeamGlyphCanvas` 独立眼睛层，vc62 已接 `eyeSquash`）**逐值采用 iOS 节奏**：空闲 9 档 5s 眨两次（1.48/0.03/1.06/1/1.71/0.03/1.06/1/1.27 秒），干活 5 档 2.4s；`blinkStepsFor`/`blinkPeriodMillis` 加 `glyphBranch` 维度
+- **判据**：BlinkCadenceTest 新增 3 条——glyph 空闲 9 档/周期恰 5000ms/min squash 0.03/过冲 1.06 保留；glyph 干活 5 档/2400ms/0.03；Icon 分支全部 ≥0.5（护栏）；360 例 0 失败
+- **踩过的弯路**：`BlinkCadence.kt` 注释自称「Android 画的是 20 个描边符号、没有独立眼睛层，压的是符号本身」——**这段注释在 vc62 glyph 分支落地后就过时了**，但没人回头改；Icon 分支（真没眼睛层）压整只符号到 0.03 会把符号压成一条线，故 Icon 分支保留 0.80 轻压、登记为**有意差异**（Chief 批）。教训：**注释里的前提随代码演进会失效，改架构时要把过时前提一起清**
+
+---
+
 ## 待补（历史条目，查得到的照填，查不到的写「未记录」）
 
 > 用户 2026-11-03 已定过同类制度（安卓每版写 DELIVERABLES）。iOS 侧的历史修复按同样标准补：
