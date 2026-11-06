@@ -116,6 +116,7 @@
 		CAFE00000000000000000015 /* CodeSyntaxHighlighter.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFE00000000000000000016 /* CodeSyntaxHighlighter.swift */; };
 		CAFE00000000000000000017 /* CodeSyntaxHighlighterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFE00000000000000000018 /* CodeSyntaxHighlighterTests.swift */; };
 		CAFE00000000000000000019 /* GatewayRtcLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFE0000000000000000001a /* GatewayRtcLink.swift */; };
+		CAFE00000000000000000077 /* LocalPathImageProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFE00000000000000000078 /* LocalPathImageProvider.swift */; };
 		CAFE0000000000000000001b /* WebRTC in Frameworks */ = {isa = PBXBuildFile; productRef = CAFE0000000000000000001c /* WebRTC */; };
 		CAFE0000000000000000001e /* GatewayNetworkDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFE0000000000000000001f /* GatewayNetworkDiagnostics.swift */; };
 		CF9000000000000000000003 /* RoomChatMergePlanTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF9000000000000000000004 /* RoomChatMergePlanTests.swift */; };
@@ -294,6 +295,7 @@
 		CAFE00000000000000000016 /* CodeSyntaxHighlighter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodeSyntaxHighlighter.swift; sourceTree = "<group>"; };
 		CAFE00000000000000000018 /* CodeSyntaxHighlighterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodeSyntaxHighlighterTests.swift; sourceTree = "<group>"; };
 		CAFE0000000000000000001a /* GatewayRtcLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GatewayRtcLink.swift; sourceTree = "<group>"; };
+		CAFE00000000000000000078 /* LocalPathImageProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalPathImageProvider.swift; sourceTree = "<group>"; };
 		CAFE0000000000000000001f /* GatewayNetworkDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GatewayNetworkDiagnostics.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -369,6 +371,7 @@
 				AC0400000000000000000002 /* TailscaleTunnelController.swift */,
 				DA3100000000000000000002 /* LocalAppLog.swift */,
 				CAFE0000000000000000001a /* GatewayRtcLink.swift */,
+				CAFE00000000000000000078 /* LocalPathImageProvider.swift */,
 				CAFE0000000000000000001f /* GatewayNetworkDiagnostics.swift */,
 				CAFE00000000000000000007 /* FileUploadController.swift */,
 				954FCEA4A6E71F3D1A22BB53 /* GatewayModels.swift */,
@@ -895,6 +898,7 @@
 				AC0400000000000000000001 /* TailscaleTunnelController.swift in Sources */,
 				DA3100000000000000000001 /* LocalAppLog.swift in Sources */,
 				CAFE00000000000000000019 /* GatewayRtcLink.swift in Sources */,
+				CAFE00000000000000000077 /* LocalPathImageProvider.swift in Sources */,
 				CAFE0000000000000000001e /* GatewayNetworkDiagnostics.swift in Sources */,
 				CAFE00000000000000000006 /* FileUploadController.swift in Sources */,
 				AFAE90EEB4462AD84169D356 /* GatewayModels.swift in Sources */,

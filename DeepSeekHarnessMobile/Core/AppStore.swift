@@ -520,6 +520,7 @@ final class AppStore: ObservableObject {
 
     static let bridgeCardRpcPrefix = "bridge-card:"
     private static let bridgeCardsLog = Logger(subsystem: "ai.dsh.mobile.ios", category: "bridge-cards")
+    private static let workspaceFileLog = Logger(subsystem: "ai.dsh.mobile.ios", category: "workspace-files")
 
     /// 卡片正文 → `HumanQuestionView` 能吃的请求。**能力不含时给空表（fail-closed）**：
     /// 没有答复通道就不给可点数据，UI 自然回落到"只读正文"。
@@ -687,6 +688,78 @@ final class AppStore: ObservableObject {
     @Published private(set) var workspaceFileDownloadPurpose: String?
     @Published private(set) var workspaceFilePreviewProgress: Double = 0
     @Published private(set) var workspaceFilePreviewRequest: WorkspaceFilePreviewRequest?
+
+    // MARK: 本地路径图片取回（89 批：聊天里直接显示 AI 写的本地图）。
+    // 复用工作区文件的状态机（KMP SharedWorkspaceFileStore，单飞）——**不绕过**分块校验。
+    // 串行队列：一次只取一张；完成后 pump 下一张。与预览面板互斥（同一状态机）。
+    struct LocalImageFetch {
+        let path: String
+        let sessionID: String
+        let requestID: String
+        let continuation: CheckedContinuation<URL?, Never>
+    }
+    private var localImageFetchQueue: [LocalImageFetch] = []
+    private var localImageFetchActive: LocalImageFetch?
+    private var localImageFetchTimeoutTask: Task<Void, Never>?
+    private static let localImageFetchTimeoutSeconds: UInt64 = 45
+
+    /// 聊天 Markdown 本地路径图取回入口：挂起等待队列轮到自己，完成后返回本地文件 URL
+    /// （已过完整性校验并落入 WorkspacePreviewCache）。失败/超时/越界返回 nil。
+    func fetchLocalImageFile(path: String, sessionID: String) async -> URL? {
+        let sessionMatches = sessionID == selectedSessionId
+        guard sessionMatches, gateway.state.isConnected, supportsFileDownloads else { return nil }
+        return await withCheckedContinuation { continuation in
+            localImageFetchQueue.append(LocalImageFetch(
+                path: path, sessionID: sessionID,
+                requestID: UUID().uuidString, continuation: continuation))
+            pumpLocalImageFetch()
+        }
+    }
+
+    private func pumpLocalImageFetch() {
+        guard localImageFetchActive == nil, !conversationFileIsOpening,
+              workspaceFilePreviewRequest == nil, gateway.state.isConnected,
+              supportsFileDownloads else { return }
+        // 队首属于别的会话（用户已切走）：立即失败出队，避免等待者被永久挂起。
+        if localImageFetchQueue[0].sessionID != selectedSessionId {
+            let stale = localImageFetchQueue.removeFirst()
+            stale.continuation.resume(returning: nil)
+            return
+        }
+        let fetch = localImageFetchQueue.removeFirst()
+        localImageFetchActive = fetch
+        kmpWorkspaceFileStore.setWorkspaceSession(
+            sessionId: fetch.sessionID,
+            workspaceSessionId: teamStore.workspaceSessionId(sessionId: fetch.sessionID))
+        conversationFileIsOpening = true
+        let load: (String) -> Void = { [weak self] requestID in
+            guard let self else { return }
+            let workspaceSessionID = self.teamStore.workspaceSessionId(sessionId: fetch.sessionID)
+            self.beginWorkspaceFileTransition(self.kmpWorkspaceFileStore.resolveReference(
+                sessionId: fetch.sessionID, path: fetch.path, requestId: requestID,
+                supportsResolve: self.supportsFileReferences,
+                workspaceRoot: self.workspaces.first { $0.sessionIds.contains(workspaceSessionID) }?.path
+            ))
+        }
+        load(fetch.requestID)
+        // 防卡死：单张 45s 超时，失败释放队列继续下一张。
+        localImageFetchTimeoutTask?.cancel()
+        localImageFetchTimeoutTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: Self.localImageFetchTimeoutSeconds * 1_000_000_000)
+            guard !Task.isCancelled, let self, let active = self.localImageFetchActive else { return }
+            self.kmpWorkspaceFileStore.cancel()
+            self.finishLocalImageFetch(path: active.path, url: nil)
+        }
+    }
+
+    private func finishLocalImageFetch(path: String, url: URL?) {
+        guard let fetch = localImageFetchActive, fetch.path == path else { return }
+        localImageFetchTimeoutTask?.cancel()
+        localImageFetchActive = nil
+        fetch.continuation.resume(returning: url)
+        pumpLocalImageFetch()
+    }
+
     @Published private(set) var workspaceFilePreviewError: String?
     @Published var completedWorkspaceFile: WorkspaceLocalFile? {
         didSet {
@@ -2883,6 +2956,11 @@ self.bumpAttachmentRenderEpoch(id)
     }
 
     private func failWorkspaceFilePreview(_ message: String) {
+        // 本地路径图片取回：失败交付 nil 给等待的聊天图渲染（若该次操作是取图）。
+        if let fetch = localImageFetchActive {
+            Self.workspaceFileLog.error("本地图片取回失败：\(fetch.path, privacy: .public)：\(message, privacy: .public)")
+            finishLocalImageFetch(path: fetch.path, url: nil)
+        }
         workspaceFileOperationID = UUID()
         conversationFileIsOpening = false
         if workspaceFilePreviewRequest != nil { workspaceFilePreviewError = message }
@@ -3911,6 +3989,10 @@ self.bumpAttachmentRenderEpoch(id)
                 completedWorkspaceFile = WorkspaceLocalFile(url: saved ?? url, sessionID: completion.sessionId,
                     remotePath: completion.path, name: completion.name,
                     mediaType: completion.mediaType, purpose: completion.purpose)
+                // 本地路径图片取回：完成即交付给等待的聊天图渲染（若该次操作是取图）。
+                if localImageFetchActive?.path == completion.path {
+                    finishLocalImageFetch(path: completion.path, url: saved ?? url)
+                }
                 let historyCache = chatHistoryCache
                 Task { _ = await AppCacheMaintenance.shared.run(cache: historyCache) }
             }

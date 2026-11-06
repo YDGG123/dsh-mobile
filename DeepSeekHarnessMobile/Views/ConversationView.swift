@@ -5536,7 +5536,8 @@ struct MarkdownContent: View {
 
     private var renderedMarkdown: some View {
         Markdown(PreparedMarkdownCache.document(for: text, filePaths: knownFiles.map(\.path)))
-            .markdownImageProvider(MathMarkdownImageProvider(fontSize: mathFontSize))
+            .markdownImageProvider(LocalPathImageProvider(
+                fallback: MathMarkdownImageProvider(fontSize: mathFontSize), store: store))
             .markdownInlineImageProvider(MathMarkdownInlineImageProvider(fontSize: mathFontSize, dark: colorScheme == .dark))
             .id("\(mathFontSize)-\(colorScheme)")
             .environment(\.openURL, OpenURLAction { url in
