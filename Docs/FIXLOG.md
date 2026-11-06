@@ -123,6 +123,17 @@
   - 「两个独立存储只作废了一个」——版本 bump 只动了名册缓存，没盘点与之耦合的 resume 存储；教训：**作废缓存时必须枚举所有依赖它的存储**
   - 「零帧」一度被误判为回归，实际是 caught-up 的正确行为——验证方法本身也要落档，防止下次重查一遍
 
+### 2026-11-07 · build 88 出包前 · workspaceFileLog 重复声明（f2af2ab 编辑事故）
+
+- **症状**：88 出包闸门红在「编 App 测试模块」站：`AppStore.swift:524:24: error: invalid redeclaration of 'workspaceFileLog'`（GATE_TYPECHECK_EXIT=1，02:20:44）
+- **根因**：`f2af2ab`（占位文案分流，+6 行）编辑时把 `private static let workspaceFileLog = Logger(...)` 粘了两遍，:523/:524 逐字节重复——同名声明同类型作用域，App 任何编译形态都该红
+- **怎么查**：红点出现在测试模块而四路「没报」⇒ 起疑 → 实读四路的 mktemp 日志（`$TMPDIR/tmp.*` grep "invalid redeclaration"）⇒ **App 双路日志各含 2 条 error:**，四路其实都抓到了；只是四路计数裁决在脚本末尾 `local-typecheck.sh:813` 统一做，测试模块站先撞同一错误提前 exit 1——红的位置有迷惑性，闸门本身没漏（GATE_TYPECHECK_EXIT=1 为真）
+- **修法**：删 `:524` 一行（全仓 grep 唯一声明 + :2966 唯一使用点 `Self.workspaceFileLog`，零副作用），提交 `c4dae25`
+- **判据**：grep `private static let workspaceFileLog` 计数=1；闸门重跑（进行中，EXIT 读数跑完补录）
+- **踩过的弯路 / 规矩**：
+  - 跑闸门**不能只看脚本末尾统一计数**，要逐路看自己日志里有没有 `error:`（Chief 2026-11-07 定为规矩）
+  - 编辑粘贴代码后，提交前先 grep 一遍新增声明是否与既有撞名——一行粘重，耽误一轮出包
+
 ---
 
 ## 安卓侧修复（AndroidCoder）
