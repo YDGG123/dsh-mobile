@@ -51,16 +51,46 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: 安装 Go + gomobile（Tsnetgo 构建阶段需要）
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.27'
-      - name: 安装 gomobile 并初始化
+      # 【2026-11-06 改】不再装 gomobile：pbxproj 的 Tsnetgo 阶段已是「产物存在即跳过」，
+      # 这里直接把已验证的 xcframework 预置到 tsnetgo/build/tsnetgo/，整条 gomobile bind 链
+      # 都不跑。预置产物 = 2026-11-05 23:54 好窗口期真构建（原 153M 双切片，此处只留
+      # 真机 arm64 切片，15M）。云端曾因 `go install` 静默不产出二进制而失败（run 42154610102）。
+      # 仅当 tsnetgo/*.go 或 go.mod 变更、需要真重建时才恢复 gomobile 步骤。
+      - name: 预置 Tsnetgo XCFramework（跳过 gomobile bind）
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          go install golang.org/x/mobile/cmd/gomobile@latest
-          "$(go env GOPATH)/bin/gomobile init"
-          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
-          echo "GOPATH=$(go env GOPATH)" >> "$GITHUB_ENV"
+          set -euo pipefail
+          DEST="tsnetgo/build/tsnetgo/Tsnetgo.xcframework"
+          if [ -d "$DEST" ]; then
+            echo "✅ 已存在：$DEST"
+            exit 0
+          fi
+          mkdir -p tsnetgo/build/tsnetgo
+          ASSET_URL=$(gh release view tsnetgo-artifacts \
+            --repo "$GITHUB_REPOSITORY" \
+            --json assets --jq '.assets[] | select(.name=="Tsnetgo-ios-arm64.xcframework.zip") | .url')
+          if [ -z "$ASSET_URL" ]; then
+            echo "::error::找不到预置产物 tsnetgo-artifacts/Tsnetgo-ios-arm64.xcframework.zip"
+            exit 1
+          fi
+          echo "下载预置产物：$ASSET_URL"
+          gh release download tsnetgo-artifacts \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern "Tsnetgo-ios-arm64.xcframework.zip" \
+            --dir /tmp/tsnetgo-asset --clobber
+          unzip -q /tmp/tsnetgo-asset/Tsnetgo-ios-arm64.xcframework.zip -d tsnetgo/build/tsnetgo
+          # 结构校验：Info.plist + 至少一个切片，别把半成品当成品
+          if [ ! -f "$DEST/Info.plist" ]; then
+            echo "::error::$DEST 缺 Info.plist"
+            exit 1
+          fi
+          LIBS=$(python3 -c "import plistlib,sys;print(len(plistlib.load(open('$DEST/Info.plist','rb')).get('AvailableLibraries',[])))")
+          if [ "$LIBS" -lt 1 ]; then
+            echo "::error::$DEST 的 AvailableLibraries 为空"
+            exit 1
+          fi
+          echo "✅ 已预置：$DEST（$(du -sh "$DEST" | cut -f1)，切片数 $LIBS）"
       - name: 配置 Android SDK（shared 模块含 android 目标，Gradle 配置期需要）
         run: |
           SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Library/Android/sdk}}"
