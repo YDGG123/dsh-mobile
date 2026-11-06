@@ -1092,6 +1092,23 @@
         }
       }
     },
+    "a11y.local-image.outside": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "File is outside the workspace; it cannot be displayed"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文件在工作目录外，无法显示"
+          }
+        }
+      }
+    },
     "a11y.open.node": {
       "extractionState": "manual",
       "localizations": {

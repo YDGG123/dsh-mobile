@@ -8,15 +8,15 @@ import MarkdownUI
 struct LocalPathImageProvider: ImageProvider {
     /// 下沉链：非本地路径的形态交给既有 Provider（数学公式 → 默认）。
     let fallback: ImageProvider
-    /// 取图队列与选会话状态的持有者（AppStore）。
-    let store: AppStore
+    /// 取图队列与选会话状态的持有者。nil（无宿主环境的调用方）时本地路径不取、交下沉链。
+    let store: AppStore?
 
     func makeImage(url: URL?) -> some View {
         Group {
-            if let path = Self.localImagePath(from: url) {
-                LocalPathImageView(absolutePath: path, store: store)
+            if let path = Self.localImagePath(from: url), store != nil {
+                LocalPathImageView(absolutePath: path, store: store!)
             } else {
-                fallback.makeImage(url: url)
+                AnyView(fallback.makeImage(url: url))
             }
         }
     }
@@ -99,7 +99,10 @@ private struct LocalPathImageView: View {
         }
         guard state == .idle else { return }
         state = .loading
-        let sessionID = store.selectedSessionId
+        guard let sessionID = store.selectedSessionId else {
+            state = .failed
+            return
+        }
         let url = await store.fetchLocalImageFile(path: absolutePath, sessionID: sessionID)
         guard !Task.isCancelled else { return }
         guard let url, let image = UIImage(contentsOfFile: url.path) else {

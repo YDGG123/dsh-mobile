@@ -5500,13 +5500,16 @@ struct MarkdownContent: View {
     var compact = false
     var knownFiles: [PresentedFile] = []
     var onOpenFile: ((String) -> Void)?
+    /// 本地路径图片取回需要 AppStore（串行队列 + 会话状态）；调用方注入。
+    var store: AppStore?
     @State private var selectionDocument: MarkdownSelectionDocument?
 
-    init(_ text: String, compact: Bool = false, knownFiles: [PresentedFile] = [], onOpenFile: ((String) -> Void)? = nil) {
+    init(_ text: String, compact: Bool = false, knownFiles: [PresentedFile] = [], onOpenFile: ((String) -> Void)? = nil, store: AppStore? = nil) {
         self.text = text
         self.compact = compact
         self.knownFiles = knownFiles
         self.onOpenFile = onOpenFile
+        self.store = store
     }
 
     var body: some View {
