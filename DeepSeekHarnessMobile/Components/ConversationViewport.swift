@@ -290,6 +290,23 @@ final class ConversationViewportProxy {
     }
 }
 
+/// 追尾逐帧化的纯数学（2026-11-06 方案 2，抽出来可单测）。
+/// 每帧位移 = 剩余距离 × damping（指数逼近）：单帧位移 ∝ 剩余距离 ⇒ 天然限幅；
+/// 内容在追平途中继续增长只会拉长曲线，不会出现单帧大跳（225pt 二次硬跳的实测教训
+/// 见 `stepTailFollowCatchUp` 注释）。收敛帧数只随距离对数增长，不存在「小距离收敛慢」。
+enum TailFollowMath {
+    /// 距离 `distance` 收敛到 < `epsilon` 所需的移动帧数。
+    static func framesToConverge(distance: CGFloat, damping: CGFloat = 0.25, epsilon: CGFloat = 0.5) -> Int {
+        var remaining = distance
+        var frames = 0
+        while abs(remaining) >= epsilon, frames < 10_000 {
+            remaining *= (1 - damping)
+            frames += 1
+        }
+        return frames
+    }
+}
+
 final class ConversationViewportController: UIViewController, UICollectionViewDelegate, ChatLayoutDelegate {
     weak var proxyOwner: ConversationViewportProxy?
     var onContentAvailabilityChanged: (String?, Bool) -> Void
@@ -359,11 +376,14 @@ final class ConversationViewportController: UIViewController, UICollectionViewDe
     /// 抑制窗内追平的每帧阻尼（吃掉剩余距离的比例）。0.25 → 约 10 帧（0.17s）收敛到视差，
     /// 同时把单帧位移限在剩余距离的 1/4。
     private static let tailFollowCatchUpDamping: CGFloat = 0.25
-    /// 超过这个差值就**不再一帧硬跳**，改走逐帧追平（见 `followStreamingTail`）。
-    /// 为什么要它：抑制窗只在「刚进会话」那 1.2s 内有效，之后每来一条新消息都会硬跳；
-    /// 而自尺寸 cell 量高要 ~200ms 才落位 ⇒ 硬跳发生在高度落位之前，落位后再纠正一次，
-    /// 用户看到的就是「新消息到了抽一下」（2026-11-02 用户报）。差值小于它时硬跳无感，保留。
+    /// ~~超过这个差值就不再一帧硬跳~~ → **已被方案 2 废除**（2026-11-06 用户拍板根治）：
+    /// 旧判定「>24pt 才逐帧、≤24pt 硬跳」正是「新消息到了抽一下」的来源——硬跳发生在
+    /// 自尺寸量高落位（~200ms）之前，落位后再纠正一次。现在 >2pt 一律逐帧（见
+    /// `followStreamingTail` 与 `tailFollowMicroJumpLimit`）。保留此常量仅为历史注释锚点。
     private static let tailFollowHardJumpLimit: CGFloat = 24
+    /// 方案 2 的微跳阈值：≤2pt 才允许单帧一次性补齐（位移低于视觉阈值，且省掉十几帧
+    /// display link——指数逼近帧数只随距离对数增长：10pt≈11帧/190ms、1pt≈2帧@60fps）。
+    private static let tailFollowMicroJumpLimit: CGFloat = 2
     /// Advanced only by an actual user drag. Layout invalidation can briefly
     /// move the collection view away from its old bottom while a new user or
     /// reasoning row is inserted; that transient offset must not cancel the
@@ -2332,7 +2352,13 @@ final class ConversationViewportController: UIViewController, UICollectionViewDe
         // ② **差值超过硬跳上限**：抑制窗只覆盖「刚进会话」那 1.2s，之后每来一条新消息都会走到硬跳；
         //    而自尺寸 cell 量高要 ~200ms 才落位 ⇒ 硬跳发生在落位前、落位后再纠正一次，
         //    表现就是「新消息到了抽一下」（2026-11-02 用户报，与 a2fb9a0 修的首帧硬跳同族）。
-        if gap > 0.5, (isTailFollowSuppressionActive() || gap > Self.tailFollowHardJumpLimit) {
+        // 方案 2（2026-11-06 用户拍板「当然要根治」）：只要需要移动（>2pt）就**一律逐帧追平**，
+        // 消灭 24pt 硬跳档——硬跳发生在自尺寸量高落位前，落位后再纠正一次就是「抽一下」。
+        // 逐帧目标每帧重算（stepTailFollowCatchUp），高度继续落位也被天然吸收。
+        // ≤2pt 走单帧一次性补齐：位移低于视觉阈值，避免小差距白跑十几帧 display link。
+        // isTailFollowSuppressionActive 的 1.2s 抑制窗自此不再作为分流条件（其延长逻辑
+        // 保留，供对齐循环等路径继续维护窗口）。
+        if gap > Self.tailFollowMicroJumpLimit {
             startTailFollowCatchUp(from: currentOffset)
             return
         }

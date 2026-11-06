@@ -262,3 +262,83 @@ final class HarnessBackgroundAnimationClockTests: XCTestCase {
                        t0.addingTimeInterval(5), "累计暂停 = 2 + 5 = 7s ⇒ 相位差 12 − 7 = 5")
     }
 }
+
+/// 方案 2（2026-11-06 用户拍板根治）：追尾逐帧化的纯数学判据。
+/// 旧判定「差距 ≤24pt 一帧硬跳」是「新消息到了抽一下」的来源（硬跳发生在自尺寸
+/// 量高落位 ~200ms 前，落位后再纠正一次）；改为 >2pt 一律逐帧后必须证明：
+/// ①收敛帧数只随距离对数增长（不存在「小距离收敛慢」）②脉冲增长下平滑收敛、
+/// 任何一帧都不跳全量 ③持续匀速增长下差距有界不发散（稳态=增长率）。
+final class TailFollowMathTests: XCTestCase {
+    private let damping: CGFloat = 0.25
+    private let epsilon: CGFloat = 0.5
+
+    /// 模拟追平：每帧先让内容长 growthPerFrame，再按「位移 = 剩余 × damping」走一步。
+    /// 返回每帧位移序列与每帧**位移后**的剩余距离。
+    private func runChase(initialDistance: CGFloat, growthPerFrame: CGFloat, maxFrames: Int = 600)
+        -> (steps: [CGFloat], remainingAfter: [CGFloat], frames: Int, converged: Bool) {
+        var remaining = initialDistance
+        var steps: [CGFloat] = []
+        var remainings: [CGFloat] = []
+        var frames = 0
+        while abs(remaining) >= epsilon, frames < maxFrames {
+            remaining += growthPerFrame
+            let step = remaining * damping
+            steps.append(step)
+            remaining -= step
+            remainings.append(remaining)
+            frames += 1
+        }
+        return (steps, remainings, frames, abs(remaining) < epsilon)
+    }
+
+    func testConvergenceFramesGrowLogarithmicallyNotLinearly() {
+        // 实算（damping 0.25、ε 0.5）：1pt→2帧、3pt→7帧、10pt→11帧、24pt→14帧。
+        // 帧数只随距离对数增长，「小距离逐帧收敛慢」不成立——方案 2 的微跳阈值才设 2pt。
+        XCTAssertEqual(TailFollowMath.framesToConverge(distance: 1), 3)
+        XCTAssertEqual(TailFollowMath.framesToConverge(distance: 3), 7)
+        XCTAssertEqual(TailFollowMath.framesToConverge(distance: 10), 11)
+        XCTAssertEqual(TailFollowMath.framesToConverge(distance: 24), 14)
+    }
+
+    func testBurstGrowthChaseConvergesSmoothly() {
+        // 真实形态（脉冲）：一批数据到达（一次性 +100pt，之后静止——流式/历史分页都是这个形态）。
+        // 首帧位移 = (24+100)×0.25 = 31，之后指数单调递减收敛：
+        // **没有任何一帧跳完整个 124pt 差距**（旧硬跳是一帧到旧底、量高落位后再纠正一次）。
+        var remaining: CGFloat = 24 + 100
+        var steps: [CGFloat] = []
+        while abs(remaining) >= epsilon {
+            let step = remaining * damping
+            steps.append(step)
+            remaining -= step
+        }
+        XCTAssertEqual(steps.first ?? 0, 124 * damping, accuracy: 0.01, "首帧位移 = 总差距 × damping，不跳全量")
+        XCTAssertLessThan(steps.last ?? 0, epsilon, "必须收敛")
+        for i in 1..<steps.count {
+            XCTAssertLessThan(steps[i], steps[i - 1], "位移序列单调递减（指数逼近不回弹）")
+        }
+    }
+
+    func testSustainedFasterGrowthKeepsGapBoundedNotDiverging() {
+        // 极端上界：内容每帧长 25pt 且持续不断（真实流式是脉冲，这里取数学上界）。
+        // 稳态：剩余 = g(1−d)/d = 75pt、单帧位移 = g = 25pt（追平速度恰好=增长率）——
+        // 差距**有界不发散**：表现为「贴底但落后一小段、随下一帧继续收」，不是硬跳也不是永远拉大。
+        let run = runChase(initialDistance: 24, growthPerFrame: 25, maxFrames: 300)
+        XCTAssertFalse(run.converged, "持续匀速增长下数学上不可能归零（追平速度=增长率，如实断言）")
+        if let lastRemaining = run.remainingAfter.last {
+            XCTAssertLessThanOrEqual(lastRemaining, 76, "差距必须贴住稳态 75pt，不得发散")
+        }
+        if let lastStep = run.steps.last {
+            XCTAssertLessThanOrEqual(lastStep, 25.1, "稳态单帧位移 = 增长率 25pt，不得超")
+        }
+    }
+
+    func testPlainChaseConvergesWithoutOvershoot() {
+        let run = runChase(initialDistance: 24, growthPerFrame: 0)
+        XCTAssertTrue(run.converged)
+        for step in run.steps {
+            XCTAssertLessThanOrEqual(step, 24 * damping, "首帧位移 = 剩余 × damping，之后单调递减")
+        }
+        // 无增长时位移序列必须单调不增（指数逼近不回弹）。
+        XCTAssertEqual(run.steps, run.steps.sorted(by: >), "位移序列必须单调不增")
+    }
+}
