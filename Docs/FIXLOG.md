@@ -145,6 +145,28 @@
 - **判据**：BlinkCadenceTest 新增 3 条——glyph 空闲 9 档/周期恰 5000ms/min squash 0.03/过冲 1.06 保留；glyph 干活 5 档/2400ms/0.03；Icon 分支全部 ≥0.5（护栏）；360 例 0 失败
 - **踩过的弯路**：`BlinkCadence.kt` 注释自称「Android 画的是 20 个描边符号、没有独立眼睛层，压的是符号本身」——**这段注释在 vc62 glyph 分支落地后就过时了**，但没人回头改；Icon 分支（真没眼睛层）压整只符号到 0.03 会把符号压成一条线，故 Icon 分支保留 0.80 轻压、登记为**有意差异**（Chief 批）。教训：**注释里的前提随代码演进会失效，改架构时要把过时前提一起清**
 
+### 2026-11-06 · 网关 0.11.3 · 上下文/token 统计恒 0（根因=网关用错投影接口）
+
+- **症状**：手机端会话的上下文压力/token 用量统计恒为 0/空；用户试装**合并前的旧包也没有** ⇒ 排除客户端合并丢码，锁定网关/宿主侧
+- **根因**：`tokenUsage`/`contextPressure` 是 token-meter 注册的**全量投影**，只在 `api.sessions.projections` 的 SessionProjectionMap 里返回；网关的 context-usage/session-stats 却走 `api.sessions.history`——history 的 `projections.values` 只含 inbox/modelSelection/actionCards/proposals 等，取 `values.tokenUsage` **恒 null**
+- **怎么查**：① 最初 grep DSH 包 0 命中差点得出「宿主删了投影」——**错在直接 grep app.asar 单文件二进制**；asar 必须解包再搜，解包后 typert.host.js 仍定义这两个投影 schema、`dsh-token-meter` 包就是专门的计量服务（ Chief 复核并纠正）② 实读 `~/.dsh/storages/session_projcache/`：抽样 200/200 全含 tokenUsage，最新会话 pressureTokens=457992 非空 ⇒ 数据一直在，是网关读的接口不对
+- **修法**：`lib/index.mjs` 新增 `querySessionProjectionMap()`（走 `api.sessions.projections`，错误处理照 ：1525 既有形态），context-usage/session-stats 两分支改走它；带回退——`api.sessions.projections` 缺失/失败时落回旧 history 路径，保住既有错误契约（SESSION_QUERY_PERSISTENCE_FAILED）与测试桩
+- **判据**：projcache 实值非空（输入侧 543 万 uncached / 输出 62.6 万）＋ gateway.test.mjs 150 项全过；真机判据=手机端统计出现真实数字（% 与 token 数）
+- **踩过的弯路**：
+  - grep asar 单文件 0 命中 → 误判「宿主删了功能」；教训：**asar/Electron 打包产物必须解包后再搜**
+  - 「合并前的旧包也没有」这条用户观察是破案关键——它把问题从「客户端合并丢码」正确地推到宿主/网关侧
+
+### 2026-11-06 · 网关 0.11.3 · attachment 合同统一（上游扫描 × 我方记忆双路合一）
+
+- **症状**：合并 0.11.3 后 gateway.test.mjs 三个 attachment 用例失败（session/attachment-invalid: Image is not referenced by this session）
+- **根因**：合同错位——我方 5933b90 的合同是 handleQuery 发**已嵌套**引用（api.sessions.attachment=宿主直通、要求嵌套）；上游 0.11.3 改为 handleQuery 发**扁平** {sessionId, attachmentId}、由 host adapter（api 即 adapter）**无状态扫描宿主历史**后自行嵌套化。合并后 api=adapter：我方分支发嵌套 → adapter 读 `payload.attachmentId` 得 undefined → 扫描必然找不到。live 图（att-live）只存在于网关侧记忆、宿主历史里没有 ⇒ 上游扫描必然失败
+- **怎么查**：handleQuery/adapter/attachment-refs 三层插桩（DSH_ATTACHMENT_DEBUG）逐层看——记忆命中 ✓、扫描命中 ✓、错误依旧 ⇒ 定位到**合同层**而不是哪一层逻辑错
+- **修法**：handleQuery 回归上游扁平合同；adapter.attachment **先查网关侧记忆**（attachment-refs.mjs——live 事件/历史页读过的引用都在）miss 再走上游无状态扫描（覆盖网关重启后记忆为空）；扫描不到时 handleQuery 把 session/attachment-invalid 映射回 attachment/unknown-ref（我方 5933b90 的显式报错语义保留，宿主内部错误码不外泄）
+- **判据**：gateway.test.mjs **150 项全过**（GW_EXIT=0，含 live 嵌套转发/bytes/未知引用显式三条）；上游自家 dsh-022/tool-images 测试不破
+- **踩过的弯路**：
+  - 三轮怀疑错层（先怀疑记忆没写、再怀疑扫描没跑、再怀疑桩 api）——插桩日志显示每层都「对」，最后才意识到是**两层对同一请求的合同不同**
+  - 教训：合并两套实现时，**同名接口的请求/响应合同必须逐字段对表**，不能只看「功能都在」
+
 ---
 
 ## 待补（历史条目，查得到的照填，查不到的写「未记录」）
