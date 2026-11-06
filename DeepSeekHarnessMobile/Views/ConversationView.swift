@@ -1594,6 +1594,14 @@ struct ConversationView: View {
             queueExpanded = false
             restoreQueuedDraft()
         }
+        // 2026-11-06 死代码扫描找回：合并把这条消费链吃掉了（importPhotos 全文件只剩定义），
+        // 相册选完图落进 selectedPhotoItems 后无人处理——选了白选。照 2007de4 原样接回。
+        .onChangeCompat(of: selectedPhotoItems) { _, items in
+            guard !items.isEmpty else { return }
+            store.voiceInput.setVoiceMode(false)
+            let target = store.selectedSessionId
+            Task { await importPhotos(items, targetSessionID: target) }
+        }
         .onAppear {
             store.fileUploads.select(sessionID: store.selectedSessionId, allowed: !store.isViewingTeamMember)
             restoreQueuedDraft()

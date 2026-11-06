@@ -16,12 +16,28 @@ struct GatewaySwitcherBar: View {
     var body: some View {
         let connected = hosts.activeStore.gateway.state.isConnected
         return Button { showsHosts = true } label: {
-            HStack(spacing: 8) {
-                // 内嵌隧道的标记：只在开关打开时出现；未连上时叠一个转圈，连上后静止点亮。
-                TailscaleTunnelIndicator()
-                Image(systemName: hosts.activeProfile?.deviceKind ?? "desktopcomputer")
-                Text(hosts.activeProfile?.displayName ?? String(localized: "选择主机"))
+            // 2026-11-06 用户真机反馈：合并（3befc01）把 body 换成了上游的
+            // 「隧道图标+设备图标+主机名」，我方 S01 四段结构（状态点·地址·时长›）
+            // 的三个辅助属性全成了死代码。照 2007de4 原样还原主结构；
+            // TailscaleTunnelIndicator 是上游新功能（回答「隧道开着没」），降为
+            // 行尾次要标记（它自带 enabled 门控），不顶掉主结构。
+            HStack(spacing: DSHSpacing.sm) {
+                DSHStatus(kind: connected ? .online : .failed, text: hosts.activeStore.gateway.state.label)
+                if let hostLabel {
+                    Text("·").appFont(DSHType.footnote).foregroundStyle(palette.ink(0.3))
+                    Text(hostLabel)
+                        .appFont(DSHType.mono)
+                        .foregroundStyle(palette.ink(0.5))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                Spacer(minLength: DSHSpacing.sm)
+                // 断网时显示「重连中」（S01 gatewayLine）；连接时显示相对时长。
+                Text(trailingText)
+                    .appFont(DSHType.meta)
+                    .foregroundStyle(palette.ink(0.4))
                     .lineLimit(1)
+                TailscaleTunnelIndicator()
                 Image(systemName: "chevron.forward")
                     .appFont(DSHType.meta.weight(.semibold))
                     .foregroundStyle(palette.ink(0.3))
