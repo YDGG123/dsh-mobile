@@ -521,7 +521,6 @@ final class AppStore: ObservableObject {
     static let bridgeCardRpcPrefix = "bridge-card:"
     private static let bridgeCardsLog = Logger(subsystem: "ai.dsh.mobile.ios", category: "bridge-cards")
     private static let workspaceFileLog = Logger(subsystem: "ai.dsh.mobile.ios", category: "workspace-files")
-    private static let workspaceFileLog = Logger(subsystem: "ai.dsh.mobile.ios", category: "workspace-files")
 
     /// 卡片正文 → `HumanQuestionView` 能吃的请求。**能力不含时给空表（fail-closed）**：
     /// 没有答复通道就不给可点数据，UI 自然回落到"只读正文"。
