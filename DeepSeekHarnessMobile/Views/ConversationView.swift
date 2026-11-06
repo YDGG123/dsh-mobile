@@ -1463,19 +1463,23 @@ struct ConversationView: View {
                     Text(store.selectedSession?.title ?? "成员会话").appFont(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
 
-                Button { showsContextUsage = true } label: {
-                    if contextIsLoading && store.selectedContextSnapshot == nil {
-                        ProgressView().controlSize(.small).frame(width: 26, height: 26)
-                    } else {
-                        ContextUsageRing(progress: contextProgress)
+                // 2026-11-06 用户裁定：只对**群聊**隐藏用量统计入口（群聊走 ds-bot 路径，宿主不记账、
+                // 无 pressureTokens、totals 全 0，projcache 实证）；Bot 会话有真数据、保留。条件与模型 chip 同源。
+                if !selectedSessionIsBotDomain {
+                    Button { showsContextUsage = true } label: {
+                        if contextIsLoading && store.selectedContextSnapshot == nil {
+                            ProgressView().controlSize(.small).frame(width: 26, height: 26)
+                        } else {
+                            ContextUsageRing(progress: contextProgress)
+                        }
                     }
-                }
-                .buttonStyle(.plain)
-                .disabled(store.selectedContextSnapshot == nil)
-                .accessibilityLabel(String(localized: "a11y.context.percent", defaultValue: "上下文已用 \(Int(contextProgress * 100))%"))
-                .popover(isPresented: $showsContextUsage, arrowEdge: .bottom) {
-                    ContextUsagePopover(snapshot: store.selectedContextSnapshot)
-                        .presentationCompactAdaptationCompat()
+                    .buttonStyle(.plain)
+                    .disabled(store.selectedContextSnapshot == nil)
+                    .accessibilityLabel(String(localized: "a11y.context.percent", defaultValue: "上下文已用 \(Int(contextProgress * 100))%"))
+                    .popover(isPresented: $showsContextUsage, arrowEdge: .bottom) {
+                        ContextUsagePopover(snapshot: store.selectedContextSnapshot)
+                            .presentationCompactAdaptationCompat()
+                    }
                 }
 
                 Button {
@@ -1688,23 +1692,25 @@ struct ConversationView: View {
                 Text(store.selectedSession?.title ?? "成员会话").appFont(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
 
-            Button { showsContextUsage = true } label: {
-                if contextIsLoading && store.selectedContextSnapshot == nil {
-                    ProgressView().controlSize(.small).frame(width: 26, height: 26)
-                } else {
-                    ContextUsageRing(progress: contextProgress)
+            if !selectedSessionIsBotDomain {
+                Button { showsContextUsage = true } label: {
+                    if contextIsLoading && store.selectedContextSnapshot == nil {
+                        ProgressView().controlSize(.small).frame(width: 26, height: 26)
+                    } else {
+                        ContextUsageRing(progress: contextProgress)
+                    }
                 }
-            }
-            .buttonStyle(.plain)
-            .disabled(store.selectedContextSnapshot == nil)
-            .accessibilityLabel(String(localized: "a11y.context.percent", defaultValue: "上下文已用 \(Int(contextProgress * 100))%"))
-            .popover(isPresented: $showsContextUsage, arrowEdge: .bottom) {
-                if #available(iOS 16.4, *) {
-                    ContextUsagePopover(snapshot: store.selectedContextSnapshot)
-                        .presentationCompactAdaptation(.popover)
-                } else {
-                    ContextUsagePopover(snapshot: store.selectedContextSnapshot)
-                        .background(.ultraThinMaterial)
+                .buttonStyle(.plain)
+                .disabled(store.selectedContextSnapshot == nil)
+                .accessibilityLabel(String(localized: "a11y.context.percent", defaultValue: "上下文已用 \(Int(contextProgress * 100))%"))
+                .popover(isPresented: $showsContextUsage, arrowEdge: .bottom) {
+                    if #available(iOS 16.4, *) {
+                        ContextUsagePopover(snapshot: store.selectedContextSnapshot)
+                            .presentationCompactAdaptation(.popover)
+                    } else {
+                        ContextUsagePopover(snapshot: store.selectedContextSnapshot)
+                            .background(.ultraThinMaterial)
+                    }
                 }
             }
 
