@@ -309,7 +309,16 @@ final class BridgeTransport {
     /// `"/mobile/v1/actions"`（完整路径），拼出来 `.../mobile/v1/mobile/v1/actions`，
     /// 网关回 404 NOT_FOUND。这类"重复前缀"只有断言拼出的 URL 才能守住。
     static func requestURL(origin: URL, path: String) -> URL {
-        origin.appendingPathComponent("mobile/v1" + path)
+        // 2026-11-06：%3F 根治（网关侧 c2015ef 是兜底）——调用方会把 query 直接写进
+        // path（如 `/conversations/<id>/messages?limit=50`），appendingPathComponent 会把
+        // `?` 编码成 `%3F`，网关路由不认 → Bot 会话消息 404。拆出 query 原样拼回
+        // （不重编码：cursor 等值可能已是编码形态，保持作者原意）。
+        let queryStart = path.firstIndex(of: "?")
+        let pathPart = queryStart.map { String(path[..<$0]) } ?? path
+        let query = queryStart.map { String(path[$0...]) } ?? ""
+        let appended = origin.appendingPathComponent("mobile/v1" + pathPart)
+        guard !query.isEmpty else { return appended }
+        return URL(string: appended.absoluteString + query) ?? appended
     }
 
     private func request(path: String, method: String, token: String?, body: Data?) async throws -> String {
