@@ -107,6 +107,32 @@ jobs:
       - name: 预构建 KMP framework（release/iosArm64）
         run: ./gradlew :shared:linkReleaseFrameworkIosArm64 --no-daemon --stacktrace
 
+      # 【2026-11-06 加】预置 WebRTC 官方符号包缓存。
+      # 归档阶段会跑 scripts/collect_webrtc_symbols.py，该脚本在
+      # build/ios-symbols/webrtc-<ver>/WebRTC-dSYM.zip 存在时跳过下载；
+      # 云端直连 GitHub asset API 返回 403（run 42159492013），故从 release asset 预置。
+      # 该文件是 .gitignore 排除的构建缓存（397M），不入仓库，只做 release asset。
+      - name: 预置 WebRTC 符号包（跳过 397M 下载）
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          CACHE="build/ios-symbols/webrtc-154.0.0/WebRTC-dSYM.zip"
+          if [ -f "$CACHE" ]; then
+            echo "✅ 已存在：${CACHE}"
+            exit 0
+          fi
+          mkdir -p build/ios-symbols/webrtc-154.0.0
+          gh release download tsnetgo-artifacts \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern "WebRTC-dSYM.zip" \
+            --dir build/ios-symbols/webrtc-154.0.0 --clobber
+          if [ ! -f "$CACHE" ]; then
+            echo "::error::预置 WebRTC 符号包失败：${CACHE} 不存在"
+            exit 1
+          fi
+          echo "✅ 已预置：${CACHE}（$(du -sh "${CACHE}" | cut -f1)）"
+
       - name: 归档 App（关闭代码签名）
         run: |
           BUNDLE_ID="${{ github.event.inputs.bundle_id }}"
