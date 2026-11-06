@@ -106,8 +106,12 @@ private struct LocalPathImageView: View {
         let url = await store.fetchLocalImageFile(path: absolutePath, sessionID: sessionID)
         guard !Task.isCancelled else { return }
         guard let url, let image = UIImage(contentsOfFile: url.path) else {
-            // 网关拒绝（越界）与取回失败目前都返回 nil；越界时网关日志有 403，客户端占位文案取通用失败态。
-            state = .failed
+            // 网关拒绝原因区分两类：越界（isInsideWorkspace 红线）→ 专属占位；其余 → 通用失败。
+            if store.localImageFetchLastError?.contains("path must stay inside") == true {
+                state = .outOfWorkspace
+            } else {
+                state = .failed
+            }
             return
         }
         Self.cache.setObject(image, forKey: absolutePath as NSString)

@@ -521,6 +521,7 @@ final class AppStore: ObservableObject {
     static let bridgeCardRpcPrefix = "bridge-card:"
     private static let bridgeCardsLog = Logger(subsystem: "ai.dsh.mobile.ios", category: "bridge-cards")
     private static let workspaceFileLog = Logger(subsystem: "ai.dsh.mobile.ios", category: "workspace-files")
+    private static let workspaceFileLog = Logger(subsystem: "ai.dsh.mobile.ios", category: "workspace-files")
 
     /// 卡片正文 → `HumanQuestionView` 能吃的请求。**能力不含时给空表（fail-closed）**：
     /// 没有答复通道就不给可点数据，UI 自然回落到"只读正文"。
@@ -702,6 +703,9 @@ final class AppStore: ObservableObject {
     private var localImageFetchActive: LocalImageFetch?
     private var localImageFetchTimeoutTask: Task<Void, Never>?
     private static let localImageFetchTimeoutSeconds: UInt64 = 45
+    /// 最近一次取图失败的网关原因（「path must stay inside the session working directory」
+    /// = 越界），渲染层据此区分「工作目录外」与通用失败占位。
+    @Published private(set) var localImageFetchLastError: String?
 
     /// 聊天 Markdown 本地路径图取回入口：挂起等待队列轮到自己，完成后返回本地文件 URL
     /// （已过完整性校验并落入 WorkspacePreviewCache）。失败/超时/越界返回 nil。
@@ -728,6 +732,7 @@ final class AppStore: ObservableObject {
         }
         let fetch = localImageFetchQueue.removeFirst()
         localImageFetchActive = fetch
+        localImageFetchLastError = nil
         kmpWorkspaceFileStore.setWorkspaceSession(
             sessionId: fetch.sessionID,
             workspaceSessionId: teamStore.workspaceSessionId(sessionId: fetch.sessionID))
@@ -2959,6 +2964,7 @@ self.bumpAttachmentRenderEpoch(id)
         // 本地路径图片取回：失败交付 nil 给等待的聊天图渲染（若该次操作是取图）。
         if let fetch = localImageFetchActive {
             Self.workspaceFileLog.error("本地图片取回失败：\(fetch.path, privacy: .public)：\(message, privacy: .public)")
+            localImageFetchLastError = message
             finishLocalImageFetch(path: fetch.path, url: nil)
         }
         workspaceFileOperationID = UUID()
