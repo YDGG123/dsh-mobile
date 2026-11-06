@@ -451,6 +451,11 @@ DSHGroup("更多") {
                 aboutGroup
                 moreGroup
             }
+            // 【2026-11-06 修】水平与顶部内边距是 2007de4 基线就有的（:411-412），
+            // 重建 settingsBody 时漏掉了——后果是卡片贴到屏幕左右边缘「铺得太宽」
+            // （用户真机反馈）。两行照基线原样补回，不许省。
+            .padding(.horizontal, DSHSpacing.lg)
+            .padding(.top, DSHSpacing.xs)
             // 不再给内嵌模式额外加 tab bar 留白：外层 `.safeAreaInset(edge: .bottom)`
             // 已把 tab bar 高度算进安全区（实测滚到底时最后一行停在 tab 栏上方 ~3pt，
             // 加了 70pt 反而多出一大截空白 → 那是重复计算，已删除）
