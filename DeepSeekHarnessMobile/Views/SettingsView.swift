@@ -436,8 +436,166 @@ DSHGroup("更多") {
     private var settingsBody: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: DSHSpacing.xl) {
-                EmptyView()
+                if embedded {
+                    Text("设置")
+                        .appFont(DSHType.title)
+                        .foregroundStyle(palette.ink(0.92))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                // 分组顺序与合并前一致：外观 → 新会话 → 扩展 → 连接 → DSH Host → 关于 → 更多。
+                appearanceGroup
+                newSessionGroup
+                extensionsGroup
+                connectionGroup
+                hostGroup
+                aboutGroup
+                moreGroup
             }
+            // 不再给内嵌模式额外加 tab bar 留白：外层 `.safeAreaInset(edge: .bottom)`
+            // 已把 tab bar 高度算进安全区（实测滚到底时最后一行停在 tab 栏上方 ~3pt，
+            // 加了 70pt 反而多出一大截空白 → 那是重复计算，已删除）
+            .padding(.bottom, DSHSpacing.xxl)
+        }
+        .background(palette.pageBackground)
+        .navigationTitle(embedded ? "" : "设置")
+        .toolbar(embedded ? .hidden : .visible, for: .navigationBar)
+        // B4：容器级推入页同样整屏盖住背景，推入期间暂停动画（与设置子页同一策略）。
+        .pausesBackgroundAnimation()
+        .task {
+            store.refreshDefaultConfiguration()
+            await store.refreshCacheStorage()
+            if gatewayState.isConnected { store.refreshPlugins() }
+        }
+        .onReceive(store.gateway.$state) { state in
+            let wasConnected = observedGatewayState?.isConnected ?? state.isConnected
+            observedGatewayState = state
+            if !wasConnected && state.isConnected {
+                store.refreshPlugins()
+                store.refreshDefaultConfiguration()
+            }
+        }
+        .sheet(isPresented: $showsReleaseNotes) {
+            NavigationStack {
+                ScrollView {
+                    Markdown(releaseInfo?.version == appVersionRaw ? releaseInfo!.notes : "本版本发布说明暂未提供，请查看 GitHub 发布页。")
+                        .padding(20)
+                }
+                .navigationTitle("本版本新功能")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("完成") { showsReleaseNotes = false }
+                    }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("GitHub 发布页") { openRelease("dsh-mobile", version: nil) }
+                    }
+                }
+            }
+        }
+        .sheet(isPresented: $showsInterfaceOptions) {
+            OptionListSheet(
+                title: "界面",
+                options: InterfaceStyle.allCases.map { OptionListSheet.Option(id: $0.rawValue, title: $0.title) },
+                selectedID: store.interfaceStyle.rawValue
+            ) { id in
+                if let style = InterfaceStyle(rawValue: id) { store.interfaceStyle = style }
+            }
+        }
+        .sheet(isPresented: $showsLanguageOptions, onDismiss: {
+            // iOS 16 上「sheet 还在关闭过程中就弹 alert」容易被系统吞掉，
+            // 所以先记下待提示，等 sheet 真正 dismiss 之后再弹（onDismiss 时机稳定）。
+            if pendingLanguageRestart {
+                pendingLanguageRestart = false
+                showsLanguageRestartAlert = true
+            }
+        }) {
+            OptionListSheet(
+                title: "语言",
+                options: AppLanguage.allCases.map { OptionListSheet.Option(id: $0.rawValue, title: $0.title) },
+                selectedID: store.appLanguage.rawValue
+            ) { id in
+                guard let language = AppLanguage(rawValue: id) else { return }
+                let changed = language != store.appLanguage
+                store.appLanguage = language
+                // 用户明确要求：改完必须立刻告诉他为什么没变，而不是让他猜。
+                if changed { pendingLanguageRestart = true }
+            }
+        }
+        .sheet(isPresented: $showsPrivacyPolicy) {
+            PrivacyPolicySheet()
+        }
+        .sheet(isPresented: $showsPresetOptions) {
+            AgentPresetOptionsSheet()
+        }
+        .defaultModelPickerOverlay(
+            isPresented: $showsModelOptions,
+            pendingChange: $pendingDefaultChange,
+            groups: store.anyModelCatalog?.groups ?? [],
+            isLoading: store.sessionControlLoadingKinds.contains("models")
+                && (store.anyModelCatalog?.groups.isEmpty ?? true),
+            currentSelection: store.defaultModelSelection,
+            onSelectModel: { group, model in
+                let efforts = model.reasoning?.efforts ?? []
+                let retained = store.defaultModelSelection?.reasoningEffort.flatMap { current in
+                    efforts.contains(where: { $0.id == current }) ? current : nil
+                }
+                let effortId = retained ?? model.reasoning?.defaultEffort
+                pendingDefaultChange = PendingDefaultModelChange(
+                    provider: group.id,
+                    providerName: group.name,
+                    model: model.id,
+                    modelName: model.name,
+                    reasoningEffort: effortId,
+                    effortName: effortId.flatMap { id in efforts.first(where: { $0.id == id })?.name }
+                )
+            }
+        )
+        .sheet(isPresented: $showsPermissionOptions) {
+            PermissionOptionsSheet()
+        }
+        .sheet(isPresented: $showsFontSizePanel) {
+            FontSizePanel()
+        }
+        // 合并嫁接的三页（B4 §4：一律 sheet，不走推入）。三个目标 View 自带
+        // navigationTitle，这里只补 NavigationStack 容器和「完成」关闭钮。
+        .sheet(isPresented: $showsTailscaleTunnel) {
+            NavigationStack {
+                TailscaleTunnelSettingsView()
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("完成") { showsTailscaleTunnel = false }
+                        }
+                    }
+            }
+        }
+        .sheet(isPresented: $showsNetworkDiagnostics) {
+            NavigationStack {
+                GatewayNetworkDiagnosticsView(gateway: store.gateway)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("完成") { showsNetworkDiagnostics = false }
+                        }
+                    }
+            }
+        }
+        .sheet(isPresented: $showsLogExport) {
+            NavigationStack {
+                LogExportView()
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("完成") { showsLogExport = false }
+                        }
+                    }
+            }
+        }
+        .alert("语言已切换", isPresented: $showsLanguageRestartAlert) {
+            // 程序化退出（exit(0)）App Review 不推荐，但这里**只有用户点了这个按钮**才会执行：
+            // iOS 没有公开的「重启本 App」API，而语言只在启动时读取 AppleLanguages，
+            // 与其让用户手动去多任务里找，不如提供一键退出；不点则完全不发生。
+            Button("退出 App") { exit(0) }
+            Button("稍后重启", role: .cancel) {}
+        } message: {
+            Text("界面语言只在 App 启动时读取系统语言设置，因此需要重启一次才会切换：请从后台把 App 彻底划掉再打开。\n\n如果重启后仍是中文，请检查 iOS「设置 → App → 语言」是否被单独设置过。")
         }
     }
 
