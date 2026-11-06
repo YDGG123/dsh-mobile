@@ -13,6 +13,8 @@ struct TeamView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.scenePhase) private var scenePhase
+    /// 行底/状态色统一走 palette（跟 App 内主题），不再混 UIKit 动态色。
+    private var palette: DSHPalette { DSHPalette.resolve(colorScheme) }
     @State private var segment: Segment = .team
     @State private var detail: BridgeTeamRow?
     @State private var openFailure: String?
@@ -51,7 +53,10 @@ struct TeamView: View {
                     loadingView
                 }
             }
-            .background(Color(.systemGroupedBackground))
+            // 2026-11-06：UIKit 动态色按设备系统解析、不跟 App 内主题选择（真机实证），
+            // 与行内 palette/.secondary 文字（跟 App 主题）互不搭理——浅色下深底压浅字。
+            // 统一改走 palette（与设置页同一条路），List 自带底与行底一并接管。
+            .background(palette.pageBackground)
             .navigationTitle("团队")
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -151,6 +156,7 @@ struct TeamView: View {
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
+                .listRowBackground(palette.cardFill)
             }
             if case .offline(let reason) = feed.phase {
                 Section {
@@ -159,6 +165,7 @@ struct TeamView: View {
                         Text("团队连接中断：\(reason)").font(.footnote).foregroundStyle(.secondary)
                     }
                 }
+                .listRowBackground(palette.cardFill)
             }
             Section {
                 if feed.sortedRows.isEmpty {
@@ -169,11 +176,13 @@ struct TeamView: View {
                     }
                 }
             }
+            .listRowBackground(palette.cardFill)
             // 09：设备段与共享任务段（与名册同屏三段，不再要求跳转）
             devicesSection
             sharedTasksSection
         }
         .listStyle(.insetGrouped)
+        .scrollContentBackground(.hidden)
         }
     }
 
@@ -256,7 +265,7 @@ struct TeamView: View {
     @ViewBuilder
     private func gatewayAvatar(_ row: GatewayTeamFeed.Row, size: CGFloat) -> some View {
         TeamAvatarView(row: row, size: size,
-                       backdrop: Color(.secondarySystemGroupedBackground),
+                       backdrop: palette.cardFill,
                        motion: .live(working: feed.isLive(row)))
     }
 
@@ -320,6 +329,7 @@ struct TeamView: View {
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
+                    .listRowBackground(palette.cardFill)
                 }
                 if let transportError = team.lastTransportError {
                     Section {
@@ -327,9 +337,11 @@ struct TeamView: View {
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
+                    .listRowBackground(palette.cardFill)
                 }
             }
             .listStyle(.insetGrouped)
+            .scrollContentBackground(.hidden)
         }
     }
 
@@ -339,6 +351,7 @@ struct TeamView: View {
             Section("主 Bot") {
                 mainBotCard(mainBot, mirror: mirror)
             }
+            .listRowBackground(palette.cardFill)
         }
         Section("Bots") {
             if mirror.bots.isEmpty {
@@ -349,6 +362,7 @@ struct TeamView: View {
                 }
             }
         }
+        .listRowBackground(palette.cardFill)
     }
 
     @ViewBuilder
@@ -363,6 +377,7 @@ struct TeamView: View {
                 }
             }
         }
+        .listRowBackground(palette.cardFill)
     }
 
     /// 顶部分段：bridge 宣告 sessions 能力、或已拿到会话行时出现（旧服务端保持原样）。
@@ -426,6 +441,7 @@ struct TeamView: View {
                 }
             }
         }
+        .listRowBackground(palette.cardFill)
     }
 
     private func mainBotCard(_ row: BridgeTeamRow, mirror: BridgeTeamMirror) -> some View {
@@ -906,6 +922,7 @@ struct TeamView: View {
         } header: {
             Text(devices.isEmpty ? "设备" : "设备 \(String(devices.count))")
         }
+        .listRowBackground(palette.cardFill)
     }
 
     /// 09 共享任务段：只读展示（创建 / 分配仍在桌面端，不做假入口）
@@ -926,6 +943,7 @@ struct TeamView: View {
         } header: {
             Text(ready ? String(localized: "共享任务 \(String(tasks.count))") : String(localized: "共享任务"))
         }
+        .listRowBackground(palette.cardFill)
     }
 
     /// 09 任务行：主题 + 状态 + 归属人（只读）

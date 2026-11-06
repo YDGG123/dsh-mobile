@@ -48,20 +48,30 @@ struct BridgeTeamMirror: Decodable {
     /// 2026-11-04 真实事故：手机端群聊漏了这条，用户在群聊切模型 ⇒ 每轮
     /// `MODEL_SWITCH_COMPACTION_FAILED`、用户消息被丢。
     ///
-    /// 两条边界都**不在这里**处理，由调用方负责：
-    /// - 「镜像还没到」（`mirror == nil`）⇒ 调用方 fail-closed 先隐藏（不许先显示再隐藏）；
-    /// - 未配对（phase IDLE/NEEDS_PAIRING）时 bots/rooms 为空 ⇒ 这里自然返回 false（普通会话）。
+    /// 两条边界都在 `modelControlsHidden` 里按三态处理（2026-11-06 用户裁定改版）：
+    /// - READY/OFFLINE：按命中判定（名册在手或曾是）；
+    /// - IDLE/NEEDS_PAIRING / `mirror == nil`（bridge 未启动）：不可能有 Bot 域会话 ⇒ 显示；
+    /// - LOADING：短暂 fail-closed（名册在路上，此刻可能是 Bot 域）。
     func isBotDomainSession(_ sessionId: String?) -> Bool {
         guard let sessionId, !sessionId.isEmpty else { return false }
         return bots.contains { $0.sessionId == sessionId } || rooms.contains { $0.sessionId == sessionId }
     }
 
-    /// 视图层入口（**含 fail-closed**，可单测）：镜像未到（`nil`）⇒ **隐藏**。
-    /// 「先隐藏、镜像到了再揭示」是唯一安全的闪法——反过来（先显示后隐藏）正是
-    /// 用户能在群聊里切到模型的那条事故路径。返回 true = 隐藏模型/思考档 chip。
+    /// 视图层入口（可单测）。**三态判定**（2026-11-06 用户裁定，废除旧的 `guard let mirror
+    /// else { return true }` 一刀切——那把「没配对 bridge」的普通会话/私聊也吞了，
+    /// 就是用户报的「输入框里模型/思考档选择没了」）。返回 true = 隐藏 chip。
+    /// - READY / OFFLINE：命中 bots/rooms ⇒ 隐藏（11-04 群聊卡死事故防线，必须保住）；
+    ///   未命中 ⇒ 显示。
+    /// - IDLE / NEEDS_PAIRING / `nil`：bridge 没在跑，不可能有 Bot 域会话 ⇒ 显示。
+    /// - LOADING：短暂 fail-closed——镜像正在拉名册，此刻确实可能是 Bot 域会话；
+    ///   名册到了立即按命中揭示（方向仍是「先隐藏后显示」，不会反向闪）。
     static func modelControlsHidden(sessionId: String?, mirror: BridgeTeamMirror?) -> Bool {
-        guard let mirror else { return true }
-        return mirror.isBotDomainSession(sessionId)
+        guard let mirror else { return false }
+        if mirror.isReady || mirror.isOffline {
+            return mirror.isBotDomainSession(sessionId)
+        }
+        if mirror.needsPairing { return false }
+        return true
     }
 }
 

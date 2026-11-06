@@ -23,6 +23,12 @@ struct HarnessAnimatedBackground: View {
     @State private var animationClock = HarnessBackgroundAnimationPhaseClock()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
+    // B7 回归（2026-11-06）：合并取上游鲸鱼方案时把浅色分支裁掉了（裁决⑤），
+    // 导致浅色主题下整页仍被深海底盖住——用户真机反馈「浅色下工作区列表看不见字」的底色根源。
+    // 这里按合并前（2007de4）的浅色参数把 isLight 重新接进各图层；深色档逐位不变。
+    @Environment(\.colorScheme) private var colorScheme
+
+    private var isLight: Bool { colorScheme == .light }
 
     private var usesStaticBackground: Bool {
         if #available(iOS 26.0, *) {
@@ -41,7 +47,7 @@ struct HarnessAnimatedBackground: View {
                 // 低版本保留静态粒子与构图，不创建逐帧更新时间线。
                 backgroundLayers(time: 0, isStatic: true)
             } else {
-                TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: pausesAnimation)) { timeline in
+                TimelineView(.animation(minimumInterval: isLight ? 1.0 / 24.0 : 1.0 / 30.0, paused: pausesAnimation)) { timeline in
                     let elapsed = animationClock.elapsed(at: timeline.date)
                         .truncatingRemainder(dividingBy: 4_096)
                     backgroundLayers(time: elapsed, isStatic: false)
@@ -50,7 +56,7 @@ struct HarnessAnimatedBackground: View {
         }
         .onAppear { animationClock.setPaused(pausesAnimation, at: Date()) }
         .onChangeCompat(of: pausesAnimation) { _, paused in animationClock.setPaused(paused, at: Date()) }
-        .background(DSHColor.navy)
+        .background(isLight ? Color(red: 0.976, green: 0.980, blue: 0.988) : DSHColor.navy)
         .ignoresSafeArea()
         .clipped()
         .allowsHitTesting(false)
@@ -60,14 +66,17 @@ struct HarnessAnimatedBackground: View {
     private func backgroundLayers(time: TimeInterval, isStatic: Bool) -> some View {
         ZStack {
             HarnessFluidLayer(
-                time: time, style: style, prefersOpenLightArcs: prefersOpenLightArcs
+                time: time, style: style, prefersOpenLightArcs: prefersOpenLightArcs,
+                isLight: isLight
             )
-            HarnessTechnicalGrid(style: style)
-            HarnessWhaleField(time: time, isStatic: isStatic, style: style)
-                .blendMode(.screen)
+            HarnessTechnicalGrid(style: style, isLight: isLight)
+            HarnessWhaleField(time: time, isStatic: isStatic, style: style, isLight: isLight)
+                .blendMode(isLight ? .normal : .screen)
 
             LinearGradient(
-                colors: [.clear, DSHColor.navy.opacity(0.12), Color.black.opacity(0.58)],
+                colors: isLight
+                    ? [.clear, DSHColor.ocean.opacity(0.06), Color.white.opacity(0.42)]
+                    : [.clear, DSHColor.navy.opacity(0.12), Color.black.opacity(0.58)],
                 startPoint: .top,
                 endPoint: .bottom
             )
@@ -121,10 +130,28 @@ private struct HarnessFluidLayer: View {
     let time: TimeInterval
     let style: HarnessBackgroundStyle
     let prefersOpenLightArcs: Bool
+    /// B7：浅色形态不走 Metal 流体（着色器按深海配色写死），换成浅海近白渐变——
+    /// 吉祥物动效由鲸鱼粒子层承担，不是用静态图顶替（合并前 2007de4 同款参数）。
+    var isLight: Bool = false
 
     @ViewBuilder
     var body: some View {
-        if #available(iOS 17.0, *) {
+        if isLight {
+            Rectangle()
+                .fill(
+                    LinearGradient(
+                        // 浅色背景按设计稿 01-home（浅色）取「近白 + 一点冷」：
+                        // 旧值是明显浅蓝（0.88~0.93 蓝通道），用户真机反馈「蓝白」不想要。
+                        colors: [
+                            Color(red: 0.976, green: 0.980, blue: 0.988),
+                            Color(red: 0.958, green: 0.966, blue: 0.978),
+                            Color(red: 0.986, green: 0.988, blue: 0.994)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+        } else if #available(iOS 17.0, *) {
             // Metal 流体场依赖 iOS 17 的 ShaderLibrary 与 visualEffect。
             Rectangle()
                 .fill(DSHColor.navy)
@@ -155,9 +182,12 @@ private struct HarnessFluidLayer: View {
 
 private struct HarnessTechnicalGrid: View {
     let style: HarnessBackgroundStyle
+    var isLight: Bool = false
 
     var body: some View {
         Canvas(rendersAsynchronously: true) { context, size in
+            let lineColor: Color = isLight ? DSHColor.ink.opacity(0.07) : .white.opacity(0.043)
+            let dotColor: Color = isLight ? DSHColor.ink.opacity(0.11) : .white.opacity(0.085)
             let spacing: CGFloat = style == .pad
                 ? min(64, max(42, min(size.width, size.height) / 16))
                 : 42
@@ -172,7 +202,7 @@ private struct HarnessTechnicalGrid: View {
                 grid.addLine(to: CGPoint(x: size.width, y: y))
             }
 
-            context.stroke(grid, with: .color(.white.opacity(0.043)), lineWidth: 0.55)
+            context.stroke(grid, with: .color(lineColor), lineWidth: 0.55)
 
             // Sparse square intersections mirror the website's technical grid
             // without competing with the whale particle silhouette.
@@ -182,7 +212,7 @@ private struct HarnessTechnicalGrid: View {
                 for column in 0..<columns where (row * 11 + column * 7) % 13 == 0 {
                     let point = CGPoint(x: CGFloat(column) * spacing, y: CGFloat(row) * spacing)
                     let rect = CGRect(x: point.x - 1.1, y: point.y - 1.1, width: 2.2, height: 2.2)
-                    context.fill(Path(rect), with: .color(.white.opacity(0.085)))
+                    context.fill(Path(rect), with: .color(dotColor))
                 }
             }
         }
@@ -204,13 +234,15 @@ private struct HarnessWhaleField: View {
     let time: TimeInterval
     let isStatic: Bool
     let style: HarnessBackgroundStyle
+    var isLight: Bool = false
 
     private let particles: [WhaleParticle]
 
-    init(time: TimeInterval, isStatic: Bool, style: HarnessBackgroundStyle) {
+    init(time: TimeInterval, isStatic: Bool, style: HarnessBackgroundStyle, isLight: Bool = false) {
         self.time = time
         self.isStatic = isStatic
         self.style = style
+        self.isLight = isLight
         particles = WhaleParticleMask.particles(for: style)
     }
 
@@ -254,16 +286,25 @@ private struct HarnessWhaleField: View {
                 )
                 let boundedLuminance = min(1, max(0, particle.luminance))
                 let boundedLight = min(1, max(0, particle.light))
-                let alpha = min(1, max(0, (0.10 + boundedLuminance * 0.38) * shimmer))
-                let color = Color(
-                    red: min(1, max(0, 0.73 + 0.15 * boundedLight)),
-                    green: min(1, max(0, 0.79 + 0.12 * boundedLight)),
-                    blue: min(1, max(0, 0.92 + 0.08 * boundedLight))
-                )
+                // 浅底需要更高的不透明度、墨蓝粒子才看得见；深底沿用原参数（合并前同款）。
+                let alpha = isLight
+                    ? min(1, max(0, (0.30 + boundedLuminance * 0.45) * shimmer))
+                    : min(1, max(0, (0.10 + boundedLuminance * 0.38) * shimmer))
+                let color = isLight
+                    ? Color(
+                        red: min(1, max(0, 0.10 + 0.10 * boundedLight)),
+                        green: min(1, max(0, 0.26 + 0.12 * boundedLight)),
+                        blue: min(1, max(0, 0.50 + 0.14 * boundedLight))
+                    )
+                    : Color(
+                        red: min(1, max(0, 0.73 + 0.15 * boundedLight)),
+                        green: min(1, max(0, 0.79 + 0.12 * boundedLight)),
+                        blue: min(1, max(0, 0.92 + 0.08 * boundedLight))
+                    )
                 context.fill(Path(roundedRect: rect, cornerRadius: dotSize * 0.18), with: .color(color.opacity(alpha)))
             }
         }
-        .opacity(0.56)
+        .opacity(isLight ? 0.5 : 0.56)
         .blur(radius: 0.18)
     }
 

@@ -79,7 +79,9 @@ struct WorkspaceView: View {
             .frame(width: geometry.size.width + safeArea.leading + safeArea.trailing, height: fullHeight)
             .offset(x: -safeArea.leading, y: -topInset)
         }
-        .background(DSHColor.navy.ignoresSafeArea())
+        // 2026-11-06 用户真机反馈：底色写死 navy（不随主题）而文字 palette.ink 走主题，
+        // 浅色下=深蓝底+墨黑字（对比度 1.2:1）。改走与设置页同一条 palette 路。
+        .background(palette.pageBackground.ignoresSafeArea())
         .foregroundStyle(palette.ink(1))
         .onAppear {
             StartupTimeline.mark("workspace.appear")
