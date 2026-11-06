@@ -90,7 +90,8 @@ jobs:
             echo "::error::$DEST 的 AvailableLibraries 为空"
             exit 1
           fi
-          echo "✅ 已预置：$DEST（$(du -sh "$DEST" | cut -f1)，切片数 $LIBS）"
+          # 注意：全角括号紧跟变量会被 bash 并入变量名（set -u 下报 unbound variable），一律用 ${} 包裹
+          echo "✅ 已预置：${DEST}（$(du -sh "${DEST}" | cut -f1)，切片数 ${LIBS}）"
       - name: 配置 Android SDK（shared 模块含 android 目标，Gradle 配置期需要）
         run: |
           SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Library/Android/sdk}}"
