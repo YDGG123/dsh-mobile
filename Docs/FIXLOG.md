@@ -101,15 +101,39 @@
 
 ---
 
+### 2026-11-04 · build 76 · 群聊切模型三群聊全卡死（MODEL_SWITCH_COMPACTION_FAILED）
+
+- **症状**（真机事故）：用户在群聊输入框切模型 ⇒ 三个群聊**每轮** `MODEL_SWITCH_COMPACTION_FAILED`、用户消息被丢。修复形态=输入框对 Bot/群聊会话隐藏模型与思考档 chip
+- **根因**（两层）：① 契约层——桌面端 ds-bot 原话 "a Bot's model lives in its details panel"（`src/client/index.js:916` 附近把 `conversation.input.model` 置 `Nothing`）：Bot/room 会话本不该有模型选择，手机端此前没实现这条语义；② 机制层——切模型走 session control，群聊/Bot 会话是 ds-bot adopted engines，模型切换的压缩检查没豁免对应钩子（`compactRegion`/`summarize` 未包 `agent/request`）⇒ 压缩失败每轮报错。错误码出自 ds-bot host steward（`ds-bot/ds-bot/src/host/parts.js:183`）
+- **怎么查**：网关日志看每轮错误码 → ds-bot 源码对契约（composer 的 model picker shadow 置空 + Bot 自己的 ModelChoiceDock）→ `BotDomainComposerTests` 用**真解码路径镜像**复现判定（不走成员逐一 init，fields 与网关下发一致）
+- **修法**：iOS `ec00496`（Bot 域会话隐藏 chip + 三条反向单测）＋ Android `b901f8e` 同源。后续演进：84 三态判定（`db4bea2`，修「mirror nil 一刀切」）、86 收敛为**只防群聊**（`2576ce6`，用户口径：Bot 会话放开、群聊不行）
+- **判据**：`BotDomainComposerTests` 三条反向——普通会话 chip 在、群聊 room chip 不在（11-04 防线，改口径时也保留）；**模拟器真跑 8/8 TEST SUCCEEDED**（11-06 12:53）
+- **踩过的弯路**：
+  - 事故防线（隐藏 chip）与「没拿到名册也隐藏」的 fail-closed 混在同一个布尔里——11-06 用户报「私聊也没了」才发现 fail-closed 把未配对用户全吞了；教训：**防线要精确到它要防的那条路**，别顺手扩大范围
+  - 口径三轮收敛（全隐藏 → 三态 → 只防群聊），每次动口径前都先答「会不会复现 11-04 卡死」；86 那轮差点把 Bot 会话也一刀切放开
+
+### 2026-10-31 · build 63 · Bot 页 rows 永远空（名册缓存与 resume 存储脱节）
+
+- **症状**：装机后 Bot 页（团队实时状态）列表一直空白
+- **根因**（机制级）：vc63 把名册缓存版本 1→2 使旧缓存作废，但 `TeamFeedResumeStore`（落盘 `{instanceId, seq}`）是**独立存储没跟着作废** → 重连带 resume 参数命中网关 caught-up（`afterSeq===head`）→ `team-feed.mjs:648` 返回 `frames:[]`、`server.mjs:571` 只发 `sync.done` **不发快照** → 客户端 rows 永远空
+- **怎么查**：网关侧 team-feed 帧分析 + 探针覆盖层验证；顺带排掉 `degraded()` 语义坑（「无订阅者时自然为真」，不是故障信号）
+- **修法**：双管——网关 caught-up 补快照（`5d0c180`，防御）＋ 客户端**本地无缓存时不带 resume**（根治，iOSDev；客户端提交 sha 未记录）
+- **判据**：真机 Bot 页 rows 出数据；探针覆盖层读数「零帧是预期不是回归」（`97d6984` 专门更正过验证方法）
+- **踩过的弯路**：
+  - 「两个独立存储只作废了一个」——版本 bump 只动了名册缓存，没盘点与之耦合的 resume 存储；教训：**作废缓存时必须枚举所有依赖它的存储**
+  - 「零帧」一度被误判为回归，实际是 caught-up 的正确行为——验证方法本身也要落档，防止下次重查一遍
+
+---
+
 ## 待补（历史条目，查得到的照填，查不到的写「未记录」）
 
 > 用户 2026-11-03 已定过同类制度（安卓每版写 DELIVERABLES）。iOS 侧的历史修复按同样标准补：
 
 - [ ] build 59 之前：贴底抽搐（已记在 `ui改版` 主题，可搬）
-- [ ] build 63：Bot 页变空（缓存版本 1→2 与 resume 存储脱节）
+- [x] build 63：Bot 页变空（缓存版本 1→2 与 resume 存储脱节）
 - [ ] build 64：网关卡片断订重订（对象引用当身份判断）
 - [ ] build 71：群聊实时必须重开才看到
-- [ ] build 76：Bot 域会话隐藏模型 chip（11-04 群聊卡死事故）
+- [x] build 76：Bot 域会话隐藏模型 chip（11-04 群聊卡死事故）
 - [ ] build 77：没装 Bot 插件时页内说明 / 群聊终态无限重连
 
 **补录原则**：`git log` + 群记录能查到的照填，**查不到的写「未记录」**，不编。
