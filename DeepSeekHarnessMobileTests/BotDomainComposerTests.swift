@@ -1,16 +1,15 @@
 import XCTest
 @testable import DeepSeekHarnessMobile
 
-/// 77②「Bot 域会话隐藏模型/思考档选择」的反向测试（2026-11-04）。
+/// 77②「群聊隐藏模型/思考档选择」的反向测试（2026-11-04 事故防线）。
 ///
-/// 事故：手机端群聊输入框出现了模型选择（桌面端 ds-bot `src/client/index.js:916` 把
-/// `conversation.input.model` 置 `Nothing`），用户在群聊切模型 ⇒ 三个群聊每轮
+/// 事故：手机端群聊输入框出现了模型选择，用户在群聊切模型 ⇒ 三个群聊每轮
 /// `MODEL_SWITCH_COMPACTION_FAILED`、用户消息被丢。
 ///
-/// 三条反向判据（Chief 定）：普通会话 chip 在；Bot 会话 chip 不在；群聊 room chip 不在。
-/// 判定入口 = `BridgeTeamMirror.modelControlsHidden`（true = 隐藏）。
-/// 2026-11-06 改为三态判定：未配对/nil ⇒ 显示（不可能有 Bot 域会话）；READY/OFFLINE ⇒
-/// 按命中；LOADING ⇒ 短暂 fail-closed。反向判据不变，nil 判据由「隐藏」改「显示」。
+/// 2026-11-06 用户两轮裁定收敛后的最终口径：**只有群聊（rooms）隐藏 chip**——
+/// Bot 会话要能切模型（Bot 模型独立于会话），普通会话/私聊/未配对全显示。
+/// 判定入口 = `BridgeTeamMirror.modelControlsHidden`（true = 隐藏）：
+/// READY/OFFLINE 按 rooms 命中；nil/IDLE/NEEDS_PAIRING 显示；LOADING 短暂 fail-closed。
 final class BotDomainComposerTests: XCTestCase {
 
     /// 走**真解码路径**构造镜像（不用成员逐一 init）：fields 形态与网关实际下发一致，
@@ -26,21 +25,24 @@ final class BotDomainComposerTests: XCTestCase {
      "sessions":[{"id":"s1","kind":"session","name":"随手记","sessionId":"session-plain-1"}]}
     """
 
-    // ---- 三条反向判据 ----
+    // ---- 三条反向判据（2026-11-06 口径） ----
 
-    func testBotSessionHidesModelControls() throws {
-        XCTAssertTrue(BridgeTeamMirror.modelControlsHidden(sessionId: "session-bot-1", mirror: try mirror(readyMirror)),
-                      "Bot 自己的会话必须隐藏模型/思考档选择（桌面端 conversation.input.model = Nothing）")
+    func testBotSessionKeepsModelControls() throws {
+        // 2026-11-06 用户改口径：Bot 会话**放开**切模型（旧判据「Bot 也隐藏」作废）。
+        // Bot 的模型独立于会话，桌面端 ds-bot 有自己的 ModelChoiceDock；失败走
+        // session control → lastError 全局弹窗，不静默。
+        XCTAssertFalse(BridgeTeamMirror.modelControlsHidden(sessionId: "session-bot-1", mirror: try mirror(readyMirror)),
+                       "Bot 会话必须显示模型/思考档选择——用户 2026-11-06 原话「bot 单独是要能在输入框切换模型和思考的」")
     }
 
     func testRoomSessionHidesModelControls() throws {
         XCTAssertTrue(BridgeTeamMirror.modelControlsHidden(sessionId: "session-room-1", mirror: try mirror(readyMirror)),
-                      "群聊 room 必须隐藏——本次事故的正是这条路")
+                      "群聊 room 必须隐藏——11-04 卡死事故的正是这条路，防线不复发")
     }
 
     func testPlainSessionKeepsModelControls() throws {
         XCTAssertFalse(BridgeTeamMirror.modelControlsHidden(sessionId: "session-plain-1", mirror: try mirror(readyMirror)),
-                       "U4 普通会话不受影响，chip 必须照常显示")
+                       "普通会话不受影响，chip 必须照常显示")
     }
 
     // ---- fail-closed 语义（三态判定，2026-11-06 改版） ----
@@ -67,13 +69,13 @@ final class BotDomainComposerTests: XCTestCase {
     }
 
     func testLoadingMirrorFailsClosed() throws {
-        // 反向（事故防线保留）：LOADING 时名册在路上，此刻确实可能是 Bot 域会话——
-        // 短暂隐藏，方向仍是「先隐藏后显示」，不会反向闪。名册 READY 后按命中揭示。
+        // 反向（事故防线保留）：LOADING 时名册在路上，此刻确实可能是群聊——
+        // 短暂隐藏，方向仍是「先隐藏后显示」，不会反向闪。名册 READY 后按 rooms 命中揭示。
         let loading = try mirror("""
         {"phase":"LOADING","bots":[],"rooms":[],"sessions":[]}
         """)
         XCTAssertTrue(BridgeTeamMirror.modelControlsHidden(sessionId: "session-plain-1", mirror: loading),
-                      "LOADING 短暂 fail-closed：防止用户在名册未到时于 Bot 域会话切模型（11-04 事故路径）")
+                      "LOADING 短暂 fail-closed：防止用户在名册未到时于群聊切模型（11-04 事故路径）")
     }
 
     // ---- 判定的边界 ----

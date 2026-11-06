@@ -41,34 +41,35 @@ struct BridgeTeamMirror: Decodable {
         capabilities?.actionsWhitelist?.contains(action) == true
     }
 
-    /// **Bot 域会话判定**（纯函数，可单测）：`sessionId` 命中 **bots 或 rooms 任一行** ⇒ Bot 域。
-    ///
-    /// 依据 = 桌面端同语义（ds-bot `src/client/index.js:916`：Bot 会话输入框
-    /// `conversation.input.model = Nothing`，"a Bot's model lives in its details panel"）。
-    /// 2026-11-04 真实事故：手机端群聊漏了这条，用户在群聊切模型 ⇒ 每轮
-    /// `MODEL_SWITCH_COMPACTION_FAILED`、用户消息被丢。
-    ///
-    /// 两条边界都在 `modelControlsHidden` 里按三态处理（2026-11-06 用户裁定改版）：
-    /// - READY/OFFLINE：按命中判定（名册在手或曾是）；
-    /// - IDLE/NEEDS_PAIRING / `mirror == nil`（bridge 未启动）：不可能有 Bot 域会话 ⇒ 显示；
-    /// - LOADING：短暂 fail-closed（名册在路上，此刻可能是 Bot 域）。
+    /// **群聊会话判定**（纯函数，可单测）：`sessionId` 命中 **rooms** ⇒ 群聊。
+    /// 2026-11-06 用户改口径：输入框模型/思考档 chip **只对群聊隐藏**——Bot 会话
+    /// 要能切模型（Bot 的模型本就独立于会话，桌面端 ds-bot 走自己的 ModelChoiceDock），
+    /// 只有群聊不许切（11-04 三群聊 `MODEL_SWITCH_COMPACTION_FAILED` 事故防线）。
+    func isRoomSession(_ sessionId: String?) -> Bool {
+        guard let sessionId, !sessionId.isEmpty else { return false }
+        return rooms.contains { $0.sessionId == sessionId }
+    }
+
+    /// **Bot 域会话判定**（纯函数，可单测）：`sessionId` 命中 bots 或 rooms 任一行。
+    /// ⚠️ 2026-11-06 起模型 chip 判定**不再用它**（改 `isRoomSession`）；保留给
+    /// 其它需要「Bot 域」语义的调用方（当前无——仅测试在用，若新增使用请先对口径）。
     func isBotDomainSession(_ sessionId: String?) -> Bool {
         guard let sessionId, !sessionId.isEmpty else { return false }
         return bots.contains { $0.sessionId == sessionId } || rooms.contains { $0.sessionId == sessionId }
     }
 
-    /// 视图层入口（可单测）。**三态判定**（2026-11-06 用户裁定，废除旧的 `guard let mirror
-    /// else { return true }` 一刀切——那把「没配对 bridge」的普通会话/私聊也吞了，
-    /// 就是用户报的「输入框里模型/思考档选择没了」）。返回 true = 隐藏 chip。
-    /// - READY / OFFLINE：命中 bots/rooms ⇒ 隐藏（11-04 群聊卡死事故防线，必须保住）；
-    ///   未命中 ⇒ 显示。
-    /// - IDLE / NEEDS_PAIRING / `nil`：bridge 没在跑，不可能有 Bot 域会话 ⇒ 显示。
-    /// - LOADING：短暂 fail-closed——镜像正在拉名册，此刻确实可能是 Bot 域会话；
-    ///   名册到了立即按命中揭示（方向仍是「先隐藏后显示」，不会反向闪）。
+    /// 视图层入口（可单测）。**三态 × 只防群聊**（2026-11-06 用户两轮裁定收敛）：
+    /// - READY / OFFLINE：命中 **rooms** ⇒ 隐藏（11-04 群聊卡死事故防线，必须保住）；
+    ///   命中 bots 或未命中 ⇒ 显示（Bot 会话放开切模型）。
+    /// - IDLE / NEEDS_PAIRING / `nil`：bridge 没在跑，不可能有群聊会话 ⇒ 显示。
+    /// - LOADING：短暂 fail-closed——名册在路上，此刻确实可能是群聊；名册到了立即按命中揭示。
+    /// 切模型失败可见性：`selectModel` 走 session control，失败经
+    /// `applySessionControlTransition` 写 `lastError` → RootView 全局弹窗（AppStore :5725），
+    /// 不会静默丢消息。
     static func modelControlsHidden(sessionId: String?, mirror: BridgeTeamMirror?) -> Bool {
         guard let mirror else { return false }
         if mirror.isReady || mirror.isOffline {
-            return mirror.isBotDomainSession(sessionId)
+            return mirror.isRoomSession(sessionId)
         }
         if mirror.needsPairing { return false }
         return true

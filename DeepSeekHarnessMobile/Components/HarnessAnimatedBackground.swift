@@ -30,29 +30,22 @@ struct HarnessAnimatedBackground: View {
 
     private var isLight: Bool { colorScheme == .light }
 
-    private var usesStaticBackground: Bool {
-        if #available(iOS 26.0, *) {
-            return reduceMotion
-        }
-        return true
-    }
-
+    // 2026-11-06 用户真机反馈：合并上游时引入的 `usesStaticBackground` 里有个
+    // `#available(iOS 26.0,*)` 伪门槛——26 以下恒 true，iOS 16.1 永远走静态分支，
+    // 鲸鱼动效整条消失（79 没有这个门槛，iOS 16 照常动）。照 `2007de4` 原路径还原：
+    // 无条件 TimelineView，`reduceMotion` 只表现为暂停时间轴 + 静帧，不表现为版本门槛。
+    // `#available(iOS 17.0,*)` 在 HarnessFluidLayer 里保留——那是真 SDK 差异（Metal shader）。
     private var pausesAnimation: Bool {
-        animationPaused || usesStaticBackground || scenePhase != .active
+        reduceMotion || animationPaused || scenePhase != .active
     }
 
     var body: some View {
-        Group {
-            if usesStaticBackground {
-                // 低版本保留静态粒子与构图，不创建逐帧更新时间线。
-                backgroundLayers(time: 0, isStatic: true)
-            } else {
-                TimelineView(.animation(minimumInterval: isLight ? 1.0 / 24.0 : 1.0 / 30.0, paused: pausesAnimation)) { timeline in
-                    let elapsed = animationClock.elapsed(at: timeline.date)
-                        .truncatingRemainder(dividingBy: 4_096)
-                    backgroundLayers(time: elapsed, isStatic: false)
-                }
-            }
+        TimelineView(.animation(minimumInterval: isLight ? 1.0 / 24.0 : 1.0 / 30.0, paused: pausesAnimation)) { timeline in
+            let elapsed = reduceMotion
+                ? 0
+                : animationClock.elapsed(at: timeline.date)
+                    .truncatingRemainder(dividingBy: 4_096)
+            backgroundLayers(time: elapsed, isStatic: reduceMotion)
         }
         .onAppear { animationClock.setPaused(pausesAnimation, at: Date()) }
         .onChangeCompat(of: pausesAnimation) { _, paused in animationClock.setPaused(paused, at: Date()) }
