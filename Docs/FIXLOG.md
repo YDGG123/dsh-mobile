@@ -129,7 +129,8 @@
 - **根因**：`f2af2ab`（占位文案分流，+6 行）编辑时把 `private static let workspaceFileLog = Logger(...)` 粘了两遍，:523/:524 逐字节重复——同名声明同类型作用域，App 任何编译形态都该红
 - **怎么查**：红点出现在测试模块而四路「没报」⇒ 起疑 → 实读四路的 mktemp 日志（`$TMPDIR/tmp.*` grep "invalid redeclaration"）⇒ **App 双路日志各含 2 条 error:**，四路其实都抓到了；只是四路计数裁决在脚本末尾 `local-typecheck.sh:813` 统一做，测试模块站先撞同一错误提前 exit 1——红的位置有迷惑性，闸门本身没漏（GATE_TYPECHECK_EXIT=1 为真）
 - **修法**：删 `:524` 一行（全仓 grep 唯一声明 + :2966 唯一使用点 `Self.workspaceFileLog`，零副作用），提交 `c4dae25`
-- **判据**：grep `private static let workspaceFileLog` 计数=1；闸门重跑（进行中，EXIT 读数跑完补录）
+- **判据**：grep `private static let workspaceFileLog` 计数=1；闸门复跑**全绿**（`06fa676`，02:28:20–02:34:57）：GATE_TYPECHECK_EXIT=0（四路 0/0/0/0 + 测试模块过 + Tests 22 文件 0 错 + UITests 2 文件 0 错 + 工程收录 103/103 + i18n 0 新增 + 版本三处 1.0.0 (88)）、GATE_ANDROID_EXIT=0
+- **逐路日志复查（规矩首跑）**：TMPDIR 里 grep 到 6 份含 `error:` 的 tmp 全为**历史运行残留**（4 份 01:1x–01:3x 的 89① 中间态 `LocalPathImageProvider.swift:18`、2 份 02:17–02:19 本次事故运行），mtime 全部早于本次起跑 02:28:20（02:35 stat 实读）；本次四路日志 0 条 `error:`。教训：逐路复查必须按 mtime 限定「本次运行」，否则 TMPDIR 里跨运行残留会制造假红
 - **踩过的弯路 / 规矩**：
   - 跑闸门**不能只看脚本末尾统一计数**，要逐路看自己日志里有没有 `error:`（Chief 2026-11-07 定为规矩）
   - 编辑粘贴代码后，提交前先 grep 一遍新增声明是否与既有撞名——一行粘重，耽误一轮出包
