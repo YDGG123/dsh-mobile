@@ -2,13 +2,18 @@
 
 
 # ── 本机构建环境头（ReleaseBot 2026-11-06 补：合并树起每次 iOS 构建都要过它）────────
-# ① xcrun -f ld 在本机必崩（dyld 坏页）；DEVELOPER_DIR 指向 shim 绕过（11-03 README 方案）。
+# ① dyld 坏页期间（11-03~11-05）xcrun -f ld 必崩，DEVELOPER_DIR 指向 shim 绕过；
+#    11-06 起真 xcodebuild/-list 已自愈（连测 5 次 EXIT=0），shim 仅在坏页时才需要。
+#    判据用真本体（xcodebuild -list），不用 shim 的 xcrun -f ld（探针假阳性，见 81 交付记录）。
 # ② Tsnetgo 阶段需要 Go/gomobile（tools/go/bin + tools/gopath/bin）。
 if [ -z "${DEVELOPER_DIR:-}" ]; then
-  if [ -d /tmp/FakeXcode.app/Contents/Developer ]; then
+  if xcodebuild -list >/dev/null 2>&1; then
+    :  # 环境健康，无需 shim
+  elif [ -d /tmp/FakeXcode.app/Contents/Developer ]; then
     export DEVELOPER_DIR=/tmp/FakeXcode.app/Contents/Developer
+    echo "note: xcodebuild -list 崩（dyld 坏页窗口），已切 DEVELOPER_DIR shim" >&2
   else
-    echo "ERROR: /tmp/FakeXcode.app 不存在——本机 xcrun -f ld 必崩，需按 11-03 README 重建：" >&2
+    echo "ERROR: xcodebuild -list 崩且 /tmp/FakeXcode.app 不存在——需重建 shim：" >&2
     echo "       /Volumes/应用/dsh-workspace/tools/xcode-shim/rebuild-xcode-shim.sh" >&2
     exit 69
   fi
