@@ -135,6 +135,18 @@
   - 跑闸门**不能只看脚本末尾统一计数**，要逐路看自己日志里有没有 `error:`（Chief 2026-11-07 定为规矩）
   - 编辑粘贴代码后，提交前先 grep 一遍新增声明是否与既有撞名——一行粘重，耽误一轮出包
 
+### 2026-11-07 · build 88 出包 · LocalPathImageProvider pbxproj 组挂错（archive 级闸门盲区）
+
+- **症状**：88 archive 两次 `EXIT=65`（第一次另叠加启动脚本缺 `JAVA_HOME`，ReleaseBot 域已焊进脚本）：`Build input file cannot be found: …/Core/LocalPathImageProvider.swift`（日志 :2071/:2076）
+- **根因**：`f2af2ab` 把文件入库在 `Components/`，但 29c4bda 注册 pbxproj 时 fileRef 挂在 **Core 组**（照 GatewayRtcLink.swift 模板插位）——`sourceTree=<group>` 逐层解析成 `Core/…`，磁盘不存在；archive 按 pbxproj 真值编译即红。**闸门为什么绿**：typecheck 按 `find` 磁盘枚举、收录检查按 **basename** 对表——同名文件挪目录，两边都看不见
+- **怎么查**：ReleaseBot 从 archive 日志定位 → `git ls-tree` 证明树里在 `Components/` → pbxproj `:374` 在 Core 组 children ⇒「文件位置」与「工程声明位置」分叉
+- **修法**：① Chief 把 fileRef 挪 Components 组（`dec46a2`，plutil OK + 解析 103/103）② iOSCoder 给 `check-project-membership.py` 加**第四类检查**：按祖先组 path 逐层解析每个 .swift fileRef 完整路径，磁盘缺失判红
+- **判据**（08:0x 直跑取 EXIT，无管道）：正向 `✅ pbxproj 反向解析：103 个 .swift 引用…缺失 0` EXIT=0；**差分反向测试**：同名文件临时挪 `Views/`（旧三类应沉默）——新检查精确点名 `LocalPathImageProvider.swift → DeepSeekHarnessMobile/Components/…` EXIT=1，还原后 EXIT=0
+- **踩过的弯路 / 规矩**：
+  - 新检查第一版误报 2 个「无组链」——不是解析缺结构：objects 切块按「下一个 24 位 ID 头」，连续单行对象被吞进前一个多行对象 body（`A93F1F09`=TsnetgoFramework **target** 的 body 吞进了两个测试 fileRef 文本），按子串认类型就把 target 误当 fileRef ⇒ **类型判定必须认对象自己的第一个 isa**
+  - 判红取 EXIT 不能过管道（`python3 x.py | tail` 拿到的是 tail 的退出码）——判据命令必须直跑再 `echo EXIT=$?`
+  - 总纲：**「闸门绿」只覆盖闸门走过的真值链**——typecheck 走磁盘、archive 走 pbxproj，两条链必须各有闸门；第三类「引用悬空」按 basename 对表，查不出「同名不同位」
+
 ---
 
 ## 安卓侧修复（AndroidCoder）
