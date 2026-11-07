@@ -156,6 +156,21 @@
 - **判据**：`grep ConversationModelMenu` 仅剩 Label 的 1 用 1 定义；diff −118 行 0 新增；闸门四路绿（跑完补 EXIT）
 - **踩过的弯路**：用户说「两个管理员」时按字面去查权限/模式胶囊——**用户界面上显示的文案是他的模型名（叫「管理员」），不是控件语义**；先问「你点开哪个有搜索」能少绕一圈
 
+### 2026-11-07 · build 89 · 401 后静默死亡（截图不显示+发出的消息在手机上消失的共同根因）
+
+- **症状**（用户视角）：「我发出去的截图我手机聊天页面上还是不显示」「信息已经发出，你们也已经收到了，但是手机端上消失了」——消息网关全收（`mobile message accepted` 齐全），手机端却空白
+- **根因**（机制级，三层叠加）：
+  1. 宿主重启后手机存档的 access token 与服务端记录失配 → `/mobile/v1/state|conversations` 401（08:55、09:10 各一次，`verifyAccess` 的 hash 比对不过）
+  2. 客户端 401 分支 `handleRefreshFailure` 里 `refreshToken()` 的**载荷守卫**：存档 JSON 没有 `refreshToken`（旧配对形态）→ `tokenRefreshRejected("unauthorized")` → KMP 令牌机判 permanent → **清会话+Keychain**，全程不发任何刷新请求（网关日志 `auth/refresh` = 0 次的由来；`/mobile/v1/auth/refresh` 服务端在 `mobile-v1/auth.mjs:152`，一直存在）
+  3. 会话清空后 `refreshNow()` 的 `guard currentAccessToken() else return` 每 8s 空转 ⇒ **0 请求、0 重试、0 提示**；UI 横幅由 `connectionIssue` 驱动，而 401 分支提前 return 从不设置它——用户只见空白
+- **怎么查**：网关日志 401 时间线（Chief）→ refresh=0 次 ⇒ 刷新从未发起 → 读客户端链路：`BridgeTransport.requestURL` 确认线上路径=`/mobile/v1/auth/refresh` ✓ → `BridgeTokenMachine.kt` 通读（permanent=清会话、transient=保留）→ `GatewayBridgeSession` 结构体**零引用**（U5 配对帧 session 没接线，疑点存档）→ UI 横幅缺口在 401 分支早退
+- **修法**：① `BridgeConnectionIssue` 加 `.credentialsInvalid`（headline「凭证已失效」/detail「…请重新配对恢复同步」）② 401 分支刷新失败后按 `currentAccessToken()==nil`（=永久拒已被令牌机清会话）判别，挂横幅 + `refreshFailed("unauthorized")`；暂时性失败（超时/网络）会话还在，不误报「重新配对」、走既有退避
+- **判据**（iOSTester §8.26 口径）：修复后装机——a) 401 后网关日志出现 `auth/refresh` 请求（存档带 refreshToken 时）随后 `/mobile/v1/*` 恢复 2xx；b) 存档无 refreshToken 的场景不再静默：出现「凭证已失效…请重新配对」横幅；c) WS 重连成功**不**作为本条证据
+- **踩过的弯路 / 规矩**：
+  - 我的非递归 grep（`lib/*.mjs`）漏了 `lib/mobile-v1/` 子目录，差点误报「服务端没有 refresh 路由」——**grep 目录要递归**，下结论前先 `-r`
+  - `lastSeenAt` 更新≠认证成功（401 的请求也会碰设备记录）——不能拿它当「手机还连着」的证据
+  - 用户「截图不显示」与「消息消失」一个根因两副面孔；而历史 projcache 里 turn 3312/4855 的同款抱怨是**旧形态**（当时是渲染层），这次是数据层 401——同症状不同根因，别拿旧结论套新事故
+
 ---
 
 ## 安卓侧修复（AndroidCoder）

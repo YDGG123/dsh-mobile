@@ -263,6 +263,9 @@ enum BridgeConnectionIssue: Equatable {
     /// 它**不是**断线——哪怕是真断线，也会由 network/server/addressInvalid 那几类说清。
     case interrupted
     case unknown
+    /// 2026-11-07 事故：401 后存档无 refreshToken / 刷新被永久拒——必须给用户
+    /// 「重新配对」的明确提示，不能默默空着（当日手机 08:55 起 0 请求 0 提示）。
+    case credentialsInvalid
 
     var headline: String {
         switch self {
@@ -271,6 +274,7 @@ enum BridgeConnectionIssue: Equatable {
         case .server: return "服务器异常"
         case .interrupted: return "刷新被中断"
         case .unknown: return "连接已断开"
+        case .credentialsInvalid: return "凭证已失效"
         }
     }
 
@@ -281,6 +285,7 @@ enum BridgeConnectionIssue: Equatable {
         case .server: return "服务器暂时不可用，正在自动重试。"
         case .interrupted: return "本次刷新被中断，不算断线；下一个周期会自动重试。"
         case .unknown: return "正在自动重连。"
+        case .credentialsInvalid: return "手机存档的凭证无法自动刷新，请重新配对恢复同步。"
         }
     }
 }
@@ -1144,7 +1149,20 @@ final class BridgeTeamAdapter: ObservableObject {
         if let status = error as? BridgeResponseStatus {
             if status.status == 401 {
                 // 被踢才有机会刷：成功就顺手把主动刷新重新排上（重置 14 分钟窗口）。
-                if await refreshToken(transport: transport) { restartTokenRefreshLoop() }
+                // 2026-11-07 事故修法：此前这里静默 return——存档无 refreshToken 时刷新根本
+                // 不发请求（网关日志 auth/refresh=0），会话被清后 refreshNow 因无 token 直接
+                // guard-out，手机表现为 0 请求 0 提示的永久空白。现在刷新没能续命
+                // （永久拒 ⇒ KMP 已清会话，currentAccessToken()==nil）就挂 credentialsInvalid
+                // 横幅给用户明确的「重新配对」路径；暂时性失败（超时/网络）会话还在，走退避。
+                if await refreshToken(transport: transport) {
+                    restartTokenRefreshLoop()
+                } else if store.currentAccessToken() == nil {
+                    connectionIssue = .credentialsInvalid
+                    store.refreshFailed(
+                        code: "unauthorized",
+                        message: BridgeConnectionIssue.credentialsInvalid.detail
+                    )
+                }
                 return
             }
             let envelope = BridgeErrorsKt.decodeBridgeErrorEnvelope(
