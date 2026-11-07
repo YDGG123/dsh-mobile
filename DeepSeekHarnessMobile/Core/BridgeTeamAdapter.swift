@@ -1191,6 +1191,8 @@ final class BridgeTeamAdapter: ObservableObject {
             message = "服务器异常，正在自动重试"
         case .interrupted:
             message = "本次刷新被中断，不算断线；下一个周期会自动重试"
+        case .credentialsInvalid:
+            message = BridgeConnectionIssue.credentialsInvalid.detail
         case .unknown, .none:
             message = error.localizedDescription
         }

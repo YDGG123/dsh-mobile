@@ -171,6 +171,7 @@
   - 我的非递归 grep（`lib/*.mjs`）漏了 `lib/mobile-v1/` 子目录，差点误报「服务端没有 refresh 路由」——**grep 目录要递归**，下结论前先 `-r`
   - `lastSeenAt` 更新≠认证成功（401 的请求也会碰设备记录）——不能拿它当「手机还连着」的证据
   - 用户「截图不显示」与「消息消失」一个根因两副面孔；而历史 projcache 里 turn 3312/4855 的同款抱怨是**旧形态**（当时是渲染层），这次是数据层 401——同症状不同根因，别拿旧结论套新事故
+- **后续（同日 09:2x）**：`.credentialsInvalid` 入枚举时漏改 `handleRefreshFailure` 的 message 映射 switch（1185:9 switch must be exhaustive）——测试模块站编译红拦下，四路日志同含错但裁决在后（老规矩再现）。另：**版本闸门本就拦 plist↔pbxproj 双源不一致**（verify-version-consistency.py 的 app_build≠pbx_build 判定 + `VERSION_GATE_ROOT` 反向夹具实测：88-vs-89 红 EXIT=1、89/89 绿 EXIT=0）——09:22 那轮只是没跑到版本站，不是闸门漏
 
 ---
 
