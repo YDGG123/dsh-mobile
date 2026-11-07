@@ -28,6 +28,17 @@
 
 ---
 
+## 2026-11-07 · 网关面板：品牌残留、裸渲染串 tab、配置卡结构（iOSDev）
+
+- **症状**（用户原话）：「网关的入口现在是上游的名字和图标」「添加的配置功能直接叠加在所有 tab 上了」「配置现在是在高级设置里了，但是 UI 不是设计师的方案」
+- **根因**（三件独立问题）：① 侧栏入口文字/图标/手机端服务名是上游作者的（`whaleness移动设备`、whaleness orca SVG、`DS Bot` 默认值）② `GatewayConfigPanel` 挂载时没包进 `hidden: activeSection !== 'advanced'`，裸渲染到所有 tab ③ 配置行用了自造类 `mgw-config-editor/mgw-config-input`，没对齐设计稿的 `mgw-setting/mgw-value/mgw-switch` 体系
+- **怎么查**：图标——对比 SVG 的 `viewBox`（882×832 vs 1024×1024）与 `aria-label`（"Whaleness orca mark"）；串 tab——Chief 逐块 grep `hidden` 包装；UI——逐类名 grep 设计稿源文件（`settings-redesign.js`）
+- **修法**：`c277a6f`（品牌：入口名/服务名/JA 词条，`DS Bot` 的 10 处 ds-bot 插件引用按禁区未动）+ `318fa0b`（图标：OrcarnessOrcaBlack.svg 全 8 条 path，viewBox 1024×1024，浅色层 var(--mgw-surface) 反白跟主题）+ `3cfd228`（裸渲染挪进 hidden 容器）+ `3e65022`（行结构对齐设计稿，删自造 CSS 4 条）
+- **判据**：`whaleness移动设备` 全仓 0 残留；`882 832` 0 残留；测试硬校验「主内容区每个 data-panel 块必须有 hidden 祖先，裸渲染即红」（反向实证：还原裸渲染 → 断言精确点名 `gw-config-download`，31 过 1 红 → 恢复 32 绿）；浏览器渲染原 SVG vs 提取 8 path 并排一致；配置卡真实 CSS 预览截图
+- **踩过的弯路**：① Chief 第一次判断「图标是我们自己的鲸鱼 mark」——只看了 viewBox 同名素材目录，没核 `aria-label`（用户二次指出才翻案）② Chief 编造了设计稿类名 `mgw-settings-grid/mgw-setting-row/mgw-value-box`（0 处实证），被 iOSDev grep 纠正 ③ 配置测试的「恰好一个可见」断言只统计带 hidden 属性的节点，裸渲染不在统计内——「测试绿」不等于「没有新 bug」，断言覆盖面要跟着组件结构走
+
+---
+
 ## 2026-11-06 · build 82→87 · 上游 1.7.15 合并修复（iOS）
 
 > 这一批的完整分析在 `upstream-merge-pitfalls-20261106.md`（349 行，含三类漏网机制 + 自查清单）。
