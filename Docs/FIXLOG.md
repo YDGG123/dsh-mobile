@@ -166,6 +166,7 @@
 - **怎么查**：网关日志 401 时间线（Chief）→ refresh=0 次 ⇒ 刷新从未发起 → 读客户端链路：`BridgeTransport.requestURL` 确认线上路径=`/mobile/v1/auth/refresh` ✓ → `BridgeTokenMachine.kt` 通读（permanent=清会话、transient=保留）→ `GatewayBridgeSession` 结构体**零引用**（U5 配对帧 session 没接线，疑点存档）→ UI 横幅缺口在 401 分支早退
 - **修法**：① `BridgeConnectionIssue` 加 `.credentialsInvalid`（headline「凭证已失效」/detail「…请重新配对恢复同步」）② 401 分支刷新失败后按 `currentAccessToken()==nil`（=永久拒已被令牌机清会话）判别，挂横幅 + `refreshFailed("unauthorized")`；暂时性失败（超时/网络）会话还在，不误报「重新配对」、走既有退避
 - **判据**（iOSTester §8.26 口径）：修复后装机——a) 401 后网关日志出现 `auth/refresh` 请求（存档带 refreshToken 时）随后 `/mobile/v1/*` 恢复 2xx；b) 存档无 refreshToken 的场景不再静默：出现「凭证已失效…请重新配对」横幅；c) WS 重连成功**不**作为本条证据
+- **修复边界（2026-11-07 Chief 定，防后人误读）**：本修只保证「不再默默空着」。**老设备**（配对存档无 refreshToken，早期配对流程遗留）401 后没有刷新可用，**必须手动重配对一次**；**新设备**（配对响应带 refreshToken——服务端 `issueSession` 返回含 refreshToken 已实读核实）401 自动走 `/mobile/v1/auth/refresh` 自愈。验收「新设备能自愈」的唯一方法：重配对后人为制造 401（重启宿主），看日志里 `auth/refresh` 出现且随后 2xx（iOSTester §8.27 补条）。**别把这条当成「401 问题全修好了」**
 - **踩过的弯路 / 规矩**：
   - 我的非递归 grep（`lib/*.mjs`）漏了 `lib/mobile-v1/` 子目录，差点误报「服务端没有 refresh 路由」——**grep 目录要递归**，下结论前先 `-r`
   - `lastSeenAt` 更新≠认证成功（401 的请求也会碰设备记录）——不能拿它当「手机还连着」的证据
