@@ -147,6 +147,15 @@
   - 判红取 EXIT 不能过管道（`python3 x.py | tail` 拿到的是 tail 的退出码）——判据命令必须直跑再 `echo EXIT=$?`
   - 总纲：**「闸门绿」只覆盖闸门走过的真值链**——typecheck 走磁盘、archive 走 pbxproj，两条链必须各有闸门；第三类「引用悬空」按 basename 对表，查不出「同名不同位」
 
+### 2026-11-07 · build 89 · 输入框两颗模型胶囊（modelControl 内部双渲染）
+
+- **症状**（用户视角，原话）：「输入框里还是有两个模型选择的胶囊，一个是我们的设计，是带有模型搜索的，另一个我不知道是哪里来的，删掉」——注意用户先说「管理员」是指他的模型名，别被字面带偏
+- **根因**：`ConversationView.modelControl` else 分支把模型胶囊画了两遍——`Button { showsModelPicker = true }`（label=ConversationModelMenuLabel，点开带搜索的 `ModelPickerPanel`，我们的设计）后面又渲染了 `ConversationModelMenu`（原生 `Menu`，`:3186` label 里**再画一次同名 label**）；88 批删的 `composerControls` 是上游整组重复控件，这个是我们自己代码内部的重复，两回事
+- **怎么查**：用户截图 → Chief 逐个控件对号（先误判成「管理员」权限/模式两胶囊，用户纠正后转向模型胶囊）→ grep 渲染点：`modelControl` 唯一（:1456）→ 读 else 分支体发现双渲染
+- **修法**：删 `ConversationModelMenu(...)` 调用（:2244）+ `ConversationModelMenu` 定义（:3167）+ 其私有子件 `ConversationModelMenuContent`（仅它引用，:3194-3273，含 option/submenuTitle）；保留 `ConversationModelMenuLabel`（Button 路径还在用）与 `ModelPickerPanel` 链；build 88→89
+- **判据**：`grep ConversationModelMenu` 仅剩 Label 的 1 用 1 定义；diff −118 行 0 新增；闸门四路绿（跑完补 EXIT）
+- **踩过的弯路**：用户说「两个管理员」时按字面去查权限/模式胶囊——**用户界面上显示的文案是他的模型名（叫「管理员」），不是控件语义**；先问「你点开哪个有搜索」能少绕一圈
+
 ---
 
 ## 安卓侧修复（AndroidCoder）

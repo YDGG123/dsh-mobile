@@ -2241,16 +2241,6 @@ struct ConversationView: View {
             .buttonStyle(.plain)
             .disabled(modelGroups.isEmpty || store.selectedModelCatalog?.routable == false)
             .anchorPreference(key: ModelPickerAnchorKey.self, value: .bounds) { $0 }
-            ConversationModelMenu(
-                title: currentModelTitle,
-                effortTitle: currentEffortTitle,
-                isLoading: modelIsLoading,
-                isDisabled: modelGroups.isEmpty || store.selectedModelCatalog?.routable == false,
-                groups: modelGroups,
-                selection: currentModelSelection,
-                onSelectModel: { group, model in select(group: group, model: model) },
-                onSelectEffort: { effort in select(effort: effort) }
-            )
         }
     }
 
@@ -3161,114 +3151,6 @@ private struct ConversationDefaultModelSummary: View {
                 defaultValue: "新会话默认模型：\(title)\(effortTitle.map { String(localized: "defaults.effort.suffix", defaultValue: "，推理等级 \($0)") } ?? "")"
             )
         )
-    }
-}
-
-private struct ConversationModelMenu: View {
-    let title: String
-    let effortTitle: String?
-    let isLoading: Bool
-    let isDisabled: Bool
-    let groups: [GatewayModelGroup]
-    let selection: GatewayModelSelection?
-    let onSelectModel: (GatewayModelGroup, GatewayModelItem) -> Void
-    let onSelectEffort: (GatewayReasoningEffort) -> Void
-
-    var body: some View {
-        Menu {
-            ConversationModelMenuContent(
-                groups: groups,
-                selection: selection,
-                onSelectModel: onSelectModel,
-                onSelectEffort: onSelectEffort
-            )
-        } label: {
-            ConversationModelMenuLabel(title: title, effortTitle: effortTitle, isLoading: isLoading)
-        }
-        .menuOrder(.fixed)
-        .disabled(isDisabled || isLoading)
-        .accessibilityIdentifier("conversation-model-menu-toggle")
-    }
-}
-
-private struct ConversationModelMenuContent: View {
-    let groups: [GatewayModelGroup]
-    let selection: GatewayModelSelection?
-    let onSelectModel: (GatewayModelGroup, GatewayModelItem) -> Void
-    let onSelectEffort: (GatewayReasoningEffort) -> Void
-
-    private var currentModel: GatewayModelItem? {
-        guard let selection else { return nil }
-        return groups.first(where: { $0.id == selection.provider })?
-            .models.first(where: { $0.id == selection.model })
-    }
-
-    private var efforts: [GatewayReasoningEffort] {
-        currentModel?.reasoning?.efforts ?? []
-    }
-
-    var body: some View {
-        Group {
-            if groups.isEmpty {
-                Text("正在读取模型…")
-            } else {
-                Menu {
-                    ForEach(groups) { group in
-                        Section(group.name) {
-                            ForEach(group.models) { model in
-                                option(model.name,
-                                       selected: selection?.provider == group.id && selection?.model == model.id,
-                                       identifier: "model-option-\(group.id)-\(model.id)") {
-                                    onSelectModel(group, model)
-                                }
-                            }
-                        }
-                    }
-                } label: {
-                    Text("Model")
-                    if let modelName = currentModel?.name ?? selection?.model {
-                        Text(verbatim: modelName)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .accessibilityIdentifier("conversation-model-selection-submenu")
-
-                if efforts.isEmpty {
-                    Button("推理等级") {}
-                        .disabled(true)
-                        .accessibilityIdentifier("conversation-reasoning-effort-submenu")
-                } else {
-                    Menu {
-                        ForEach(efforts) { effort in
-                            option(effort.name, selected: effort.id == selection?.reasoningEffort,
-                                   identifier: "model-effort-\(effort.id)") {
-                                onSelectEffort(effort)
-                            }
-                        }
-                    } label: {
-                        Text(verbatim: submenuTitle(
-                            String(localized: "推理等级"),
-                            value: efforts.first(where: { $0.id == selection?.reasoningEffort })?.name
-                        ))
-                    }
-                    .accessibilityIdentifier("conversation-reasoning-effort-submenu")
-                }
-            }
-        }
-    }
-
-    private func submenuTitle(_ title: String, value: String?) -> String {
-        value.map { "\(title)  \($0)" } ?? title
-    }
-
-    private func option(_ title: String, selected: Bool, identifier: String,
-                        action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Label(title, systemImage: selected ? "checkmark" : "circle")
-        }
-        .accessibilityAddTraits(selected ? [.isSelected] : [])
-        .accessibilityIdentifier(identifier)
     }
 }
 
