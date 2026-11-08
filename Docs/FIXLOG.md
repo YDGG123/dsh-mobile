@@ -288,6 +288,31 @@
   - 三轮怀疑错层（先怀疑记忆没写、再怀疑扫描没跑、再怀疑桩 api）——插桩日志显示每层都「对」，最后才意识到是**两层对同一请求的合同不同**
   - 教训：合并两套实现时，**同名接口的请求/响应合同必须逐字段对表**，不能只看「功能都在」
 
+### 2026-11-09 · 演示网关 HTTPS/WSS 接入：自签叶子 -1202 → 挑战回调 SPKI pin + 安全收口
+
+- **症状**：App 连演示网关 `https://127.0.0.1:3080` 握手必挂 NSURLErrorDomain -1202；证书 10 年有效期先撞 Apple 398 天上限，重签 365 天自签叶子后**依然** -1202
+- **根因**（机制级）：自签叶子不在系统信任库，URLSession 默认信任评估必拒；`simctl keychain add-root-cert` 在 Xcode 26.3 模拟器上不可依赖 ⇒ 唯一确定路径是 **URLSessionTaskDelegate 挑战回调自评信**。初版实现三处隐患：进程级 static 单值 pin（配 A 再配 B 会串）、写死 `127.0.0.1:3080`（写按真实 origin、读按写死 key，B 网关根本连不上）、「无 pin + loopback ⇒ 放行」分支没进 `#if DEBUG`
+- **怎么查**：node 配对探针逐段过（TLS 握手 / paired 帧 / bridge-session 请求全通）⇒ 缩小到客户端信任评估；`SecTrustGetCertificateCount == 1` 确认服务端只发叶子（自锚）⇒ 走叶子单证书 SPKI SHA256 pin
+- **修法**（`DeepSeekHarnessMobile/Core/GatewayClient.swift` 的 `GatewayRedirectBlocker` + `MultiGatewayStore` 接线 `setDemoTLSPin(serverUrl:pin:)`；TEMP demo 代码按惯例未提交，随 demo 处置决定走）：
+  1. pin 按**挑战自身 origin**（`host:port`）分键存取（`demoTLSPinsByOrigin`），安全边界 = loopback 集合 `{127.0.0.1, ::1, localhost}`，端口不写死；`removeDemoTLSPin(serverUrl:)` 解配清除
+  2. 安全收口（Chief 2026-11-09 要求）：「无 pin + loopback ⇒ 放行」整支塞进 `#if DEBUG`，Release 一律 `.cancelAuthenticationChallenge`——本地端口抢占是真实攻击面
+  3. 评信路径：`SecPolicyCreateSSL(true, peerHost)` + `SetAnchorCertificates([leaf])` + `SetAnchorCertificatesOnly(true)` + `SecTrustEvaluateWithError`，pin 先过 `BridgeOriginValidation.isValidPin`
+  4. 顺手删死条件：`[Self.loopbackHosts, challengeHost].count == 2` 恒真守卫（`[Set, String]` 推成 `[Any]`，什么都不判，还每挑战分配一个数组）
+- **判据**：node 配对探针 TLS+paired+hello 全通；`curl --cacert server.crt https://127.0.0.1:3080/mobile/v1/info` → 200；Chief 代码复核三点签收（loopback 集合 / 写读同键 / 解配清除，11-09 01:1x）；死条件删除后整门类型检查 gate 绿——tc-pin5 `GATE_EXIT=0`、`✅ 类型检查通过 (App 0, App(Debug) 0, Widget 0, Widget(Debug) 0)`（11-09 01:27:24 起、01:34:18 完成，/tmp/tc-pin5.log）。死条件删除未压新构建（Chief 指示：当前二进制已含全部功能，该行只影响下次构建洁净度）
+- **踩过的弯路**：①先按「信任库问题」去配模拟器 keychain——add-root-cert 在 26.3 不可依赖，白查；②10 年证书被拒误当成 pin 问题，先重签 365 天才往下查；③ static 单值 pin「看着能跑」其实字典只有一格——B 网关不是「串」是「连不上」，Chief 识破；④tc-pin4 整门被同一编辑作废（`input file was modified during the build`）——**gate 跑着的时候不动任何被检查的源文件**
+
+### 2026-11-09 · build 89 · S08 Bot 页名册空态：三腿刷新全被 -999 取消（RSA 证书 × ECDSA-only SPKI 提取器，五层修复栈）
+
+- **症状**：演示网关全链里 Bot tab 永远「暂无会话」空态——mobile-v1 已连接、paired 帧的 bridgeSession 已下发，名册镜子永不填充；网关侧 **0 次 HTTP**（`handleHttp` 首行必留痕），App 侧 WS 双向流正常
+- **根因**（机制级，三层叠）：
+  1. gateway.js 缺 `/mobile/v1/conversations` 路由 + `/state` 的 BOTS/ROOMS 行缺必填 `sessionId`（KMP `BridgeConversationRow.sessionId` 必填）、顶层 `work` 发数组（要对象）——App 三腿 `try await`（/info+/state+/conversations）任一失败整体不提交
+  2. 修完 1 仍全灭：**467 条** `bridgeteam-refresh-failed urlerror=-999 cancelled=true`（每轮 3 条 ≈ 三腿全挂），进轮 8-14ms 即取消——`BridgeTrustDelegate` 用 `SecTrustSetAnchorCertificatesOnly(true)` 把 **CA:FALSE 自签叶子当唯一锚点**再 `SecTrustEvaluateWithError`，Apple 评估器对非 CA 自签叶子当根不保证过（curl/openssl 全绿因为它们不做这个评估）
+  3. 修完 2 仍断：`certificateSPKI()` 硬编码 **ECDSA P-256 自签验证**（`SecKeyVerifySignature(.ecdsaSignatureMessageX962SHA256)`），而重签的 365 天证书是 **RSA-2048**（openssl 默认）→ SPKI 提取返回 nil → guard 在提取处断 → 同样 CANCEL
+- **怎么查**：①curl 三腿实测出 404/形状错（网关层）②全量 os_log 拉出 `bridge-refresh` category 的 467 条 -999（前轮 TEMP 过滤没盖到这个 category，差点当「无失败」）③challenge 分支 TEMP 留痕定案在 guard 链 ④条件分解打点（expectedHost/port/trust/count/spkiOk/spkiTail）锁到 `spkiTail=nil` ⑤openssl 读证书公钥算法 = rsaEncryption 定案。**Keychain 坑**：`simctl uninstall` 不清 Keychain，RSA 时代旧 pin 会话跨安装存活，`!hasStoredSession` 门挡住新 bridgeSession——正解是 `simctl keychain reset` + EC 证书入信任库
+- **修法**：App 侧——`BridgeTrustDelegate` 改为 **SPKI pin 命中即 `useCredential`**，删 `SecTrustSetPolicies` / `SetAnchorCertificates` / `SetAnchorCertificatesOnly` / `SecTrustEvaluateWithError` 四行（pin 命中即身份成立；有效期/主机名查随评估器去掉是 pinning 既有取舍，产品化要保留走 SAN 补齐而非放开锚定）。**evaluate-skip 是真修复**（对任何自签证书都会断的语义错误），将独立成 commit 进主仓、与 TEMP 插桩分开——拆分在重录完成后的 TEMP 收口轮一起做；演示树仅录制用，不含产品修复。网关侧（Chief）——EC P-256 重签（SAN/IP 齐全、365 天）+ `gateway.js` pin 常量更新 + `/state` 三修 + `/conversations` 路由
+- **判据**：walk-final20 全链 13 段全绿（11-09 06:00，411s），S08 `设计评审组` 真实入树并被点击、`-999` 归零、`TEMP challenge → OK（pin 命中，useCredential）` + `TEMP refreshNow done` 出现；主仓 gate tc-s08b→s08f 六轮全绿
+- **踩过的弯路**：①「WS 同款 evaluate 是通的」误导大半场——实际 WS 走 DEBUG 无 pin 放行（首连时 pin 字典还是空的），evaluate 从没跑过；拿「活的连接」反推「同款逻辑没问题」是错的，得确认它真走过那条路径；②把 `simctl uninstall` 当清态手段——它不清 Keychain，白跑两轮；③日志过滤只盖 TEMP category 漏掉 `bridge-refresh` 的失败洪流——**查「有没有失败」要按全 subsystem 拉原始日志再过滤，不要信上一轮的过滤集合**；④10 年证书重签 365 天后 openssl 默认 RSA，撞 ECDSA-only 提取器——修一层揭一层，五层修复栈（EC 重签 / Keychain reset / EC 信任库 / evaluate-skip / 网关三路由）齐了才真绿
+
 ---
 
 ## 待补（历史条目，查得到的照填，查不到的写「未记录」）
