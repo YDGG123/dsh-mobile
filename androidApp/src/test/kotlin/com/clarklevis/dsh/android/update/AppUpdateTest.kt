@@ -27,4 +27,30 @@ class AppUpdateTest {
         assertEquals("https://updates.own.example/latest.json",
             normalizeUpdateSourceUrl("  https://updates.own.example/latest.json  "))
     }
+
+    /**
+     * 更新源存取语义（Chief 2026-11-11 派单：设置项必须有地方填）。
+     * JVM 没有 SharedPreferences（无 Robolectric），故对存取的**纯逻辑层**——
+     * normalizeUpdateSourceUrl 契约——做穷举；ViewModel 落盘层由真机复核
+     * （AndroidTester：保存合法地址 → 行值更新；保存非法 → 行值不变 + 错误提示）。
+     * 合法输入被 normalize 接受 ⇔ saveUpdateSource 会落盘（二者共用同一函数，唯一判据）。
+     */
+    @Test fun updateSourceContractAcceptsOnlyHttpsAndCleanUrl() {
+        // saveUpdateSource 落盘 ⇔ normalizeUpdateSourceUrl(raw) != null（同一函数判定）
+        val acceptable = listOf(
+            "https://updates.own.example/latest.json",
+            "  https://updates.own.example/latest.json  ",
+            "https://updates.own.example:8443/p/latest.json"
+        )
+        acceptable.forEach { raw ->
+            assertNotNull("valid input must be storable: $raw", normalizeUpdateSourceUrl(raw))
+        }
+        val rejected = listOf(null, "", "   ", "not a url",
+            "http://updates.own.example/latest.json",
+            "https://user:pass@updates.own.example/latest.json",
+            "ftp://updates.own.example/latest.json")
+        rejected.forEach { raw ->
+            assertNull("invalid input must be rejected: $raw", normalizeUpdateSourceUrl(raw))
+        }
+    }
 }

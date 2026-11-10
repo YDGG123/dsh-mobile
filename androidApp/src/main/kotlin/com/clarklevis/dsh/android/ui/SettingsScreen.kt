@@ -39,6 +39,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -113,6 +114,8 @@ internal fun SettingsScreen(
     var showPrivacyPolicy by remember { mutableStateOf(false) }
     var showReleaseNotes by remember { mutableStateOf(false) }
     var showCrashLog by remember { mutableStateOf(false) }
+    // P0-AT-05（2026-11-11 分家）：更新源设置项——有地方填，否则用户只能看到「未配置」。
+    var showUpdateSourceEditor by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
     val releaseInfo = remember(context) { AppReleaseInfo.load(context) }
@@ -307,6 +310,13 @@ internal fun SettingsScreen(
                         SettingsDivider()
                         // **平台必需差异**（Chief 2026-11-01 裁定）：iOS 走 App Store 更新，
                         // Android 无对应系统通道，必须自留更新入口；不是漏删项。
+                        // P0-AT-05：更新源行在「检查更新」上方——先有地方填，再手动检查。
+                        SettingsValueRow(
+                            title = appText("更新源"),
+                            value = updateModel.currentUpdateSource().ifEmpty { appText("未配置") },
+                            onClick = { showUpdateSourceEditor = true }
+                        )
+                        SettingsDivider()
                         SettingsActionRow(appText("检查更新"), enabled = !updateState.busy, onClick = updateModel::check)
                         SettingsDivider()
                         // 取证入口：闪退日志落盘在应用私有目录，用户没电脑也能看/截图（用户 2026-11-02「挂着会闪退」）。
@@ -358,6 +368,55 @@ internal fun SettingsScreen(
             onConfirm = {
                 stateHolder.setDefault("permission", value)
                 pendingPermission = null
+            }
+        )
+    }
+    if (showUpdateSourceEditor) {
+        // P0-AT-05：更新源编辑弹窗。保存只做本地校验+落盘，**零联网**；
+        // 只有手动「检查更新」才请求所填地址。清空 = 回到「未配置」态（检查更新不联网）。
+        var sourceDraft by remember(showUpdateSourceEditor) { mutableStateOf(updateModel.currentUpdateSource()) }
+        var sourceError by remember { mutableStateOf<String?>(null) }
+        DshAlertDialog(
+            title = appText("更新源"),
+            message = appText("填写你自己控制的 HTTPS 发布清单地址（.json）。留空并保存等于清空；未配置时「检查更新」不会访问任何服务器。"),
+            onDismissRequest = { showUpdateSourceEditor = false },
+            dismissLabel = appText("取消"),
+            confirmLabel = appText("保存"),
+            onConfirm = {
+                val error = updateModel.saveUpdateSource(sourceDraft)
+                if (error == null) showUpdateSourceEditor = false else sourceError = error
+            },
+            content = {
+                Column {
+                    BasicTextField(
+                        value = sourceDraft,
+                        onValueChange = { sourceDraft = it; sourceError = null },
+                        modifier = Modifier.fillMaxWidth()
+                            .heightIn(min = 42.dp)
+                            .border(1.dp, homeStroke(0.17f), RoundedCornerShape(10.dp))
+                            .padding(horizontal = 12.dp, vertical = 10.dp)
+                            .testTag("update-source-input"),
+                        textStyle = TextStyle(color = homeInk(0.92f), fontSize = 14.sp, fontFamily = FontFamily.Monospace),
+                        singleLine = true,
+                        decorationBox = { innerTextField ->
+                            Box(contentAlignment = Alignment.CenterStart) {
+                                if (sourceDraft.isEmpty()) {
+                                    Text(appText("https://…"), color = homeInk(0.45f), fontSize = 14.sp)
+                                }
+                                innerTextField()
+                            }
+                        }
+                    )
+                    sourceError?.let { error ->
+                        Text(error, color = Color(0xFFE5484D), fontSize = 12.sp, modifier = Modifier.padding(top = 6.dp).testTag("update-source-error"))
+                    }
+                    if (updateModel.currentUpdateSource().isNotEmpty()) {
+                        TextButton(
+                            onClick = { updateModel.clearUpdateSource(); sourceDraft = ""; sourceError = null },
+                            modifier = Modifier.padding(top = 2.dp)
+                        ) { Text(appText("清空更新源"), fontSize = 13.sp) }
+                    }
+                }
             }
         )
     }
