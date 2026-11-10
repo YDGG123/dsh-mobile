@@ -307,7 +307,9 @@ struct LogExportView: View {
         Task { @MainActor in
             defer { busy = false }
             do {
-                let url = try await LocalAppLog.shared.exportArchive(in: selectedInterval)
+                // 规格 §4.6：导出前需要 App 解锁（Face ID / 设备密码）。
+                let grant = try await LocalAppLog.shared.exportAuthorizer("解锁后导出诊断日志")
+                let url = try await LocalAppLog.shared.exportArchive(in: selectedInterval, grant: grant)
                 presentation = LogExportPresentation(urls: [url], share: share)
             } catch { exportFailed = true; await refresh() }
         }

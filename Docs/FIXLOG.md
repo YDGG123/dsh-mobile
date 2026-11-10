@@ -315,6 +315,16 @@
 
 ---
 
+### 2026-11-11 · vc 分家 P0 · 日志集中脱敏 + 导出解锁授权（P0-AT-11 / P0-AT-12）
+
+- **症状**：非用户报障，P0 安全派单（Chief 2026-11-11，依据规格 §4.6 日志验收 L179-187、SEC-08）。iOS 本地诊断日志此前明文落盘：`LocalAppLog.write` 原样写入、导出（ZIP/快照）原样拷贝、无解锁门禁。
+- **修法**（Core/LocalAppLog.swift +169，Views/LogExportView.swift 调用点，LocalAppLogTests.swift +93）：①新增 `LogRedactor` 集中脱敏引擎——只做结构化识别（JWT 三段式/Bearer/Basic/Cookie·Authorization·Set-Cookie 头整值/URL query 敏感键值/JSON 敏感字段值/Keychain `acct`·`v_Data`/`/Users/<名>` 家目录/TLS 私钥 PEM 整块），不做高熵猜测（规格明确「不靠正则碰运气」，未识别格式应从源头不记）；②`write()` 入口统一过脱敏（写入前集中脱敏，调用点不再依赖「记得别传 secret」）；③新增 `write(event:status:durationMillis:category:detail:)` 结构化白名单事件——正文/URL/未知对象在类型层面进不来；④导出两条路径（ZIP 分片与快照拷贝）全部二次脱敏——盘上旧版本写入的明文导出时也会被遮；⑤导出加 `LogExportGrant`（init 私有不可伪造，唯一铸造口 `standardRequest`=LAContext `.deviceOwnerAuthentication`，fail-closed），`exportArchive/export` 签名强制收 grant，类型层面把「先解锁再导出」变成编译约束。
+- **判据**：`xcodebuild test -only-testing:DeepSeekHarnessMobileTests/LocalAppLogTests` → **Passed 6 failed 0**（01:36:52 xcresult，iPhone 17 Pro sim UDID F7F6549D）；秘密样本 8 类注入后必须被遮（token/JWT/Basic/URL query 双敏感键+非敏感键 `page=2` 保留/Cookie/JSON 字段/Keychain/家目录）+ 脱敏幂等断言 + 旧明文落盘→导出二次脱敏（绕过 write API 直接落盘再导出，字节级断言）；四路 typecheck + Android 闸门 **TYPECHECK_EXIT=0**（02:2x，run4，GOPATH 补齐后）。中途两轮红均为测试期望自错（`refresh` 键名漏出敏感名单、JSON 非敏感对保留原格式无空格），非产品代码错，已修。
+- **踩过的弯路**：①测试模块闸门被 iOSCoder 未完成文件卡（writeJSON guard 少返回值）——别人的半成品也会挡住自己的闸门，报障前先看报错文件归属；②Android 闸门在干净 shell 下缺 gomobile（`GOPATH=/Volumes/应用/dsh-workspace/tools/gopath` + `tools/go/bin` 进 PATH，约定写在 r2_release.sh/ensure-tsnetgo.sh）；③`xcodebuild -quiet | grep` 管道在 grep 无匹配时 exit 1 污染退出码读数——退出码单独取（`> log 2>&1; echo $?`）。
+- **边界**：本轮只做引擎与出口；全仓 ~9 处明文调用点迁移到结构化白名单事件、系统 NSLog/崩溃副本统一脱敏（规格 L184）、导出完成提示文案（L185）属后续批。
+
+---
+
 ### 2026-11-11 · vc 分家 P0 · 安卓两件：bridge 会话按主机作用域回归 + 更新源整体切断（P0-AT-02 / P0-AT-05）
 
 - **症状**：非用户报障，是 P0 安全派单（Chief 2026-11-11，依据 Docs/orcarness-product-requirements-p0.md SEC-01/SEC-07/SEC-12、D-05）。

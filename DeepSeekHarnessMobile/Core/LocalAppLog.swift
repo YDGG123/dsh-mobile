@@ -1,4 +1,5 @@
 import Foundation
+import LocalAuthentication
 
 /// 日志与导出快照共用 200 MB 配额，所有磁盘操作在专用串行队列执行。
 final class LocalAppLog: @unchecked Sendable {
@@ -38,9 +39,22 @@ final class LocalAppLog: @unchecked Sendable {
 
     private var exports: URL { directory.appendingPathComponent("Exports", isDirectory: true) }
 
+    /// 结构化白名单事件（规格 §4.6）：只有事件名、状态码、耗时、错误类别和可选
+    /// detail 会落盘；消息正文、URL、未知对象在类型层面就进不来，detail 仍要过集中脱敏。
+    func write(event: String, status: Int? = nil, durationMillis: Int64? = nil,
+               category: String? = nil, detail: String? = nil, at date: Date = Date()) {
+        var line = "EVENT \(LogRedactor.scrub(String(event.prefix(120))))"
+        if let status { line += " status=\(status)" }
+        if let durationMillis { line += " durationMs=\(durationMillis)" }
+        if let category { line += " category=\(LogRedactor.scrub(String(category.prefix(80))))" }
+        if let detail, !detail.isEmpty { line += " detail=\(LogRedactor.scrub(detail))" }
+        write(line, at: date)
+    }
+
     func write(_ message: String, at date: Date = Date()) {
         guard pending.wait(timeout: .now()) == .success else { return }
-        let text = String(message.prefix(16_384))
+        // 写入前集中脱敏（规格 §4.6）：调用点不再依赖“记得别传 secret”。
+        let text = String(LogRedactor.scrub(message).prefix(16_384))
         queue.async { [self] in
             defer { pending.signal() }
             do {
@@ -119,9 +133,11 @@ final class LocalAppLog: @unchecked Sendable {
         let earliest: Date?
     }
 
+    /// 读取单文件并做导出侧二次脱敏（规格 §4.6：不能只依赖写入时那一遍——
+    /// 盘上可能残留旧版本写入的明文，导出副本必须干净）。
     private func selected(_ source: URL, interval: DateInterval?) throws -> Data {
-        guard let interval else { return try Data(contentsOf: source) }
         let text = try String(contentsOf: source, encoding: .utf8)
+        guard let interval else { return Data(LogRedactor.scrub(text).utf8) }
         var include = false
         var result = ""
         let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
@@ -130,7 +146,7 @@ final class LocalAppLog: @unchecked Sendable {
                let time = lineTime.date(from: String(token)) {
                 include = time >= interval.start && time < interval.end
             }
-            if include { result += line + "\n" }
+            if include { result += LogRedactor.scrub(String(line)) + "\n" }
         }
         return Data(result.utf8)
     }
@@ -157,8 +173,14 @@ final class LocalAppLog: @unchecked Sendable {
         }
     }
 
+    /// 导出授权铸造器：默认走系统解锁（Face ID / 设备密码，规格 §4.6「导出前需要
+    /// App 解锁」）；测试目标可注入直通实现。仅在并发使用前设置一次。
+    nonisolated(unsafe) var exportAuthorizer: (String) async throws -> LogExportGrant = LogExportGrant.standardRequest
+
     /// ZIP 使用 STORE 编码，逐个小时分片写入，避免把全部日志装入内存。
-    func exportArchive(in interval: DateInterval) async throws -> URL {
+    /// grant 为空壳授权凭证：只能在模块内经解锁流程铸造，用于把「先解锁再导出」
+    /// 变成类型层面的强制顺序。
+    func exportArchive(in interval: DateInterval, grant: LogExportGrant) async throws -> URL {
         try await withCheckedThrowingContinuation { continuation in
             queue.async { [self] in
                 do {
@@ -231,7 +253,7 @@ final class LocalAppLog: @unchecked Sendable {
         return target
     }
 
-    func export() async throws -> [URL] {
+    func export(grant: LogExportGrant) async throws -> [URL] {
         try await withCheckedThrowingContinuation { continuation in
             queue.async { [self] in
                 do {
@@ -242,8 +264,10 @@ final class LocalAppLog: @unchecked Sendable {
                     var result: [URL] = []
                     for source in try logs() {
                         let target = exports.appendingPathComponent(source.lastPathComponent)
-                        guard try directoryBytes() + size(source) <= limit else { throw CocoaError(.fileWriteOutOfSpace) }
-                        try files.copyItem(at: source, to: target)
+                        // 导出副本走同一套二次脱敏，不原样拷贝盘上文件。
+                        let scrubbed = try selected(source, interval: nil)
+                        guard try directoryBytes() + Int64(scrubbed.count) <= limit else { throw CocoaError(.fileWriteOutOfSpace) }
+                        try scrubbed.write(to: target)
                         result.append(target)
                     }
                     guard try directoryBytes() <= limit else { throw CocoaError(.fileWriteOutOfSpace) }
@@ -300,5 +324,136 @@ private extension Data {
     mutating func logLE<T: FixedWidthInteger>(_ value: T) {
         var little = value.littleEndian
         Swift.withUnsafeBytes(of: &little) { append(contentsOf: $0) }
+    }
+}
+
+/// 导出授权解锁失败（无设备密码 / 用户取消 / 策略评估失败）。
+enum LogExportError: LocalizedError {
+    case locked(underlying: Error?)
+
+    var errorDescription: String? {
+        switch self {
+        case .locked: return "诊断日志导出需要先通过设备解锁验证"
+        }
+    }
+}
+
+/// 导出授权凭证：init 私有，只能在模块内铸造，外部代码无法伪造。
+/// 正规入口是 `standardRequest`（LAContext 系统解锁）；`mintForTests`
+/// 仅供测试目标经 @testable 使用，App 代码不得调用。
+struct LogExportGrant {
+    private init() {}
+
+    static func standardRequest(reason: String) async throws -> LogExportGrant {
+        let context = LAContext()
+        var policyError: NSError?
+        guard context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &policyError) else {
+            throw LogExportError.locked(underlying: policyError)
+        }
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason) { success, error in
+                if success { continuation.resume() }
+                else { continuation.resume(throwing: LogExportError.locked(underlying: error)) }
+            }
+        }
+        return LogExportGrant()
+    }
+
+    static func mintForTests() -> LogExportGrant { LogExportGrant() }
+}
+
+/// 集中脱敏引擎（规格 §4.6：写入前、导出前各跑一遍，纵深防御）。
+/// 只做结构化识别——已知凭证格式与已知敏感键名；不做高熵猜测，
+/// 未识别的格式应从源头不记（结构化白名单），而不是靠正则碰运气。
+enum LogRedactor {
+    private static let masked = "[REDACTED]"
+
+    private static func regex(_ pattern: String) -> NSRegularExpression {
+        try! NSRegularExpression(pattern: pattern)
+    }
+
+    // TLS 私钥 PEM 整块（跨行，先于其它规则执行）。
+    private static let privateKeyBlock = regex(
+        #"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----"#)
+    // 三段式 JWT（头段固定 eyJ 开头；签名段允许空）。
+    private static let jwt = regex(
+        #"eyJ[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]*"#)
+    // Bearer / Basic 方案凭证（长度下限压误伤）。
+    private static let bearer = regex(#"Bearer\s+[A-Za-z0-9._~+/=-]{16,}"#)
+    private static let basic = regex(#"Basic\s+[A-Za-z0-9+/=_-]{10,}"#)
+    // Cookie / Authorization / Set-Cookie 头：值不可预测，整段打到行尾。
+    private static let secretHeader = regex(#"(?i)\b(set-cookie|cookie|authorization)\s*:\s*.*"#)
+    // URL query 键值对 / JSON 字符串字段 / Keychain 属性上下文。
+    private static let queryPair = regex(#"([?&])([a-zA-Z0-9_.%-]{1,40})=([^&\s"]{0,256})"#)
+    private static let jsonPair = regex(
+        #""([a-zA-Z0-9_. -]{2,48})"\s*:\s*"([^"\\]{0,512})""#)
+    private static let keychainAttr = regex(
+        #"(?i)\b(acct|v_Data)\s*[=:]\s*("[^"]*"|[^\s,;)}"]+)"#)
+    // 个人路径（home 目录用户名）。
+    private static let homePath = regex(#"/Users/[A-Za-z0-9_.-]+"#)
+
+    /// 敏感键名候选：归一化（小写、去分隔符）后做子串匹配——宁多遮不漏遮。
+    private static let sensitiveKeys: Set<String> = [
+        "token", "secret", "password", "passwd", "credential", "cookie",
+        "authorization", "auth", "apikey", "accesskey", "secretkey",
+        "privatekey", "sessionid", "sessionkey", "accesstoken",
+        "refreshtoken", "refresh", "idtoken", "pairingcode", "pairing",
+        "signature", "key",
+    ]
+
+    /// 幂等：遮完的标记本身不含可再命中的模式。
+    static func scrub(_ text: String) -> String {
+        guard !text.isEmpty else { return text }
+        var result = text
+        result = maskMatches(in: result, regex: privateKeyBlock) { _, _ in "[REDACTED:private-key-block]" }
+        result = maskMatches(in: result, regex: jwt) { _, _ in "[REDACTED:jwt]" }
+        result = maskMatches(in: result, regex: bearer) { _, _ in "Bearer \(masked)" }
+        result = maskMatches(in: result, regex: basic) { _, _ in "Basic \(masked)" }
+        result = maskMatches(in: result, regex: secretHeader) { match, text in
+            let name = group(match, 1, in: text) ?? "header"
+            return "\(name): \(masked)"
+        }
+        result = maskMatches(in: result, regex: queryPair) { match, text in
+            guard let name = group(match, 2, in: text), isSensitive(name) else { return nil }
+            let prefix = group(match, 1, in: text) ?? "&"
+            return "\(prefix)\(name)=\(masked)"
+        }
+        result = maskMatches(in: result, regex: jsonPair) { match, text in
+            guard let name = group(match, 1, in: text), isSensitive(name) else { return nil }
+            return "\"\(name)\": \"\(masked)\""
+        }
+        result = maskMatches(in: result, regex: keychainAttr) { match, text in
+            guard let name = group(match, 1, in: text) else { return nil }
+            return "\(name)=\(masked)"
+        }
+        result = maskMatches(in: result, regex: homePath) { _, _ in "/Users/\(masked)" }
+        return result
+    }
+
+    private static func isSensitive(_ name: String) -> Bool {
+        let normalized = String(name.lowercased().filter { $0.isLetter || $0.isNumber })
+        guard !normalized.isEmpty else { return false }
+        return sensitiveKeys.contains { normalized.contains($0) }
+    }
+
+    private static func group(_ match: NSTextCheckingResult, _ index: Int, in text: String) -> String? {
+        let range = match.range(at: index)
+        let length = (text as NSString).length
+        guard range.location != NSNotFound, range.location + range.length <= length else { return nil }
+        return (text as NSString).substring(with: range)
+    }
+
+    /// 从后往前替换，跳过 template 返回 nil 的命中（保留非敏感键值）。
+    private static func maskMatches(in text: String, regex: NSRegularExpression,
+                                    template: (NSTextCheckingResult, String) -> String?) -> String {
+        let ns = text as NSString
+        let matches = regex.matches(in: text, range: NSRange(location: 0, length: ns.length))
+        guard !matches.isEmpty else { return text }
+        var result = text
+        for match in matches.reversed() {
+            guard let replacement = template(match, text) else { continue }
+            result = (result as NSString).replacingCharacters(in: match.range, with: replacement)
+        }
+        return result
     }
 }
