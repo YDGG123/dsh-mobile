@@ -18,14 +18,30 @@ import javax.crypto.spec.GCMParameterSpec
  *
  * - 明文只在内存里出现：AES-GCM（AndroidKeyStore 托管密钥）加密后写入独立 no-backup 文件；
  * - [BridgeSessionStore] 是同步接口（KMP 状态机直接调用），故用 SharedPreferences 而非 DataStore；
- * - 解密失败（Keystore 重置、密文损坏）→ 删除该条并按「未配对」处理（fail-closed）。
+ * - 解密失败（Keystore 重置、密文损坏）→ 保留密文并置 [restoreFailed]（fail-closed，不删）；
+ * - 按主机作用域与旧全局 key 的原子认领逻辑在 [ScopedSessionVault]（P0-AT-02，测试直接打它）。
  */
-internal class AndroidBridgeSessionStore(context: Context) : BridgeSessionStore {
+internal class AndroidBridgeSessionStore(
+    context: Context,
+    gatewayLocalId: String = LEGACY_GATEWAY_ID,
+) : BridgeSessionStore {
     private val appContext = context.applicationContext
     private val TAG = "BridgeSessionStore"
     private val lock = Any()
-
-    private fun preferences() = appContext.getSharedPreferences(FILE_NAME, Context.MODE_PRIVATE)
+    private val prefs = appContext.getSharedPreferences(FILE_NAME, Context.MODE_PRIVATE)
+    private val vault = ScopedSessionVault(
+        kv = object : SessionKv {
+            override fun getString(key: String): String? = prefs.getString(key, null)
+            override fun putAndRemove(key: String, value: String, removedKey: String): Boolean =
+                prefs.edit().putString(key, value).remove(removedKey).commit()
+            override fun remove(key: String): Boolean = prefs.edit().remove(key).commit()
+        },
+        crypto = object : SessionCrypto {
+            override fun encrypt(value: String): String = this@AndroidBridgeSessionStore.encrypt(value)
+            override fun decrypt(encoded: String): String = this@AndroidBridgeSessionStore.decrypt(encoded)
+        },
+        gatewayLocalId = gatewayLocalId,
+    )
 
     /** prefs 文件是否真的在磁盘上（覆盖安装排查：文件在但读不到 = 更早的问题）。 */
     private fun prefsFileExists(): Boolean = runCatching {
@@ -33,39 +49,27 @@ internal class AndroidBridgeSessionStore(context: Context) : BridgeSessionStore 
     }.getOrDefault(false)
 
     override fun loadJson(): String? = synchronized(lock) {
-        val prefs = preferences()
-        val encoded = prefs.getString(KEY_SESSION, null)
-        if (encoded == null) {
-            // 覆盖安装排查用：区分「密文不存在」与「密文在但解不开」（后者由下一条日志报）。
-            Log.i(TAG, "loadJson: no ciphertext (prefs=${FILE_NAME}, fileExists=${prefsFileExists()})")
-            return null
-        }
-        Log.i(TAG, "loadJson: ciphertext ${encoded.length}B")
-        runCatching { decrypt(encoded) }.getOrElse {
-            // **非销毁式失败**（iOSCoder 2026-11-02）：一次 Keystore 不可用就把会话密文删掉，
-            // 等于把瞬时故障变成"必须重新扫码"。改为保留密文 + 标记，由上层提示重新配对。
-            restoreFailed = true
-            Log.w(TAG, "bridge session decrypt failed; keep ciphertext")
-            null
+        val hadScoped = prefs.getString(vault.scopedKey, null) != null
+        val hadLegacy = prefs.getString(ScopedSessionVault.KEY_SESSION, null) != null
+        vault.loadJson().also { json ->
+            when {
+                json != null -> Log.i(TAG, "loadJson: ciphertext ${json.length}B")
+                vault.restoreFailed -> Log.w(TAG, "bridge session decrypt failed; keep ciphertext")
+                else -> // 覆盖安装排查用：区分「密文不存在」与「密文在但解不开」（后者由上一条日志报）。
+                    Log.i(TAG, "loadJson: no ciphertext (prefs=$FILE_NAME, fileExists=${prefsFileExists()}, hadScoped=$hadScoped, hadLegacy=$hadLegacy)")
+            }
         }
     }
 
     /** true = 磁盘上有 bridge 会话密文但解不开：上层应提示「需要重新配对」。 */
-    @Volatile var restoreFailed: Boolean = false
-        private set
+    val restoreFailed: Boolean get() = vault.restoreFailed
 
     override fun saveJson(json: String) {
-        if (json.isBlank()) return
-        synchronized(lock) {
-            val encoded = runCatching { encrypt(json) }.getOrNull() ?: return
-            preferences().edit().putString(KEY_SESSION, encoded).commit()
-        }
+        synchronized(lock) { vault.saveJson(json) }
     }
 
     override fun clear() {
-        synchronized(lock) {
-            preferences().edit().remove(KEY_SESSION).commit()
-        }
+        synchronized(lock) { vault.clear() }
     }
 
     private fun encrypt(value: String): String {
@@ -115,7 +119,7 @@ internal class AndroidBridgeSessionStore(context: Context) : BridgeSessionStore 
 
     companion object {
         private const val FILE_NAME = "bridge_session.preferences_pb"
-        private const val KEY_SESSION = "bridge_session_v1"
+        private const val LEGACY_GATEWAY_ID = "legacy"
         private const val KEYSTORE_PROVIDER = "AndroidKeyStore"
         private const val KEY_ALIAS = "dsh_bridge_session_v1"
         private const val TRANSFORMATION = "AES/GCM/NoPadding"

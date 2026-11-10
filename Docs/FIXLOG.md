@@ -315,6 +315,15 @@
 
 ---
 
+### 2026-11-11 · vc 分家 P0 · 安卓两件：bridge 会话按主机作用域回归 + 更新源整体切断（P0-AT-02 / P0-AT-05）
+
+- **症状**：非用户报障，是 P0 安全派单（Chief 2026-11-11，依据 Docs/orcarness-product-requirements-p0.md SEC-01/SEC-07/SEC-12、D-05）。
+- **根因**：①bridge 会话作用域逻辑（scoped key + legacy 原子认领）内嵌在 AndroidBridgeSessionStore，只能靠 Robolectric/真机验，JVM 无回归；②更新链三处外联面：启动自动检查（DshProductApp LaunchedEffect checkOnStartup）、原作者旧站 manifest 常量 download.whaleness.cc、原作者 GitHub fallback（api/releases 页/资产白名单/githubDownloadUrl 静默备用下载）。
+- **怎么查**：grep 引用面（checkOnStartup 仅 1 处 UI 调用；whaleness/Clarklevis1995 命中 5 文件）+ 逐文件实读；确认手动检查唯一入口 SettingsScreen:310 `updateModel::check`（链路不破）。
+- **修法**（本批未提交，sha 待落）：①逻辑抽 `ScopedSessionVault`（产线行为不变：AndroidBridgeSessionStore 改为薄壳，SharedPreferences/AndroidKeyStore 走注入接口）；②删启动自动检查；③AppUpdateViewModel 重写：唯一路径 = 用户配置的自有 HTTPS manifest（`normalizeUpdateSourceUrl` 归一化失败=未配置=零联网），删除 GitHub API/发布页/expanded_assets 三路 + withUpdateFallback 双路机制 + fallbackUrl 字段；④R2UpdateManifest 白名单收紧为「与 manifest 同源或 GitHub 资产域」，githubDownloadUrl 不再解析；⑤AppReleaseInfo 发布页 root 改 YDGG123。
+- **判据**：androidApp JVM 407 例 0 失败（GRADLE_EXIT=0，01:2x，/tmp/p0-green-test.log）；反向测试=认领逻辑破坏后 ScopedSessionVaultTest 精确红 2 例（firstHostClaims…/secondHostCannotClaim…，RED_EXIT=1，/tmp/p0-red-test.log）；全仓 grep 被删符号（checkOnStartup/selectAndroidRelease/selectReleasePageApk/withUpdateFallback/UPDATE_MANIFEST_URL/fallbackUrl）运行路径零命中（assets 干净）。
+- **踩过的弯路**：①tail 管道吃掉 gradle 真退出码（GRADLE_EXIT=0 假读数）——退出码必须取 PIPESTATUS[0]；②测试 fake 的密文格式 `enc:<reverse>`，预置数据写明文 → 2 例假红（ComparisonFailure 明文 vs 倒序），自查自修；③首次跑漏 export Go 工具链被 buildTsnetAar 拦（GOPATH/GOROOT/NDK 三件套必须显式）。
+
 ## 待补（历史条目，查得到的照填，查不到的写「未记录」）
 
 > 用户 2026-11-03 已定过同类制度（安卓每版写 DELIVERABLES）。iOS 侧的历史修复按同样标准补：

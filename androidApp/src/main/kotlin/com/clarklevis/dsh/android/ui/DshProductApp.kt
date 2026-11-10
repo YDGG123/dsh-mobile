@@ -126,7 +126,8 @@ internal fun DshProductApp(
     val updateModel: com.clarklevis.dsh.android.update.AppUpdateViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
     val updateState by updateModel.state.collectAsStateWithLifecycle()
     AppUpdateDialogs(updateModel, updateState)
-    LaunchedEffect(updateModel) { updateModel.checkOnStartup() }
+    // P0-AT-05（D-05/SEC-07，2026-11-11 分家）：启动自动检查更新已删——冷启动零更新外联，
+    // 只有用户在设置页主动点「检查更新」才访问其自行配置的发布源。
     val navController = rememberNavController()
     LaunchedEffect(notificationRoute, stateHolder.snapshot.sessions) {
         val route = notificationRoute ?: return@LaunchedEffect

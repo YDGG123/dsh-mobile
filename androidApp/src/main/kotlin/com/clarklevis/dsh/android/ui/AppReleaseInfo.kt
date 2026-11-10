@@ -22,7 +22,9 @@ internal fun dshHostVersion(dshVersion: String?, legacyVersion: String?): String
     listOfNotNull(dshVersion, legacyVersion).firstOrNull { Regex("v?\\d+\\.\\d+.*").matches(it) } ?: appText("未提供")
 
 internal fun resolveReleaseUrl(repository: String, version: String?): String {
-    val root = "https://github.com/Clarklevis1995/$repository"
+    // P0 分家（2026-11-11）：发布页只指向自家仓库 origin=YDGG123/dsh-mobile，
+    // 原作者仓库 Clarklevis1995 的任何运行路径不再存在（P0-AT-15）。
+    val root = "https://github.com/YDGG123/$repository"
     val fallback = if (repository == "dsh-mobile") "$root/releases" else root
     if (version.isNullOrBlank()) return fallback
     val tag = "v${version.removePrefix("v")}"
