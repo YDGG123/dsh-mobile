@@ -375,6 +375,15 @@
 - **判据**：①grep `检查更新|更新源` 于 androidApp UI 渲染路径零命中（仅存注释与 AppUpdateDialogs 的 state 驱动弹窗——无入口后 state 恒空、永不渲染）；②AppUpdateTest 408 例 0 失败（GRADLE_EXIT=0，19:3x，/tmp/p0-hide-test.log）；③真机「入口不可见 + 冷启动零外联」归 AndroidTester（P0-AT-01 并行验收中）。
 - **踩过的弯路**：无新弯路；一个差点犯的错——PluginsScreen 的「检查更新」按钮与 App 更新同名，删入口时须分清（前者是 D-03 保留的插件更新功能）。
 
+### 2026-11-11 · vc64 · 模型/思考 chip 判定对齐 iOS 86 口径——只防群聊（+ 撤 11-04 的 missing 轮询跳过）
+
+- **症状**：非故障报修，口径漂移——iOS 86（`2576ce6`，用户 11-06 两轮裁定）已把模型/思考 chip 收敛为「**只防群聊**」（Bot 会话放开切模型），Android 停在 11-04 旧口径「bots∪rooms 全防」（`b901f8e` 后 `BotDomainSession.kt` 零提交），真机装包会出现「Bot 会话里不能切模型」的多余限制。
+- **根因**：11-04 我按当时桌面参照（index.js:916 Bot 会话无模型选择）实现为 Bot 域全防；11-06 用户改口径只防群聊，iOS 侧两轮演进（84 三态判定 → 86 room-only），Android 没跟上。
+- **怎么查**：例行 orientation 读 FIXLOG 发现 build 76 条目下的演进记录（「86 收敛为只防群聊，用户口径：Bot 会话放开、群聊不行」）→ `git log -- BotDomainSession.kt` 确认 Android 零跟进 → 读 iOS 终态 `BridgeTeamAdapter.modelControlsHidden`（BridgeTeamAdapter.swift:69-76）逐 bucket 镜像。
+- **修法**（`a06ee73`）：shared 新增 `isRoomSession` + `modelControlsHidden`（三态 × 只防群聊：READY/OFFLINE 按 rooms 命中、NEEDS_PAIRING 显示、IDLE/LOADING fail-closed）；`isBotDomainSession` 保留不改（chip 判定弃用，与 iOS 同警示注释）；stateHolder 加镜像属性、ConversationScreen:1979 消费点切换。**连带撤销 11-04 的 missing 态轮询跳过**（8518e02 引入）：新口径下 IDLE fail-closed 以「轮询必须继续跑」为前提，插件缺失时 /state 照样 200 返回空名册（gateway adapter.mjs:279）→ READY 按命中显示；跳过会让 phase 永停 IDLE ⇒ 普通会话 chip 永久消失。iOS 从不跳过，对齐。
+- **判据**：`ModelControlsHiddenTest` 10 例 0 失败 + 旧判据 `BotDomainSessionTest` 9 例 0 失败（XML 实数，JVM，19:4x）；与 iOS 86 单测判据同源（Bot→显示、群聊→保留、LOADING fail-closed 保留）；assembleDebug EXIT=0（19:43，新工具链首跑 7m07s）；aapt2 `versionCode='64'`；dex 指纹 `modelControlsHidden` classes14×2/classes3×1。
+- **踩过的弯路**：① 险些漏掉**交互回归**——11-04 那笔的可选省流量跳过（Chief 标可选、我做了）在新口径下从「省流量」变「闷死插件缺失网关的 chip」，靠推演 86 的 IDLE 语义才抓到；跨批次的可选项要在口径变更时重估，不是做完就完了。② 六天间隔后构建产物形态已变（ABI 分包 + debug 包 `.dev` applicationId 后缀），按旧路径找 `androidApp-debug.apk` 扑空一轮——报指纹前先 `ls` 现场。
+
 ## 待补（历史条目，查得到的照填，查不到的写「未记录」）
 
 > 用户 2026-11-03 已定过同类制度（安卓每版写 DELIVERABLES）。iOS 侧的历史修复按同样标准补：
