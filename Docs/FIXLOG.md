@@ -251,7 +251,7 @@
   1. `MultiGatewayStore.swift` 的采纳门把 `!bridgeTeam.hasStoredSession` 对三种帧统一生效：本机留有旧 bridge 会话时，**paired 帧带来的刚签发新会话被整帧忽略**；旧 token 已失效不可刷新 → bridge 三腿拿旧地址旧凭证 → 拉取全空、connectionIssue 常驻（WorkspaceView:466 显示的正是 bridge 侧 connectionIssue）
   2. `acceptIdentity` 把 pending store 提升为 activeStore 后**没有任何人调 `refreshRemoteState`**——新 store 零在途请求，workspaces/sessions 没人去要（onConnectionReady 只恢复挂起控制效果，新 store 没有挂起项）
 - **怎么查**：Chief 服务端实测先排除服务端（公网 `/mobile/v1/state` 返回 98 sessions、11 bots；真机同协议 WS 回放 hello 成功、workspaces 5 项）→ 我从横幅绑定（WorkspaceView:466 = `bridgeTeam.connectionIssue`）倒查 → 读采纳门发现 `!hasStoredSession` 对 paired 同样拦截 → 通读 `acceptIdentity` 确认提升后无刷新调用
-- **修法**（分支 android/c1-bridge-team，提交 sha 提交后补记）：
+- **修法**（分支 android/c1-bridge-team，提交 `732ea20`——本条目与修复同一原子提交入库，另含 AT-07 最小依赖；此行由 11-11 工作区补记，随下轮提交顺带入库）：
   1. 采纳门拆两层：`shouldAdoptBridgeSession`（paired 强制采纳——配对帧代表刚签发的新会话，旧槽必须让位；bridge-session/hello 仍只在缺会话时接，重连抖动不得轮换凭证）+ `planBridgeSessionAdoption`（**pending store 上的 paired 只暂存不落槽**——此刻作用域还是旧主机，直接 adopt 会跨槽污染，提升切完作用域后落位）
   2. `acceptIdentity` 提升尾部补 `activeStore.refreshRemoteState()`（此时刚收到 hello，isConnected 闸必过 → requestWorkspaces/requestSessions/requestHost 真实发出）
   3. 回归 14 条：门层 8 + 落位决策 5 + 适配器级「paired 替换并重建」1（真 BridgeTeamAdapter + 真 Keychain 槽：旧会话在→paired 重签→槽里换新 token 零残留、pairingState 回 .paired 即 transport 重建守卫通过、connectionIssue 清空；反向「reissue/hello 不得轮换」在门层锁定——适配器是被动执行者，不在适配器层再造拒绝逻辑）
@@ -365,6 +365,15 @@
   4. `writeJSON` 返回 OSStatus——**修老实现吞 `SecItemAdd` 返回码的静默失败**（写失败原样变成「读回 nil」，无从排查）
 - **判据**：worktree 8/8 用例绿（11-11 02:42:59，iPhone 17 Pro sim，TEST_EXIT=0，**必须带签名跑**）；覆盖 A/B 隔离、clear 不越界、迁移五态（归属匹配迁移 / 错归属保留给 B / 无 gatewayId 不猜 / deviceId 不符拒绝 / 无遗留无副作用）、身份解析
 - **踩过的弯路**：① 测试跑在 `CODE_SIGNING_ALLOWED=NO` 的宿主上，SecItem 全部 `-34018 errSecMissingEntitlement`，7 败全是它——**模拟器测试要碰 Keychain 必须带签名**，writeJSON 状态码诊断一轮定案；② 主仓测试 target 存量裸奔：GatewayProtocolTests.swift 大量未守卫 iOS 17 API（HEAD 同病，宣传期只构建过 UITests target 故未暴露），验证期在 worktree 临时移出相位、主仓未动；③ 中途「TempDemoSeed 丢失导致编译不过」是误报——按文件名找声明没找到就下了结论，实际声明在 AppStore.swift:326 的未提交块里；**找符号先 grep 声明再下结论**；④ xcodebuild SIGBUS×2 又耽误一轮（环境病，重启即愈）
+
+### 2026-11-11 · 隐藏更新入口 · 用户拍板「先隐藏更新入口」（不新增更新源设置，首版手动侧载）
+
+- **症状**：非故障，产品决策——用户问卷拍板「先隐藏更新入口（推荐）」；此前 aad10ac 刚补的设置页「更新源」行与「检查更新」行要整体下线。
+- **根因**：更新源与检查更新的完整产品设计（入口形态/自有源协议）未定，先上入口会让用户面对「能填但没设计好」的半成品；首版分发方式 = 手动侧载。
+- **怎么查**：grep 设置页更新入口（检查更新/更新源/showUpdateSourceEditor）定位三块 UI + ViewModel 三方法。
+- **修法**：删 SettingsScreen 的「检查更新」行、「更新源」行、更新源编辑弹窗、showUpdateSourceEditor state；删 AppUpdateViewModel 的 saveUpdateSource/clearUpdateSource/currentUpdateSource（无 UI 即死代码）。**保留**：更新安全收紧全量（b7ce2c7：无内置源/冷启动零外联/manifest 校验链）、normalizeUpdateSourceUrl 及其测试（将来恢复入口直接复用）、插件页「检查更新」（那是插件更新，D-03 保留功能，不是 App 自身更新）。
+- **判据**：①grep `检查更新|更新源` 于 androidApp UI 渲染路径零命中（仅存注释与 AppUpdateDialogs 的 state 驱动弹窗——无入口后 state 恒空、永不渲染）；②AppUpdateTest 408 例 0 失败（GRADLE_EXIT=0，19:3x，/tmp/p0-hide-test.log）；③真机「入口不可见 + 冷启动零外联」归 AndroidTester（P0-AT-01 并行验收中）。
+- **踩过的弯路**：无新弯路；一个差点犯的错——PluginsScreen 的「检查更新」按钮与 App 更新同名，删入口时须分清（前者是 D-03 保留的插件更新功能）。
 
 ## 待补（历史条目，查得到的照填，查不到的写「未记录」）
 

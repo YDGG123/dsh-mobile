@@ -125,27 +125,6 @@ internal class AppUpdateViewModel(application: Application) : AndroidViewModel(a
     private fun configuredUpdateSource(): String? =
         normalizeUpdateSourceUrl(preferences.getString("update_source_url", null))
 
-    /**
-     * 更新源存取（Chief 2026-11-11 派单：设置项必须有地方填）。
-     * 保存动作本身**零联网**——只做归一化校验并落盘；联网只发生在手动「检查更新」时。
-     * 返回 null = 输入非法（空/非 https/带凭据/不是 URL），调用方展示错误、不落盘。
-     */
-    fun saveUpdateSource(raw: String): String? {
-        val normalized = normalizeUpdateSourceUrl(raw)
-            ?: return appText("更新源必须是 https 地址且不带登录凭据")
-        preferences.edit().putString("update_source_url", normalized).apply()
-        return null
-    }
-
-    /** 清空更新源；此后「检查更新」提示未配置且零联网。 */
-    fun clearUpdateSource() {
-        preferences.edit().remove("update_source_url").apply()
-    }
-
-    /** 供设置页显示当前值（未配置 = 空串，不给占位假值）。 */
-    fun currentUpdateSource(): String =
-        preferences.getString("update_source_url", null) ?: ""
-
     fun skipVersion() {
         val release = mutableState.value.release ?: return
         preferences.edit().putString("skipped_version", release.version.removePrefix("v")).apply()

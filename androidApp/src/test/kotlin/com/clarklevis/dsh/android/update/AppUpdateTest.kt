@@ -33,7 +33,8 @@ class AppUpdateTest {
      * JVM 没有 SharedPreferences（无 Robolectric），故对存取的**纯逻辑层**——
      * normalizeUpdateSourceUrl 契约——做穷举；ViewModel 落盘层由真机复核
      * （AndroidTester：保存合法地址 → 行值更新；保存非法 → 行值不变 + 错误提示）。
-     * 合法输入被 normalize 接受 ⇔ saveUpdateSource 会落盘（二者共用同一函数，唯一判据）。
+     * 合法输入被 normalize 接受 = 可配置更新源（同一校验函数，唯一判据）；
+     * 设置 UI 2026-11-11 已整体下线（用户拍板），本用例保留校验函数本身的契约。
      */
     @Test fun updateSourceContractAcceptsOnlyHttpsAndCleanUrl() {
         // saveUpdateSource 落盘 ⇔ normalizeUpdateSourceUrl(raw) != null（同一函数判定）
