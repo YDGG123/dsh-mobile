@@ -30,8 +30,8 @@ android {
         // ⚠️ 合并 2026-11-06：上游在这里也写了 versionCode/versionName，解冲突时两条都被留下
         // ⇒ Kotlin DSL 里后一条**静默覆盖**前一条，实际生效的是上游的 38 / 1.7.15，
         // 我方已交付的 vc63 反而"倒退"成 38（gradle 不报错，只有装包时才看得出）。
-        // 现只保留我方一条，并按「显示固定、构建号递增」规则抬到 **vc64**（vc63 已出包）。
-        versionCode = 64
+        // 现只保留我方一条，并按「显示固定、构建号递增」规则抬到 **vc65**（vc64 已出包）。
+        versionCode = 65
         versionName = "1.7.26"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
