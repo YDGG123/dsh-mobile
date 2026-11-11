@@ -272,3 +272,177 @@ final class MultiGatewayTests: XCTestCase {
         }
     }
 }
+
+/// P0 修复（2026-11-11）回归：bridge 会话采纳门——paired 强制采纳、hello/bridge-session 缺会话才采纳。
+/// 覆盖 Chief 派单两条：旧会话在、重新 paired 必须换新；旧会话在、普通 hello 不得触发替换。
+@MainActor
+final class BridgeSessionAdoptionGateTests: XCTestCase {
+    private func session(serverId: String = "gw-1") -> GatewayBridgeSession {
+        GatewayBridgeSession(
+            accessToken: "tok", refreshToken: "ref", deviceId: "dev", serverId: serverId,
+            serverUrl: "https://gw.invalid", tlsPin: nil, expiresAt: nil
+        )
+    }
+
+    func testPairedForcesAdoption_EvenWhenOldSessionStored() {
+        XCTAssertTrue(MultiGatewayStore.shouldAdoptBridgeSession(
+            frameKind: "paired", bridgeSession: session(serverId: "gw-new"), hasStoredSession: true
+        ), "旧会话在也必须采纳 paired 的新会话（本次真机事故根因）")
+    }
+
+    func testPaired_WithoutSession_NeverAdopts() {
+        XCTAssertFalse(MultiGatewayStore.shouldAdoptBridgeSession(
+            frameKind: "paired", bridgeSession: nil, hasStoredSession: false
+        ))
+    }
+
+    func testPlainHello_WithStoredSession_NeverRotates() {
+        XCTAssertFalse(MultiGatewayStore.shouldAdoptBridgeSession(
+            frameKind: "hello", bridgeSession: session(), hasStoredSession: true
+        ), "普通 hello 不得轮换已存会话")
+    }
+
+    func testPlainHello_MissingSession_Adopts() {
+        XCTAssertTrue(MultiGatewayStore.shouldAdoptBridgeSession(
+            frameKind: "hello", bridgeSession: session(), hasStoredSession: false
+        ))
+    }
+
+    func testBridgeSessionReissue_WithStoredSession_NeverRotates() {
+        XCTAssertFalse(MultiGatewayStore.shouldAdoptBridgeSession(
+            frameKind: "bridge-session", bridgeSession: session(), hasStoredSession: true
+        ))
+    }
+
+    func testBridgeSessionReissue_MissingSession_Adopts() {
+        XCTAssertTrue(MultiGatewayStore.shouldAdoptBridgeSession(
+            frameKind: "bridge-session", bridgeSession: session(), hasStoredSession: false
+        ))
+    }
+
+    func testUnknownKind_NeverAdopts() {
+        XCTAssertFalse(MultiGatewayStore.shouldAdoptBridgeSession(
+            frameKind: "history", bridgeSession: session(), hasStoredSession: false
+        ))
+    }
+
+    // MARK: - 落位决策（planBridgeSessionAdoption）——2026-11-11 审查修正的回归
+
+    func testPairedOnPendingStore_StagesInsteadOfWritingOldScopeSlot() {
+        // 真实调用顺序：handleFrame 内 receive → acceptIdentity（对 paired 提前 return，不提升
+        // 不切作用域）→ 采纳决策 ⇒ 此刻作用域还是旧主机。直接 adopt 会把新主机刚签发的会话
+        // 写进**旧主机槽**（跨槽污染，switchScope 回旧主机时会restore出别家的会话）⇒ 必须只暂存。
+        for stored in [true, false] {
+            XCTAssertEqual(MultiGatewayStore.planBridgeSessionAdoption(
+                frameKind: "paired", bridgeSession: session(serverId: "gw-new"), hasStoredSession: stored, storeIsPending: true
+            ), .stageForPendingPromotion, line: UInt(stored ? 2 : 1))
+        }
+    }
+
+    func testPairedOnActiveStore_AdoptsDirectly() {
+        // 同主机重配对（store 已 active）：槽就是该主机的，直接落位正确；
+        // 且实现里落位即清 pending —— 不给「残留到下次提升」留尾巴。
+        XCTAssertEqual(MultiGatewayStore.planBridgeSessionAdoption(
+            frameKind: "paired", bridgeSession: session(), hasStoredSession: true, storeIsPending: false
+        ), .adoptDirectly)
+    }
+
+    func testPlainHello_PlansFollowExistingGate() {
+        XCTAssertNil(MultiGatewayStore.planBridgeSessionAdoption(
+            frameKind: "hello", bridgeSession: session(), hasStoredSession: true, storeIsPending: false
+        ), "有会话的 hello 不采纳（既有闸门语义，落位决策不得放宽）")
+        XCTAssertEqual(MultiGatewayStore.planBridgeSessionAdoption(
+            frameKind: "hello", bridgeSession: session(), hasStoredSession: false, storeIsPending: false
+        ), .adoptDirectly, "缺会话的 hello 兼容路径仍要接")
+    }
+
+    func testPairedWithoutSession_NeitherWritesSlotNorStages() {
+        // 修前缺陷素材：promoting 主机的 paired 帧若**不带** session，旧 pending（上一台主机的）
+        // 会被重放进新主机槽。修后：这种帧既不落槽也不暂存——pending 只由「本店带会话的 paired
+        // 帧」产生，而 acceptIdentity 只对同一个 pending 店提升 ⇒ 暂存与提升必然同主机，
+        // 「A 店暂存、C 店提升」的组合在决策层不存在。
+        XCTAssertNil(MultiGatewayStore.planBridgeSessionAdoption(
+            frameKind: "paired", bridgeSession: nil, hasStoredSession: false, storeIsPending: true
+        ))
+    }
+
+    func testBridgeSessionResponseOnPromotedStore_AdoptsDirectly() {
+        // 拉取式自愈的应答（bridge-session）到达时提升已完成（pairingStore 已清 nil）⇒
+        // storeIsPending=false，直接落进新作用域，不会写回旧主机槽。
+        XCTAssertEqual(MultiGatewayStore.planBridgeSessionAdoption(
+            frameKind: "bridge-session", bridgeSession: session(), hasStoredSession: false, storeIsPending: false
+        ), .adoptDirectly)
+    }
+
+    func testPairedSemantics_IndependentOfStoredState() {
+        // paired 的采纳只取决于「帧里有没有会话」，与本地是否已有会话无关——两条回归合一条性质
+        for stored in [true, false] {
+            XCTAssertTrue(MultiGatewayStore.shouldAdoptBridgeSession(
+                frameKind: "paired", bridgeSession: session(), hasStoredSession: stored
+            ))
+        }
+    }
+}
+
+/// P0 修复（2026-11-11）回归：paired 重采纳的「替换并重建」端到端证据。
+/// 上面的门测试只证明**决策**放行；这里用真 BridgeTeamAdapter + 真 Keychain 槽（模拟器沙盒）
+/// 证明**执行**：旧会话已在槽时再采 paired——槽里必须换成新会话、transport 强制重建必须成功
+/// （adoptSession 的重建守卫失败会转 .failed，回到 .paired 即守卫通过）、connectionIssue 清空
+/// （「连接已断开」横幅常驻的另一半根因）。
+/// 反向（reissue/hello 不得轮换）在门层已覆盖：适配器是被动执行者，轮换与否由门决定，
+/// 适配器层再造一个「拒绝替换」是重复实现，不做。
+@MainActor
+final class BridgePairedReplaceRebuildTests: XCTestCase {
+    private var scope = ""
+    private var previousScopeID: String?
+
+    override func setUpWithError() throws {
+        scope = "test-paired-rebuild-" + UUID().uuidString
+        BridgeKeychainSessionStore.forgetScope(scope)
+        clearLegacy()
+        previousScopeID = BridgeKeychainSessionStore.currentScopeID
+    }
+
+    override func tearDownWithError() throws {
+        BridgeKeychainSessionStore(scopeID: scope).clear()
+        BridgeKeychainSessionStore.forgetScope(scope)
+        if let previous = previousScopeID { BridgeKeychainSessionStore.currentScopeID = previous }
+        clearLegacy()
+    }
+
+    /// 与 BridgeKeychainSessionStoreTests 同款清场：legacy 全局槽没有公开删除口，按 service+account 原生删除。
+    private func clearLegacy() {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: BridgeKeychainSessionStore.service,
+            kSecAttrAccount as String: BridgeKeychainSessionStore.legacyAccount
+        ]
+        SecItemDelete(query as CFDictionary)
+    }
+
+    private func sessionJSON(serverId: String, token: String) -> String {
+        """
+        {"accessToken":"\(token)","refreshToken":"r-\(token)","deviceId":"dev","serverId":"\(serverId)","serverUrl":"https://\(serverId).invalid","tlsPin":null,"expiresAt":9999999999999}
+        """
+    }
+
+    func testPairedWithOldSessionStored_ReplacesAndRebuilds() {
+        let adapter = BridgeTeamAdapter()
+        adapter.switchScope(profileID: scope, gatewayId: nil, remoteDeviceId: nil)
+        // 旧会话（模拟「上次配对留下的旧 token/旧地址」）
+        adapter.adoptSession(json: sessionJSON(serverId: "gateway-old", token: "tok-old"))
+        XCTAssertTrue(adapter.hasStoredSession, "前置：旧会话已在槽")
+
+        // paired 重签（新 token、新 serverId）——真机事故里这一步被旧门整帧丢弃
+        adapter.adoptSession(json: sessionJSON(serverId: "gateway-new", token: "tok-new"))
+
+        // ① 替换：槽里是新会话，旧 token 零残留
+        let stored = BridgeKeychainSessionStore(scopeID: scope).loadJson() ?? ""
+        XCTAssertTrue(stored.contains("tok-new"), "paired 新会话必须替换旧会话")
+        XCTAssertFalse(stored.contains("tok-old"), "旧 token 不得残留")
+        // ② 重建：adoptSession 强制 transport=nil 再重建；重建失败会转 .failed，
+        //    回到 .paired 即「transport != nil」守卫通过
+        XCTAssertEqual(adapter.pairingState, .paired)
+        XCTAssertNil(adapter.connectionIssue, "重配对必须清连接问题")
+    }
+}

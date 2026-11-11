@@ -198,59 +198,9 @@ private final class BridgeMviObserver: NSObject, SharedMviEventObserver {
 
 // MARK: - Keychain 会话存储（实现 KMP BridgeSessionStore）
 
-/// 只做 JSON 字符串存取；解析与校验全部留在 KMP（fail-closed）。
-final class BridgeKeychainSessionStore: NSObject, BridgeSessionStore {
-    private let service = "com.ydgg123.orcarness.bridge.session"
-    private let account = "device-session"
-
-    private var baseQuery: [String: Any] {
-        [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account
-        ]
-    }
-
-    func loadJson() -> String? {
-        var query = baseQuery
-        query[kSecReturnData as String] = true
-        query[kSecMatchLimit as String] = kSecMatchLimitOne
-        var item: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess,
-              let data = item as? Data else { return nil }
-        return String(data: data, encoding: .utf8)
-    }
-
-    /// Keychain 里**有没有**这条记录（不管能否读出内容）。
-    /// 用途：区分「会话丢了」（允许自愈补发）与「会话在、但读不出来」（**不得**自动补发）——
-    /// 后者是安全边界（iOSTester 2026-11-02 提）：不能把一次瞬时的读取失败
-    /// 静默升级成「向网关换一份新凭证」，那等于把授权范围从「配对码 ⇒ bridge 会话」
-    /// 扩成「网关 token ⇒ 可铸造 bridge 会话」。
-    func exists() -> Bool {
-        var query = baseQuery
-        query[kSecReturnData as String] = false
-        query[kSecMatchLimit as String] = kSecMatchLimitOne
-        return SecItemCopyMatching(query as CFDictionary, nil) == errSecSuccess
-    }
-
-    func saveJson(json: String) {
-        guard let data = json.data(using: .utf8) else { return }
-        var query = baseQuery
-        let attributes: [String: Any] = [
-            kSecValueData as String: data,
-            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        ]
-        let status = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
-        if status == errSecItemNotFound {
-            query.merge(attributes) { _, new in new }
-            SecItemAdd(query as CFDictionary, nil)
-        }
-    }
-
-    func clear() {
-        SecItemDelete(baseQuery as CFDictionary)
-    }
-}
+/// 已外移至 `Core/BridgeKeychainSessionStore.swift`（P0-AT-07 双主机隔离）：
+/// 按 profile+gateway+device 作用域分槽，旧全局槽只作一次性迁移源（SEC-01 收口）。
+/// 本文件只保留 adapter 侧的作用域切换（`switchScope`）与当前槽引用。
 
 // MARK: - 团队页适配器：KMP 唯一状态源 + Swift 镜像与 effect
 
@@ -394,7 +344,11 @@ final class BridgeTeamAdapter: ObservableObject {
     /// 测试/诊断用。
     var roomSnapshotCountForTesting: Int { roomSnapshots.count }
 
-    private let sessionStore = BridgeKeychainSessionStore()
+    /// 当前作用域的会话槽（P0-AT-07）：App 级单例 adapter 服务多主机，槽按资料 ID 分键；
+    /// 主机切换由 `switchScope` 三层重建（Keychain 槽 + KMP store + transport），旧主机零残留。
+    private(set) var sessionStore = BridgeKeychainSessionStore(scopeID: BridgeKeychainSessionStore.currentScopeID)
+    /// 当前绑定的资料 ID；与 MultiGatewayStore.activeID 在 activate/remove 时保持一致。
+    private(set) var activeScopeID = BridgeKeychainSessionStore.currentScopeID
 
     /// 本地是否已有可用的 bridge 会话。
     /// 用途：**自愈**——网关只在配对那一刻下发 `bridgeSession`（重连与 `hello` 都不带），
@@ -412,7 +366,7 @@ final class BridgeTeamAdapter: ObservableObject {
     /// U5：配对成功且服务端下发了网关凭证时回调（由 MultiGatewayStore 接管落盘/建 profile）。
     /// 参数：凭证、bridge 的 https 根 origin。缺失时不会调用。
     var onGatewayCredential: ((BridgeGatewayCredential, String) -> Void)?
-    private let store: SharedBridgeTeamStore
+    private var store: SharedBridgeTeamStore
     private var observer: BridgeMviObserver?
     private var subscription: SharedMviSubscription?
     private var transport: BridgeTransport?
@@ -466,7 +420,9 @@ final class BridgeTeamAdapter: ObservableObject {
     /// App 启动时调用（幂等）：恢复会话 + 从 Keychain 重建 transport + 开始常驻轮询。
     /// 轮询不再依赖团队页生命周期——这是「离线后不会自动回连」的根因修复。
     func ensureStarted() {
-        guard !started else { return }
+        if started {
+            return
+        }
         started = true
         restoreTransportFromStoredSession()
         let outcome = store.restoreSession()
@@ -514,6 +470,79 @@ final class BridgeTeamAdapter: ObservableObject {
     private func disarmWatchdog() {
         watchdogTask?.cancel()
         watchdogTask = nil
+    }
+
+    /// 重建 KMP store + observer + subscription（换作用域时的唯一安全重建路径）。
+    private func rebuildStoreAndSubscription() {
+        subscription?.cancel()
+        let sessionStore = self.sessionStore
+        store = SharedBridgeTeamStore(sessionStore: sessionStore)
+        let observer = BridgeMviObserver { [weak self] event in
+            Task { @MainActor [weak self] in
+                self?.handle(event: event)
+            }
+        }
+        self.observer = observer
+        self.subscription = store.subscribe(observer: observer)
+    }
+
+    /// 主机切换的安全上下文重建（P0-AT-07 / SEC-01）。三层全换，不给旧主机留任何残留：
+    /// ① Keychain 槽按新资料 ID 分键（旧全局槽按归属验证一次性迁移，规格 6.1）；
+    /// ② KMP store / observer / subscription 整体重建（内存态归零，镜子/待审批/名册不跨主机）；
+    /// ③ transport 丢弃重建（旧 serverUrl / tlsPin / 认证上下文不跨主机沿用）。
+    /// 同一作用域重复调用是 no-op。
+    func switchScope(profileID: String, gatewayId: String?, remoteDeviceId: String?) {
+        guard profileID != activeScopeID else { return }
+        stopPolling()
+        disarmWatchdog()
+        tokenRefreshTask?.cancel()
+        tokenRefreshTask = nil
+        transport = nil
+        lastTransportError = nil
+        connectionIssue = nil
+        failureAttempt = 0
+        botPlugin = nil
+        roomSnapshots.removeAll()   // 旧主机的房间快照缓存不跨主机泄漏
+        activeScopeID = profileID
+        sessionStore = BridgeKeychainSessionStore(scopeID: profileID)
+        BridgeKeychainSessionStore.currentScopeID = profileID
+        _ = BridgeKeychainSessionStore.migrateLegacySession(
+            scopeID: profileID,
+            expectedGatewayId: gatewayId,
+            expectedDeviceId: remoteDeviceId
+        )
+        rebuildStoreAndSubscription()
+        restoreTransportFromStoredSession()
+        let outcome = store.restoreSession()
+        if outcome.isSuccess, store.currentAccessToken() != nil {
+            pairingState = .paired
+            startPolling()
+            armWatchdog()
+        } else {
+            pairingState = .idle
+        }
+    }
+
+    /// 移除主机时清除其作用域槽（P0-AT-17 解配口径）；当前作用域被移除则整体回到 unpaired。
+    func forgetScopes(_ ids: Set<String>) {
+        guard !ids.isEmpty else { return }
+        ids.forEach { BridgeKeychainSessionStore.forgetScope($0) }
+        guard ids.contains(activeScopeID) else { return }
+        stopPolling()
+        disarmWatchdog()
+        tokenRefreshTask?.cancel()
+        tokenRefreshTask = nil
+        transport = nil
+        lastTransportError = nil
+        connectionIssue = nil
+        failureAttempt = 0
+        botPlugin = nil
+        roomSnapshots.removeAll()
+        activeScopeID = "unpaired"
+        sessionStore = BridgeKeychainSessionStore(scopeID: "unpaired")
+        BridgeKeychainSessionStore.currentScopeID = "unpaired"
+        rebuildStoreAndSubscription()
+        pairingState = .idle
     }
 
     // MARK: - bridge 聊天（一次配对 = 聊天 + 团队）

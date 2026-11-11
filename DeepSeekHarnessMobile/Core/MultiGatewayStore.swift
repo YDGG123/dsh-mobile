@@ -25,6 +25,46 @@ final class MultiGatewayStore: ObservableObject {
     private var coldLaunchConnectionTask: Task<Void, Never>?
     private static let profilesKey = "gateway.profiles.v1"
 
+    /// 是否采纳帧内 bridgeSession（P0 修复 2026-11-11）：**paired 强制采纳**——
+    /// 配对帧代表服务端刚签发的新会话，旧槽（可能已失效、不可刷新）必须让位；
+    /// bridge-session / hello 仍只在**缺会话**时采纳（重连抖动不得轮换凭证）。
+    static func shouldAdoptBridgeSession(frameKind: String, bridgeSession: GatewayBridgeSession?, hasStoredSession: Bool) -> Bool {
+        guard let bridgeSession else { return false }
+        switch frameKind {
+        case "paired":
+            return true
+        case "bridge-session", "hello":
+            return !hasStoredSession
+        default:
+            return false
+        }
+    }
+
+    /// paired 帧先于 hello 到达：暂存其会话，等 acceptIdentity 提升（可能切作用域）后落位。
+    private var pendingPairedBridgeSession: (json: String, endpoint: String?)?
+
+    /// 采纳的**落位方式**（2026-11-11 审查修正）：暂存只发生在「配对未提升」时，
+    /// 此时作用域还是旧主机，直接 adopt 会把新主机的会话写进**旧主机槽**（跨槽污染）。
+    enum BridgeSessionAdoptionPlan: Equatable {
+        /// 只暂存（不写任何槽），等 hello 提升、switchScope 切到新主机后再落位。
+        case stageForPendingPromotion
+        /// 当前作用域就是会话归属的主机 ⇒ 直接落位（并清掉任何残留 pending）。
+        case adoptDirectly
+    }
+
+    /// 把「要不要接」与「在哪落位」合成一个可单测的决策（handleFrame 按此机械执行）。
+    /// 调用顺序契约：handleFrame 内 **receive → acceptIdentity → 本决策**；
+    /// paired 帧走 acceptIdentity 时**不提升**（`guard frame.kind == "hello"` 提前 return），
+    /// 所以「帧到达时作用域是否已切」完全由 `storeIsPending` 决定。
+    static func planBridgeSessionAdoption(frameKind: String, bridgeSession: GatewayBridgeSession?, hasStoredSession: Bool, storeIsPending: Bool) -> BridgeSessionAdoptionPlan? {
+        guard shouldAdoptBridgeSession(frameKind: frameKind, bridgeSession: bridgeSession, hasStoredSession: hasStoredSession),
+              let bridgeSession else { return nil }
+        if frameKind == "paired" && storeIsPending {
+            return .stageForPendingPromotion
+        }
+        return .adoptDirectly
+    }
+
     init(defaults: UserDefaults = .standard, credentials: (any GatewayCredentialStoring)? = nil) {
         self.defaults = defaults
         self.credentials = credentials
@@ -166,12 +206,20 @@ final class MultiGatewayStore: ObservableObject {
             //   （ReleaseBot 核实：`shared/.../SplitGatewayTransport.kt:48`）。
             // - 只在**本地确实没有会话**时接：有会话就不动，免得每次重连都走 `adoptSession`
             //   （`:712` 那里是**强制重建** transport + 重开轮询）。
-            if frame.kind == "paired" || frame.kind == "bridge-session"
-                || (frame.kind == "hello" && !bridgeTeam.hasStoredSession),
-               let session = frame.bridgeSession, let json = session.jsonString(),
-               !bridgeTeam.hasStoredSession {
-                // 反向 session 不带 serverUrl：把网关端点交给适配器折成 https origin 注入。
-                self.bridgeTeam.adoptSession(json: json, endpoint: store.gateway.connectedEndpoint ?? store.endpoint)
+            if let plan = Self.planBridgeSessionAdoption(frameKind: frame.kind, bridgeSession: frame.bridgeSession, hasStoredSession: bridgeTeam.hasStoredSession, storeIsPending: store === pairingStore),
+               let session = frame.bridgeSession, let json = session.jsonString() {
+                // TEMP demo：把配对帧下发的 SPKI pin 交给 GatewayClient 的信任评估（模式 A）
+                switch plan {
+                case .stageForPendingPromotion:
+                    // 配对未提升（acceptIdentity 对 paired 提前 return，不切作用域）：此刻 adopt
+                    // 会把新主机的会话写进**旧主机槽**（跨槽污染，2026-11-11 审查定性）⇒ 只暂存；
+                    // hello 提升（acceptIdentity）切完作用域后落位——含 switchScope no-op 的同主机重配对。
+                    pendingPairedBridgeSession = (json, store.gateway.connectedEndpoint ?? store.endpoint)
+                case .adoptDirectly:
+                    // 反向 session 不带 serverUrl：把网关端点交给适配器折成 https origin 注入。
+                    self.bridgeTeam.adoptSession(json: json, endpoint: store.gateway.connectedEndpoint ?? store.endpoint)
+                    pendingPairedBridgeSession = nil
+                }
             }
             // 缺会话时主动拉一次（`hello` = 网关已连上并完成鉴权，是唯一能发请求的时机）。
             if frame.kind == "hello" {
@@ -249,6 +297,9 @@ final class MultiGatewayStore: ObservableObject {
         activeStore = makeStore(profile)
         activeStore.interfaceStyle = style
         activeID = profile.id
+        // P0-AT-07：bridge 安全上下文随主机切换重建——Keychain 作用域槽 / KMP store /
+        // transport 三层全换，旧主机的会话、镜子、待审批与房间快照零残留（SEC-01）。
+        bridgeTeam.switchScope(profileID: profile.id, gatewayId: profile.gatewayId, remoteDeviceId: profile.remoteDeviceId)
         defaults.set(profile.id, forKey: "gateway.activeID")
         observeActive()
         if connect { activeStore.connect() }
@@ -319,11 +370,24 @@ final class MultiGatewayStore: ObservableObject {
             activeStore.deactivateGateway()
             activeID = profile.id
             activeStore = store
+            // P0-AT-07：配对成功即把 bridge 作用域切到新主机（先于 paired 会话的落位）。
+            bridgeTeam.switchScope(profileID: profile.id, gatewayId: profile.gatewayId, remoteDeviceId: profile.remoteDeviceId)
+            // paired 帧的会话在提升前**只暂存不落槽**（防跨槽污染，见 planBridgeSessionAdoption）；
+            // 这里作用域已切对新主机 ⇒ 暂存过就落位——含 switchScope no-op 的同主机重配对
+            //（此时槽本就是同一主机的，落位=重签会话轮换，正确）。落位后才清 pending，
+            // 绝不把上一台主机的会话重放进这一台（2026-11-11 审查修正）。
+            if let pending = pendingPairedBridgeSession {
+                pendingPairedBridgeSession = nil
+                bridgeTeam.adoptSession(json: pending.json, endpoint: pending.endpoint)
+            }
             defaults.set(profile.id, forKey: "gateway.activeID")
             pairingStore = nil
             pendingProfile = nil
             pairingObservation = nil
             observeActive()
+            // P0 修复（2026-11-11）：提升后的新 store 没有任何在途请求，workspaces/sessions
+            // 不会有人去要——显式刷新一次（refreshRemoteState 内部有 isConnected 闸）。
+            activeStore.refreshRemoteState()
         }
     }
 
@@ -332,6 +396,9 @@ final class MultiGatewayStore: ObservableObject {
         pairingStore = nil
         pendingProfile = nil
         pairingObservation = nil
+        // 暂存的 paired 会话属于**被取消的那次配对**：不清的话会残留到下一次
+        // 提升并错误重放进那台主机（2026-11-11 审查定性，与 pendingProfile 同生命周期）。
+        pendingPairedBridgeSession = nil
     }
 
     func edit(_ profile: GatewayProfile, alias: String, kind: String) {
@@ -368,6 +435,8 @@ final class MultiGatewayStore: ObservableObject {
             GatewayClient.forgetCredential(for: $0)
             ImageAttachmentCache.forgetGateway($0)
         }
+        // P0-AT-07/17：移除主机的 bridge 会话槽一并清除；当前作用域被移除则整体回 unpaired。
+        bridgeTeam.forgetScopes(knownIDs)
         Task {
             for id in knownIDs {
                 await ChatHistoryCache.shared.forget(gatewayID: id)

@@ -244,6 +244,23 @@
 - **后续（同日 13:4x，观察期巡检）**：自愈**实际在工作**——重配对后 5 组 401（10:03–12:06 本地，每组 access 到期）全部 200ms 内自动恢复拉取；但网关 `auth/refresh` 计数=0，一度推断「没自愈」——真因是 **refresh 成功侧不打日志**（server.mjs 只记拒绝）。修：网关 `4d38f5f` 给 refresh 路由补 `refresh ok device=<id>` 一行（暂不同步运行副本，随用户下次重启生效）。教训：**「日志无记录」≠「没发生」——成功路径也可能静默**，观测结论前先确认该事件类别有没有日志
 - **后续（同日 16:3x，§8.27① 正式收口）**：用户 14:21 重启（运行副本含 `4d38f5f`），**14:32:58 首条 `refresh ok device=b93b8191-…`**（与 token TTL 吻合），至 16:2x 共 7 次全部成功（Chief 亲自复核）。换票瞬间偶发 3 条 401（14:32:59-14:33:01）=在途请求与票轮换的竞态，无复发。数据层三步闭环：401 → 日志 `auth/refresh` → `/mobile/v1/*` 回 2xx。**凭证自愈验证完毕，用户零手动操作**
 
+### 2026-11-11 · build 91 · 重配对新会话被旧门整帧丢弃（已连接但 Bot 空白 + 断开横幅常驻）（iOSCoder）
+
+- **症状**（用户视角）：90 包 + 蜂窝 + 临时 trycloudflare 入口重新配对成功后：「会话和 bot 都拉取不到，已经连接了，但是"连接已断开"提示一直在」——网关侧 `/mgw/devices` 却显示手机 online=true、connections=2
+- **根因**（机制级，两处叠加）：
+  1. `MultiGatewayStore.swift` 的采纳门把 `!bridgeTeam.hasStoredSession` 对三种帧统一生效：本机留有旧 bridge 会话时，**paired 帧带来的刚签发新会话被整帧忽略**；旧 token 已失效不可刷新 → bridge 三腿拿旧地址旧凭证 → 拉取全空、connectionIssue 常驻（WorkspaceView:466 显示的正是 bridge 侧 connectionIssue）
+  2. `acceptIdentity` 把 pending store 提升为 activeStore 后**没有任何人调 `refreshRemoteState`**——新 store 零在途请求，workspaces/sessions 没人去要（onConnectionReady 只恢复挂起控制效果，新 store 没有挂起项）
+- **怎么查**：Chief 服务端实测先排除服务端（公网 `/mobile/v1/state` 返回 98 sessions、11 bots；真机同协议 WS 回放 hello 成功、workspaces 5 项）→ 我从横幅绑定（WorkspaceView:466 = `bridgeTeam.connectionIssue`）倒查 → 读采纳门发现 `!hasStoredSession` 对 paired 同样拦截 → 通读 `acceptIdentity` 确认提升后无刷新调用
+- **修法**（分支 android/c1-bridge-team，提交 sha 提交后补记）：
+  1. 采纳门拆两层：`shouldAdoptBridgeSession`（paired 强制采纳——配对帧代表刚签发的新会话，旧槽必须让位；bridge-session/hello 仍只在缺会话时接，重连抖动不得轮换凭证）+ `planBridgeSessionAdoption`（**pending store 上的 paired 只暂存不落槽**——此刻作用域还是旧主机，直接 adopt 会跨槽污染，提升切完作用域后落位）
+  2. `acceptIdentity` 提升尾部补 `activeStore.refreshRemoteState()`（此时刚收到 hello，isConnected 闸必过 → requestWorkspaces/requestSessions/requestHost 真实发出）
+  3. 回归 14 条：门层 8 + 落位决策 5 + 适配器级「paired 替换并重建」1（真 BridgeTeamAdapter + 真 Keychain 槽：旧会话在→paired 重签→槽里换新 token 零残留、pairingState 回 .paired 即 transport 重建守卫通过、connectionIssue 清空；反向「reissue/hello 不得轮换」在门层锁定——适配器是被动执行者，不在适配器层再造拒绝逻辑）
+- **判据**：xcodebuild test 三类 @ iPhone 17 Pro 模拟器，**TEST_EXIT=0（2026-11-11 18:28:26，29 例全绿 0 败）**：新增 14 = BridgeSessionAdoptionGateTests 13（门 8 + 落位 5）+ BridgePairedReplaceRebuildTests 1，存量 MultiGatewayTests 15 一并回归。Keychain 用例按 AT-07 教训带签名跑（命令未设 CODE_SIGNING_ALLOWED=NO，模拟器沙盒真 Keychain 写读成功）。构建命令：`JAVA_HOME/GRADLE_USER_HOME/KONAN_DATA_DIR/DEVELOPER_DIR 四变量显式 export` + `xcodebuild test -only-testing 三类 -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -derivedDataPath build/dd-p0-regression`
+- **踩过的弯路**：
+  - 先怀疑「残留 reconnectTask 迟到开火拆新连接」——查 `beginConnection` :527 其实会取消它，僵尸任务论不成立（**先验证再定性**，幸好没照此改）
+  - 后台跑 xcodebuild 没带 JAVA_HOME 等四变量 → KMP Framework 脚本秒退（"Unable to locate a Java Runtime"，TEST_EXIT=65）——11-08 nohup 教训的 xcodebuild 变体，**后台/脚本任务必须显式 export 四变量**
+  - 服务端补丁（签发跟随连接 origin）落地后横幅消失前还有一轮错位：早期临时隧道重启换名 + paired 帧写死静态 mobileV1PublicUrl——那是网关侧问题（Chief 修），与本条客户端门是两条线；「门修好」≠「会话列表回来」，分开验收
+
 ---
 
 ## 安卓侧修复（AndroidCoder）
@@ -333,6 +350,21 @@
 - **修法**（本批未提交，sha 待落）：①逻辑抽 `ScopedSessionVault`（产线行为不变：AndroidBridgeSessionStore 改为薄壳，SharedPreferences/AndroidKeyStore 走注入接口）；②删启动自动检查；③AppUpdateViewModel 重写：唯一路径 = 用户配置的自有 HTTPS manifest（`normalizeUpdateSourceUrl` 归一化失败=未配置=零联网），删除 GitHub API/发布页/expanded_assets 三路 + withUpdateFallback 双路机制 + fallbackUrl 字段；④R2UpdateManifest 白名单收紧为「与 manifest 同源或 GitHub 资产域」，githubDownloadUrl 不再解析；⑤AppReleaseInfo 发布页 root 改 YDGG123。
 - **判据**：androidApp JVM 407 例 0 失败（GRADLE_EXIT=0，01:2x，/tmp/p0-green-test.log）；反向测试=认领逻辑破坏后 ScopedSessionVaultTest 精确红 2 例（firstHostClaims…/secondHostCannotClaim…，RED_EXIT=1，/tmp/p0-red-test.log）；全仓 grep 被删符号（checkOnStartup/selectAndroidRelease/selectReleasePageApk/withUpdateFallback/UPDATE_MANIFEST_URL/fallbackUrl）运行路径零命中（assets 干净）。
 - **踩过的弯路**：①tail 管道吃掉 gradle 真退出码（GRADLE_EXIT=0 假读数）——退出码必须取 PIPESTATUS[0]；②测试 fake 的密文格式 `enc:<reverse>`，预置数据写明文 → 2 例假红（ComparisonFailure 明文 vs 倒序），自查自修；③首次跑漏 export Go 工具链被 buildTsnetAar 拦（GOPATH/GOROOT/NDK 三件套必须显式）。
+
+---
+
+### 2026-11-11 · build 89 · P0-AT-07 双主机隔离：bridge 会话全局单槽 → 按资料 ID 作用域分槽（SEC-01）
+
+- **症状**：A/B 两台主机交替配对/切换时 bridge 会话互相覆盖、旧 transport/token 跨主机沿用（规格 SEC-01：iOS bridge 使用全局 `device-session` Keychain 槽，切主机未重绑 adapter）
+- **根因**（机制级）：`BridgeKeychainSessionStore` 全局单槽（account=`device-session`）+ `BridgeTeamAdapter` App 级单例不随主机重建——多主机共用同一份凭证与内存态
+- **怎么查**：规格 §6.1（写请求五元组绑定 + 「不以 URL 为身份」「迁移前必须验证 session.serverId==profile.gatewayId」）→ 对照 SEC-01/P0-AT-07 → 盘点三文件引用关系（store 内嵌于 adapter、GatewayTeamFeed 两处无参读点）
+- **修法**（worktree 分支 `p0/at07-scope-keychain`，`df1cabc`+`2686399`）：
+  1. store 按 `account=device-session@<profileID>` 分槽（profile=持久化/凭证/缓存共同命名空间，其上已绑 gatewayId+remoteDeviceId）；旧全局槽一次性迁移，**必须过归属验证**，不符不删不认（保留给真正主机，本作用域走重新配对）；`currentScopeID` 静态指针接住 GatewayTeamFeed 等无参读点
+  2. adapter `switchScope` 三层重建：停轮询→换 Keychain 槽→KMP store/observer/subscription 重建→transport 丢弃重建→按新作用域恢复或 NEEDS_PAIRING；`forgetScopes`（移除主机清槽，AT-17 口径）；roomSnapshots/待审批等内存态随切清零
+  3. `MultiGatewayStore` activate / 配对激活 / remove 三处挂接
+  4. `writeJSON` 返回 OSStatus——**修老实现吞 `SecItemAdd` 返回码的静默失败**（写失败原样变成「读回 nil」，无从排查）
+- **判据**：worktree 8/8 用例绿（11-11 02:42:59，iPhone 17 Pro sim，TEST_EXIT=0，**必须带签名跑**）；覆盖 A/B 隔离、clear 不越界、迁移五态（归属匹配迁移 / 错归属保留给 B / 无 gatewayId 不猜 / deviceId 不符拒绝 / 无遗留无副作用）、身份解析
+- **踩过的弯路**：① 测试跑在 `CODE_SIGNING_ALLOWED=NO` 的宿主上，SecItem 全部 `-34018 errSecMissingEntitlement`，7 败全是它——**模拟器测试要碰 Keychain 必须带签名**，writeJSON 状态码诊断一轮定案；② 主仓测试 target 存量裸奔：GatewayProtocolTests.swift 大量未守卫 iOS 17 API（HEAD 同病，宣传期只构建过 UITests target 故未暴露），验证期在 worktree 临时移出相位、主仓未动；③ 中途「TempDemoSeed 丢失导致编译不过」是误报——按文件名找声明没找到就下了结论，实际声明在 AppStore.swift:326 的未提交块里；**找符号先 grep 声明再下结论**；④ xcodebuild SIGBUS×2 又耽误一轮（环境病，重启即愈）
 
 ## 待补（历史条目，查得到的照填，查不到的写「未记录」）
 

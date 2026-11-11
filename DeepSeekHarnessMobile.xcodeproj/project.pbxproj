@@ -126,6 +126,8 @@
 		AA7700000000000000000004 /* TeamAvatarFileCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA7700000000000000000003 /* TeamAvatarFileCacheTests.swift */; };
 		B0A100000000000000000001 /* BridgeTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A100000000000000000002 /* BridgeTransport.swift */; };
 		B0A100000000000000000003 /* BridgeTeamAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A100000000000000000004 /* BridgeTeamAdapter.swift */; };
+		B0A200000000000000000001 /* BridgeKeychainSessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A200000000000000000002 /* BridgeKeychainSessionStore.swift */; };
+		B0A200000000000000000003 /* BridgeKeychainSessionStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A200000000000000000004 /* BridgeKeychainSessionStoreTests.swift */; };
 		B0A10000000000000000000E /* GatewayTeamFeed.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A10000000000000000000D /* GatewayTeamFeed.swift */; };
 		B0A100000000000000000005 /* TeamView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A100000000000000000006 /* TeamView.swift */; };
 		B0A100000000000000000007 /* BridgeTransportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A100000000000000000008 /* BridgeTransportTests.swift */; };
@@ -148,6 +150,8 @@
 		AA7700000000000000000003 /* TeamAvatarFileCacheTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TeamAvatarFileCacheTests.swift; sourceTree = "<group>"; };
 		B0A100000000000000000002 /* BridgeTransport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BridgeTransport.swift; sourceTree = "<group>"; };
 		B0A100000000000000000004 /* BridgeTeamAdapter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BridgeTeamAdapter.swift; sourceTree = "<group>"; };
+		B0A200000000000000000002 /* BridgeKeychainSessionStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BridgeKeychainSessionStore.swift; sourceTree = "<group>"; };
+		B0A200000000000000000004 /* BridgeKeychainSessionStoreTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BridgeKeychainSessionStoreTests.swift; sourceTree = "<group>"; };
 		B0A10000000000000000000D /* GatewayTeamFeed.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GatewayTeamFeed.swift; sourceTree = "<group>"; };
 		B0A100000000000000000006 /* TeamView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TeamView.swift; sourceTree = "<group>"; };
 		B0A100000000000000000008 /* BridgeTransportTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BridgeTransportTests.swift; sourceTree = "<group>"; };
@@ -378,6 +382,7 @@
 				12863E736F832D8F502B94A0 /* Theme.swift */,
 				E638ED93D0BBFD018966FB52 /* GatewayProfile.swift */,
 				E5FF365A80AA28B4D4CF2347 /* MultiGatewayStore.swift */,
+				B0A200000000000000000002 /* BridgeKeychainSessionStore.swift */,
 			
 				AA6100000000000000000010 ,
 				AA6600000000000000000010 ,
@@ -409,6 +414,7 @@
 				CF2030000000000000000002 /* ChatSessionPrefetcherTests.swift */,
 				CA11E0000000000000000011 /* LocalizationCatalogTests.swift */,
 				FEABDA4B6DAF199B320B1BA1 /* MultiGatewayTests.swift */,
+				B0A200000000000000000004 /* BridgeKeychainSessionStoreTests.swift */,
 			
 				AA6300000000000000000010 ,
 				AA6400000000000000000010 ,
@@ -849,6 +855,7 @@
 				CF2030000000000000000001 /* ChatSessionPrefetcherTests.swift in Sources */,
 				CA11E000000000000000000F /* LocalizationCatalogTests.swift in Sources */,
 				75392054CB69B9596796C57A /* MultiGatewayTests.swift in Sources */,
+				B0A200000000000000000003 /* BridgeKeychainSessionStoreTests.swift in Sources */,
 			
 				AA6300000000000000000011 ,
 				AA6400000000000000000011 ,
@@ -926,6 +933,7 @@
 				65B1D361C78618DBA4550C4F /* ConversationSidebar.swift in Sources */,
 				375D401B1B6F03015EC9073D /* GatewayProfile.swift in Sources */,
 				C075849EE750C3CCD2C87FC7 /* MultiGatewayStore.swift in Sources */,
+				B0A200000000000000000001 /* BridgeKeychainSessionStore.swift in Sources */,
 				3459A8BD9696202CAC9D85A5 /* GatewaySwitcherView.swift in Sources */,
 			
 				AA6100000000000000000011 ,
