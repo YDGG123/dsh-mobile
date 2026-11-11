@@ -355,3 +355,11 @@
 2. **同一问题复发**：在旧条目上加一行「**YYYY-MM-DD 复发**：原因=…」，不新开条目——让「反复坏的东西」一眼看出来。
 3. **判据写不清的**，说明那次其实没验清楚，要标 `判据待补`。
 4. 本文件跟代码进仓库（`Docs/FIXLOG.md`），不写 `releases/`。
+
+### 2026-11-11 · build 90 · 真机「离开家连不上」：重连钉死 LAN 地址的三条路径修复
+
+- **症状**：用户 iPhone 在局域网能连，离开家（蜂窝）连续点「重连」全部失败，且宿主/隧道 07:46-07:54 **零连接记录**——重连请求根本没出手机；会话列表同时空白
+- **根因**（机制级，三条叠加）：①手动重连每次 `connect(to: preferences.endpoint)`，preferences 端点 = preferredEndpoint = 最后成功的 LAN 地址，且 connect() 重置自动轮转进度——连点 N 次 = N 次撞 LAN；②自动慢线轮转的锚点靠 URL 字符串逐字命中（firstIndex(of: absoluteString)），端点串漂移就静默不轮转；③beginConnection 对不在 trustedEndpoints 的地址硬失败且不再重连
+- **修法**（GatewayClient 六处）：端点归一化键 `endpointKey`（host:port，小写+有效端口）替代字符串相等；`rotateAway(from:trusted:)` 轮转工具（键命中取下一个环位，漂移兜底取第一个异键，单端点原地不动）；`connect(to:)` 检测「目标 = 上次失败端点」自动轮开；fail() 记录 `lastFailedEndpointKey`、连接成功清除；慢线轮转改用归一化匹配
+- **判据**：四路类型检查 gate 绿（11-11 08:1x，TYPECHECK_EXIT=0）；**build 90 真机判据 = iOSTester「局域网失败 → 连续重连 → 公网恢复」**（模拟器无法复现蜂窝场景，动态判据在真机）
+- **踩过的弯路**：①07:39 的旧连接曾被当成恢复证据——「在线」要区分是新连接还是残留连接；②连点重连会把自动轮转进度不断清零，让「应该能自愈的轮转」看起来完全失效

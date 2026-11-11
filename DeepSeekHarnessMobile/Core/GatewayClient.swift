@@ -152,6 +152,25 @@ final class GatewayClient: ObservableObject {
     static let foregroundReturnProbeTimeout: Duration = .seconds(1)
 
     /// 旧链路最坏预算（政策常数，供单测钉死）：probe1 + 等下一次心跳 + probe2 + 重连退避。
+    /// 端点归一化键（host 小写 + 有效端口）。轮转与「上次失败」判定都用它，
+    /// 不再依赖 URL 字符串逐字相等——端点串漂移会把轮转锚点打歪（2026-11-11 真机「离开家连不上」）。
+    static func endpointKey(_ url: URL) -> String {
+        let host = url.host?.lowercased() ?? ""
+        let defaultPort = url.scheme?.lowercased() == "wss" ? 443 : 80
+        return "\(host):\(url.port ?? defaultPort)"
+    }
+
+    /// 从 current 出发在 trusted 列表里轮转到**下一个不同键**的端点；
+    /// 当前串漂移（键不在列表里）时退而取第一个不同键的候选；列表只有当前键时返回 nil（原地不动）。
+    static func rotateAway(from current: URL, trusted: [String]) -> URL? {
+        let candidates = trusted.compactMap { URL(string: $0) }
+        let currentKey = endpointKey(current)
+        if let index = candidates.firstIndex(where: { endpointKey($0) == currentKey }) {
+            return candidates[(index + 1) % candidates.count]
+        }
+        return candidates.first { endpointKey($0) != currentKey }
+    }
+
     static func legacyForegroundRecoveryBudgetSeconds(
         probeTimeout: Double = 10, heartbeatInterval: Double = 30, backoff: Double = 2
     ) -> Double { probeTimeout + heartbeatInterval + probeTimeout + backoff }
@@ -366,6 +385,8 @@ final class GatewayClient: ObservableObject {
     var connectedEndpoint: String? { endpoint?.absoluteString }
     private var endpoint: URL?
     private var lastSuccessfulEndpoint: URL?
+    /// 上一次连接失败的端点键（host:port 归一化）；手动重连据此轮开，避免反复撞同一堵墙（2026-11-11 真机案例）。
+    private var lastFailedEndpointKey: String?
     private var lastSuccessfulConnectionWasRtc = false
     private var backgroundConnectionWasRtc = false
     private var foregroundFastRetryAvailable = false
@@ -410,7 +431,15 @@ final class GatewayClient: ObservableObject {
         forceNextWebsocket = false
         isRecoveringFromBackground = false
         isManualPairingAttempt = false
-        beginConnection(to: rawEndpoint, pairingCode: nil, resetReportedFailure: true)
+        var target = rawEndpoint
+        if let failed = lastFailedEndpointKey,
+           let url = URL(string: target), Self.endpointKey(url) == failed,
+           let rotated = Self.rotateAway(from: url, trusted: trustedEndpoints),
+           Self.endpointKey(rotated) != failed {
+            target = rotated.absoluteString
+            traceLifecycle("manual-reconnect rotate away from last failure: \(url.host ?? "?") → \(rotated.host ?? "?")")
+        }
+        beginConnection(to: target, pairingCode: nil, resetReportedFailure: true)
     }
 
     /// Cold launch should only restore a connection for a device that has
@@ -1281,6 +1310,7 @@ final class GatewayClient: ObservableObject {
                 startMonitoringNetworkChanges()
                 reconnectAttempt = 0
                 lastSuccessfulEndpoint = endpoint
+                lastFailedEndpointKey = nil
                 lastSuccessfulConnectionWasRtc = rtcLink?.isRtc == true
                 foregroundFastRetryAvailable = false
                 foregroundRtcRetryAvailable = false
@@ -1476,6 +1506,7 @@ final class GatewayClient: ObservableObject {
         connectionPreparationTask?.cancel()
         connectionPreparationTask = nil
         traceLifecycle("failure-cleanup reconnect=\(shouldReconnect) report=\(reportFailure)")
+        lastFailedEndpointKey = endpoint.map(Self.endpointKey)
         onConnectionInvalidated?()
         resetSubscriptionRequests()
         outboundTask?.cancel()
@@ -1526,10 +1557,9 @@ final class GatewayClient: ObservableObject {
         reconnectTask = Task { [weak self] in
             do { try await Task.sleep(for: .seconds(delay)) } catch { return }
             guard let self, !Task.isCancelled, self.wantsConnection, var endpoint = self.endpoint else { return }
-            if self.trustedEndpoints.count > 1,
-               let index = self.trustedEndpoints.firstIndex(of: endpoint.absoluteString),
-               let next = URL(string: self.trustedEndpoints[(index + 1) % self.trustedEndpoints.count]) {
-                endpoint = next
+            if let rotated = Self.rotateAway(from: endpoint, trusted: self.trustedEndpoints),
+               Self.endpointKey(rotated) != Self.endpointKey(endpoint) {
+                endpoint = rotated
             }
             self.beginConnection(
                 to: endpoint.absoluteString,

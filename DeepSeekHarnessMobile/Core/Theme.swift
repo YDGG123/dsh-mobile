@@ -1062,6 +1062,12 @@ struct DSHTabBar: View {
                     }
                     .foregroundStyle(active ? Color.white : p.ink(0.55))
                     .frame(maxWidth: .infinity, minHeight: 54)
+                    // 未选中的 tab 没有背景色，命中区会塌成「图标 + 文字」两块，
+                    // 两者之间的空隙（正好也是 accessibility frame 的中心）点不到，
+                    // 触摸直接穿透到 tab bar 底下的列表行 —— 2026-11-08 宣传片探针
+                    // 就是这样在「设置」上打开了下面那张会话卡的（点到了 demo-5 行）。
+                    // contentShape 把整个 frame 变成命中区，选中/未选中一致。
+                    .contentShape(Rectangle())
                     .background(active ? AnyShapeStyle(p.brand) : AnyShapeStyle(.clear))
                     .clipShape(Capsule())
                 }
