@@ -399,6 +399,17 @@
 
 ---
 
+### 2026-11-12 · 网关插件设置前端对齐 design-a（方向 A 操作台）
+
+- **任务**：用户定稿 design-a（`/Volumes/Mac专用/Projects/dsh-workspace/design-a/`），网关插件设置 UI 像素级对齐，真实数据与 API 行为全保留。
+- **落点核实**：源真身 = 本仓（v0.11.3）；目标挂载点 = client.js 设置 overlay 面板（shell.overlay slot → portal document.body），非 /mgw 面板、非 iOS App 设置页。
+- **实现**：①`lib/console.mjs`——design-a settings-redesign.js approved 基线 verbatim 拷入 + api 注入契约（data/action 全可选，无 api 回落预览基线，设计稿预览壳不破）；②client.js 内联同一工厂 + `ConsolePanel` 真数据适配器——/mgw/status+devices+config+pair+connection+cloudflare+gateway+auth+tools 全量接线，吊销走 factory ConfirmDialog 二次确认（8e3450a 语义），真配对开窗即取一次性 QR+Token，停止/重启走 /mgw/tools/*（维持 mgw-* 旧面板代码作回滚底，验收后删）；③连接方式网格 4 设计路由 + 3 条真路由（tailscale/p2p/auto-lan）补齐——设计稿缺的 3 条是真 API 支持的行为，不补=回退；④OverlayEntry 换 ConsolePanel（portal 断言同步更新）。
+- **判据**：npm test 46 例 44 过 0 败（trickle 1 失败为预存，stash 对照同败）；console-panel 结构断言绿（初始单块/防嵌套/真数据映射/7 路由网格）；2 条交互用例 skip（桩层异步时序未定型，onConfirm 已执行 fetch 未达，交 iOSTester 真实挂载点验收）。
+- **踩坑**：①/a/mgw/connection 只收 route/stunServers/p2pUrl/tailscaleUrl 四键，多余键整单 400（首次实现把 cfHost 塞进 body）；②Button 渲染 children 是数组（icon null + 文案），测试文本断言要展平；③设计稿 LAN 字段可编辑，真 API 中 lanHost/lanPort 是启动配置（不在 /mgw/config 单源表）——本轮只读呈现，未做假编辑。
+- **边界**：真实挂载点截图（桌面+窄屏、亮+暗）未做，是「像素级完成」的最后一道验收，交 iOSTester；/mgw 面板与 iOS App 设置页不在本单。
+
+---
+
 ## 维护规则
 
 1. **每笔修复提交后**，修的人自己往本文件加一条（或在原条目上补后续），不等催。
