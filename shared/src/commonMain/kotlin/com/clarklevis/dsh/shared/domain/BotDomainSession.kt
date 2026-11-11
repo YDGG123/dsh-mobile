@@ -5,6 +5,11 @@ package com.clarklevis.dsh.shared.domain
  * 不显示模型选择——"The composer carries no model picker or run statistics; a Bot's
  * model lives in its details panel"）。
  *
+ * ⚠️ **2026-11-06 起模型/思考 chip 判定不再用它**（改 [modelControlsHidden]，用户
+ * 两轮裁定收敛为「只防群聊」）；本函数保留给其它需要「Bot 域」语义的调用方
+ * （当前无生产消费方——仅测试在用；若新增使用请先对口径，与 iOS `isBotDomainSession`
+ * 同一条警示）。
+ *
  * 域 = ① Bot 自己的会话（bridge 名册 `bots` 按 sessionId 命中）
  *      ② 群聊 room（同一名册 `rooms` 按 sessionId 命中，与 BotTeamScreen 的
  *        `state?.rooms` 同源）。
@@ -40,5 +45,49 @@ fun isBotDomainSession(
         TeamPhase.LOADING -> true
         // READY/OFFLINE/NEEDS_PAIRING：有名册（或最后一次好名册）⇒ 按命中判定。
         else -> sessionId in botSessionIds || sessionId in roomSessionIds
+    }
+}
+
+/**
+ * **群聊会话判定**（纯函数，可单测，iOS `BridgeTeamMirror.isRoomSession` 同源）：
+ * `sessionId` 命中 **rooms** ⇒ 群聊。2026-11-06 用户改口径：输入框模型/思考档
+ * chip **只对群聊隐藏**——Bot 会话要能切模型（Bot 的模型本就独立于会话，桌面端
+ * ds-bot 走自己的 ModelChoiceDock），只有群聊不许切（11-04 三群聊
+ * `MODEL_SWITCH_COMPACTION_FAILED` 事故防线）。
+ */
+fun isRoomSession(sessionId: String?, roomSessionIds: Set<String>): Boolean {
+    if (sessionId.isNullOrEmpty()) return false
+    return sessionId in roomSessionIds
+}
+
+/**
+ * 视图层入口：输入框模型/思考 chip 是否隐藏（iOS `BridgeTeamAdapter.modelControlsHidden`
+ * 的 Kotlin 镜像，**三态 × 只防群聊**，2026-11-06 用户两轮裁定收敛）：
+ * - READY / OFFLINE：命中 **rooms** ⇒ 隐藏（11-04 群聊卡死事故防线，必须保住）；
+ *   命中 bots 或未命中 ⇒ 显示（Bot 会话放开切模型）。
+ * - NEEDS_PAIRING：bridge 没在跑，不可能有群聊会话 ⇒ 显示（iOS 同口径，保留名册不认）。
+ * - IDLE / LOADING：fail-closed——名册不在手上，此刻确实可能是群聊；名册到了立即按
+ *   命中揭示。⚠️ 此口径成立的前提是轮询**必须继续跑**（2026-11-04 的 missing 态
+ *   省流量跳过已在 2026-11-11 撤销：跳过会让插件缺失网关永远停在 IDLE ⇒ 普通会话
+ *   chip 永久消失；而 iOS 从不跳过——/state 在插件缺失时照样 200 返回空名册，
+ *   READY 后按命中显示）。
+ * - `bridgePhase == null`（桥适配层不存在）⇒ 显示。
+ *
+ * 切模型失败可见性（iOS 86 的风险判断，Android 同款）：selectModel 走 session
+ * control，失败写 lastError → 全局弹窗，不会静默丢消息；Bot 会话理论可复现
+ * MODEL_SWITCH_COMPACTION_FAILED（ds-bot host steward parts.js:183），但 ds-bot
+ * 自带 model-switch rescue 自愈——真机若复现，回退口径。
+ */
+fun modelControlsHidden(
+    sessionId: String?,
+    bridgePhase: TeamPhase?,
+    roomSessionIds: Set<String>,
+): Boolean {
+    if (sessionId.isNullOrEmpty()) return false
+    return when (bridgePhase) {
+        null -> false
+        TeamPhase.READY, TeamPhase.OFFLINE -> isRoomSession(sessionId, roomSessionIds)
+        TeamPhase.NEEDS_PAIRING -> false
+        else -> true
     }
 }

@@ -1976,12 +1976,13 @@ private fun Composer(
                         }
                     }
                     if (!stateHolder.isViewingTeamMember) PermissionControl(stateHolder)
-                    if (!stateHolder.isViewingTeamMember && !stateHolder.isBotDomainSession) {
+                    if (!stateHolder.isViewingTeamMember && !stateHolder.modelControlsHidden) {
                         // iOS :1288-1294：权限位之后 Spacer(minLength: 2)，模型/思考 chip 靠右。
-                        // Bot 域会话（Bot 会话 / 群聊 room）不显示模型/思考 chip：桌面端
-                        // ds-bot/src/client/index.js:916 "The composer carries no model picker"；
-                        // 群聊里切模型会触发 MODEL_SWITCH_COMPACTION_FAILED 卡死（2026-11-03 事故）。
-                        // 隐藏后不提供任何改模型入口——这就是桌面端语义。
+                        // 只防群聊（iOS modelControlsHidden 镜像，用户 11-06 两轮裁定收敛，
+                        // 2026-11-11 Android 对齐）：群聊 room 不显示模型/思考 chip——
+                        // 群聊里切模型会触发 MODEL_SWITCH_COMPACTION_FAILED 卡死（11-04 事故防线）；
+                        // Bot 会话放开切模型（Bot 的模型独立于会话，桌面端走自己的 ModelChoiceDock）。
+                        // 隐藏后不提供任何改模型入口。
                         Spacer(Modifier.weight(1f))
                         ModelControl(stateHolder)
                         EffortControl(stateHolder)

@@ -69,8 +69,13 @@ internal class AndroidBridgeTeamAdapter(
      * LAN 明文（如 3081）与 iOS 生产语义一致默认拒绝。
      */
     private val allowInsecureLoopback: Boolean = false,
+    /**
+     * 与 AndroidAppGraph/控制通道同一主机 id。Bridge 会话和 TeamFeed roster 都是主机私有数据，
+     * 不能像旧实现那样全 App 共用一份。
+     */
+    gatewayLocalId: String = "legacy",
 ) {
-    private val sessionStore = AndroidBridgeSessionStore(context)
+    private val sessionStore = AndroidBridgeSessionStore(context, gatewayLocalId)
     private val appContext: Context = context.applicationContext
     private val store = SharedBridgeTeamStore(sessionStore)
     private val httpClient = OkHttpClient.Builder()
@@ -183,7 +188,13 @@ internal class AndroidBridgeTeamAdapter(
      */
     /** D1 段 5：feed 控制器（adapter 单例一份，Bot 页/team sheet 多个实例共享同一条 WS）。
      *  vc61 ⑥：接上名册水合缓存（构造即 hydrate，切 tab/重启立刻有头像）。 */
-    val teamFeed by lazy { com.clarklevis.dsh.android.teamfeed.TeamFeedController(scope, cacheStore = com.clarklevis.dsh.android.teamfeed.AndroidTeamFeedKeyValueStore(appContext)) }
+    private val teamFeedDelegate = lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        com.clarklevis.dsh.android.teamfeed.TeamFeedController(
+            scope,
+            cacheStore = com.clarklevis.dsh.android.teamfeed.AndroidTeamFeedKeyValueStore(appContext, gatewayLocalId),
+        )
+    }
+    val teamFeed: com.clarklevis.dsh.android.teamfeed.TeamFeedController by teamFeedDelegate
 
     /** feed 未连/断线时由 UI 层调；幂等（同端点+token 不重复连接）。返回是否真的发起了连接。 */
     fun ensureTeamFeedStarted(): Boolean {
@@ -260,6 +271,9 @@ internal class AndroidBridgeTeamAdapter(
             Log.w(TAG, "bridge session write did NOT persist (saveJson silently failed?)")
         }
         start()
+        // 配对回包/补发回包到达时，Bot 页的 origin effect 可能早已跑过；
+        // 这里用刚落盘的新 token 启动 feed，避免页面停在“已配对但无实时帧”。
+        ensureTeamFeedStarted()
     }
 
     /** 幂等启动：恢复落盘会话 → 立刻刷新一次 → 8s 轮询。 */
@@ -308,7 +322,13 @@ internal class AndroidBridgeTeamAdapter(
     fun stop() {
         loopJob?.cancel()
         loopJob = null
+        // feed 不跟随 HTTP 轮询的 scope 取消而自动断开；必须显式关 socket，
+        // 否则切主机后旧 feed 仍持有旧 token 并继续改写旧 adapter。
+        if (teamFeedDelegate.isInitialized()) teamFeed.stop()
     }
+
+    /** StateHolder/graph 退役：HTTP 轮询与 TeamFeed 都停。 */
+    fun close() = stop()
 
     /**
      * 拉取某群聊的消息历史（REST `GET /mobile/v1/conversations/{id}/messages?limit=50[&cursor=]`），
@@ -401,16 +421,12 @@ internal class AndroidBridgeTeamAdapter(
                 onSessionMissing?.invoke()
                 return@withLock
             }
-            // 网关契约 d174044：botPlugin=missing ⇒ 未装 Bot 插件，团队端点必然 501。
-            // 可选省流量项（Chief 2026-11-04）：省掉 /state /conversations /cards 的注定
-            // 失败请求，只留 /info 心跳；装上插件后下一次 /info 变 legacy/full，
-            // 完整轮询自动恢复（不需要重启或回前台）。配对自愈在上方 token 检查里，不受影响。
-            if (botPluginCapability == com.clarklevis.dsh.shared.domain.BotPluginCapability.MISSING) {
-                lastError = null
-                lastErrorCode = null
-                publishState()
-                return@withLock
-            }
+            // ⚠️ 2026-11-04 曾在此按 botPlugin=missing 提前返回省流量（跳过 /state
+            // /conversations /cards）；2026-11-11 撤销——modelControlsHidden 的
+            // IDLE/LOADING fail-closed（iOS 86 口径）以「轮询必须继续跑」为前提：
+            // 插件缺失时 /state 照样 200 返回空名册（adapter.mjs:279），轮询把 phase
+            // 推到 READY 后按命中显示；若跳过，phase 永远停在 IDLE ⇒ 普通会话
+            // 模型/思考 chip 永久消失。iOS 从不跳过，对齐之。
             val state = authorizedFetch("$base/mobile/v1/state")
             val stateJson = when (state) {
                 is BridgeFetch.Ok -> state.body

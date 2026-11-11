@@ -2994,6 +2994,21 @@ class AndroidSharedStateHolder(
         val requestId: String = UUID.randomUUID().toString()
     )
 
+    internal val bridgeTeam: AndroidBridgeTeamAdapter? =
+        graph?.let {
+            AndroidBridgeTeamAdapter(
+                it.application,
+                it.applicationScope,
+                gatewayLocalId = it.gatewayLocalId,
+                // Chief 拍板（2026-11-01）：对齐 iOS 生产 https-only；debug 源集才放行 loopback 明文。
+                allowInsecureLoopback = BRIDGE_ALLOW_INSECURE_LOOPBACK
+            ).apply {
+                // vc60 P0：轮询判死也触发自愈拉取——原先只有 hello 一个触发点，判死后控制通道
+                // 不重连就没有 hello，死锁到重启（vc59 真机「尚未配对」根因）。
+                onSessionMissing = { requestBridgeSessionIfMissing() }
+            }
+        }
+
     // 所有实例状态初始化完成后才启动异步观察；回调可在构造线程返回前到达。
     init {
         graph?.let { appGraph ->
@@ -3609,26 +3624,12 @@ class AndroidSharedStateHolder(
         }
     }
 
-    internal val bridgeTeam: AndroidBridgeTeamAdapter? =
-        graph?.let {
-            AndroidBridgeTeamAdapter(
-                it.application,
-                it.applicationScope,
-                // Chief 拍板（2026-11-01）：对齐 iOS 生产 https-only；debug 源集才放行 loopback 明文。
-                allowInsecureLoopback = BRIDGE_ALLOW_INSECURE_LOOPBACK
-            ).apply {
-                // vc60 P0：轮询判死也触发自愈拉取——原先只有 hello 一个触发点，判死后控制通道
-                // 不重连就没有 hello，死锁到重启（vc59 真机「尚未配对」根因）。
-                onSessionMissing = { requestBridgeSessionIfMissing() }
-            }
-        }
-
     /**
-     * Bot 域会话（① Bot 自己的会话 ② 群聊 room，均按 bridge 名册 sessionId 命中）：
-     * 输入框不显示模型/思考 chip——桌面端 `ds-bot/src/client/index.js:916` 语义，
-     * 群聊里切模型会触发 MODEL_SWITCH_COMPACTION_FAILED 卡死（2026-11-03 事故）。
-     * 判定本体在 shared 的 isBotDomainSession（纯函数，反向测试在 commonTest）：
-     * LOADING（已配对、名册未达）fail-closed 按可能在 Bot 域隐藏；IDLE/未配对按普通会话。
+     * ⚠️ 2026-11-11 起**不再用于模型/思考 chip 判定**（改 [modelControlsHidden]，
+     * 用户 11-06 两轮裁定收敛为「只防群聊」）；保留给其它需要「Bot 域」语义的
+     * 调用方（当前无生产消费方——若新增使用请先对口径，与 iOS isBotDomainSession 同警示）。
+     * Bot 域会话（① Bot 自己的会话 ② 群聊 room，均按 bridge 名册 sessionId 命中）；
+     * 判定本体在 shared 的 isBotDomainSession（纯函数，反向测试在 commonTest）。
      */
     val isBotDomainSession: Boolean
         get() {
@@ -3638,6 +3639,24 @@ class AndroidSharedStateHolder(
                 sessionId = snapshot.selectedSessionId,
                 bridgePhase = teamState.phase,
                 botSessionIds = teamState.bots.mapTo(mutableSetOf()) { it.sessionId },
+                roomSessionIds = teamState.rooms.mapTo(mutableSetOf()) { it.sessionId },
+            )
+        }
+
+    /**
+     * 输入框模型/思考 chip 是否隐藏（iOS `modelControlsHidden` 镜像，三态 × 只防群聊，
+     * 2026-11-06 用户两轮裁定收敛；2026-11-11 Android 对齐）：
+     * READY/OFFLINE 按 **rooms** 命中（11-04 群聊卡死事故防线保住）；Bot 会话放开切模型；
+     * NEEDS_PAIRING 显示；IDLE/LOADING fail-closed（名册到了立即按命中揭示）。
+     * 判定本体在 shared 的 modelControlsHidden（纯函数，反向测试在 commonTest）。
+     */
+    val modelControlsHidden: Boolean
+        get() {
+            val team = bridgeTeam ?: return false
+            val teamState = team.state
+            return com.clarklevis.dsh.shared.domain.modelControlsHidden(
+                sessionId = snapshot.selectedSessionId,
+                bridgePhase = teamState.phase,
                 roomSessionIds = teamState.rooms.mapTo(mutableSetOf()) { it.sessionId },
             )
         }
