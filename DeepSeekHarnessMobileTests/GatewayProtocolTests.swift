@@ -16800,3 +16800,79 @@ final class Gateway022ProtocolTests: XCTestCase {
         XCTAssertEqual(event.requestId, "send")
     }
 }
+
+/// P0 状态慢修复（2026-11-12）回归：连接就绪重派发缺失的 default 只读类
+/// （对齐 Android holder :1366/1386/1401），无请求风暴，超时清 loading 不永久转圈。
+@MainActor
+final class SessionControlReadyRedispatchTests: XCTestCase {
+    private final class CountingExecutor: GatewaySessionControlEffectExecuting {
+        private(set) var defaultsCount = 0
+        private(set) var presetsCount = 0
+        private(set) var defaultModelCount = 0
+        func requestModels(sessionId: String?) {}
+        func requestPermissionOptions(sessionId: String?) {}
+        func requestContextUsage(sessionId: String) {}
+        func requestSessionStats(sessionId: String) {}
+        func requestAgentPresets() { presetsCount += 1 }
+        func requestDefaults() { defaultsCount += 1 }
+        func requestDefaultModel() { defaultModelCount += 1 }
+        func selectModel(sessionId: String, provider: String, model: String, reasoningEffort: String?) {}
+        func setPermission(sessionId: String, name: String) {}
+        func saveDefaultModel(provider: String, model: String, reasoningEffort: String?) {}
+        func setDefault(target: String, value: String) {}
+    }
+
+    private func flushDeferredKMPEvents(in store: AppStore) async {
+        await store.awaitPendingKMPEventDeliveriesForTesting()
+    }
+
+    private func makeStore(timeout: Duration = .seconds(12), executor: CountingExecutor) -> AppStore {
+        AppStore(
+            preferences: AppPreferencesSpy(
+                endpoint: "wss://ready-redispatch.example/ws/mobile",
+                selectedWorkspaceID: nil,
+                sessions: []
+            ),
+            sessionControlBridge: SharedSessionControlStore(),
+            sessionControlEffectExecutor: executor,
+            sessionControlRequestTimeout: timeout,
+            chatHistoryCache: nil
+        )
+    }
+
+    func testReady_RedispatchesMissingDefaultsExactlyOnce() async throws {
+        let executor = CountingExecutor()
+        let store = makeStore(executor: executor)
+        let ready = try XCTUnwrap(store.gateway.onConnectionReady, "构造后必须已挂连接就绪钩子")
+        ready()
+        await flushDeferredKMPEvents(in: store)
+        XCTAssertEqual(executor.defaultsCount, 1, "断连清空后 ready 必须恰好重发一次 defaults")
+        XCTAssertEqual(executor.presetsCount, 1)
+        XCTAssertEqual(executor.defaultModelCount, 1)
+    }
+
+    func testReadyAgainWhileInFlight_Dedups_NoStorm() async throws {
+        let executor = CountingExecutor()
+        let store = makeStore(executor: executor)
+        store.gateway.onConnectionReady?()
+        await flushDeferredKMPEvents(in: store)
+        store.gateway.onConnectionReady?()
+        await flushDeferredKMPEvents(in: store)
+        store.gateway.onConnectionReady?()
+        await flushDeferredKMPEvents(in: store)
+        XCTAssertEqual(executor.defaultsCount, 1, "在途时重复 ready 由 store dedup（unchanged）拦下，无请求风暴")
+        XCTAssertEqual(executor.presetsCount, 1)
+        XCTAssertEqual(executor.defaultModelCount, 1)
+    }
+
+    func testTimeout_ClearsLoading_DoesNotAutoResend() async throws {
+        let executor = CountingExecutor()
+        let store = makeStore(timeout: .seconds(1), executor: executor)
+        store.gateway.onConnectionReady?()
+        await flushDeferredKMPEvents(in: store)
+        XCTAssertEqual(executor.defaultsCount, 1)
+        try await Task.sleep(for: .seconds(2))
+        XCTAssertFalse(store.defaultConfigurationLoadingKinds.contains("defaults"), "超时必须清 loading，不得永久转圈")
+        XCTAssertEqual(executor.defaultsCount, 1, "超时后不自动重发（重试由下次就绪触发），有界")
+    }
+}

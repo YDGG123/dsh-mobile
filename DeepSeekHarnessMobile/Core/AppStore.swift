@@ -1010,6 +1010,9 @@ final class AppStore: ObservableObject {
     private let sessionControlRequestTracker = RequestTracker()
     private let defaultConfigurationRequestTracker = RequestTracker()
     private var sessionControlRequestsSuspended = false
+    /// P0 状态慢诊断（2026-11-12）：default 只读类的派发/发送/超时三分支留痕，
+    /// 只记 kind/token/连接态，不记载荷（敏感纪律同 GatewayLifecycle）。
+    private static let sessionControlDiagLog = Logger(subsystem: "ai.dsh.mobile.ios", category: "session-control")
     private var deferredSessionControlEffects: [KMPSessionControlEffect] = []
     /// Navigation preparation is intentionally cheap. Remote activation begins
     /// from the destination lifecycle, after NavigationStack installs its bar.
@@ -5785,7 +5788,23 @@ self.bumpAttachmentRenderEpoch(id)
     private func dispatchSessionControlProjection(_ action: KMPSessionControlAction) -> KMPSessionControlTransition {
         submitSessionControlIntent(.projection(action))
     }
+    private static func defaultReadKindName(of intent: KMPSessionControlIntent) -> String? {
+        switch intent {
+        case .requestAgentPresets: return "agent-presets"
+        case .requestDefaults: return "defaults"
+        case .requestDefaultModel: return "default-model"
+        default: return nil
+        }
+    }
+
     private func dispatchSessionControl(_ intent: KMPSessionControlIntent) {
+        let transition = submitSessionControlIntent(intent)
+        defer {
+            if let kind = Self.defaultReadKindName(of: intent) {
+                Self.sessionControlDiagLog.notice("dispatch kind=\(kind, privacy: .public) applied=\(transition.applied, privacy: .public) committed=\(transition.committed, privacy: .public) error=\(transition.error.map { String(describing: $0) } ?? \"-\", privacy: .public) connected=\(self.gateway.state.isConnected, privacy: .public)")
+            }
+        }
+    }
         submitSessionControlIntent(intent)
     }
     @discardableResult
@@ -5909,6 +5928,20 @@ self.bumpAttachmentRenderEpoch(id)
         for effect in pending where kmpSessionControlStore.snapshot.requestTokens[effect.requestKey] == effect.requestToken {
             executeSessionControlEffect(effect)
         }
+        // P0 状态慢修复（2026-11-12）：掉线时 requestsDisconnected 清空全部 token ⇒
+        // deferred 的 replay 因 token 不匹配全部跳过，defaults/agent-presets 没人再要
+        // （对齐 Android holder 连接就绪重派发 :1366/1386/1401）。就绪时只补**缺失**的
+        // 三个只读 default 类：已有数据不重发、在途的由 store dedup 拦下（unchanged）
+        // ⇒ 无请求风暴；写类与会话类不在此列（原语义不变）。
+        if permissionDefault == nil || permissionDefaultOptions.isEmpty {
+            submitSessionControlIntent(.requestDefaults(isConnected: true))
+        }
+        if agentPresets.isEmpty {
+            submitSessionControlIntent(.requestAgentPresets(isConnected: true))
+        }
+        if defaultModelSelection == nil {
+            submitSessionControlIntent(.requestDefaultModel(isConnected: true))
+        }
     }
 
     func executeSessionControlEffect(_ effect: KMPSessionControlEffect) {
@@ -5923,6 +5956,9 @@ self.bumpAttachmentRenderEpoch(id)
         let isDefault = Self.defaultConfigurationRequestKinds.contains(effect.requestKey)
         let tracker = isDefault ? defaultConfigurationRequestTracker : sessionControlRequestTracker
         let startedAt = Date()
+        if isDefault {
+            Self.sessionControlDiagLog.notice("effect-send kind=\(effect.requestKey, privacy: .public) token=\(effect.requestToken, privacy: .public) connected=\(self.gateway.state.isConnected, privacy: .public)")
+        }
         if effect.requestKey == "agent-presets" {
             agentPresetsLoadError = nil
             notice("Agent 预设诊断", "开始请求 token=\(effect.requestToken) connected=\(gateway.state.isConnected)")

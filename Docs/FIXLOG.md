@@ -280,6 +280,22 @@
   - Chief 给的「旧 ydgg 卡 ~18s」与我代码读数的 60s 上限对不上——真实每跳耗时以 GatewayLifecycle 日志/iOSTester RTT 为准，别拿估算当读数
   - 「状态下发慢」不一定是网络：re-apply 换 instanceId 的全量重拉是另一条独立线，别全甩给重连
 
+### 2026-11-12 · build 93（预备，未出包）· 权限/模式转圈：control 就绪不重派发 + 「模式请求超时」弹窗映射（iOSCoder）
+
+- **症状**（用户视角）：重连变快后「模式那些都很慢，进对话页左下角的权限会转圈很久」；另「经常弹『模式请求超时』」（14:00 截图）
+- **根因**（机制级）：
+  1. 转圈：`defaultConfigurationLoadingKinds`（KMP）里的 defaults/agent-presets 卡住——掉线时 `requestsDisconnected` 清空全部 token ⇒ 就绪后 deferred replay 因 token 不匹配**全部跳过**，三个只读类没人再要；Android holder 有连接就绪重派发（:1366/1386/1401）而 iOS 没有 ⇒ 双端不对称
+  2. 「模式请求超时」弹窗：**另一个独立状态机** SharedSessionAgentPresetStore——会话模式切换（select-agent-preset，写/设置类）15s 看门狗 requestFailed（AppStore.swift:3624-3638）。网关侧已回显 requestId（index.mjs:1613 `...requestId`）、13:58 窗口 preset 读查询均 query ok——**嫌疑=宿主确认耗时>15s**（完成态会话上切模式的宿主行为），App 侧机制本身合规
+- **怎么查**：全日志 defaults 查询 0 次 vs agent-presets 167 次 → KMP 状态机读源（request() 的 latest-wins 去重 :384-405、terminate token 守卫 :415）→ iOSTester 稳定连接 105s 零断开 + 零 defaults 流量（排除「响应丢在断线上」对该窗的解释）→ 精确文案反查（AppStore:3633）
+- **修法**（工作树，sha 提交后补记；**不发 93**）：
+  1. iOS 侧对称补齐：`resumeSessionControlRequests` 就绪时对**缺失**的三个只读 default 类各重派发一次（permissionDefault/permissionDefaultOptions/agentPresets/defaultModelSelection 缺失过滤 + store dedup ⇒ 无请求风暴）；共享层**不改**（AndroidCoder 预审一致）
+  2. 诊断：session-control os_log 三分支（dispatch applied/committed/error、effect-send kind/token/connected、超时已有日志）——只记 kind/token/连接态不记载荷
+  3. 移除 resume 里冗余的 isConnected 守卫（resume 仅由 ready 触发；用例实证它把测试与冷启动补发一并拦死）
+  4. 模式切换弹窗：**不改**——现有语义已满足「超时清在途+自动 query 刷新真实模式+可安全重试」（requestFailed :129-131 自动 query），弹窗频率的根在宿主确认耗时，移交 Chief/宿主侧排查
+- **判据**：SessionControlReadyRedispatchTests 3 例（ready 恰好各重发一次 / 在途重复 ready dedup 无风暴 / 1s 注入超时清 loading 且不自动重发）+ 此前四类合计 **38 例全绿 0 败**（iPhone 17 Pro 模拟器，TEST_EXIT=0，14:13:43）
+- **踩过的弯路**：①「写配置文件=惰性生效」被打脸（patch.yml 有热加载 watcher，re-apply 掐了手机 WS 一次）；②redispatch 首版加了 isConnected 守卫——用例实证守卫把补发拦死，**守卫冗余时宁可不要**；③「模式请求超时」差点被并进 default 类修复——精确文案反查发现是另一个状态机，**弹窗文案必须逐字定位来源**
+
+---
 ---
 ---
 
