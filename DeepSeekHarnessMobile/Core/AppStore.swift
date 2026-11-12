@@ -5826,11 +5826,9 @@ self.bumpAttachmentRenderEpoch(id)
         let transition = submitSessionControlIntent(intent)
         defer {
             if let kind = Self.defaultReadKindName(of: intent) {
-                Self.sessionControlDiagLog.notice("dispatch kind=\(kind, privacy: .public) applied=\(transition.applied, privacy: .public) committed=\(transition.committed, privacy: .public) error=\(transition.error.map { String(describing: $0) } ?? \"-\", privacy: .public) connected=\(self.gateway.state.isConnected, privacy: .public)")
+                Self.sessionControlDiagLog.notice("dispatch kind=\(kind, privacy: .public) applied=\(transition.applied, privacy: .public) committed=\(transition.committed, privacy: .public) error=\(transition.error.map { String(describing: $0) } ?? "-", privacy: .public) connected=\(self.gateway.state.isConnected, privacy: .public)")
             }
         }
-    }
-        submitSessionControlIntent(intent)
     }
     @discardableResult
     private func submitSessionControlIntent(
