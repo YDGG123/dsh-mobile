@@ -446,3 +446,64 @@ final class BridgePairedReplaceRebuildTests: XCTestCase {
         XCTAssertNil(adapter.connectionIssue, "重配对必须清连接问题")
     }
 }
+
+
+/// P0 重连慢修复（2026-11-12）回归：掉线后**首个**退避 attempt 优先回「最后成功的地址」
+/// （真机事故形态：Funnel 掉线→rotate 第一跳就绕到蜂窝被拦的旧域名，握手挂满超时）。
+/// 纯函数钉行为；conversation/control 两客户端共用同一 static 函数，行为一致性由构造保证。
+@MainActor
+final class GatewayReconnectTargetTests: XCTestCase {
+    private func url(_ s: String) -> URL { URL(string: s)! }
+    private let funnel = "wss://imac.tailafcc67.ts.net/ws/mobile"
+    private let p2p = "ws://100.105.47.105:3081/ws/mobile"
+    private let ydgg = "wss://ydgg.dpdns.org/ws/mobile"
+    private let lan = "ws://10.10.10.235:3081/ws/mobile"
+    private lazy var trusted = [funnel, p2p, ydgg, lan]
+
+    func testFirstBackoffAttempt_ReturnsLastSuccessfulFunnel_NotRotation() {
+        // Funnel 成功→异常断开：首个退避 attempt 必须仍是 Funnel，不得按序绕到 100.x/ydgg
+        let target = GatewayClient.reconnectTarget(
+            current: url(funnel), lastSuccessful: url(funnel), attempt: 1, trusted: trusted)
+        XCTAssertEqual(target.absoluteString, funnel)
+    }
+
+    func testSecondAttempt_AfterPreferredFailedAgain_RotatesAway() {
+        // preferred 再失败（attempt 2）→ 正常轮换，不钉死单一地址
+        let target = GatewayClient.reconnectTarget(
+            current: url(funnel), lastSuccessful: url(funnel), attempt: 2, trusted: trusted)
+        XCTAssertEqual(target.absoluteString, p2p)
+    }
+
+    func testFirstAttemptWithNoLastSuccessful_KeepsLegacyRotation() {
+        // 从未连上过（无 lastSuccessful）→ 保持原 rotate 行为
+        let target = GatewayClient.reconnectTarget(
+            current: url(funnel), lastSuccessful: nil, attempt: 1, trusted: trusted)
+        XCTAssertEqual(target.absoluteString, p2p)
+    }
+
+    func testMidCycleRotation_DoesNotJumpBackToLastSuccessful() {
+        // 轮换中途（attempt≥2）不回跳 lastSuccessful——保证整圈机会不被丢弃
+        let target = GatewayClient.reconnectTarget(
+            current: url(ydgg), lastSuccessful: url(funnel), attempt: 3, trusted: trusted)
+        XCTAssertEqual(target.absoluteString, lan)
+    }
+
+    func testRotationExhausted_ReturnsCurrentUnchanged() {
+        // 单端点：rotate 无处可去，原地不动
+        let target = GatewayClient.reconnectTarget(
+            current: url(funnel), lastSuccessful: nil, attempt: 1, trusted: [funnel])
+        XCTAssertEqual(target.absoluteString, funnel)
+    }
+
+    func testPreferredThenRotate_SequenceCoversFullCycle() {
+        // 完整周期：attempt1 回 Funnel，失败后 attempt2/3/4 依序轮换不回头
+        let a1 = GatewayClient.reconnectTarget(current: url(funnel), lastSuccessful: url(funnel), attempt: 1, trusted: trusted)
+        XCTAssertEqual(a1.absoluteString, funnel)
+        let a2 = GatewayClient.reconnectTarget(current: url(funnel), lastSuccessful: url(funnel), attempt: 2, trusted: trusted)
+        XCTAssertEqual(a2.absoluteString, p2p)
+        let a3 = GatewayClient.reconnectTarget(current: url(p2p), lastSuccessful: url(funnel), attempt: 3, trusted: trusted)
+        XCTAssertEqual(a3.absoluteString, ydgg)
+        let a4 = GatewayClient.reconnectTarget(current: url(ydgg), lastSuccessful: url(funnel), attempt: 4, trusted: trusted)
+        XCTAssertEqual(a4.absoluteString, lan)
+    }
+}

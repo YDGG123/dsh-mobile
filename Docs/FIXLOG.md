@@ -261,6 +261,26 @@
   - 后台跑 xcodebuild 没带 JAVA_HOME 等四变量 → KMP Framework 脚本秒退（"Unable to locate a Java Runtime"，TEST_EXIT=65）——11-08 nohup 教训的 xcodebuild 变体，**后台/脚本任务必须显式 export 四变量**
   - 服务端补丁（签发跟随连接 origin）落地后横幅消失前还有一轮错位：早期临时隧道重启换名 + paired 帧写死静态 mobileV1PublicUrl——那是网关侧问题（Chief 修），与本条客户端门是两条线；「门修好」≠「会话列表回来」，分开验收
 
+### 2026-11-12 · build 93（预备，未出包）· Funnel 掉线后重连慢：退避首跳绕进蜂窝被拦域名 + 握手无超时（iOSCoder）
+
+- **症状**（用户视角）：92 + Funnel「连接上了，但是稳定性很差，重连还很慢，状态下发也很慢」
+- **根因**（机制级，代码审计 12:55-13:05）：
+  1. 重连主循环 `GatewayClient.swift:1558-1580` 掉线后按 `rotateAway` **顺序轮换**（指数退避 2/4/8/16/30s），配对载荷序＝Funnel→100.x(tsnet P2P)→ydgg→LAN——蜂窝下第一跳之外还会撞**被 SNI 拦截的旧 ydgg**；
+  2. socket 用 `URLSession(configuration: .ephemeral)` **无显式超时**（:124）→ 静默丢包型拦截握手挂满默认 60s；
+  3. 通用退避分支**不回 `lastSuccessfulEndpoint`**（只有前台 1s 快恢复分支用它）——刚失败的正是最后成功地址也不回头，整圈游走+退避叠加 ⇒ 重连慢；
+  4. 「状态下发慢」另有两候选：12:18 re-apply 换 team-feed instanceId+清 session 基线（一次性，全量重拉）；心跳 30s+probe10s+两击才拆 ⇒ 半死连接最长 ~50-70s 才换线（本补丁不动，Chief 圈定）。
+- **怎么查**：iOSTester Funnel RTT/丢包采样并行中；我从横幅/心跳/轮换三层读源码定位（rotateAway 主循环 :1558、lastSuccessfulEndpoint 仅 :1550 前台分支使用、ephemeral 无超时 :124）
+- **修法**（工作树，提交 sha 提交后补记；**不发 93、不要求重配对**）：
+  1. `reconnectTarget`（新纯函数，GatewayClient.swift）：掉线后**首个退避 attempt 优先回 lastSuccessfulEndpoint**（本例 Funnel）；它再失败（attempt≥2）才正常 rotate——不钉死单一地址；从未连上过保持原行为
+  2. 握手看门狗：`handshakeWatchdogTimeout = 10s`，socket 创建即起，10s 仍 `.connecting` 则掐 socket 走正常 fail→重连；**不动 request.timeoutInterval**（它管空闲读，25-30s 心跳会被短值误杀）；tsnet prepareTunnel 在 socket 创建前完成，不受影响
+  3. 保留前台 1s 快恢复与心跳 30+10/两击（Chief 圈定不扩大）
+- **判据**：新增 GatewayReconnectTargetTests 6 例（首跳回 Funnel 非轮换 / attempt≥2 正常轮换 / 无 lastSuccessful 保持原行为 / 轮换中途不回跳 / 单端点原地 / 全周期序列）；回归四类全绿（结果回填）；看门狗为 inline 逻辑未做自动化（需挂起式假服务器），真机判据＝GatewayLifecycle 日志可数「掉线→首 attempt 端点=Funnel、无 ydgg 途经、总耗时≤一个退避周期」
+- **踩过的弯路**：
+  - 我先报「默认出码改 Funnel 需下次重启生效」——实测打脸：宿主对 cordis.patch.yml 有热加载 watcher，保存即 re-apply（顺带把手机 WS 掐了一次，见 12:18 日志）；**「写配置文件=惰性生效」的假设必须实测**
+  - Chief 给的「旧 ydgg 卡 ~18s」与我代码读数的 60s 上限对不上——真实每跳耗时以 GatewayLifecycle 日志/iOSTester RTT 为准，别拿估算当读数
+  - 「状态下发慢」不一定是网络：re-apply 换 instanceId 的全量重拉是另一条独立线，别全甩给重连
+
+---
 ---
 
 ## 安卓侧修复（AndroidCoder）

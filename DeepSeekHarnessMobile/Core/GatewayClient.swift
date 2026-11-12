@@ -147,6 +147,9 @@ final class GatewayClient: ObservableObject {
     static let probeMissLimit = 2
     /// 日常 30s 心跳那条探测线的超时——2026-10-26 断连风暴防线的地盘，**不改**。
     static let heartbeatProbeTimeout: Duration = .seconds(10)
+    /// 握手看门狗：蜂窝对被拦域名的静默丢包会让 WS 握手挂满 URLSession 默认 60s。
+    /// 不用 request.timeoutInterval——它管空闲读超时，25-30s 心跳间隔会被短值误杀。
+    static let handshakeWatchdogTimeout: Duration = .seconds(10)
     /// 「回到前台」这一次探测的短超时（81）：用户判据是回前台 ≤3s 连上，
     /// 10s×2 的旧预算到不了；短超时**只用于这条路径**，两次 miss 才拆的红线不动。
     static let foregroundReturnProbeTimeout: Duration = .seconds(1)
@@ -178,6 +181,24 @@ final class GatewayClient: ObservableObject {
     /// 新链路预算：前台恢复探测用 1s 短超时、miss 立即重探、giveUp 后跳过退避直接重连。
     static func quickForegroundRecoveryBudgetSeconds(quickTimeout: Double = 1, backoff: Double = 0) -> Double {
         quickTimeout + quickTimeout + backoff
+    }
+
+    /// 掉线重连目标决策（纯函数，可单测）：
+    /// attempt 1（本轮首次退避）优先回「最后成功的地址」——它刚被证明可用，不按序绕走
+    /// （2026-11-12 真机事故：蜂窝下第一跳绕到被拦的旧域名，握手挂满超时 ⇒ 重连慢）；
+    /// 该地址再失败（attempt ≥ 2）才按 trustedEndpoints 顺序 rotate，避免钉死单一地址。
+    /// lastSuccessfulEndpoint 缺席（从未连上过）时保持原 rotate 行为。
+    static func reconnectTarget(current: URL, lastSuccessful: URL?, attempt: Int, trusted: [String]) -> URL {
+        // attempt 1 无条件回 lastSuccessful：preferred==current 时也要**原地重试**而不是轮换走人
+        //（回归用例首跳曾抓出此 bug：加了 != 守卫会掉进 rotate，正好复刻要修的事故）
+        if attempt <= 1, let preferred = lastSuccessful {
+            return preferred
+        }
+        if let rotated = Self.rotateAway(from: current, trusted: trusted),
+           Self.endpointKey(rotated) != Self.endpointKey(current) {
+            return rotated
+        }
+        return current
     }
 
     /// 判活结论（纯函数，单测直接钉）。放在这里而不是写死进 Task：
@@ -327,6 +348,7 @@ final class GatewayClient: ObservableObject {
     private var connectionPreparationTask: Task<Void, Never>?
     private var connectionGeneration = UUID()
     private var reconnectTask: Task<Void, Never>?
+    private var handshakeWatchdogTask: Task<Void, Never>?
     private var connectionTimeoutTask: Task<Void, Never>?
     private var heartbeatTask: Task<Void, Never>?
     private var foregroundProbeTask: Task<Void, Never>?
@@ -413,6 +435,7 @@ final class GatewayClient: ObservableObject {
         connectionPreparationTask?.cancel()
         reconnectTask?.cancel()
         connectionTimeoutTask?.cancel()
+        handshakeWatchdogTask?.cancel()
         foregroundProbeTask?.cancel()
         foregroundRtcTimeoutTask?.cancel()
         heartbeatTask?.cancel()
@@ -638,6 +661,7 @@ final class GatewayClient: ObservableObject {
             let socket = self.transportSession.webSocketTask(with: request)
             socket.maximumMessageSize = Self.maximumIncomingMessageSize
                 self.socket = socket
+            self.startHandshakeWatchdog(generation: generation, socket: socket)
             self.lastInboundFrameAt = Date()
             self.consecutiveProbeMisses = 0
             self.socket = socket
@@ -716,6 +740,8 @@ final class GatewayClient: ObservableObject {
         reconnectTask = nil
         connectionTimeoutTask?.cancel()
         connectionTimeoutTask = nil
+        handshakeWatchdogTask?.cancel()
+        handshakeWatchdogTask = nil
         heartbeatTask?.cancel()
         heartbeatTask = nil
         foregroundProbeTask?.cancel()
@@ -1309,6 +1335,8 @@ final class GatewayClient: ObservableObject {
                 isManualPairingAttempt = false
                 startMonitoringNetworkChanges()
                 reconnectAttempt = 0
+                handshakeWatchdogTask?.cancel()
+                handshakeWatchdogTask = nil
                 lastSuccessfulEndpoint = endpoint
                 lastFailedEndpointKey = nil
                 lastSuccessfulConnectionWasRtc = rtcLink?.isRtc == true
@@ -1556,16 +1584,37 @@ final class GatewayClient: ObservableObject {
         traceLifecycle("schedule-reconnect attempt=\(reconnectAttempt) delaySeconds=\(delay)\(immediateReconnect ? " mode=quick" : "")")
         reconnectTask = Task { [weak self] in
             do { try await Task.sleep(for: .seconds(delay)) } catch { return }
-            guard let self, !Task.isCancelled, self.wantsConnection, var endpoint = self.endpoint else { return }
-            if let rotated = Self.rotateAway(from: endpoint, trusted: self.trustedEndpoints),
-               Self.endpointKey(rotated) != Self.endpointKey(endpoint) {
-                endpoint = rotated
+            guard let self, !Task.isCancelled, self.wantsConnection,
+                  let current = self.endpoint else { return }
+            // P0 重连慢修复（2026-11-12）：首个退避 attempt 先回最后成功地址，再失败才轮换
+            let target = Self.reconnectTarget(
+                current: current,
+                lastSuccessful: self.lastSuccessfulEndpoint,
+                attempt: reconnectAttempt,
+                trusted: self.trustedEndpoints)
+            if let fromHost = URL(string: current.absoluteString)?.host,
+               let toHost = URL(string: target.absoluteString)?.host, fromHost != toHost {
+                traceLifecycle("reconnect-rotate attempt=\(reconnectAttempt) from-host=\(fromHost) to-host=\(toHost)")
             }
             self.beginConnection(
-                to: endpoint.absoluteString,
+                to: target.absoluteString,
                 pairingCode: self.pairingCode,
                 resetReportedFailure: false
             )
+        }
+    }
+
+    /// 握手看门狗：10s 内没完成握手（state 仍 .connecting）就掐 socket，走正常 fail→重连
+    /// （配合 reconnectTarget：preferred 失败后下一 attempt 正常轮换，不钉死）。
+    private func startHandshakeWatchdog(generation: UUID, socket: URLSessionWebSocketTask) {
+        handshakeWatchdogTask?.cancel()
+        handshakeWatchdogTask = Task { [weak self, weak socket] in
+            try? await Task.sleep(for: Self.handshakeWatchdogTimeout)
+            guard !Task.isCancelled, let self, let socket,
+                  self.connectionGeneration == generation, self.socket === socket,
+                  self.state == .connecting else { return }
+            traceLifecycle("handshake-watchdog-fire timeoutSeconds=\(Int(Self.handshakeWatchdogTimeout.components.seconds))")
+            socket.cancel(with: .goingAway, reason: nil)
         }
     }
 
