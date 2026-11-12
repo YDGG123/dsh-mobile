@@ -89,6 +89,9 @@
 		CF2020000000000000000001 /* ChatSessionPrefetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF2020000000000000000002 /* ChatSessionPrefetcher.swift */; };
 		CF2030000000000000000001 /* ChatSessionPrefetcherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF2030000000000000000002 /* ChatSessionPrefetcherTests.swift */; };
 		CAFE00000000000000000000 /* RealSessionScrollPerformanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFE00000000000000000001 /* RealSessionScrollPerformanceTests.swift */; };
+		CAFE1000000000000000000E /* PromoScavengeUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFE1000000000000000000F /* PromoScavengeUITests.swift */; };
+		CAFE1000000000000000000C /* PromoStoryboardUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFE1000000000000000000D /* PromoStoryboardUITests.swift */; };
+		CAFE1000000000000000000A /* PromoDriverUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFE1000000000000000000B /* PromoDriverUITests.swift */; };
 		CAFE00000000000000000002 /* DebugHistoryScrollMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFE00000000000000000003 /* DebugHistoryScrollMetrics.swift */; };
 		CAFE00000000000000000004 /* HistoryPresentationAdmission.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFE00000000000000000005 /* HistoryPresentationAdmission.swift */; };
 		CAFE00000000000000000006 /* FileUploadController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFE00000000000000000007 /* FileUploadController.swift */; };
@@ -269,6 +272,9 @@
 		CF2020000000000000000002 /* ChatSessionPrefetcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatSessionPrefetcher.swift; sourceTree = "<group>"; };
 		CF2030000000000000000002 /* ChatSessionPrefetcherTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatSessionPrefetcherTests.swift; sourceTree = "<group>"; };
 		CAFE00000000000000000001 /* RealSessionScrollPerformanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RealSessionScrollPerformanceTests.swift; sourceTree = "<group>"; };
+		CAFE1000000000000000000F /* PromoScavengeUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromoScavengeUITests.swift; sourceTree = "<group>"; };
+		CAFE1000000000000000000D /* PromoStoryboardUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromoStoryboardUITests.swift; sourceTree = "<group>"; };
+		CAFE1000000000000000000B /* PromoDriverUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromoDriverUITests.swift; sourceTree = "<group>"; };
 		CAFE00000000000000000003 /* DebugHistoryScrollMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugHistoryScrollMetrics.swift; sourceTree = "<group>"; };
 		CAFE00000000000000000005 /* HistoryPresentationAdmission.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryPresentationAdmission.swift; sourceTree = "<group>"; };
 		CAFE00000000000000000007 /* FileUploadController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileUploadController.swift; sourceTree = "<group>"; };
@@ -589,6 +595,9 @@
 			children = (
 				F2B000000000000000000002 /* WorkspaceDrawerUITests.swift */,
 				CAFE00000000000000000001 /* RealSessionScrollPerformanceTests.swift */,
+				CAFE1000000000000000000F /* PromoScavengeUITests.swift */,
+				CAFE1000000000000000000D /* PromoStoryboardUITests.swift */,
+				CAFE1000000000000000000B /* PromoDriverUITests.swift */,
 			);
 			path = DeepSeekHarnessMobileUITests;
 			sourceTree = "<group>";
@@ -969,6 +978,9 @@
 			files = (
 				F2B000000000000000000001 /* WorkspaceDrawerUITests.swift in Sources */,
 				CAFE00000000000000000000 /* RealSessionScrollPerformanceTests.swift in Sources */,
+				CAFE1000000000000000000E /* PromoScavengeUITests.swift in Sources */,
+				CAFE1000000000000000000C /* PromoStoryboardUITests.swift in Sources */,
+				CAFE1000000000000000000A /* PromoDriverUITests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1032,6 +1044,7 @@
 					"@executable_path/Frameworks",
 				);
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				CODE_SIGN_ENTITLEMENTS = DeepSeekHarnessMobile/PromoSim.entitlements;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(LOCAL_BUNDLE_IDENTIFIER)";
 				PRODUCT_MODULE_NAME = DeepSeekHarnessMobile;
 				PRODUCT_NAME = DshMobile;
@@ -1184,7 +1197,7 @@
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CLANG_ENABLE_OBJC_WEAK = NO;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 92;
+				CURRENT_PROJECT_VERSION = 89;
 				DEVELOPMENT_TEAM = "$(LOCAL_DEVELOPMENT_TEAM)";
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = AgentLiveActivityWidget/Info.plist;
@@ -1212,7 +1225,7 @@
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CLANG_ENABLE_OBJC_WEAK = NO;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 92;
+				CURRENT_PROJECT_VERSION = 89;
 				DEVELOPMENT_TEAM = T58RY5HUA7;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = AgentLiveActivityWidget/Info.plist;
