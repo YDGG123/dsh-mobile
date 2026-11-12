@@ -1013,6 +1013,9 @@ final class AppStore: ObservableObject {
     /// P0 状态慢诊断（2026-11-12）：default 只读类的派发/发送/超时三分支留痕，
     /// 只记 kind/token/连接态，不记载荷（敏感纪律同 GatewayLifecycle）。
     private static let sessionControlDiagLog = Logger(subsystem: "ai.dsh.mobile.ios", category: "session-control")
+    /// P0 僵尸连接检测（2026-11-12 第三补丁）：在途请求 4s 无完成即 1s 快探两击判死，
+    /// 全程 <15s（select 看门狗之前）；无在途请求不探测（不增耗电）。
+    private var livenessProbeTask: Task<Void, Never>?
     private var deferredSessionControlEffects: [KMPSessionControlEffect] = []
     /// Navigation preparation is intentionally cheap. Remote activation begins
     /// from the destination lifecycle, after NavigationStack installs its bar.
@@ -3068,6 +3071,7 @@ self.bumpAttachmentRenderEpoch(id)
                 continue
             }
             gateway.sendRequestPayload(request.payload)
+            armInFlightLivenessProbe(kind: request.requestType)
             sessionAgentPresetTimeout?.cancel()
             sessionAgentPresetTimeout = Task { [weak self] in
                 do { try await Task.sleep(for: .seconds(15)) } catch { return }
@@ -5788,6 +5792,27 @@ self.bumpAttachmentRenderEpoch(id)
     private func dispatchSessionControlProjection(_ action: KMPSessionControlAction) -> KMPSessionControlTransition {
         submitSessionControlIntent(.projection(action))
     }
+    /// 有在途请求时的按需活性探测：4s 无完成 → 1s 快探两击（~2s）判死 → 既有失败路径
+    /// （preset disconnected()/requestsDisconnected/快速重连）全部既有接线复用，零新状态机。
+    /// select-agent-preset 走 control 通道（usesConversationChannel 仅 message/history/
+    /// subscribe/unsubscribe），控制通道探测即覆盖。探测成功不动作，保留原看门狗。
+    private func armInFlightLivenessProbe(kind: String) {
+        livenessProbeTask?.cancel()
+        livenessProbeTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(4))
+            guard !Task.isCancelled, let self else { return }
+            let stillPending: Bool
+            switch kind {
+            case "select-agent-preset": stillPending = self.sessionAgentPreset.saving
+            case "session-agent-preset": stillPending = self.sessionAgentPreset.loading
+            default: stillPending = self.defaultConfigurationLoadingKinds.contains(kind)
+            }
+            guard stillPending else { return }   // 已完成 → 不探测
+            Self.sessionControlDiagLog.notice("liveness-probe kind=\(kind, privacy: .public) pending=true connected=\(self.gateway.state.isConnected, privacy: .public)")
+            self.gateway.probeForegroundConnection(quickTimeout: .seconds(1), immediateRetry: true)
+        }
+    }
+
     private static func defaultReadKindName(of intent: KMPSessionControlIntent) -> String? {
         switch intent {
         case .requestAgentPresets: return "agent-presets"
@@ -5958,6 +5983,7 @@ self.bumpAttachmentRenderEpoch(id)
         let startedAt = Date()
         if isDefault {
             Self.sessionControlDiagLog.notice("effect-send kind=\(effect.requestKey, privacy: .public) token=\(effect.requestToken, privacy: .public) connected=\(self.gateway.state.isConnected, privacy: .public)")
+            armInFlightLivenessProbe(kind: effect.requestKey)
         }
         if effect.requestKey == "agent-presets" {
             agentPresetsLoadError = nil

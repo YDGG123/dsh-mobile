@@ -292,7 +292,8 @@
   2. 诊断：session-control os_log 三分支（dispatch applied/committed/error、effect-send kind/token/connected、超时已有日志）——只记 kind/token/连接态不记载荷
   3. 移除 resume 里冗余的 isConnected 守卫（resume 仅由 ready 触发；用例实证它把测试与冷启动补发一并拦死）
   4. 模式切换弹窗：**不改**——现有语义已满足「超时清在途+自动 query 刷新真实模式+可安全重试」（requestFailed :129-131 自动 query），弹窗频率的根在宿主确认耗时，移交 Chief/宿主侧排查
-- **判据**：SessionControlReadyRedispatchTests 3 例（ready 恰好各重发一次 / 在途重复 ready dedup 无风暴 / 1s 注入超时清 loading 且不自动重发）+ 此前四类合计 **38 例全绿 0 败**（iPhone 17 Pro 模拟器，TEST_EXIT=0，14:13:43）
+  5. 第三补丁（僵尸连接检测，iOSDev 宿主读数后解除「心跳不动」限制）：在途请求 4s 无完成 ⇒ 1s 快探两击判死（giveUp→handleFailure(immediateReconnect)→bcd89f1 快速回 lastSuccessful），全程 ≈6-7s < 15s 先于 select 看门狗；preset disconnected() 清 selectionId ⇒ 旧 15s 看门狗自然 no-op 不二次弹窗；无在途请求不探测（不增耗电）；probeForegroundConnection private→internal（AppStore 受控复用快探）
+- **判据**：SessionControlReadyRedispatchTests 3 例 + SessionControlLivenessProbeTests 2 例（僵尸 ping 不回 ⇒ 判死重连 <14s 预算 / pong 正常 7s 窗不误杀）+ 其余三类，合计 **40 例全绿 0 败**（iPhone 17 Pro 模拟器，TEST_EXIT=0，14:32:59）
 - **踩过的弯路**：①「写配置文件=惰性生效」被打脸（patch.yml 有热加载 watcher，re-apply 掐了手机 WS 一次）；②redispatch 首版加了 isConnected 守卫——用例实证守卫把补发拦死，**守卫冗余时宁可不要**；③「模式请求超时」差点被并进 default 类修复——精确文案反查发现是另一个状态机，**弹窗文案必须逐字定位来源**
 
 ---

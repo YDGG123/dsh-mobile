@@ -1664,7 +1664,9 @@ final class GatewayClient: ObservableObject {
     ///   - quickTimeout: 传值 = 「回到前台」快速线（81）：短超时、miss 立即重探、giveUp 跳过退避。
     ///     传 nil = 日常心跳线，行为与 2026-10-26 修复版完全一致（风暴防线所在，不许动）。
     ///   - immediateRetry: 快速线第二次探测标记；仅影响日志措辞与重连退避豁免。
-    private func probeForegroundConnection(quickTimeout: Duration? = nil, immediateRetry: Bool = false) {
+    /// 供 AppStore 的在途请求活性探测复用（2026-11-12 第三补丁）：原 private，
+    /// 按需快探是跨组件的受控入口（仅 quick 探测，不改心跳节奏）。
+    func probeForegroundConnection(quickTimeout: Duration? = nil, immediateRetry: Bool = false) {
         guard let socket, state.isConnected, foregroundProbeTask == nil else { return }
         onConnectionCheckStarted?()
         foregroundProbeSequence += 1

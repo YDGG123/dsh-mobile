@@ -16876,3 +16876,162 @@ final class SessionControlReadyRedispatchTests: XCTestCase {
         XCTAssertEqual(executor.defaultsCount, 1, "超时后不自动重发（重试由下次就绪触发），有界")
     }
 }
+
+/// P0 状态慢修复（2026-11-12）回归：连接就绪重派发缺失的 default 只读类
+/// （对齐 Android holder :1366/1386/1401），无请求风暴，超时清 loading 不永久转圈。
+@MainActor
+final class SessionControlReadyRedispatchTests: XCTestCase {
+    private final class CountingExecutor: GatewaySessionControlEffectExecuting {
+        private(set) var defaultsCount = 0
+        private(set) var presetsCount = 0
+        private(set) var defaultModelCount = 0
+        func requestModels(sessionId: String?) {}
+        func requestPermissionOptions(sessionId: String?) {}
+        func requestContextUsage(sessionId: String) {}
+        func requestSessionStats(sessionId: String) {}
+        func requestAgentPresets() { presetsCount += 1 }
+        func requestDefaults() { defaultsCount += 1 }
+        func requestDefaultModel() { defaultModelCount += 1 }
+        func selectModel(sessionId: String, provider: String, model: String, reasoningEffort: String?) {}
+        func setPermission(sessionId: String, name: String) {}
+        func saveDefaultModel(provider: String, model: String, reasoningEffort: String?) {}
+        func setDefault(target: String, value: String) {}
+    }
+
+    private func flushDeferredKMPEvents(in store: AppStore) async {
+        await store.awaitPendingKMPEventDeliveriesForTesting()
+    }
+
+    private func makeStore(timeout: Duration = .seconds(12), executor: CountingExecutor) -> AppStore {
+        AppStore(
+            preferences: AppPreferencesSpy(
+                endpoint: "wss://ready-redispatch.example/ws/mobile",
+                selectedWorkspaceID: nil,
+                sessions: []
+            ),
+            sessionControlBridge: SharedSessionControlStore(),
+            sessionControlEffectExecutor: executor,
+            sessionControlRequestTimeout: timeout,
+            chatHistoryCache: nil
+        )
+    }
+
+    func testReady_RedispatchesMissingDefaultsExactlyOnce() async throws {
+        let executor = CountingExecutor()
+        let store = makeStore(executor: executor)
+        let ready = try XCTUnwrap(store.gateway.onConnectionReady, "构造后必须已挂连接就绪钩子")
+        ready()
+        await flushDeferredKMPEvents(in: store)
+        XCTAssertEqual(executor.defaultsCount, 1, "断连清空后 ready 必须恰好重发一次 defaults")
+        XCTAssertEqual(executor.presetsCount, 1)
+        XCTAssertEqual(executor.defaultModelCount, 1)
+    }
+
+    func testReadyAgainWhileInFlight_Dedups_NoStorm() async throws {
+        let executor = CountingExecutor()
+        let store = makeStore(executor: executor)
+        store.gateway.onConnectionReady?()
+        await flushDeferredKMPEvents(in: store)
+        store.gateway.onConnectionReady?()
+        await flushDeferredKMPEvents(in: store)
+        store.gateway.onConnectionReady?()
+        await flushDeferredKMPEvents(in: store)
+        XCTAssertEqual(executor.defaultsCount, 1, "在途时重复 ready 由 store dedup（unchanged）拦下，无请求风暴")
+        XCTAssertEqual(executor.presetsCount, 1)
+        XCTAssertEqual(executor.defaultModelCount, 1)
+    }
+
+    func testTimeout_ClearsLoading_DoesNotAutoResend() async throws {
+        let executor = CountingExecutor()
+        let store = makeStore(timeout: .seconds(1), executor: executor)
+        store.gateway.onConnectionReady?()
+        await flushDeferredKMPEvents(in: store)
+        XCTAssertEqual(executor.defaultsCount, 1)
+        try await Task.sleep(for: .seconds(2))
+        XCTAssertFalse(store.defaultConfigurationLoadingKinds.contains("defaults"), "超时必须清 loading，不得永久转圈")
+        XCTAssertEqual(executor.defaultsCount, 1, "超时后不自动重发（重试由下次就绪触发），有界")
+    }
+}
+
+
+/// P0 第三补丁（2026-11-12）回归：有在途请求时按需活性探测——僵尸连接（ping 不回）
+/// 短阈值内判死重连（<15s，select 看门狗之前），pong 正常不误杀。
+@MainActor
+final class SessionControlLivenessProbeTests: XCTestCase {
+    private final class CountingExecutor: GatewaySessionControlEffectExecuting {
+        private(set) var defaultsCount = 0
+        func requestModels(sessionId: String?) {}
+        func requestPermissionOptions(sessionId: String?) {}
+        func requestContextUsage(sessionId: String) {}
+        func requestSessionStats(sessionId: String) {}
+        func requestAgentPresets() {}
+        func requestDefaults() { defaultsCount += 1 }
+        func requestDefaultModel() {}
+        func selectModel(sessionId: String, provider: String, model: String, reasoningEffort: String?) {}
+        func setPermission(sessionId: String, name: String) {}
+        func saveDefaultModel(provider: String, model: String, reasoningEffort: String?) {}
+        func setDefault(target: String, value: String) {}
+    }
+
+    private func flushDeferredKMPEvents(in store: AppStore) async {
+        await store.awaitPendingKMPEventDeliveriesForTesting()
+    }
+
+    private func makeStore(endpoint: String, executor: CountingExecutor) -> AppStore {
+        AppStore(
+            preferences: AppPreferencesSpy(
+                endpoint: endpoint,
+                selectedWorkspaceID: nil,
+                sessions: []
+            ),
+            sessionControlBridge: SharedSessionControlStore(),
+            sessionControlEffectExecutor: executor,
+            chatHistoryCache: nil
+        )
+    }
+
+    func testZombieConnection_InFlightDefaults_QuickProbeDeclaresDeadWithinBudget() async throws {
+        let server = try LocalRecoveryGateway(greeting: .hello, repliesToPing: { _ in false })
+        let endpoint = try await server.start()
+        defer { server.stop() }
+        let executor = CountingExecutor()
+        let store = makeStore(endpoint: endpoint, executor: executor)
+        let connected = expectation(description: "初次连接")
+        let observer = store.gateway.$state.sink { if $0.isConnected { connected.fulfill() } }
+        store.gateway.connect(to: endpoint)
+        await fulfillment(of: [connected], timeout: 3)
+        let ready = try XCTUnwrap(store.gateway.onConnectionReady, "构造后必须已挂连接就绪钩子")
+        ready()
+        await flushDeferredKMPEvents(in: store)
+        XCTAssertEqual(executor.defaultsCount, 1, "前置：defaults 已发出且在途")
+        // 僵尸：ping 不回 → 4s 装填 + 1s×2 两击 → giveUp 判死重连；必须先于 15s 看门狗
+        let armStart = Date()
+        let sawDisconnect = expectation(description: "判死出现断开")
+        var recorded = false
+        let dropObserver = store.gateway.$state.sink { state in
+            if !state.isConnected && !recorded { recorded = true; sawDisconnect.fulfill() }
+        }
+        await fulfillment(of: [sawDisconnect], timeout: 12)
+        XCTAssertLessThan(Date().timeIntervalSince(armStart), 14, "判死必须先于 15s select 看门狗（实际 4s+1s×2≈6-7s）")
+        dropObserver.cancel()
+        observer.cancel()
+    }
+
+    func testPongAlive_NoFalseKill() async throws {
+        let server = try LocalRecoveryGateway(greeting: .hello, repliesToPing: { _ in true })
+        let endpoint = try await server.start()
+        defer { server.stop() }
+        let executor = CountingExecutor()
+        let store = makeStore(endpoint: endpoint, executor: executor)
+        let connected = expectation(description: "初次连接")
+        let observer = store.gateway.$state.sink { if $0.isConnected { connected.fulfill() } }
+        store.gateway.connect(to: endpoint)
+        await fulfillment(of: [connected], timeout: 3)
+        store.gateway.onConnectionReady?()
+        await flushDeferredKMPEvents(in: store)
+        XCTAssertEqual(executor.defaultsCount, 1, "前置：defaults 已发出且在途")
+        try await Task.sleep(for: .seconds(7))
+        XCTAssertTrue(store.gateway.state.isConnected, "pong 正常不得误杀连接")
+        observer.cancel()
+    }
+}
